@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+requests
+pymongo
+pydantic
+beanie
+pandas
+litellm
+loguru
+httpx

@@ -1,0 +1,73 @@
+services:
+  ui:
+    container_name: relativity-ui
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+
+  api:
+    container_name: relativity-api
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+
+    environment:
+      MONGO_URI: mongodb://root:example@relativity-mongo:27017
+
+  ##########################################################
+
+  voyager:
+    container_name: relativity-voyager
+    build: https://github.com/relativityAI/voyager.git
+    ports:
+      - "8001:8001"
+    environment:
+      PORT: 8001
+      MONGODB_URL: mongodb://root:example@mongo:27017/
+      MONGODB_DB_NAME: relativity
+
+
+  nebula:
+    container_name: relativity-nebula
+    build: https://github.com/relativityAI/nebula.git
+    ports:
+      - "8002:8002"
+    environment:
+      PORT: 8002
+      MONGODB_URL: mongodb://root:example@mongo:27017/
+      MONGODB_DB_NAME: relativity
+
+  ##########################################################
+
+  mongo:
+    container_name: relativity-mongo
+    image: mongo
+    # restart: always
+    ports:
+      - 27017:27017
+
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+
+    volumes:
+      - /relativitydb
+
+  mongo-express:
+    container_name: relativity-mongo-express
+    image: mongo-express
+    # restart: always
+    ports:
+      - 8081:8081
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://root:example@mongo:27017/
+      ME_CONFIG_BASICAUTH_ENABLED: true
+      ME_CONFIG_BASICAUTH_USERNAME: mongoexpressuser
+      ME_CONFIG_BASICAUTH_PASSWORD: mongoexpresspass
+
+volumes:
+  relativitydb:
