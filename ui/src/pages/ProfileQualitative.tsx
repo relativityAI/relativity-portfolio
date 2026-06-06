@@ -1,156 +1,109 @@
-import { useState, useMemo, useEffect } from "react"
+import { useState, useEffect } from "react"
 import {
     Flex,
     Textarea,
     Button,
     Table,
-    Input,
-    Badge
+    Input
 } from "@chakra-ui/react"
+import { MdDeleteForever } from "react-icons/md";
 
-// import axios from "axios";
+interface ProfileDataQualitativeProps {
+    data: any[];
+    onUpdate: (data: any[]) => void;
+    id: string;
+    name: string;
+}
 
-import useAutoSave from "@/components/useAutoSave";
-
-
-import { MdOutlineFileDownload, MdDeleteForever } from "react-icons/md";
-import { FaMagic } from "react-icons/fa";
-
-
-export default function ProfileDataQualitative(props) {
-
-
-    const name = props.name;
-  
-
+export default function ProfileDataQualitative(props: ProfileDataQualitativeProps) {
+    const [parameters, setParameters] = useState<any[]>(props.data || []);
     const variant = "line"
 
-    const [parameters, setParameters] = useState([]);
-    // console.log(parameters)
-    // const [savedStatus, setSavedStatus] = useState("Saved")
-
-    const API_BASE = import.meta.env.VITE_RELATIVITY_API
-    const saveUrl = API_BASE + "/update-profile"
-    const data = useMemo(() => ({
-        id: props.id,
-        qualitative: parameters
-    }), [ parameters]);
-    useAutoSave(data, saveUrl);
-
-
-    const handleParamNameChange = (index) => e => {
-
-        let newArr = [...parameters];
+    const handleParamNameChange = (index: number) => (e: any) => {
+        const newArr = [...parameters];
         newArr[index] = {
-            parameter: e.target.value,
-            content: parameters[index].content
+            ...newArr[index],
+            parameter: e.target.value
         }
         setParameters(newArr);
+        props.onUpdate(newArr);
     }
 
-    const handleContentChange = (index) => e => {
-
-        let newArr = [...parameters];
+    const handleContentChange = (index: number) => (e: any) => {
+        const newArr = [...parameters];
         newArr[index] = {
-            parameter: parameters[index].parameter,
+            ...newArr[index],
             content: e.target.value
         }
         setParameters(newArr);
+        props.onUpdate(newArr);
     }
 
-    const addParameter = (e) => {
+    const addParameter = (e: any) => {
         e.preventDefault();
-
-        let newParams = [...parameters];
-        newParams[newParams.length] = {
-            parameter: "",
-            content: ""
-        }
+        const newParams = [...parameters, { parameter: "", content: "" }];
         setParameters(newParams);
+        props.onUpdate(newParams);
     }
 
-    const deleteParam = (idx) => e => {
-
-        let deletedAt;
-
-        let reducedList = parameters
-            .filter((p, index) => {
-                if (index == idx) {
-                    deletedAt = index;
-                    return false;
-                }
-                return true;
-            })
-            .map((item, index) => {
-                if (index >= deletedAt) return { ...item, order: item.order - 1 };
-                else return item;
-            })
-
-        // Update tasks
-        setParameters([...reducedList]);
-
+    const deleteParam = (idx: number) => () => {
+        const reducedList = parameters.filter((_, index) => index !== idx)
+        setParameters(reducedList);
+        props.onUpdate(reducedList);
     }
 
-    useEffect(()=>{
-        setParameters(props.data)
-    },[])
+    useEffect(() => {
+        setParameters(props.data || [])
+    }, [props.data])
 
     return (
-        <Flex direction={"column"} gap={2}>
+        <Flex direction={"column"} gap={4}>
             <Table.Root key={variant} size="sm" variant={variant}>
                 <Table.Header>
                     <Table.Row>
-                        <Table.ColumnHeader width="1/4">Param</Table.ColumnHeader>
-                        <Table.ColumnHeader width="1/7">Weightage</Table.ColumnHeader>
-                        <Table.ColumnHeader width="1/2">
-                            <Flex gap={1}>
-                                Content
-                                <Badge colorPalette="purple">
-                                    Autosaving enabled
-                                    <FaMagic />
-                                </Badge>
-                            </Flex>
-                        </Table.ColumnHeader>
-                        <Table.ColumnHeader width="1/6">Tools</Table.ColumnHeader>
+                        <Table.ColumnHeader width="1/4">Parameter</Table.ColumnHeader>
+                        <Table.ColumnHeader width="1/2">Content</Table.ColumnHeader>
+                        <Table.ColumnHeader width="1/6"></Table.ColumnHeader>
                     </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                    {Object.keys(parameters).map((item, index) => (
-                        <Table.Row key={item}>
-                            <Table.Cell>
-                                <Flex align={"center"} gap={1}>
-                                    <Input variant="subtle" maxW="10lh" value={parameters[item].parameter} onChange={handleParamNameChange(index)} />
-                                    <Button variant="subtle" colorPalette="red" onClick={deleteParam(index)}>
-                                        Delete <MdDeleteForever onClick={deleteParam(index)} size={25} />
-                                    </Button>
-                                </Flex>
-
+                    {parameters.map((param, index) => (
+                        <Table.Row key={index}>
+                            <Table.Cell verticalAlign="top">
+                                <Input 
+                                    variant="subtle" 
+                                    size="sm"
+                                    placeholder="e.g. Management"
+                                    value={param.parameter} 
+                                    onChange={handleParamNameChange(index)} 
+                                />
                             </Table.Cell>
-                            <Table.Cell></Table.Cell>
 
-                            <Table.Cell>
+                            <Table.Cell verticalAlign="top">
                                 <Textarea
                                     autoresize
-                                    minH="5lh"
+                                    minH="4lh"
                                     maxH="10lh"
-                                    value={parameters[item].content}
+                                    placeholder="Enter description..."
+                                    value={param.content}
                                     size="sm"
                                     onChange={handleContentChange(index)}
                                 />
                             </Table.Cell>
 
-                            <Table.Cell></Table.Cell>
-
-
+                            <Table.Cell verticalAlign="top">
+                                <Button size="xs" variant="ghost" colorPalette="red" onClick={deleteParam(index)}>
+                                    <MdDeleteForever size={20} />
+                                </Button>
+                            </Table.Cell>
                         </Table.Row>
                     ))}
                 </Table.Body>
             </Table.Root>
 
-            <Button colorPalette="gray" variant={"surface"} onClick={addParameter} >+ Add another parameter</Button>
-
-
+            <Button colorPalette="blue" variant={"outline"} size="sm" onClick={addParameter} alignSelf="flex-start">
+                + Add Parameter
+            </Button>
         </Flex>
     )
-
 }

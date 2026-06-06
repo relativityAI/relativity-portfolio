@@ -1,4 +1,4 @@
-from pymongo import AsyncMongoClient
+from motor.motor_asyncio import AsyncIOMotorClient as AsyncMongoClient
 from beanie import init_beanie, Document, Indexed
 from pydantic import BaseModel, Field
 from typing import List, Optional, Any
@@ -25,9 +25,8 @@ class Tool(BaseModel):
 class QualitativeModel(BaseModel):
     parameter: str
     content: str
-    tools: Optional[List[Tool]] = None
-    weight: Optional[float] = None
-
+    # tools: Optional[List[Tool]] = []
+    # weight: Optional[float] = 0.0
 
 class DataSourceFilter(BaseModel):
     metric: str
@@ -35,13 +34,13 @@ class DataSourceFilter(BaseModel):
     threshold: Optional[Any] = None
     upper: Optional[Any] = None
     lower: Optional[Any] = None
-
+    title: Optional[str] = None
+    type: Optional[str] = None
 
 class DataSourceModel(BaseModel):
-    # id: Optional[str] = Field(..., alias="_id")
     source: str
-    image: Optional[str] = None
-    filters: List[DataSourceFilter]
+    image: Optional[str] = ""
+    filters: List[DataSourceFilter] = []
 
 
 # Beanie documents/ mongo schemes
@@ -57,10 +56,9 @@ class DataSource(Document):
 
 
 class Profile(Document):
-    # id: Optional[str] = Field(..., alias="_id")
     name: Indexed(str, unique=True)
     qualitative: List[QualitativeModel]
-    data_sources: List[DataSource]
+    data_sources: List[DataSourceModel]
     created_at: datetime = Field(default_factory=datetime.now)
 
     class Settings:

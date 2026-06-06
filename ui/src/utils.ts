@@ -1,11 +1,6 @@
 import axios from "axios";
 
 export const runHealthCheck = async () => {
-    // Base discovery URL
-    const API_BASE = import.meta.env.VITE_RELATIVITY_API || `http://${window.location.hostname}:8080`;
-    const VOYAGER_BASE = import.meta.env.VITE_VOYAGER_API;
-    const NEBULA_BASE = import.meta.env.VITE_NEBULA_API;
-
     // Default data structure
     const data = {
         api: 0,
@@ -14,34 +9,18 @@ export const runHealthCheck = async () => {
         nebulaApi: 0,
     };
 
-    // Initial endpoints (can be overridden by discovery)
     let endpoints = {
-        api: `${API_BASE}/`,
-        db: `${API_BASE}/db`,
-        voyagerApi: VOYAGER_BASE || `${API_BASE}/voyager`, 
-        nebulaApi: NEBULA_BASE || `${API_BASE}/nebula`
+        api: `/api/`,
+        db: `/nebula-api/list-profiles`,
+        voyagerApi: `/voyager-api/`, 
+        nebulaApi: `/nebula-api/`
     };
-
-    // Try to discover ports and potentially distinct bases from backend
-    try {
-        const configRes = await axios.get(`${API_BASE}/services`, { timeout: 2000 });
-        const config = configRes.data;
-        
-        // If we don't have explicit env vars, use the discovered ports on the current host
-        if (!VOYAGER_BASE) {
-            endpoints.voyagerApi = `http://${window.location.hostname}:${config.voyager.external}/`;
-        }
-        if (!NEBULA_BASE) {
-            endpoints.nebulaApi = `http://${window.location.hostname}:${config.nebula.external}/`;
-        }
-    } catch (e) {
-        console.warn("Dynamic service discovery failed, using fallback endpoints:", e);
-    }
 
     const check = async (key: keyof typeof data, url: string) => {
         try {
             const response = await axios.get(url, { timeout: 3000 });
-            data[key] = response.data.ok || 0;
+            // More robust check: if the service responds at all, consider it up.
+            data[key] = (response.status === 200 || response.data.ok) ? 1 : 0;
         } catch (error) {
             console.error(`Health check failed for ${key}:`, error);
             data[key] = 0;
@@ -61,7 +40,7 @@ export const runHealthCheck = async () => {
 
 export const searchEndpoint = async (query: string, url: string) => {
 
-    let options = []
+    let options: any[] = []
 
     await axios.get(`${url}?query=${query}`)
         .then((response) => {

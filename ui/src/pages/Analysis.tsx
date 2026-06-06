@@ -1,142 +1,138 @@
 import SearchBar from "@/components/SearchBar";
-import { Badge, Button, DataList, DownloadTrigger, Flex, FormatByte, Text, Separator, Input, Table, List, SimpleGrid } from "@chakra-ui/react";
-import axios from "axios";
+import { Badge, Button, Flex, Text, Separator, Input, SimpleGrid, List, Spinner, DownloadTrigger } from "@chakra-ui/react";
 import { useEffect, useState } from "react";
 import { MdOutlineFileDownload } from "react-icons/md";
 import { Link, useParams } from "react-router-dom";
+import { AnalysisService, ProfileService, NEBULA_BASE } from "@/db";
 
 export default function Analysis() {
+    const { id } = useParams();
 
-    const urlParams = useParams()
+    const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
+    const [correlationId, setCorrelationId] = useState<string>(id || "");
 
-    // const fetchExistingAnalysis = () =>{}
 
-    const [availableProfiles, setAvailableProfiles] = useState([]);
-    const [availableShares, setAvailableShares] = useState(["VBL", "KEI", "REL"]);
-    const [selectedShare, setSelectedShare] = useState("VBL")
-    const [selectedProfile, setSelectedProfile] = useState("test-pf")
-
-    const [status, setStatus] = useState<"EMPTY" | "PENDING" | "COMPLETED">("EMPTY")
+    const [status, setStatus] = useState<"EMPTY" | "PENDING" | "COMPLETED" | "ERROR">("EMPTY")
+    const [loading, setLoading] = useState(false);
 
     const [config, setConfig] = useState({
-        id: urlParams.id,
         exchange: "",
         share: "",
+        shareName: "",
         profile: "",
         name: "",
     })
 
-
-    const stats = [
-        { label: "Management", value: "34.5", diff: -12, helpText: "Till date" },
-        { label: "Growth", value: "56.5", diff: 12, helpText: "Last 30 days" },
-        { label: "Tailwinds", value: "67.4", diff: 4.5, helpText: "Last 30 days" },
-        { label: "Transcripts analysis", value: "76.8", diff: 4.5, helpText: "Last 30 days" },
-    ]
-    const items = [
-        { id: 1, name: "Qualitative Score", category: ".5", price: 76.4 },
-        { id: 2, name: "Data Sources Score", category: ".3", price: 68.4 },
-        { id: 3, name: "Total Score", category: ".2", price: 57.3 },
-    ]
-
-
-    const API_BASE = import.meta.env.VITE_RELATIVITY_API
-
-    const fetchAvailableProfiles = () => {
-
-        axios.get(API_BASE + "/list-profiles")
-            .then((response) => {
-                // console.log(response);
-                let profiles = []
-                for (const prof of response.data) {
-                    profiles.push(prof.name)
-                }
-                setAvailableProfiles(profiles)
-            })
-            .catch(function (error) {
-                console.log(error);
-            });
+    const handleConfigChange = (field: string, value: string, item?: any) => {
+        setConfig(prev => ({
+            ...prev,
+            [field]: value || "",
+            shareName: field === 'share' && item ? item.NAME : prev.shareName
+        }))
     }
 
-
-    const runAnalysis = () => {
-
-        axios.post(
-            API_BASE + "/run-analysis",
-            config
-        )
-            .then((response) => {
-                console.log(response);
-
-                if ("ok" in response.data && response.data.ok) {
-                    setStatus("PENDING")
-                }
-
-            })
-            .catch(function (error) {
-                console.log(error);
-            });
+    const fetchAvailableProfiles = async () => {
+        try {
+            const data = await ProfileService.listProfiles();
+            if (Array.isArray(data)) {
+                setAvailableProfiles(data);
+            } else {
+                setAvailableProfiles([]);
+            }
+        } catch (error) {
+            console.error("Error fetching available profiles:", error);
+            setAvailableProfiles([]);
+        }
     }
 
-
-    const fetchAnalysisStatus = () => {
-
-        axios.get(
-            API_BASE + "/analysis-status"
-        )
-            .then((response) => {
-                console.log(response);
-
-                if ("status" in response.data) {
-                    setStatus(response.data.status)
-                }
-
-            })
-            .catch(function (error) {
-                console.log(error);
+    const runAnalysis = async () => {
+        try {
+            const result = await AnalysisService.runAnalysis({
+                share_name: config.shareName || config.share,
+                symbol: config.share,
+                profile_name: config.profile
             });
+
+            if (result && (result.corr_id || result.analysis_id)) {
+                setCorrelationId(result.corr_id || result.analysis_id);
+                setStatus("PENDING");
+            }
+        } catch (error) {
+            console.error("Run analysis error:", error);
+            setStatus("ERROR");
+        }
+    }
+
+    const fetchAnalysisData = async (analysisId: string) => {
+        try {
+            setLoading(true);
+            const data = await AnalysisService.readAnalysis(analysisId);
+            if (data) {
+                // Update config based on loaded data if available
+                setConfig(prev => ({
+                    ...prev,
+                    share: data.symbol || data.share || prev.share,
+                    shareName: data.share_name || prev.shareName,
+                    profile: data.profile_name || data.profile || prev.profile,
+                    exchange: data.exchange || prev.exchange,
+                }));
+
+                if (data.status === "complete" || data.status === "error" || data.status === "COMPLETED" || data.status === "ERROR") {
+                    const isComplete = data.status.toLowerCase() === "complete" || data.status.toLowerCase() === "completed";
+                    setStatus(isComplete ? "COMPLETED" : "ERROR");
+                } else {
+                    setStatus("PENDING");
+                }
+            }
+        } catch (error) {
+            console.error("Error fetching analysis data:", error);
+            setStatus("ERROR");
+        } finally {
+            setLoading(false);
+        }
     }
 
     useEffect(() => {
-
         fetchAvailableProfiles()
-        // fetchAvailableShares()
-
-    }, [])
+        if (id) {
+            fetchAnalysisData(id);
+        }
+    }, [id])
 
     useEffect(() => {
-        if (status == "PENDING") {
-            const interval = setInterval(() => {
-                console.log('This will be called every 2 seconds');
+        if (status === "PENDING" && correlationId) {
+            const interval = setInterval(async () => {
+                try {
+                    const data = await AnalysisService.readAnalysis(correlationId);
+                    if (data) {
+                        if (data.status === "complete" || data.status === "error" || data.status === "COMPLETED" || data.status === "ERROR") {
+                            const isComplete = data.status.toLowerCase() === "complete" || data.status.toLowerCase() === "completed";
+                            setStatus(isComplete ? "COMPLETED" : "ERROR");
+                            clearInterval(interval);
+                        }
+                    }
+                } catch (error: any) {
+                    console.error("Check analysis status error:", error);
+                    if (error.response && error.response.status === 404) {
+                        console.log("Analysis not found, might need to wait or it failed.");
+                    }
+                }
             }, 2000);
             return () => clearInterval(interval);
         }
-
-    }, []);
-
-
+    }, [status, correlationId]);
 
     useEffect(() => {
-
         let saveName = `${config.exchange}-${config.share}-${config.profile}`
-        console.log(saveName)
-        setConfig({
-            ...config,
+        setConfig(prev => ({
+            ...prev,
             name: saveName
-        })
-
+        }))
     }, [config.exchange, config.share, config.profile])
 
-
-
     return (
-
-        <Flex
-            direction={"column"}
-            gap={5}
-        >
+        <Flex direction={"column"} gap={5}>
             <Flex justify={"space-between"} width={"1/2"}>
-
                 <Badge colorPalette="green">Step 1: Select a company</Badge>
                 <Badge colorPalette="green">Step 2: Select a pre built investor profile</Badge>
                 <Badge colorPalette="green">Step 3: Hit Run.</Badge>
@@ -144,75 +140,50 @@ export default function Analysis() {
 
             <Separator />
 
-            <Flex
-                gap={5}
-                justify={"space-between"}
-            >
-                <Flex
-                    width={"2/3"}
-                    direction={"column"}
-                    gap={3}
-                >
+            <Flex gap={5} justify={"space-between"}>
+                <Flex width={"2/3"} direction={"column"} gap={3}>
                     <Text textStyle={"2xl"}>Analysis Config</Text>
-
                     <Separator />
-
-                    <SimpleGrid
-                        columns={2}
-                        gap={2}
-                    >
-
+                    <SimpleGrid columns={2} gap={2}>
                         <SearchBar
-                            url={`${API_BASE}/search-exchanges`}
+                            url={`${NEBULA_BASE}/search-exchanges`}
                             label="Exchange 🌍"
-
                             mainKey="SYMBOL"
                             secondaryKey="NAME"
-
-                            onChange={(field, value) => { setConfig({ ...config, [field]: value }) }}
+                            onChange={handleConfigChange}
                             field="exchange"
-
                         />
                         <SearchBar
-                            url={`${API_BASE}/search-shares`}
+                            url={`${NEBULA_BASE}/search-stocks`}
                             label="Company 🏢"
-
                             mainKey="SYMBOL"
                             secondaryKey="NAME"
-
-                            onChange={(field, value) => { setConfig({ ...config, [field]: value }) }}
+                            onChange={handleConfigChange}
                             field="share"
                         />
-
-                        <SearchBar
-                            url={`${API_BASE}/search-profiles`}
-                            label="Investor Profile 👤"
-
-                            mainKey="name"
-                            secondaryKey="_id"
-
-                            onChange={(field, value) => { setConfig({ ...config, [field]: value }) }}
-                            field="profile"
-                        />
-
-
-
+                        <Flex direction={"column"} align={"start"}>
+                            <Text mb={1} fontSize="sm" fontWeight="medium">Investor Profile 👤</Text>
+                            <select
+                                style={{ width: "100%", padding: "10px", border: "1px solid #444", borderRadius: "6px", backgroundColor: "transparent", color: "inherit" }}
+                                value={config.profile}
+                                onChange={(e) => {
+                                    setConfig({ ...config, profile: e.target.value });
+                                }}
+                            >
+                                <option value="" style={{ color: "black" }}>Select a profile</option>
+                                {availableProfiles.map((p, idx) => (
+                                    <option key={idx} value={p.name} style={{ color: "black" }}>{p.name}</option>
+                                ))}
+                            </select>
+                        </Flex>
                         <Flex direction={"column"} align={"start"} >
-
                             <Text>Save as</Text>
                             <Input
-                                // value={selectedShare + "-" + (new Date().toISOString().split("T")[0])}
                                 value={config.name}
                                 placeholder="Flushed"
                                 onChange={(e) => { setConfig({ ...config, name: e.target.value }) }}
-                            // variant="flushed"
-
-                            // width={"200px"}
                             />
-
                         </Flex>
-
-
                     </SimpleGrid>
 
                     <Button
@@ -222,156 +193,78 @@ export default function Analysis() {
                             config.profile == '' ||
                             config.name == '--' ||
                             config.name == '' ||
-                            status == "PENDING" ||
-                            status == "COMPLETED"
+                            status == "PENDING"
                         }
                         variant="surface"
                         colorPalette={"blue"}
                         onClick={runAnalysis}
                     >
-                        Run
+                        {status === "COMPLETED" ? "Run Again" : "Run"}
                     </Button>
+
+                    {correlationId && (
+                        <Link to={`/analysis-result/${correlationId}`}>
+                            <Button width="full" colorPalette="green" variant="solid">
+                                {status === "COMPLETED" ? "View Results ↗" : "View Progress ↗"}
+                            </Button>
+                        </Link>
+                    )}
                 </Flex>
 
-                <Flex
-                    width={"1/3"}
-
-                    direction={"column"}
-                    gap={3}
-                >
-
+                <Flex width={"1/3"} direction={"column"} gap={3}>
                     <Text textStyle={"xl"}>Options</Text>
                     <Separator />
-
                     <Button disabled={status != "COMPLETED"} variant="surface" >+ Add to portfolio</Button>
-
                     <DownloadTrigger
                         data="Share analysis results"
                         fileName="sample.txt"
                         mimeType="text/plain"
                         asChild
                     >
-                        <Button
-                            disabled={status != "COMPLETED"}
-
-                            variant="outline">
+                        <Button disabled={status != "COMPLETED"} variant="outline">
                             <MdOutlineFileDownload />
-                            Download result</Button>
+                            Download result
+                        </Button>
                     </DownloadTrigger>
                 </Flex>
-
             </Flex>
+
             <Separator />
 
-
-            {
-
-                status != "COMPLETED" ?
-
-                    <Flex
-                        direction={"column"}
-                        gap={3}
-                    >
-
-                        <Flex justify={"space-between"}>
-                            <Text textStyle={"2xl"}>Results</Text>
-
-                            <Text textStyle={"sm"} color={"grey"}>Analysis Duration: 2:12 min</Text>
-
-
-                        </Flex>
-
-                        <Flex gap={5} >
-
-                            <Flex
-                                direction={"column"}
-                                gap={5}
-                                width={"1/3"}
-                            >
-                                <Text textStyle={"xl"}>Qualitative</Text>
-
-                                <DataList.Root orientation="horizontal">
-                                    {stats.map((item) => (
-                                        <DataList.Item key={item.label}>
-                                            <DataList.ItemLabel>{item.label}</DataList.ItemLabel>
-                                            <DataList.ItemValue>{item.value}</DataList.ItemValue>
-                                        </DataList.Item>
-                                    ))}
-
-                                </DataList.Root>
-
-                            </Flex>
-
-                            <Flex
-                                width={"1/3"}
-                                direction={"column"}
-                                gap={5}
-                            >
-                                <Text textStyle={"xl"}>Data Sources</Text>
-                                <DataList.Root orientation="horizontal">
-                                    {stats.map((item) => (
-                                        <DataList.Item key={item.label}>
-                                            <DataList.ItemLabel>{item.label}</DataList.ItemLabel>
-                                            <DataList.ItemValue>{item.value}</DataList.ItemValue>
-                                        </DataList.Item>
-                                    ))}
-
-                                </DataList.Root>
-
-                            </Flex>
-
-                            <Flex
-                                width={"1/3"}
-                                direction={"column"}
-                                gap={5}
-                            >
-                                <Text textStyle={"xl"}>Total</Text>
-
-                                <Table.Root size="sm">
-                                    <Table.Header>
-                                        <Table.Row>
-                                            <Table.ColumnHeader>Product</Table.ColumnHeader>
-                                            <Table.ColumnHeader>Category</Table.ColumnHeader>
-                                            <Table.ColumnHeader textAlign="end">Price</Table.ColumnHeader>
-                                        </Table.Row>
-                                    </Table.Header>
-                                    <Table.Body>
-                                        {items.map((item) => (
-                                            <Table.Row key={item.id}>
-                                                <Table.Cell>{item.name}</Table.Cell>
-                                                <Table.Cell>{item.category}</Table.Cell>
-                                                <Table.Cell textAlign="end">{item.price}</Table.Cell>
-                                            </Table.Row>
-                                        ))}
-                                    </Table.Body>
-                                </Table.Root>
-
-                            </Flex>
-                        </Flex>
-                    </Flex>
-
-
-                    :
-
-                    <Flex justify={"center"} align={"center"} color={"grey"}>
-
-                        <List.Root>
-                            <List.Item>Results will appear here after the analysis process is complete. </List.Item>
-                            <List.Item>When you hit run, the analysis starts in the background. </List.Item>
-                            <List.Item>You latest and past analysis are available on the <Link to={"/analysis-list"}>Analysis List</Link> page. </List.Item>
-                            <List.Item>Once the analysis status is "COMPLETED", the results will be visible. </List.Item>
-                            <List.Item>After the analysis, you can add this share to a portfolio and/or download the result.</List.Item>
-
-                        </List.Root>
-
-
-                    </Flex>
-
+            {loading ? (
+                <Flex justify="center" align="center" direction="column" gap={4} p={10}>
+                    <Spinner size="xl" borderWidth="4px" />
+                    <Text>Loading analysis data...</Text>
+                </Flex>
+            ) : status === "PENDING" ?
+                <Flex justify="center" align="center" direction="column" gap={4} p={10}>
+                    <Spinner size="xl" borderWidth="4px" />
+                    <Text>Analysis in progress... This may take a few minutes.</Text>
+                    {correlationId && (
+                        <Link to={`/analysis-result/${correlationId}`}>
+                            <Button variant="outline" colorPalette="green">View Progress in Real-time ↗</Button>
+                        </Link>
+                    )}
+                </Flex>
+                : status === "COMPLETED" && correlationId ?
+                <Flex justify="center" align="center" direction="column" gap={6} p={20} bg="gray.900" borderRadius="xl">
+                    <Text textStyle="2xl" fontWeight="bold">Analysis Completed Successfully!</Text>
+                    <Link to={`/analysis-result/${correlationId}`}>
+                        <Button size="xl" colorPalette="green" variant="solid">
+                            Go to Analysis Result Page 🚀
+                        </Button>
+                    </Link>
+                </Flex>
+                :
+                <Flex justify={"center"} align={"center"} color={"grey"}>
+                    <List.Root>
+                        <List.Item>Step 1: Select an exchange and a company you want to analyze.</List.Item>
+                        <List.Item>Step 2: Select an investor profile that defines the scoring criteria.</List.Item>
+                        <List.Item>Step 3: Click "Run" to start the analysis process.</List.Item>
+                        <List.Item>Once started, you can track the progress on the dedicated result page.</List.Item>
+                    </List.Root>
+                </Flex>
             }
-
         </Flex>
-
-
     )
-
 }

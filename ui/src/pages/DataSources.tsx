@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState } from "react"
 
 import axios from "axios"
 import {
@@ -6,37 +6,36 @@ import {
     Flex,
     Badge,
     Input,
-    Textarea,
     Button,
     Text,
     Image,
-
-
 } from "@chakra-ui/react";
 
-import { MdOutlineFileDownload, MdDeleteForever } from "react-icons/md";
+import { MdDeleteForever } from "react-icons/md";
 import useAutoSave from "@/components/useAutoSave";
-import { LuChartNoAxesColumnIncreasing } from "react-icons/lu";
 
 
 export default function DataSources() {
 
     const API_BASE = import.meta.env.VITE_RELATIVITY_API
-    const [uniqueSources, setUniqueSources] = useState([]);
-    const [availableMetrics, setAvailableMetrics] = useState({});
-
+    const [uniqueSources, setUniqueSources] = useState<any[]>([]);
+    const [fetchError, setFetchError] = useState(false);
 
     const fetchUniqueSources = () => {
         const url = API_BASE + "/list-data-sources"
         axios.get(url)
             .then(function (response) {
-                setUniqueSources(response.data)
-
+                if (Array.isArray(response.data)) {
+                    setUniqueSources(response.data);
+                    setFetchError(false);
+                } else {
+                    setFetchError(true);
+                }
             })
             .catch(function (error) {
-                console.log(error);
+                console.log("Sources fetch error", error);
+                setFetchError(true);
             });
-
     }
 
     useEffect(() => {
@@ -207,16 +206,29 @@ export default function DataSources() {
                     </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                    {uniqueSources.map((sourceItem, sourceIdx) => (
-                        <Table.Row key={sourceIdx}>
-                            <Table.Cell>
-                                <Flex align={"center"} gap={1}>
-                                    <Input
-                                        variant="subtle"
-                                        maxW="10lh"
-                                        value={sourceItem.source}
-                                        onChange={handleNameChange(sourceIdx)}
-                                    />
+                    {fetchError ? (
+                        <Table.Row>
+                            <Table.Cell colSpan={3} textAlign="center" color="red.500">
+                                Failed to load data sources. API may be unavailable.
+                            </Table.Cell>
+                        </Table.Row>
+                    ) : uniqueSources.length === 0 ? (
+                        <Table.Row>
+                            <Table.Cell colSpan={3} textAlign="center" color="gray.500">
+                                No data sources configured.
+                            </Table.Cell>
+                        </Table.Row>
+                    ) : (
+                        uniqueSources.map((sourceItem, sourceIdx) => (
+                            <Table.Row key={sourceIdx}>
+                                <Table.Cell>
+                                    <Flex align={"center"} gap={1}>
+                                        <Input
+                                            variant="subtle"
+                                            maxW="10lh"
+                                            value={sourceItem.source || ""}
+                                            onChange={handleNameChange(sourceIdx)}
+                                        />
 
                                     <Button
                                         variant="subtle"
@@ -314,8 +326,8 @@ export default function DataSources() {
 
                         </Table.Row>
 
-                    ))}
-
+                        ))
+                    )}
                 </Table.Body>
             </Table.Root>
             <Button colorPalette="gray" variant={"surface"} onClick={addSource} >+ Add another source</Button>

@@ -6,17 +6,20 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5173:5173"
-
-  api:
-    container_name: relativity-api
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
-
     environment:
-      MONGO_URI: mongodb://root:example@relativity-mongo:27017
+      VITE_VOYAGER_API_URL: http://voyager:8001
+      VITE_NEBULA_API_URL: http://nebula:8002
+
+  # api:
+  #   container_name: relativity-api
+  #   build:
+  #     context: ./api
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "8080:8080"
+
+  #   environment:
+  #     MONGO_URI: mongodb://root:example@relativity-mongo:27017
 
   ##########################################################
 
@@ -40,6 +43,8 @@ services:
       PORT: 8002
       MONGODB_URL: mongodb://root:example@mongo:27017/
       MONGODB_DB_NAME: relativity
+      VOYAGER_URL: http://voyager:8001 
+
 
   ##########################################################
 
@@ -55,7 +60,7 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: example
 
     volumes:
-      - /relativitydb
+      - relativitydb:/data/db
 
   mongo-express:
     container_name: relativity-mongo-express
