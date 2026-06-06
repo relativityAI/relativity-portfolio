@@ -9,7 +9,7 @@ import {
     Spinner,
     useListCollection,
 } from "@chakra-ui/react"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useAsync } from "react-use"
 
 
@@ -22,16 +22,15 @@ export default function SearchBar(props) {
     const mainKey = props.mainKey || "SYMBOL"
     const secondaryKey = props.secondaryKey || "NAME"
 
-    const collection = createListCollection({
+    const collection = useMemo(() => createListCollection({
         items: items,
-        itemToString: (item) => item[mainKey],
-        itemToValue: (item) => item[mainKey],
-    })
+        itemToString: (item) => (item ? item[mainKey] : ""),
+        itemToValue: (item) => (item ? item[mainKey] : ""),
+    }), [items, mainKey])
 
     const state = useAsync(async () => {
         const response = await fetch(
-            // `https://swapi.py4e.com/api/people/?search=${inputValue}`,
-            `${props.url}/?query=${inputValue}`,
+            `${props.url}?query=${inputValue}`,
         )
         const data = await response.json()
         setItems(Array.isArray(data) ? data : [])
@@ -39,10 +38,13 @@ export default function SearchBar(props) {
 
     }, [inputValue])
 
-    useEffect(()=>{
-        props.onChange(props.field, value[0])
-    }, [value])
-    
+    useEffect(() => {
+        const selectedItem = items.find(i => i[mainKey] === value[0]);
+        if (value[0] !== undefined) {
+             props.onChange(props.field, value[0], selectedItem)
+        }
+    }, [value, items, mainKey, props.field, props.onChange])
+
 
 
     return (
@@ -83,6 +85,10 @@ export default function SearchBar(props) {
                         ) : state.error ? (
                             <Span p="2" color="fg.error">
                                 Error fetching
+                            </Span>
+                        ) : items.length === 0 && inputValue.length > 0 ? (
+                            <Span p="2" color="fg.muted">
+                                No results found
                             </Span>
                         ) : (
                             collection.items?.map((character) => (

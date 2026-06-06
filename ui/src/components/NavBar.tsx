@@ -48,7 +48,6 @@ export default function NavBar() {
                             <Menu.Item value="//"><Link to={"/"}>Dashboard</Link></Menu.Item>
                             <Menu.Item value="/profiles"><Link to={"/profiles"}>Profiles</Link></Menu.Item>
                             <Menu.Item value="/analysis-list"><Link to={"/analysis-list"}>Analysis</Link></Menu.Item>
-                            <Menu.Item value="/data-sources"><Link to={"/data-sources"}>Manage Data sources</Link></Menu.Item>
                         </Menu.Content>
                     </Menu.Positioner>
                 </Portal>
@@ -58,21 +57,18 @@ export default function NavBar() {
 
             <Flex justify={"space-between"} gap={10}>
 
-                <Flex gap={4} align={"center"}>
 
                     <Flex gap={2} align={"center"}>
                         <Text 
                             textStyle={"xs"} 
                             fontWeight={"bold"} 
-                            color={"gray.500"} 
+                            color={systemStatus.db ? "gray.500" : "red.500"} 
                             cursor={"pointer"}
                             _hover={{ color: "blue.500" }}
-                            onClick={() => window.open(endpoints.api, "_blank")}
+                            onClick={() => window.open(endpoints.db, "_blank")}
                         >
-                            SYSTEM
+                            MONGODB
                         </Text>
-                        <Text textStyle={"xs"}>API</Text>
-                        {systemStatus.api ? <MdCheckCircle color="green" /> : <MdError color="red" />}
                         <Text textStyle={"xs"}>DB</Text>
                         {systemStatus.db ? <MdCheckCircle color="green" /> : <MdError color="red" />}
                     </Flex>
@@ -81,7 +77,7 @@ export default function NavBar() {
                         <Text 
                             textStyle={"xs"} 
                             fontWeight={"bold"} 
-                            color={"gray.500"} 
+                            color={systemStatus.voyagerApi ? "gray.500" : "red.500"} 
                             cursor={"pointer"}
                             _hover={{ color: "blue.500" }}
                             onClick={() => window.open(endpoints.voyagerApi, "_blank")}
@@ -96,7 +92,7 @@ export default function NavBar() {
                         <Text 
                             textStyle={"xs"} 
                             fontWeight={"bold"} 
-                            color={"gray.500"} 
+                            color={systemStatus.nebulaApi ? "gray.500" : "red.500"} 
                             cursor={"pointer"}
                             _hover={{ color: "blue.500" }}
                             onClick={() => window.open(endpoints.nebulaApi, "_blank")}
@@ -106,8 +102,6 @@ export default function NavBar() {
                         <Text textStyle={"xs"}>API</Text>
                         {systemStatus.nebulaApi ? <MdCheckCircle color="green" /> : <MdError color="red" />}
                     </Flex>
-
-                </Flex>
 
                 <FaUser />
 

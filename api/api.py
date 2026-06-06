@@ -4,12 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import BaseModel, Field
 from pprint import pprint
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Union
 from database import (
     init_db,
-    Profile,
     Analysis,
-    QualitativeModel,
     DataSourceModel,
     DataSource,
     DataSourceFilter,
@@ -28,18 +26,6 @@ PORT = 8080
 RELOAD = True
 ##############################################
 
-
-class ProfileModel(BaseModel):
-    id: PydanticObjectId
-    name: Optional[str] = None
-    qualitative: Optional[List[QualitativeModel]] = None
-    data_sources: Optional[List[DataSourceModel]] = None
-
-
-class ProfileInfo(BaseModel):
-    id: PydanticObjectId = Field(..., alias="_id")
-    name: str
-    created_at: datetime
 
 
 class Metric(BaseModel):
@@ -239,19 +225,6 @@ async def search_shares(query: str):
     )
 
 
-@app.get("/search-profiles")
-async def search_shares(query: str):
-    if not query:
-        return []
-
-    matches = (
-        await Profile.find(Profile.name == {"$regex": query, "$options": "i"})
-        .project(ProfileInfo)
-        .sort(-Profile.name)
-        .to_list()
-    )
-    return matches
-
 
 @app.get("/list-data-sources")
 async def list_data_source():
@@ -273,81 +246,6 @@ async def list_metrics(source: str):
 async def list_tools():
     pass
 
-
-@app.get("/dummy-profile")
-def dummy_profile():
-    return {
-        "qualitative": [
-            {
-                "param": "Management",
-                "content": "Management should be dedicated.",
-            },
-            {"param": "Growth", "content": "Revenue, EPS, Volume."},
-            {"param": "Valuations", "content": "Cheap valuations."},
-        ],
-        "data_sources": {
-            "screener": {
-                "pe": "25",
-            },
-            "trendlyne": {"opp_score": 5},
-        },
-    }
-
-
-@app.get("/list-profiles")
-async def list_profiles():
-    profiles = await Profile.find_all().project(ProfileInfo).to_list()
-    return profiles
-
-
-@app.get("/read-profile")
-async def read_profile(id: str):
-    profile = await Profile.get(id)
-    return profile
-
-
-@app.get("/create-profile")
-async def create_profile(
-    name: str = datetime.now().strftime("%Y-%m-%d-%H-%M-%S"),
-    qualitative=[],
-    data_sources=[],
-):
-    data = {"name": name, "id": "", "ok": 0, "created_at": ""}
-    try:
-        profile = Profile(name=name, qualitative=qualitative, data_sources=data_sources)
-        await profile.insert()
-
-        print(profile.created_at)
-
-        data["id"] = str(profile.id)
-        data["ok"] = 1
-        data["created_at"] = profile.created_at
-    except Exception as e:
-        print(e)
-    return data
-
-
-@app.post("/update-profile")
-async def update_profile(profile: ProfileModel):
-    p = await Profile.find_one(Profile.id == profile.id)
-    if profile.name:
-        p.name = profile.name
-    if profile.qualitative:
-        p.qualitative = profile.qualitative
-    if profile.data_sources:
-        p.data_sources = profile.data_sources
-    await p.save()
-
-
-@app.post("/delete-profile")
-async def delete_profile(profile: ProfileModel):
-    try:
-        profile = await Profile.get(profile.id)
-        await profile.delete()
-        return {"ok": 1}
-    except Exception as e:
-        print(e)
-        return {"ok": 0}
 
 
 @app.post("/create-data-source")

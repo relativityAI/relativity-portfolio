@@ -4,286 +4,202 @@ import {
     Table,
     Image,
     Input,
-    Button
+    Button,
+    Spinner,
+    Kbd
 } from "@chakra-ui/react"
 import DropDown from "@/components/DropDown"
 import {
     MdModeEdit,
     MdDeleteForever,
     MdCheckCircle,
+    MdOutlineRemoveCircle
 } from "react-icons/md";
 import { useEffect, useState } from "react";
+import { VoyagerService } from "@/db";
 
-export default function DataSourceTable(props) {
+interface DataSourceTableProps {
+    data: any;
+    index: number;
+    updateDataSources: (index: number, data: any) => void;
+    removeDataSource: () => void;
+}
 
-
-    const imageUrl = props.data.image
-    const source = props.data.source
-    const sourceIndex = props.index
-
-    const [availableMetrics, setAvailableMetrics] = useState([])
-
-    const [metrics, setMetrics] = useState([])
-
-
+export default function DataSourceTable(props: DataSourceTableProps) {
     const [dataSource, setDataSource] = useState(props.data)
+    const [schema, setSchema] = useState<any>(null)
+    const [loading, setLoading] = useState(true)
     const [imgUrlEdit, setImgUrlEdit] = useState(false)
 
-
-    const handleAvailableMetrics = () => {
-        const tempAvMet = []
-
-        if (props.metrics) {
-            console.log(props.metrics)
-
-            for (const m of props.metrics) {
-                let met = props.metrics[m]
-
-                console.log(met)
-                console.log(dataSource.filters)
-
-                if (!dataSource.filters.includes(met)) {
-                    tempAvMet.push(met)
-                }
-            }
-            setAvailableMetrics(tempAvMet)
-
+    const fetchSchema = async () => {
+        try {
+            setLoading(true)
+            const data = await VoyagerService.getSchema(dataSource.source)
+            setSchema(data)
+        } catch (error) {
+            console.error("Error fetching schema:", error)
+        } finally {
+            setLoading(false)
         }
-        return tempAvMet
-
     }
 
+    useEffect(() => {
+        fetchSchema()
+    }, [dataSource.source])
 
-    const deleteMetric = (index) => (e) => {
-        console.log("Supposed to delete: " + index)
+    const deleteMetric = (index: number) => () => {
+        const reducedList = dataSource.filters.filter((_: any, idx: number) => idx !== index)
+        const newDataSource = { ...dataSource, filters: reducedList }
+        setDataSource(newDataSource)
+        props.updateDataSources(props.index, newDataSource)
+    }
 
-        let deletedAt;
+    const addMetric = (e: any) => {
+        const newMetricName = e.target.value
+        if (!newMetricName) return
 
-        let reducedList = dataSource.filters.filter((metric, idx) => {
-            if (idx == index) {
-                deletedAt = index;
-                return false;
-            }
-            return true;
-        }).map((item, idx) => {
-            if (idx >= deletedAt) return { ...item, order: item.order - 1 };
-            else return item;
-        })
+        const existingMetrics = dataSource.filters.map((f: any) => f.metric)
+        if (existingMetrics.includes(newMetricName)) {
+            console.log("Already exists: " + newMetricName)
+            return
+        }
 
-        setDataSource({
+        const property = schema.properties[newMetricName]
+        const newFilter = {
+            metric: newMetricName,
+            direction: "higher",
+            threshold: property.default !== undefined ? property.default : 0,
+            lower: 0,
+            upper: 0,
+            title: property.title || newMetricName,
+            type: property.type || "string"
+        }
+
+        const newDataSource = {
             ...dataSource,
-            filters: reducedList
-        })
-
-    }
-
-
-    const addMetric = (e) => {
-
-        const uniqueMetrics = []
-        for (const metric of dataSource.filters) {
-            uniqueMetrics.push(metric.metric)
-        }
-
-        const newMetric = e.target.value
-
-        if (!uniqueMetrics.includes(newMetric)) {
-
-            let newFilters = dataSource.filters
-            newFilters[dataSource.filters.length] = {
-                direction: "higher",
-                lower: 0,
-                upper: 0,
-                threshold: 0,
-                metric: newMetric
-            }
-
-            // console.log(dataSource.filters)
-            // console.log(newFilters)
-
-            const newDataSource = {
-                    ...dataSource,
-                    filters: newFilters
-                }
-            setDataSource(newDataSource)
-        } else {
-            console.log("Already exsists: " + newMetric)
-        }
-
-
-    }
-
-    const handleImageEdit = () => {
-        setImgUrlEdit(!imgUrlEdit)
-    }
-
-    const handleImageChange = (e) => {
-        setDataSource(
-            {
-                ...dataSource,
-                image: e.target.value
-            }
-        )
-    }
-
-    const handleDataChange = (field, item, index) => (e) => {
-
-        let newDataSource = { ...dataSource }
-        newDataSource.filters[index] = {
-            ...item,
-            [field]: e.target.value
+            filters: [...dataSource.filters, newFilter]
         }
         setDataSource(newDataSource)
-
+        props.updateDataSources(props.index, newDataSource)
+        
+        // Reset dropdown if possible or just let it be
     }
 
-    useEffect(() => {
-        let nonSelectedAvailableMetrics = []
-        // setAvailableMetrics(props.metrics)
-
-        let existingFilters = []
-        for (const f of props.metrics) {
-            existingFilters.push(f.metric)
+    const handleDataChange = (field: string, index: number) => (e: any) => {
+        const newFilters = [...dataSource.filters]
+        newFilters[index] = {
+            ...newFilters[index],
+            [field]: e.target.value
         }
-        let availableFilters = []
-        for (const f of dataSource.filters) {
-            availableFilters.push(f.metric)
-        }
+        const newDataSource = { ...dataSource, filters: newFilters }
+        setDataSource(newDataSource)
+        props.updateDataSources(props.index, newDataSource)
+    }
 
+    const handleImageChange = (e: any) => {
+        const newDataSource = { ...dataSource, image: e.target.value }
+        setDataSource(newDataSource)
+        props.updateDataSources(props.index, newDataSource)
+    }
 
-        if (existingFilters) {
-            for (const m of existingFilters) {
-                // console.log(m)
-                if (!availableFilters.includes(m)){
-                    nonSelectedAvailableMetrics.push(m)
-                }
+    if (loading) return <Spinner />
 
-            }
-            setAvailableMetrics(nonSelectedAvailableMetrics)
-        }
-
-    }, [dataSource, props.metrics])
-
-    useEffect(() => {
-        // everytime anything changes, i wanna update the parent datasources
-        props.updateDataSources(sourceIndex, dataSource)
-
-        // console.log("Should update metrics")
-        // handleAvailableMetrics()
-
-    }, [dataSource])
-
+    const availableMetrics = schema?.properties 
+        ? Object.keys(schema.properties).filter(m => !dataSource.filters.some((f: any) => f.metric === m))
+        : []
 
     return (
-        <Flex direction={"column"} gap={1}>
+        <Flex direction={"column"} gap={1} border="1px solid" borderColor="gray.200" p={4} rounded="lg">
             <Flex align={"center"} justify={"space-between"} >
-
-
                 <Flex align={"center"} gap={2}>
-
-                    {imageUrl ?
-                        <Image rounded="md" height="30px" src={dataSource.image} alt="John Doe" />
+                    {dataSource.image ?
+                        <Image rounded="md" height="30px" src={dataSource.image} />
                         :
-                        null
+                        <div style={{ width: '30px', height: '30px', backgroundColor: '#eee', borderRadius: '4px' }} />
                     }
-                    <Text fontWeight="semibold" textStyle="3xl">{source}</Text>
-                    <Button
-                        size={"xs"}
-                        variant={"subtle"}
-                        onClick={handleImageEdit}
-                    >
-                        {
-                            imgUrlEdit ?
-                                <MdCheckCircle />
-                                :
-                                <MdModeEdit />
-                        }
-
+                    <Text fontWeight="semibold" textStyle="2xl">{dataSource.source}</Text>
+                    <Button size={"xs"} variant={"subtle"} onClick={() => setImgUrlEdit(!imgUrlEdit)}>
+                        {imgUrlEdit ? <MdCheckCircle /> : <MdModeEdit />}
                     </Button>
-
                 </Flex>
 
-                <Flex gap={1} align={"center"}>
+                <Flex gap={2} align={"center"}>
                     <Text textStyle={"xs"}>Add metric</Text>
                     <DropDown
                         color="purple"
                         options={availableMetrics}
                         onChange={addMetric}
-
                     />
                 </Flex>
-
-
-
-
             </Flex>
-            {
-                imgUrlEdit ?
-                    <Input
-                        size="xs"
-                        placeholder="Enter URL"
-                        value={dataSource.image}
-                        onChange={handleImageChange}
-                    />
-                    :
-                    null
-            }
-            <Table.Root key="line" size="sm" variant="line">
 
+            {imgUrlEdit && (
+                <Input
+                    size="xs"
+                    placeholder="Enter Image URL"
+                    value={dataSource.image}
+                    onChange={handleImageChange}
+                    mt={2}
+                />
+            )}
+
+            <Table.Root key="line" size="sm" variant="line" mt={2}>
                 <Table.Header>
                     <Table.Row>
                         <Table.ColumnHeader>Metric</Table.ColumnHeader>
                         <Table.ColumnHeader>Direction</Table.ColumnHeader>
                         <Table.ColumnHeader>Threshold</Table.ColumnHeader>
-                        <Table.ColumnHeader>Lower</Table.ColumnHeader>
-                        <Table.ColumnHeader>Upper</Table.ColumnHeader>
+                        <Table.ColumnHeader>Range (L-U)</Table.ColumnHeader>
                         <Table.ColumnHeader></Table.ColumnHeader>
                     </Table.Row>
                 </Table.Header>
                 <Table.Body>
-                    {dataSource.filters.map((item, index) => (
+                    {dataSource.filters.map((item: any, index: number) => (
                         <Table.Row key={item.metric}>
-                            {/* <MdDeleteForever size={20} /> */}
-                            <Table.Cell>{item.metric}</Table.Cell>
+                            <Table.Cell>
+                                <Text fontWeight="medium">{item.title || item.metric}</Text>
+                                <Text fontSize="2xs" color="gray.500">{item.type}</Text>
+                            </Table.Cell>
 
                             <Table.Cell>
                                 <DropDown
                                     initValue={item.direction}
-                                    value={item.direction}
-                                    options={["higher", "lower"]}
-                                    onChange={handleDataChange("direction", item, index)}
-
+                                    options={["higher", "lower", "equal"]}
+                                    onChange={handleDataChange("direction", index)}
                                 />
                             </Table.Cell>
                             <Table.Cell>
                                 <Input
                                     variant="flushed"
-                                    maxW="10lh"
+                                    size="xs"
+                                    width="60px"
                                     value={item.threshold}
-                                    onChange={handleDataChange("threshold", item, index)}
+                                    onChange={handleDataChange("threshold", index)}
                                 />
+                            </Table.Cell>
+                            <Table.Cell>
+                                <Flex gap={1} align="center">
+                                    <Input
+                                        variant="flushed"
+                                        size="xs"
+                                        width="40px"
+                                        value={item.lower}
+                                        onChange={handleDataChange("lower", index)}
+                                    />
+                                    <Text>-</Text>
+                                    <Input
+                                        variant="flushed"
+                                        size="xs"
+                                        width="40px"
+                                        value={item.upper}
+                                        onChange={handleDataChange("upper", index)}
+                                    />
+                                </Flex>
+                            </Table.Cell>
 
-                            </Table.Cell>
                             <Table.Cell>
-                                <Input
-                                    variant="flushed"
-                                    maxW="10lh"
-                                    value={item.lower}
-                                    onChange={handleDataChange("lower", item, index)}
-                                />
-                            </Table.Cell>
-                            <Table.Cell>
-                                <Input
-                                    variant="flushed"
-                                    maxW="10lh"
-                                    value={item.upper}
-                                    onChange={handleDataChange("upper", item, index)}
-                                />
-                            </Table.Cell>
-
-                            <Table.Cell>
-                                <Button variant="subtle" colorPalette="red" onClick={deleteMetric(index)}>
-                                    <MdDeleteForever size={25} />
+                                <Button size="xs" variant="ghost" colorPalette="red" onClick={deleteMetric(index)}>
+                                    <MdDeleteForever size={18} />
                                 </Button>
                             </Table.Cell>
                         </Table.Row>
@@ -291,11 +207,20 @@ export default function DataSourceTable(props) {
                 </Table.Body>
             </Table.Root>
 
-            <Flex align={"center"} gap={2}>
-
-
+            <Flex justify="space-between" align="center" mt={4}>
+                <Text textStyle={"xs"} fontWeight={"semibold"}>
+                    Metrics: <Kbd>{dataSource.filters.length}</Kbd> / {Object.keys(schema?.properties || {}).length}
+                </Text>
+                
+                <Button
+                    size={"xs"}
+                    variant={"subtle"}
+                    colorPalette={"red"}
+                    onClick={props.removeDataSource}
+                >
+                    Remove Source <MdOutlineRemoveCircle />
+                </Button>
             </Flex>
-
         </Flex>
     )
 }

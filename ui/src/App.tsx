@@ -13,9 +13,9 @@ import {
 import { Provider } from "@/components/ui/provider"
 import { Container } from "@chakra-ui/react";
 import ProfilesList from "./pages/ProfilesList";
-import DataSources from "./pages/DataSources";
 import AnalysisList from "./pages/AnalysisList";
 import Analysis from "./pages/Analysis";
+import AnalysisResult from "./pages/AnalysisResult";
 import NavBar from "./components/NavBar";
 
 
@@ -42,10 +42,12 @@ function App() {
           />
           <Route path="/profile/:id" element={<Profile />} />
           <Route path="/profiles" element={<ProfilesList />} />
-          <Route path="/data-sources" element={<DataSources />} />
           <Route path="/analysis-list" element={<AnalysisList />} />
+          <Route path="/analysis" element={<Analysis />} />
           <Route path="/analysis/:id" element={<Analysis />} />
-          <Route path="/analysis"
+          <Route path="/analysis-result/:id" element={<AnalysisResult />} />
+          <Route
+            path="/analysis-result"
             element={<Navigate to="/analysis-list" replace />}
           />
         </Routes>
