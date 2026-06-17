@@ -2,7 +2,8 @@ import {
     Flex,
     Button,
     Table,
-    Text
+    Text,
+    Box
 } from "@chakra-ui/react"
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -21,7 +22,6 @@ interface Profile {
 export default function ProfilesList() {
     let navigate = useNavigate();
 
-    const variant = "outline"
     const [uniqueProfiles, setUniqueProfiles] = useState<Profile[]>([]);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(false);
@@ -67,61 +67,63 @@ export default function ProfilesList() {
     }, [])
 
     return (
-        <Flex direction={"column"} gap={3}>
-            <Flex>
-                <Text fontWeight="semibold" textStyle="5xl">
+        <Flex direction={"column"} gap={6}>
+            <Flex justify="space-between" align="center">
+                <Text fontWeight="bold" textStyle="4xl" letterSpacing="tight">
                     Investor Profiles
                 </Text>
+                <Button
+                    colorPalette="blue"
+                    size="sm"
+                    loading={loading}
+                    onClick={handleCreate}>
+                    + Create New Profile
+                </Button>
             </Flex>
 
-            <Table.Root key={variant} size="sm" variant={variant} interactive>
-                <Table.Header>
-                    <Table.Row >
-                        <Table.ColumnHeader>Name</Table.ColumnHeader>
-                        <Table.ColumnHeader textAlign="center">Params</Table.ColumnHeader>
-                        <Table.ColumnHeader textAlign="center">Sources</Table.ColumnHeader>
-                        <Table.ColumnHeader>Created At</Table.ColumnHeader>
-                        <Table.ColumnHeader>ID</Table.ColumnHeader>
-                    </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                    {fetchError ? (
+            <Box border="1px solid" borderColor="gray.800" rounded="md" overflow="hidden">
+                <Table.Root size="sm" variant="line" interactive>
+                    <Table.Header bg="gray.900">
                         <Table.Row>
-                            <Table.Cell colSpan={5} textAlign="center" color="red.500">
-                                Failed to fetch profiles. Profile API may be unavailable.
-                            </Table.Cell>
+                            <Table.ColumnHeader color="gray.400" py={4}>Name</Table.ColumnHeader>
+                            <Table.ColumnHeader color="gray.400" textAlign="center" py={4}>Params</Table.ColumnHeader>
+                            <Table.ColumnHeader color="gray.400" textAlign="center" py={4}>Sources</Table.ColumnHeader>
+                            <Table.ColumnHeader color="gray.400" py={4}>Created At</Table.ColumnHeader>
+                            <Table.ColumnHeader color="gray.400" py={4}>ID</Table.ColumnHeader>
                         </Table.Row>
-                    ) : uniqueProfiles.length === 0 && !loading ? (
-                        <Table.Row>
-                            <Table.Cell colSpan={5} textAlign="center" color="gray.500">
-                                No profiles found.
-                            </Table.Cell>
-                        </Table.Row>
-                    ) : (
-                        uniqueProfiles.map((item) => (
-                            <Table.Row
-                                key={item._id || item.id}
-                                cursor="pointer"
-                                onClick={() => onRowClick(item._id || item.id as string)}
-                                _hover={{ bg: "gray.800" }}
-                            >
-                                <Table.Cell fontWeight="bold">{item.name}</Table.Cell>
-                                <Table.Cell textAlign="center">{(item.qualitative || (item as any).qualitativeData)?.length || 0}</Table.Cell>
-                                <Table.Cell textAlign="center">{(item.data_sources || (item as any).dataSources)?.length || 0}</Table.Cell>
-                                <Table.Cell fontSize="sm">{item.created_at ? new Date(item.created_at).toLocaleString() : "N/A"}</Table.Cell>
-                                <Table.Cell fontSize="xs" color="gray.400">{item._id || item.id}</Table.Cell>
+                    </Table.Header>
+                    <Table.Body>
+                        {fetchError ? (
+                            <Table.Row>
+                                <Table.Cell colSpan={5} textAlign="center" color="red.500" py={8}>
+                                    Failed to fetch profiles. Profile API may be unavailable.
+                                </Table.Cell>
                             </Table.Row>
-                        ))
-                    )}
-                </Table.Body>
-            </Table.Root>
-
-            <Button
-                variant={"surface"}
-                loading={loading}
-                onClick={handleCreate}>
-                + Create New Profile
-            </Button>
+                        ) : uniqueProfiles.length === 0 && !loading ? (
+                            <Table.Row>
+                                <Table.Cell colSpan={5} textAlign="center" color="gray.500" py={8}>
+                                    No profiles found.
+                                </Table.Cell>
+                            </Table.Row>
+                        ) : (
+                            uniqueProfiles.map((item) => (
+                                <Table.Row
+                                    key={item._id || item.id}
+                                    cursor="pointer"
+                                    onClick={() => onRowClick(item._id || item.id as string)}
+                                    _hover={{ bg: "gray.900" }}
+                                >
+                                    <Table.Cell fontWeight="bold">{item.name}</Table.Cell>
+                                    <Table.Cell textAlign="center">{(item.qualitative || (item as any).qualitativeData)?.length || 0}</Table.Cell>
+                                    <Table.Cell textAlign="center">{(item.data_sources || (item as any).data_sources)?.length || 0}</Table.Cell>
+                                    <Table.Cell fontSize="sm" color="gray.300">{item.created_at ? new Date(item.created_at).toLocaleString() : "N/A"}</Table.Cell>
+                                    <Table.Cell fontSize="xs" color="gray.500">{item._id || item.id}</Table.Cell>
+                                </Table.Row>
+                            ))
+                        )}
+                    </Table.Body>
+                </Table.Root>
+            </Box>
         </Flex>
     )
 }

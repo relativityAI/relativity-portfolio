@@ -1,15 +1,12 @@
 import {
-    Tabs,
     Text,
-    FormatByte,
     DownloadTrigger,
     Flex,
     Button,
     Spinner,
-    DataList,
-    Input
+    Input,
+    Box
 } from "@chakra-ui/react"
-import { LuSquareCheck, LuUser } from "react-icons/lu"
 import { MdOutlineFileDownload, MdSave, MdDeleteForever } from "react-icons/md";
 
 import { useParams, useNavigate } from "react-router-dom"
@@ -27,6 +24,7 @@ export default function Profile() {
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [saved, setSaved] = useState(false)
+    const [isDirty, setIsDirty] = useState(false)
     const [profile, setProfile] = useState<any>({
         name: "",
         id: "",
@@ -41,6 +39,7 @@ export default function Profile() {
                 const data = await ProfileService.readProfile(urlParams.id);
                 if (data) {
                     setProfile(data);
+                    setIsDirty(false); // Reset on initial load
                 }
             }
         } catch (error) {
@@ -65,6 +64,7 @@ export default function Profile() {
             };
             await ProfileService.updateProfile(dataToSave);
             setSaved(true);
+            setIsDirty(false); // Reset on success
             setTimeout(() => setSaved(false), 3000);
         } catch (error) {
             console.error("Save Error:", error);
@@ -84,96 +84,109 @@ export default function Profile() {
         }
     }
 
+    const updateProfile = (updates: any) => {
+        setProfile((prev: any) => ({ ...prev, ...updates }));
+        if (!loading) setIsDirty(true);
+    };
+
     if (loading) return <Spinner />;
 
     return (
 
-        <Flex direction={"column"} gap={6}>
-            <Flex justify="space-between" align="center">
+        <Flex direction={"column"} gap={10}>
+            <Flex justify="space-between" align="start" borderBottom="1px solid" borderColor="gray.800" pb={8}>
 
-                <Flex direction="column" gap={1}>
-                    <DataList.Root size="lg" orientation="horizontal">
-                        <DataList.Item>
-                            <DataList.ItemLabel>Profile Name</DataList.ItemLabel>
-                            <DataList.ItemValue>
-                                <Input
-                                    variant={"flushed"}
-                                    fontWeight="bold"
-                                    fontSize="xl"
-                                    value={profile.name}
-                                    onChange={(e) => { setProfile({ ...profile, name: e.target.value }) }}
-                                />
-                            </DataList.ItemValue>
-                        </DataList.Item>
-                    </DataList.Root>
-                    {saved && <Text color="green.500" fontSize="sm" fontWeight="bold">Saved successfully!</Text>}
+                <Flex direction="column" gap={1} flex={1} maxW="400px">
+                    <Text fontSize="xs" fontWeight="bold" color="gray.600" letterSpacing="widest" mb={1}>PROFILE NAME</Text>
+                    <Input
+                        variant="subtle"
+                        fontWeight="bold"
+                        fontSize="lg"
+                        value={profile.name}
+                        onChange={(e) => updateProfile({ name: e.target.value })}
+                        bg="gray.900"
+                        _focus={{ bg: "gray.950", borderColor: "gray.700" }}
+                        px={3}
+                        py={4}
+                        h="auto"
+                        rounded="sm"
+                    />
+                    {saved && <Text color="green.600" fontSize="xs" fontWeight="bold" mt={2}>Changes saved successfully</Text>}
                 </Flex>
 
-                <Flex gap={3}>
-                    <Button
-                        colorPalette="red"
-                        variant="outline"
-                        onClick={handleDelete}
-                    >
-                        <MdDeleteForever />
-                        Delete
-                    </Button>
-
-                    <Button
-                        colorPalette="blue"
-                        loading={saving}
-                        onClick={handleSave}
-                    >
-                        <MdSave />
-                        Save Profile
-                    </Button>
-
-                    <DownloadTrigger
-                        data={JSON.stringify(profile, null, "  ")}
-                        fileName={profile.name + "-" + (new Date()).toISOString().split("T")[0] + ".json"}
-                        mimeType="application/json"
-                        asChild
-                    >
-                        <Button variant="outline">
-                            <MdOutlineFileDownload />
-                            Export
-                            (<FormatByte value={JSON.stringify(profile, null, "  ").length} unitDisplay="narrow" />)
+                <Flex direction="column" align="flex-end" gap={4} pt={6}>
+                    <Flex gap={3}>
+                        <Button
+                            variant="ghost"
+                            color="gray.500"
+                            _hover={{ color: "red.500", bg: "transparent" }}
+                            onClick={handleDelete}
+                            size="sm"
+                            fontWeight="bold"
+                        >
+                            <MdDeleteForever size={18} />
+                            DELETE
                         </Button>
-                    </DownloadTrigger>
+
+                        <DownloadTrigger
+                            data={JSON.stringify(profile, null, "  ")}
+                            fileName={profile.name.replace(/\s+/g, "_") + "_" + (new Date()).toISOString().split("T")[0].replace(/-/g, "_") + ".json"}
+                            mimeType="application/json"
+                            asChild
+                        >
+                            <Button variant="outline" size="sm" color="gray.400" borderColor="gray.800" _hover={{ bg: "gray.900", color: "white" }}>
+                                <MdOutlineFileDownload />
+                                EXPORT JSON
+                            </Button>
+                        </DownloadTrigger>
+
+                        <Button
+                            variant="subtle"
+                            colorPalette="gray"
+                            loading={saving}
+                            onClick={handleSave}
+                            size="sm"
+                            px={6}
+                            bg={isDirty ? "blue.800" : "gray.800"}
+                            color="white"
+                            _hover={{ bg: isDirty ? "blue.700" : "gray.700" }}
+                            border="1px solid"
+                            borderColor={isDirty ? "blue.600" : "transparent"}
+                        >
+                            <MdSave />
+                            SAVE PROFILE
+                        </Button>
+                    </Flex>
+                    {isDirty && (
+                        <Flex align="center" gap={2} bg="orange.900/20" color="orange.500" px={3} py={1} rounded="sm" border="1px solid" borderColor="orange.900/50">
+                            <Text fontSize="2xs" fontWeight="bold" letterSpacing="widest">UNSAVED CHANGES DETECTED</Text>
+                        </Flex>
+                    )}
                 </Flex>
             </Flex>
 
-            <Flex direction={"column"} gap={4}>
-                <Tabs.Root defaultValue="qualitative">
-                    <Tabs.List>
-                        <Tabs.Trigger value="qualitative">
-                            <LuUser />
-                            Qualitative Parameters ({profile.qualitative?.length || 0})
-                        </Tabs.Trigger>
-                        <Tabs.Trigger value="data-sources">
-                            <LuSquareCheck />
-                            Data Sources ({profile.data_sources?.length || 0})
-                        </Tabs.Trigger>
-                    </Tabs.List>
+            <Flex direction={{ base: "column", xl: "row" }} gap={12} align="start">
+                {/* Left Column: Qualitative (50%) */}
+                <Box flex="1" width="full">
+                    <Text fontSize="xs" fontWeight="black" color="gray.600" letterSpacing="widest" mb={6}>I. QUALITATIVE PARAMETERS</Text>
+                    <ProfileDataQualitative
+                        name={profile.name}
+                        data={profile.qualitative}
+                        id={profile._id}
+                        onUpdate={(newData: any) => updateProfile({ qualitative: newData })}
+                    />
+                </Box>
 
-                    <Tabs.Content value="qualitative">
-                        <ProfileDataQualitative
-                            name={profile.name}
-                            data={profile.qualitative}
-                            id={profile._id}
-                            onUpdate={(newData: any) => setProfile({ ...profile, qualitative: newData })}
-                        />
-                    </Tabs.Content>
-
-                    <Tabs.Content value="data-sources">
-                        <ProfileDataSources
-                            name={profile.name}
-                            data={profile.data_sources}
-                            id={profile._id}
-                            onUpdate={(newData: any) => setProfile({ ...profile, data_sources: newData })}
-                        />
-                    </Tabs.Content>
-                </Tabs.Root>
+                {/* Right Column: Data Sources (50%) */}
+                <Box flex="1" width="full" borderLeft={{ base: "none", xl: "1px solid" }} borderColor="gray.800" pl={{ base: 0, xl: 12 }}>
+                    <Text fontSize="xs" fontWeight="black" color="gray.600" letterSpacing="widest" mb={6}>II. DATA SOURCES CONFIGURATION</Text>
+                    <ProfileDataSources
+                        name={profile.name}
+                        data={profile.data_sources}
+                        id={profile._id}
+                        onUpdate={(newData: any) => updateProfile({ data_sources: newData })}
+                    />
+                </Box>
             </Flex>
         </Flex>
     )

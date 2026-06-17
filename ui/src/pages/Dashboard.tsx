@@ -46,34 +46,32 @@ export default function Dashboard() {
                 Dashboard
             </Text>
 
-            <Flex gap={16} align="flex-start">
+            <Flex gap={12} align="stretch">
                 {/* Left Side: Metadata (Stats) */}
-                <Flex direction="column" gap={8} w="30%">
-                    <Box p={6} border="0.5px solid" borderColor="gray.700" rounded="4xl">
-                        <Text fontWeight="bold" mb={4} color="gray.500" fontSize="xs" textTransform="uppercase">Overview</Text>
-                        <Flex direction="column" gap={6}>
+                <Flex direction="column" gap={8} w="280px">
+                    <Box p={6} border="1px solid" borderColor="gray.800" rounded="lg" bg="gray.900">
+                        <Text fontWeight="bold" mb={6} color="gray.500" fontSize="xs" textTransform="uppercase" letterSpacing="widest">Overview</Text>
+                        <Flex direction="column" gap={8}>
                             <Stat.Root>
-                                <Stat.Label>Total Profiles</Stat.Label>
-                                <Stat.ValueText fontSize="4xl" fontWeight="bold">{stats.profiles}</Stat.ValueText>
-                                <Stat.HelpText color="blue.500">Active investor profiles</Stat.HelpText>
+                                <Stat.Label color="gray.400">Total Profiles</Stat.Label>
+                                <Stat.ValueText fontSize="4xl" fontWeight="bold" mt={1}>{stats.profiles}</Stat.ValueText>
+                                <Stat.HelpText color="blue.500" mt={1}>Active investment profiles</Stat.HelpText>
                             </Stat.Root>
 
                             <Stat.Root>
-                                <Stat.Label>Total Analyses</Stat.Label>
-                                <Stat.ValueText fontSize="4xl" fontWeight="bold">{stats.analysis}</Stat.ValueText>
-                                <Stat.HelpText color="gray.400">Analyses run</Stat.HelpText>
+                                <Stat.Label color="gray.400">Total Analyses</Stat.Label>
+                                <Stat.ValueText fontSize="4xl" fontWeight="bold" mt={1}>{stats.analysis}</Stat.ValueText>
+                                <Stat.HelpText color="gray.500" mt={1}>Completed runs</Stat.HelpText>
                             </Stat.Root>
                         </Flex>
                     </Box>
-
-
                 </Flex>
 
                 {/* Right Side: Navigation Cards */}
                 <SimpleGrid
                     columns={2}
-                    gap={8}
-                    w="70%"
+                    gap={6}
+                    flex={1}
                 >
                     <RelCard
                         title="Investor Profiles"

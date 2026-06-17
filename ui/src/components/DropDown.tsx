@@ -1,34 +1,19 @@
 import { Select, Portal, createListCollection } from "@chakra-ui/react"
-import { useEffect, useState } from "react";
 
-export default function DropDown(props) {
+export default function DropDown(props: any) {
 
     const safeOptions = (props.options || []).filter(Boolean);
 
     let options = createListCollection({ items: safeOptions });
-    const [initValue, setInitValue] = useState("")
-
-    const handleInitialValue = () => {
-
-        if (options.items.includes(props.initValue)) {
-            setInitValue( props.initValue)
-        }
-
-
-    }
-
-    useEffect(()=>{
-        handleInitialValue()
-    }, [options])
 
     return (
         <Select.Root
             collection={options}
-            defaultValue={[initValue]}
+            value={[props.initValue]}
             size="xs"
             colorPalette={props.color}
-            width="100px"
-            onChange={props.onChange}
+            width={props.width || "100px"}
+            onValueChange={(details) => props.onChange({ target: { value: details.value[0] } })}
         >
             <Select.HiddenSelect />
             <Select.Control>
@@ -46,7 +31,7 @@ export default function DropDown(props) {
                 <Select.Positioner>
                     <Select.Content>
                         {
-                            options.items.map((item, index) => (
+                            options.items.map((item: any, index) => (
                                 <Select.Item item={item} key={index}>
                                     {item}
                                     <Select.ItemIndicator />

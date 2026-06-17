@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react"
 import {
-    SimpleGrid,
     Flex,
     Text,
-    Spinner
+    Spinner,
+    Button
 } from "@chakra-ui/react"
 
 import DataSourceTable from "./DataSourceTable"
@@ -94,45 +94,42 @@ export default function ProfileDataSources(props: ProfileDataSourcesProps) {
                     )}
                 </Flex>
                 
-                <SimpleGrid columns={10} gap={4}>
+                <Flex wrap="wrap" gap={3}>
                     {availableSources.length > 0 ? (
                         availableSources.map((item) => (
-                            <Flex 
-                                key={item.source} 
-                                direction={"column"} 
-                                gap={1} 
-                                align={"center"}
-                                cursor="pointer"
+                            <Button 
+                                key={item.source}
+                                size="xs"
+                                variant="outline"
+                                border="1px solid"
+                                borderColor="gray.800"
+                                color="gray.400"
+                                bg="gray.900"
+                                py={4}
+                                px={4}
+                                rounded="sm"
                                 onClick={addNewDataSource(item.source)}
-                                _hover={{ opacity: 0.8, transform: "translateY(-2px)" }}
-                                transition={"all 0.2s"}
+                                _hover={{ 
+                                    bg: "gray.800", 
+                                    color: "white",
+                                    borderColor: "gray.600",
+                                    transform: "translateY(-1px)"
+                                }}
+                                transition="all 0.2s"
                             >
-                                <div style={{ 
-                                    width: '50px', 
-                                    height: '50px', 
-                                    backgroundColor: '#5099c9', 
-                                    display: 'flex', 
-                                    alignItems: 'center', 
-                                    justifyContent: 'center',
-                                    borderRadius: '12px',
-                                    border: '1px solid #e2e8f0',
-                                    fontWeight: 'bold',
-                                    color: '#4a5568'
-                                }}>
-                                    {item.source[0].toUpperCase()}
-                                </div>
-                                <Text fontSize="2xs" fontWeight="semibold" textAlign="center">{item.source}</Text>
-                            </Flex>
+                                <Text fontSize="xs" fontWeight="bold" mr={2} color="gray.600">{item.source[0].toUpperCase()}</Text>
+                                {item.source}
+                            </Button>
                         ))
                     ) : (
-                        <Text textStyle={"sm"} color="gray.500">
-                            {error ? "Connect to Voyager to browse sources" : "All available sources are already in this profile."}
+                        <Text textStyle={"sm"} color="gray.600" fontStyle="italic">
+                            {error ? "Voyager unreachable" : "No additional sources available"}
                         </Text>
                     )}
-                </SimpleGrid>
+                </Flex>
             </Flex>
 
-            <SimpleGrid columns={2} gap="40px">
+            <Flex direction="column" gap={8}>
                 {dataSources.map((item: any, index: number) => (
                     <div key={`${item.source}-${index}`}>
                         <DataSourceTable
@@ -143,7 +140,7 @@ export default function ProfileDataSources(props: ProfileDataSourcesProps) {
                         />
                     </div>
                 ))}
-            </SimpleGrid>
+            </Flex>
         </Flex>
     )
 }

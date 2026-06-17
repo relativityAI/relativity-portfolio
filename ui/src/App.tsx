@@ -1,8 +1,8 @@
 // import './App.css'
 
+import { useEffect } from "react";
 import Dashboard from "./pages/Dashboard"
 import Profile from "./pages/Profile";
-import Path from "./components/Path";
 import {
   Routes,
   Route,
@@ -21,17 +21,27 @@ import NavBar from "./components/NavBar";
 
 function App() {
 
-  let location = useLocation().pathname;
-  location = "Dashboard" + location
+  const locationPath = useLocation().pathname;
+  
+  useEffect(() => {
+    const getTitle = (path: string) => {
+      if (path === "/") return "Dashboard";
+      if (path === "/profiles") return "Profiles";
+      if (path.startsWith("/profile/")) return "Profile Detail";
+      if (path === "/analysis-list") return "Analysis List";
+      if (path.startsWith("/analysis-result/")) return "Analysis Result";
+      if (path === "/analysis") return "New Analysis";
+      return "Relativity AI";
+    };
+    
+    document.title = `${getTitle(locationPath)} | Relativity AI`;
+  }, [locationPath]);
 
   return (
     <Provider>
 
       {/* Navbar */}
       <NavBar />
-
-      {/* Breadcrumbs */}
-      <Path path={location} />
 
       <Container paddingX={16} marginY={5}>
         <Routes>

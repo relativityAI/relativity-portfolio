@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { Button, Flex, Menu, Portal, Text } from "@chakra-ui/react"
+import { Flex, Text } from "@chakra-ui/react"
 import { Link } from "react-router-dom";
 import { runHealthCheck } from "../utils"
 import { MdCheckCircle, MdError } from "react-icons/md";
-import { FaUser } from "react-icons/fa";
 
 
 export default function NavBar() {
@@ -33,32 +32,35 @@ export default function NavBar() {
     }, []);
 
     return (
-        <Flex padding={4} margin={0} justify={"space-between"} align={"center"}>
+        <Flex 
+            paddingX={8} 
+            paddingY={2} 
+            borderBottom="1px solid" 
+            borderColor="gray.800" 
+            justify={"space-between"} 
+            align={"center"}
+            bg="black"
+            height="56px"
+        >
+            <Flex align="center" gap={8}>
+                <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight">RELATIVITY</Text>
+                
+                <Flex gap={6} align="center">
+                    <Link to={"/"}>
+                        <Text fontSize="sm" fontWeight="medium" color="gray.400" _hover={{ color: "white" }}>Dashboard</Text>
+                    </Link>
+                    <Link to={"/profiles"}>
+                        <Text fontSize="sm" fontWeight="medium" color="gray.400" _hover={{ color: "white" }}>Profiles</Text>
+                    </Link>
+                    <Link to={"/analysis-list"}>
+                        <Text fontSize="sm" fontWeight="medium" color="gray.400" _hover={{ color: "white" }}>Analysis</Text>
+                    </Link>
+                </Flex>
+            </Flex>
 
-
-            <Menu.Root >
-                <Menu.Trigger asChild>
-                    <Button colorPalette={"blue"} variant="surface" size="sm">
-                        Menu
-                    </Button>
-                </Menu.Trigger>
-                <Portal>
-                    <Menu.Positioner>
-                        <Menu.Content>
-                            <Menu.Item value="//"><Link to={"/"}>Dashboard</Link></Menu.Item>
-                            <Menu.Item value="/profiles"><Link to={"/profiles"}>Profiles</Link></Menu.Item>
-                            <Menu.Item value="/analysis-list"><Link to={"/analysis-list"}>Analysis</Link></Menu.Item>
-                        </Menu.Content>
-                    </Menu.Positioner>
-                </Portal>
-            </Menu.Root>
-
-            <Text fontWeight={"medium"} textStyle={"3xl"}>Relativity AI Portfolio</Text>
-
-            <Flex justify={"space-between"} gap={10}>
-
-
-                    <Flex gap={2} align={"center"}>
+            <Flex justify={"flex-end"} gap={6} align="center">
+                <Flex gap={4} align={"center"}>
+                    <Flex gap={1} align={"center"}>
                         <Text 
                             textStyle={"xs"} 
                             fontWeight={"bold"} 
@@ -67,13 +69,12 @@ export default function NavBar() {
                             _hover={{ color: "blue.500" }}
                             onClick={() => window.open(endpoints.db, "_blank")}
                         >
-                            MONGODB
+                            DB
                         </Text>
-                        <Text textStyle={"xs"}>DB</Text>
-                        {systemStatus.db ? <MdCheckCircle color="green" /> : <MdError color="red" />}
+                        {systemStatus.db ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
                     </Flex>
 
-                    <Flex gap={2} align={"center"}>
+                    <Flex gap={1} align={"center"}>
                         <Text 
                             textStyle={"xs"} 
                             fontWeight={"bold"} 
@@ -84,11 +85,10 @@ export default function NavBar() {
                         >
                             VOYAGER
                         </Text>
-                        <Text textStyle={"xs"}>API</Text>
-                        {systemStatus.voyagerApi ? <MdCheckCircle color="green" /> : <MdError color="red" />}
+                        {systemStatus.voyagerApi ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
                     </Flex>
 
-                    <Flex gap={2} align={"center"}>
+                    <Flex gap={1} align={"center"}>
                         <Text 
                             textStyle={"xs"} 
                             fontWeight={"bold"} 
@@ -99,17 +99,10 @@ export default function NavBar() {
                         >
                             NEBULA
                         </Text>
-                        <Text textStyle={"xs"}>API</Text>
-                        {systemStatus.nebulaApi ? <MdCheckCircle color="green" /> : <MdError color="red" />}
+                        {systemStatus.nebulaApi ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
                     </Flex>
-
-                <FaUser />
-
+                </Flex>
             </Flex>
-
-
         </Flex>
-
-
     )
 }
