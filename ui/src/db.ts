@@ -79,6 +79,11 @@ export const AnalysisService = {
         // Nebula endpoint is /run-analysis, not /correlate
         const response = await axios.post(`${NEBULA_BASE}/run-analysis`, config);
         return response.data;
+    },
+
+    async getAvailableSources() {
+        const response = await axios.get(`${NEBULA_BASE}/available-sources`);
+        return response.data;
     }
 };
 
@@ -107,5 +112,76 @@ export const VoyagerService = {
     async getSchema(source: string) {
         const response = await axios.get(`${VOYAGER_BASE}/schema/${source}`);
         return response.data;
+    },
+
+    async getLastDataPull(symbol: string, source: string) {
+        try {
+            const response = await axios.get(`${VOYAGER_BASE}/last-data-pull`, {
+                params: { symbol, source }
+            });
+            return response.data;
+        } catch {
+            return { last_pull: null };
+        }
+    },
+
+    async pullLatestData(symbol: string, source: string) {
+        try {
+            const response = await axios.post(`${VOYAGER_BASE}/pull-data`, { symbol, source });
+            return response.data;
+        } catch {
+            return { status: "initiated" };
+        }
+    },
+
+    async checkDataStatus(symbol: string, source: string) {
+        try {
+            const response = await axios.get(`${VOYAGER_BASE}/data-status`, {
+                params: { symbol, source }
+            });
+            return response.data;
+        } catch {
+            return { symbol, source, status: "unknown" };
+        }
+    },
+
+    async getStockData(symbol: string, source: string) {
+        const response = await axios.get(`${VOYAGER_BASE}/stock-data`, {
+            params: { source, symbol }
+        });
+        return response.data;
+    },
+
+    async getStockDataStatus(symbol: string, source: string) {
+        try {
+            const response = await axios.get(`${VOYAGER_BASE}/stock-data-status`, {
+                params: { symbol, source }
+            });
+            return response.data;
+        } catch (error: any) {
+            if (error?.response?.data) return error.response.data;
+            return null;
+        }
+    },
+
+    async pullStockData(symbol: string, source: string) {
+        try {
+            const response = await axios.post(`${VOYAGER_BASE}/pull-stock-data`, { source, symbol });
+            return response.data;
+        } catch {
+            return { status: "initiated" };
+        }
+    },
+
+    async getFinancialRatios(symbol: string, source: string, consolidated = "Consolidated") {
+        try {
+            const response = await axios.get(`${VOYAGER_BASE}/financial-ratios`, {
+                params: { symbol, source, consolidated }
+            });
+            return response.data;
+        } catch (error: any) {
+            if (error?.response?.data) return error.response.data;
+            return null;
+        }
     }
 };
