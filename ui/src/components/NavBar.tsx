@@ -55,6 +55,9 @@ export default function NavBar() {
                     <Link to={"/analysis-list"}>
                         <Text fontSize="sm" fontWeight="medium" color="gray.400" _hover={{ color: "white" }}>Analysis</Text>
                     </Link>
+                    <Link to={"/manage-data"}>
+                        <Text fontSize="sm" fontWeight="medium" color="gray.400" _hover={{ color: "white" }}>Data</Text>
+                    </Link>
                 </Flex>
             </Flex>
 

@@ -1,35 +1,125 @@
 import SearchBar from "@/components/SearchBar";
-import { Badge, Button, Flex, Text, Separator, Input, SimpleGrid, List, Spinner, DownloadTrigger } from "@chakra-ui/react";
-import { useEffect, useState } from "react";
-import { MdOutlineFileDownload } from "react-icons/md";
-import { Link, useParams } from "react-router-dom";
-import { AnalysisService, ProfileService, NEBULA_BASE } from "@/db";
+import {
+    Badge, Button, Flex, Text, Separator, Spinner, Box, Select,
+    createListCollection, Portal, HStack, VStack
+} from "@chakra-ui/react";
+import { useEffect, useState, useMemo } from "react";
+import {
+    MdInfoOutline, MdCheckCircle, MdErrorOutline, MdOutlineRefresh,
+    MdOutlineStorage, MdKeyboardArrowDown
+} from "react-icons/md";
+import { Link, useParams, useNavigate } from "react-router-dom";
+import { AnalysisService, ProfileService, VoyagerService, NEBULA_BASE } from "@/db";
+import { Tooltip } from "@/components/ui/tooltip";
+
+type StatusType = "EMPTY" | "PENDING" | "COMPLETED" | "ERROR";
+type DataPullStatus = "IDLE" | "CHECKING" | "AVAILABLE" | "PULLING" | "PULLED" | "ERROR";
 
 export default function Analysis() {
     const { id } = useParams();
+    const navigate = useNavigate();
 
     const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
     const [correlationId, setCorrelationId] = useState<string>(id || "");
-
-
-    const [status, setStatus] = useState<"EMPTY" | "PENDING" | "COMPLETED" | "ERROR">("EMPTY")
+    const [status, setStatus] = useState<StatusType>("EMPTY");
     const [loading, setLoading] = useState(false);
+    const [dataPullStatus, setDataPullStatus] = useState<DataPullStatus>("IDLE");
+    const [lastPullDate, setLastPullDate] = useState<string | null>(null);
+    const [analysisDuration, setAnalysisDuration] = useState<string>("");
 
     const [config, setConfig] = useState({
-        exchange: "",
+        source: "SEC",
         share: "",
         shareName: "",
         profile: "",
-        name: "",
-    })
+    });
+
+    const [availableSources, setAvailableSources] = useState<any[]>([]);
+
+    const sourceKeyMap: Record<string, { mainKey: string; secondaryKey: string; nameField: string }> = {
+        SEC: { mainKey: "ticker", secondaryKey: "name", nameField: "name" },
+        NSE: { mainKey: "SYMBOL", secondaryKey: "NAME", nameField: "NAME" },
+    };
+
+    const sourceKeys = sourceKeyMap[config.source] || sourceKeyMap.SEC;
+
+    const sourceOptions = useMemo(() => {
+        const items = availableSources.length > 0
+            ? availableSources.map((s: any) => ({ label: s.NAME, value: s.SYMBOL }))
+            : [
+                { label: "SEC (US Market)", value: "SEC" },
+                { label: "NSE (Indian Market)", value: "NSE" },
+            ];
+        return createListCollection({
+            items,
+            itemToString: (item: any) => item.label,
+            itemToValue: (item: any) => item.value,
+        });
+    }, [availableSources]);
+
+    const fetchAvailableSources = async () => {
+        try {
+            const data = await AnalysisService.getAvailableSources();
+            setAvailableSources(Array.isArray(data) ? data : []);
+        } catch {
+            setAvailableSources([]);
+        }
+    };
 
     const handleConfigChange = (field: string, value: string, item?: any) => {
+        const nameField = sourceKeys.nameField;
         setConfig(prev => ({
             ...prev,
             [field]: value || "",
-            shareName: field === 'share' && item ? item.NAME : prev.shareName
-        }))
-    }
+            shareName: field === 'share' && item ? item[nameField] : prev.shareName
+        }));
+        if (field === 'share') {
+            setDataPullStatus("IDLE");
+            setLastPullDate(null);
+        }
+    };
+
+    const handleSourceChange = (value: string) => {
+        setConfig(prev => ({
+            ...prev,
+            source: value,
+            share: "",
+            shareName: "",
+        }));
+        setDataPullStatus("IDLE");
+        setLastPullDate(null);
+    };
+
+    const checkLastDataPull = async () => {
+        if (!config.source || !config.share || id) return;
+        setDataPullStatus("CHECKING");
+        try {
+            const result = await VoyagerService.getLastDataPull(config.share, config.source);
+            if (result.last_pull) {
+                setLastPullDate(result.last_pull);
+            } else {
+                setLastPullDate(null);
+            }
+            setDataPullStatus("AVAILABLE");
+        } catch (error) {
+            console.error("Error checking data pull:", error);
+            setLastPullDate(null);
+            setDataPullStatus("AVAILABLE");
+        }
+    };
+
+    const pullLatestData = async () => {
+        if (!config.source || !config.share) return;
+        setDataPullStatus("PULLING");
+        try {
+            await VoyagerService.pullLatestData(config.share, config.source);
+            setLastPullDate(new Date().toISOString());
+            setDataPullStatus("PULLED");
+        } catch (error) {
+            console.error("Error pulling data:", error);
+            setDataPullStatus("AVAILABLE");
+        }
+    };
 
     const fetchAvailableProfiles = async () => {
         try {
@@ -43,7 +133,7 @@ export default function Analysis() {
             console.error("Error fetching available profiles:", error);
             setAvailableProfiles([]);
         }
-    }
+    };
 
     const runAnalysis = async () => {
         try {
@@ -61,25 +151,34 @@ export default function Analysis() {
             console.error("Run analysis error:", error);
             setStatus("ERROR");
         }
-    }
+    };
 
     const fetchAnalysisData = async (analysisId: string) => {
         try {
             setLoading(true);
             const data = await AnalysisService.readAnalysis(analysisId);
             if (data) {
-                // Update config based on loaded data if available
+                const exchangeSrc = !data.exchange ? "SEC"
+                    : data.exchange.toUpperCase().includes("NSE") ? "NSE" : "SEC";
                 setConfig(prev => ({
                     ...prev,
                     share: data.symbol || data.share || prev.share,
                     shareName: data.share_name || prev.shareName,
                     profile: data.profile_name || data.profile || prev.profile,
-                    exchange: data.exchange || prev.exchange,
+                    source: exchangeSrc,
                 }));
+
+                setCorrelationId(analysisId);
 
                 if (data.status === "complete" || data.status === "error" || data.status === "COMPLETED" || data.status === "ERROR") {
                     const isComplete = data.status.toLowerCase() === "complete" || data.status.toLowerCase() === "completed";
                     setStatus(isComplete ? "COMPLETED" : "ERROR");
+                    if (data.duration) {
+                        setAnalysisDuration(`${data.duration.toFixed(1)}s`);
+                    }
+                    if (isComplete && data.share) {
+                        setDataPullStatus("AVAILABLE");
+                    }
                 } else {
                     setStatus("PENDING");
                 }
@@ -90,14 +189,22 @@ export default function Analysis() {
         } finally {
             setLoading(false);
         }
-    }
+    };
 
     useEffect(() => {
-        fetchAvailableProfiles()
+        fetchAvailableSources();
+        fetchAvailableProfiles();
         if (id) {
             fetchAnalysisData(id);
         }
-    }, [id])
+    }, [id]);
+
+    useEffect(() => {
+        if (config.source && config.share && !id) {
+            checkLastDataPull();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [config.source, config.share, id]);
 
     useEffect(() => {
         if (status === "PENDING" && correlationId) {
@@ -108,6 +215,9 @@ export default function Analysis() {
                         if (data.status === "complete" || data.status === "error" || data.status === "COMPLETED" || data.status === "ERROR") {
                             const isComplete = data.status.toLowerCase() === "complete" || data.status.toLowerCase() === "completed";
                             setStatus(isComplete ? "COMPLETED" : "ERROR");
+                            if (data.duration) {
+                                setAnalysisDuration(`${data.duration.toFixed(1)}s`);
+                            }
                             clearInterval(interval);
                         }
                     }
@@ -122,111 +232,292 @@ export default function Analysis() {
         }
     }, [status, correlationId]);
 
-    useEffect(() => {
-        let saveName = `${config.exchange}-${config.share}-${config.profile}`
-        setConfig(prev => ({
-            ...prev,
-            name: saveName
-        }))
-    }, [config.exchange, config.share, config.profile])
+    const formatDate = (dateStr: string) => {
+        try {
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('en-GB', {
+                day: 'numeric', month: 'short', year: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
+        } catch {
+            return dateStr;
+        }
+    };
+
+    const isConfigComplete = config.share !== "" && config.profile !== "";
+    const canRunAnalysis = isConfigComplete && dataPullStatus !== "CHECKING" && dataPullStatus !== "PULLING";
+
+    const statusIcons = (active: boolean, done: boolean, error: boolean) => {
+        if (error) return <MdErrorOutline color="red" size={16} />;
+        if (active) return <Spinner size="xs" />;
+        if (done) return <MdCheckCircle color="var(--chakra-colors-green-400)" size={16} />;
+        return <Box w="14px" h="14px" rounded="full" border="2px solid" borderColor="gray.600" />;
+    };
 
     return (
-        <Flex direction={"column"} gap={5}>
-            <Flex justify={"space-between"} width={"1/2"}>
-                <Badge colorPalette="green">Step 1: Select a company</Badge>
-                <Badge colorPalette="green">Step 2: Select a pre built investor profile</Badge>
-                <Badge colorPalette="green">Step 3: Hit Run.</Badge>
+        <Flex direction={"column"} gap={8} py={4}>
+            <Flex justify={"space-between"} align="center">
+                <Text textStyle={"3xl"} fontWeight="bold" letterSpacing="tight">
+                    New Analysis
+                </Text>
+                <Flex gap={2}>
+                    <Badge variant="subtle" colorPalette="gray" size="sm" rounded="sm">Step 1: Source</Badge>
+                    <Badge variant="subtle" colorPalette="gray" size="sm" rounded="sm">Step 2: Company</Badge>
+                    <Badge variant="subtle" colorPalette="gray" size="sm" rounded="sm">Step 3: Profile</Badge>
+                </Flex>
             </Flex>
 
-            <Separator />
-
-            <Flex gap={5} justify={"space-between"}>
-                <Flex width={"2/3"} direction={"column"} gap={3}>
-                    <Text textStyle={"2xl"}>Analysis Config</Text>
-                    <Separator />
-                    <SimpleGrid columns={2} gap={2}>
-                        <SearchBar
-                            url={`${NEBULA_BASE}/search-exchanges`}
-                            label="Exchange 🌍"
-                            mainKey="SYMBOL"
-                            secondaryKey="NAME"
-                            onChange={handleConfigChange}
-                            field="exchange"
-                        />
-                        <SearchBar
-                            url={`${NEBULA_BASE}/search-stocks`}
-                            label="Company 🏢"
-                            mainKey="SYMBOL"
-                            secondaryKey="NAME"
-                            onChange={handleConfigChange}
-                            field="share"
-                        />
-                        <Flex direction={"column"} align={"start"}>
-                            <Text mb={1} fontSize="sm" fontWeight="medium">Investor Profile 👤</Text>
-                            <select
-                                style={{ width: "100%", padding: "10px", border: "1px solid #444", borderRadius: "6px", backgroundColor: "transparent", color: "inherit" }}
-                                value={config.profile}
-                                onChange={(e) => {
-                                    setConfig({ ...config, profile: e.target.value });
-                                }}
-                            >
-                                <option value="" style={{ color: "black" }}>Select a profile</option>
-                                {availableProfiles.map((p, idx) => (
-                                    <option key={idx} value={p.name} style={{ color: "black" }}>{p.name}</option>
-                                ))}
-                            </select>
-                        </Flex>
-                        <Flex direction={"column"} align={"start"} >
-                            <Text>Save as</Text>
-                            <Input
-                                value={config.name}
-                                placeholder="Flushed"
-                                onChange={(e) => { setConfig({ ...config, name: e.target.value }) }}
-                            />
-                        </Flex>
-                    </SimpleGrid>
-
-                    <Button
-                        disabled={
-                            config.exchange == '' ||
-                            config.share == '' ||
-                            config.profile == '' ||
-                            config.name == '--' ||
-                            config.name == '' ||
-                            status == "PENDING"
-                        }
-                        variant="surface"
-                        colorPalette={"blue"}
-                        onClick={runAnalysis}
+            <Flex direction={{ base: "column", md: "row" }} gap={8} align="start">
+                {/* Left: Configuration */}
+                <Box flex="1" width="full">
+                    <Box
+                        bg="gray.950"
+                        border="1px solid"
+                        borderColor="gray.800"
+                        rounded="md"
+                        p={8}
                     >
-                        {status === "COMPLETED" ? "Run Again" : "Run"}
-                    </Button>
+                        <Flex direction={"column"} gap={6}>
+                            {/* Source Select */}
+                            <Flex direction={"column"} align={"start"}>
+                                <Flex align="center" gap={1} mb={2}>
+                                    <Text fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest">Select Source</Text>
+                                    <Tooltip content="Choose the market data source for the company to analyze.">
+                                        <Box cursor="help">
+                                            <MdInfoOutline size={14} color="gray.600" />
+                                        </Box>
+                                    </Tooltip>
+                                </Flex>
+                                <Box width="full">
+                                    <Select.Root
+                                        collection={sourceOptions}
+                                        value={[config.source]}
+                                        onValueChange={(e) => handleSourceChange(e.value[0])}
+                                    >
+                                        <Select.HiddenSelect />
+                                        <Select.Control>
+                                            <Select.Trigger>
+                                                <Select.ValueText placeholder="Select source" />
+                                            </Select.Trigger>
+                                            <Select.IndicatorGroup>
+                                                <Select.Indicator />
+                                            </Select.IndicatorGroup>
+                                        </Select.Control>
+                                        <Portal>
+                                            <Select.Positioner>
+                                                <Select.Content>
+                                                    {sourceOptions.items.map((item: any) => (
+                                                        <Select.Item item={item} key={item.value}>
+                                                            {item.label}
+                                                            <Select.ItemIndicator />
+                                                        </Select.Item>
+                                                    ))}
+                                                </Select.Content>
+                                            </Select.Positioner>
+                                        </Portal>
+                                    </Select.Root>
+                                </Box>
+                            </Flex>
 
-                    {correlationId && (
-                        <Link to={`/analysis-result/${correlationId}`}>
-                            <Button width="full" colorPalette="green" variant="solid">
-                                {status === "COMPLETED" ? "View Results ↗" : "View Progress ↗"}
-                            </Button>
-                        </Link>
-                    )}
-                </Flex>
+                            {/* Target Company */}
+                            <Flex direction={"column"} align={"start"}>
+                                <Text mb={2} fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest">Target Company</Text>
+                                <SearchBar
+                                    url={`${NEBULA_BASE}/search-stocks`}
+                                    mainKey={sourceKeys.mainKey}
+                                    secondaryKey={sourceKeys.secondaryKey}
+                                    onChange={handleConfigChange}
+                                    field="share"
+                                    params={{ source: config.source }}
+                                    placeholder={config.source === "SEC" ? "Search US stocks (e.g., AAPL)" : "Search Indian stocks (e.g., RELIANCE)"}
+                                />
+                            </Flex>
 
-                <Flex width={"1/3"} direction={"column"} gap={3}>
-                    <Text textStyle={"xl"}>Options</Text>
-                    <Separator />
-                    <Button disabled={status != "COMPLETED"} variant="surface" >+ Add to portfolio</Button>
-                    <DownloadTrigger
-                        data="Share analysis results"
-                        fileName="sample.txt"
-                        mimeType="text/plain"
-                        asChild
+                            {/* Investor Profile */}
+                            <Flex direction={"column"} align={"start"}>
+                                <Text mb={2} fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest">Investor Profile</Text>
+                                <Box width="full" position="relative">
+                                    <select
+                                        style={{
+                                            width: "100%",
+                                            height: "40px",
+                                            padding: "0 12px",
+                                            border: "1px solid",
+                                            borderColor: "var(--chakra-colors-gray-800)",
+                                            borderRadius: "2px",
+                                            backgroundColor: "var(--chakra-colors-gray-900)",
+                                            color: "inherit",
+                                            appearance: "none",
+                                            cursor: "pointer",
+                                            fontSize: "14px",
+                                            outline: "none"
+                                        }}
+                                        value={config.profile}
+                                        onChange={(e) => {
+                                            setConfig({ ...config, profile: e.target.value });
+                                        }}
+                                    >
+                                        <option value="" style={{ color: "black" }}>Select Portfolio Strategy</option>
+                                        {availableProfiles.map((p, idx) => (
+                                            <option key={idx} value={p.name} style={{ color: "black" }}>{p.name}</option>
+                                        ))}
+                                    </select>
+                                    <Box
+                                        position="absolute"
+                                        right="10px"
+                                        top="50%"
+                                        transform="translateY(-50%)"
+                                        pointerEvents="none"
+                                        color="gray.600"
+                                    >
+                                        <MdKeyboardArrowDown size={18} />
+                                    </Box>
+                                </Box>
+                            </Flex>
+                        </Flex>
+                    </Box>
+                </Box>
+
+                {/* Right: Analysis Status */}
+                <Box width={{ base: "full", md: "380px" }} flexShrink={0}>
+                    <Box
+                        bg="gray.950"
+                        border="1px solid"
+                        borderColor="gray.800"
+                        rounded="md"
+                        p={6}
                     >
-                        <Button disabled={status != "COMPLETED"} variant="outline">
-                            <MdOutlineFileDownload />
-                            Download result
-                        </Button>
-                    </DownloadTrigger>
-                </Flex>
+                        <Text fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest" mb={5}>
+                            Analysis Status
+                        </Text>
+
+                        <VStack gap={5} align="stretch">
+                            {/* Step 1: Data Check */}
+                            <Box>
+                                <HStack gap={2} mb={2}>
+                                    {statusIcons(
+                                        dataPullStatus === "CHECKING" || dataPullStatus === "PULLING",
+                                        dataPullStatus === "AVAILABLE" || dataPullStatus === "PULLED",
+                                        dataPullStatus === "ERROR"
+                                    )}
+                                    <Text fontSize="sm" fontWeight="medium">Data Status Check</Text>
+                                </HStack>
+                                <Box ml={6}>
+                                    {dataPullStatus === "IDLE" ? (
+                                        <Text fontSize="xs" color="gray.500">
+                                            {config.share ? "Checking..." : "Select a company to check"}
+                                        </Text>
+                                    ) : dataPullStatus === "CHECKING" ? (
+                                        <HStack gap={1}>
+                                            <Spinner size="xs" />
+                                            <Text fontSize="xs" color="gray.500">Checking last data pull...</Text>
+                                        </HStack>
+                                    ) : dataPullStatus === "PULLING" ? (
+                                        <HStack gap={1}>
+                                            <Spinner size="xs" />
+                                            <Text fontSize="xs" color="gray.500">Pulling latest data...</Text>
+                                        </HStack>
+                                    ) : (
+                                        <>
+                                            <Text fontSize="xs" color="gray.400" mb={2}>
+                                                {lastPullDate
+                                                    ? `Last pulled: ${formatDate(lastPullDate)}`
+                                                    : "No data pulled yet for this stock"}
+                                            </Text>
+                                            <HStack gap={2}>
+                                                <Button
+                                                    size="xs"
+                                                    variant="outline"
+                                                    onClick={pullLatestData}
+                                                    loading={dataPullStatus === "PULLING"}
+                                                    loadingText="Pulling..."
+                                                >
+                                                    <MdOutlineRefresh size={12} />
+                                                    Pull Latest
+                                                </Button>
+                                                <Button
+                                                    size="xs"
+                                                    variant="ghost"
+                                                    onClick={() => navigate(`/manage-data?symbol=${config.share}&source=${config.source}`)}
+                                                >
+                                                    <MdOutlineStorage size={12} />
+                                                    Check Data
+                                                </Button>
+                                            </HStack>
+                                        </>
+                                    )}
+                                </Box>
+                            </Box>
+
+                            <Separator borderColor="gray.800" />
+
+                            {/* Step 2: Analysis */}
+                            <Box>
+                                <HStack gap={2} mb={2}>
+                                    {statusIcons(
+                                        status === "PENDING",
+                                        status === "COMPLETED",
+                                        status === "ERROR"
+                                    )}
+                                    <Text fontSize="sm" fontWeight="medium">Analysis</Text>
+                                </HStack>
+                                <Box ml={6}>
+                                    {!isConfigComplete ? (
+                                        <Text fontSize="xs" color="gray.500">
+                                            Complete configuration to run analysis
+                                        </Text>
+                                    ) : status === "PENDING" ? (
+                                        <HStack gap={1}>
+                                            <Spinner size="xs" />
+                                            <Text fontSize="xs" color="gray.500">Running analysis...</Text>
+                                        </HStack>
+                                    ) : status === "COMPLETED" ? (
+                                        <VStack gap={2} align="stretch">
+                                            <Text fontSize="xs" color="gray.400">
+                                                {analysisDuration
+                                                    ? `Completed in ${analysisDuration}`
+                                                    : "Analysis complete"}
+                                            </Text>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                colorPalette="green"
+                                                onClick={() => navigate(`/analysis-result/${correlationId}`)}
+                                                rounded="sm"
+                                                fontSize="xs"
+                                            >
+                                                View Analysis Report
+                                            </Button>
+                                        </VStack>
+                                    ) : status === "ERROR" ? (
+                                        <Text fontSize="xs" color="red.400">Analysis encountered an error</Text>
+                                    ) : status === "EMPTY" && id ? (
+                                        <HStack gap={1}>
+                                            <Spinner size="xs" />
+                                            <Text fontSize="xs" color="gray.500">Resuming analysis...</Text>
+                                        </HStack>
+                                    ) : (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={runAnalysis}
+                                            disabled={!canRunAnalysis}
+                                            loading={status === "PENDING"}
+                                            loadingText="Running..."
+                                            rounded="sm"
+                                            fontSize="xs"
+                                            fontWeight="bold"
+                                            textTransform="uppercase"
+                                            letterSpacing="wider"
+                                        >
+                                            Initialize Deep Scan
+                                        </Button>
+                                    )}
+                                </Box>
+                            </Box>
+                        </VStack>
+                    </Box>
+                </Box>
             </Flex>
 
             <Separator />
@@ -236,7 +527,7 @@ export default function Analysis() {
                     <Spinner size="xl" borderWidth="4px" />
                     <Text>Loading analysis data...</Text>
                 </Flex>
-            ) : status === "PENDING" ?
+            ) : status === "PENDING" ? (
                 <Flex justify="center" align="center" direction="column" gap={4} p={10}>
                     <Spinner size="xl" borderWidth="4px" />
                     <Text>Analysis in progress... This may take a few minutes.</Text>
@@ -246,25 +537,20 @@ export default function Analysis() {
                         </Link>
                     )}
                 </Flex>
-                : status === "COMPLETED" && correlationId ?
-                <Flex justify="center" align="center" direction="column" gap={6} p={20} bg="gray.900" borderRadius="xl">
-                    <Text textStyle="2xl" fontWeight="bold">Analysis Completed Successfully!</Text>
-                    <Link to={`/analysis-result/${correlationId}`}>
-                        <Button size="xl" colorPalette="green" variant="solid">
-                            Go to Analysis Result Page 🚀
-                        </Button>
-                    </Link>
+            ) : status === "COMPLETED" && correlationId ? (
+                <Flex justify="center" align="center" direction="column" gap={4} p={10}>
+                    <Text color="gray.500">You can find all your previous analyses in the list view.</Text>
                 </Flex>
-                :
+            ) : !id && (
                 <Flex justify={"center"} align={"center"} color={"grey"}>
-                    <List.Root>
-                        <List.Item>Step 1: Select an exchange and a company you want to analyze.</List.Item>
-                        <List.Item>Step 2: Select an investor profile that defines the scoring criteria.</List.Item>
-                        <List.Item>Step 3: Click "Run" to start the analysis process.</List.Item>
-                        <List.Item>Once started, you can track the progress on the dedicated result page.</List.Item>
-                    </List.Root>
+                    <Box as="ul" fontSize="sm" lineHeight="2">
+                        <Box as="li">Step 1: Select a market source (SEC or NSE).</Box>
+                        <Box as="li">Step 2: Search and select the target company.</Box>
+                        <Box as="li">Step 3: Choose an investor profile.</Box>
+                        <Box as="li">Check data status, pull latest data if needed, then run the analysis.</Box>
+                    </Box>
                 </Flex>
-            }
+            )}
         </Flex>
     )
 }

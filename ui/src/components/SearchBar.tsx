@@ -18,9 +18,9 @@ export default function SearchBar(props) {
     const [items, setItems] = useState([])
     const [value, setValue] = useState<string[]>([])
 
-
     const mainKey = props.mainKey || "SYMBOL"
     const secondaryKey = props.secondaryKey || "NAME"
+    const searchParams = props.params || {}
 
     const collection = useMemo(() => createListCollection({
         items: items,
@@ -29,14 +29,14 @@ export default function SearchBar(props) {
     }), [items, mainKey])
 
     const state = useAsync(async () => {
-        const response = await fetch(
-            `${props.url}?query=${inputValue}`,
-        )
+        const params = new URLSearchParams({ query: inputValue })
+        Object.entries(searchParams).forEach(([key, val]) => {
+            if (val) params.set(key, val as string)
+        })
+        const response = await fetch(`${props.url}?${params}`)
         const data = await response.json()
         setItems(Array.isArray(data) ? data : [])
-
-
-    }, [inputValue])
+    }, [inputValue, props.url, JSON.stringify(searchParams)])
 
     useEffect(() => {
         const selectedItem = items.find(i => i[mainKey] === value[0]);
@@ -49,9 +49,8 @@ export default function SearchBar(props) {
 
     return (
         <Combobox.Root
-            // width="320px"
             collection={collection}
-            placeholder="Example: C-3PO"
+            placeholder={props.placeholder || "Type to search"}
             onInputValueChange={(e) => setInputValue(e.inputValue)}
             variant={"subtle"}
             value={value}
