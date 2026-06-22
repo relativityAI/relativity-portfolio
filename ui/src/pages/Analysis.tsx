@@ -74,8 +74,9 @@ export default function Analysis() {
             shareName: field === 'share' && item ? item[nameField] : prev.shareName
         }));
         if (field === 'share') {
-            setDataPullStatus("IDLE");
+            setDataPullStatus("CHECKING");
             setLastPullDate(null);
+            checkLastDataPull(config.source, value);
         }
     };
 
@@ -90,29 +91,29 @@ export default function Analysis() {
         setLastPullDate(null);
     };
 
-    const checkLastDataPull = async () => {
-        if (!config.source || !config.share || id) return;
+    const checkLastDataPull = (source?: string, symbol?: string) => {
+        const src = source || config.source;
+        const sym = symbol || config.share;
+        if (!src || !sym || id) return;
         setDataPullStatus("CHECKING");
-        try {
-            const result = await VoyagerService.getLastDataPull(config.share, config.source);
-            if (result.last_pull) {
+        VoyagerService.getStockDataStatus(sym, src).then(result => {
+            if (result && result.last_pull) {
                 setLastPullDate(result.last_pull);
             } else {
                 setLastPullDate(null);
             }
             setDataPullStatus("AVAILABLE");
-        } catch (error) {
-            console.error("Error checking data pull:", error);
+        }).catch(() => {
             setLastPullDate(null);
             setDataPullStatus("AVAILABLE");
-        }
+        });
     };
 
     const pullLatestData = async () => {
         if (!config.source || !config.share) return;
         setDataPullStatus("PULLING");
         try {
-            await VoyagerService.pullLatestData(config.share, config.source);
+            await VoyagerService.pullStockData(config.share, config.source);
             setLastPullDate(new Date().toISOString());
             setDataPullStatus("PULLED");
         } catch (error) {
@@ -136,7 +137,25 @@ export default function Analysis() {
     };
 
     const runAnalysis = async () => {
+        if (!config.source || !config.share || !config.profile) return;
+
         try {
+            // Step 1: Check data availability
+            setDataPullStatus("CHECKING");
+            const dataStatus = await VoyagerService.getStockDataStatus(config.share, config.source);
+
+            if (dataStatus && dataStatus.last_pull) {
+                setLastPullDate(dataStatus.last_pull);
+                setDataPullStatus("AVAILABLE");
+            } else {
+                // Step 2: Pull latest data if none exists
+                setDataPullStatus("PULLING");
+                await VoyagerService.pullStockData(config.share, config.source);
+                setLastPullDate(new Date().toISOString());
+                setDataPullStatus("PULLED");
+            }
+
+            // Step 3: Run analysis
             const result = await AnalysisService.runAnalysis({
                 share_name: config.shareName || config.share,
                 symbol: config.share,
@@ -149,6 +168,7 @@ export default function Analysis() {
             }
         } catch (error) {
             console.error("Run analysis error:", error);
+            setDataPullStatus("ERROR");
             setStatus("ERROR");
         }
     };
@@ -173,14 +193,13 @@ export default function Analysis() {
                 if (data.status === "complete" || data.status === "error" || data.status === "COMPLETED" || data.status === "ERROR") {
                     const isComplete = data.status.toLowerCase() === "complete" || data.status.toLowerCase() === "completed";
                     setStatus(isComplete ? "COMPLETED" : "ERROR");
+                    setDataPullStatus("AVAILABLE");
                     if (data.duration) {
                         setAnalysisDuration(`${data.duration.toFixed(1)}s`);
                     }
-                    if (isComplete && data.share) {
-                        setDataPullStatus("AVAILABLE");
-                    }
                 } else {
                     setStatus("PENDING");
+                    setDataPullStatus("AVAILABLE");
                 }
             }
         } catch (error) {
@@ -200,13 +219,6 @@ export default function Analysis() {
     }, [id]);
 
     useEffect(() => {
-        if (config.source && config.share && !id) {
-            checkLastDataPull();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [config.source, config.share, id]);
-
-    useEffect(() => {
         if (status === "PENDING" && correlationId) {
             const interval = setInterval(async () => {
                 try {
@@ -215,6 +227,7 @@ export default function Analysis() {
                         if (data.status === "complete" || data.status === "error" || data.status === "COMPLETED" || data.status === "ERROR") {
                             const isComplete = data.status.toLowerCase() === "complete" || data.status.toLowerCase() === "completed";
                             setStatus(isComplete ? "COMPLETED" : "ERROR");
+                            setDataPullStatus("AVAILABLE");
                             if (data.duration) {
                                 setAnalysisDuration(`${data.duration.toFixed(1)}s`);
                             }
@@ -245,7 +258,7 @@ export default function Analysis() {
     };
 
     const isConfigComplete = config.share !== "" && config.profile !== "";
-    const canRunAnalysis = isConfigComplete && dataPullStatus !== "CHECKING" && dataPullStatus !== "PULLING";
+    const canRunAnalysis = isConfigComplete && (dataPullStatus === "AVAILABLE" || dataPullStatus === "PULLED");
 
     const statusIcons = (active: boolean, done: boolean, error: boolean) => {
         if (error) return <MdErrorOutline color="red" size={16} />;
@@ -271,9 +284,9 @@ export default function Analysis() {
                 {/* Left: Configuration */}
                 <Box flex="1" width="full">
                     <Box
-                        bg="gray.950"
+                        bg="bg.subtle"
                         border="1px solid"
-                        borderColor="gray.800"
+                        borderColor="border"
                         rounded="md"
                         p={8}
                     >
@@ -281,10 +294,10 @@ export default function Analysis() {
                             {/* Source Select */}
                             <Flex direction={"column"} align={"start"}>
                                 <Flex align="center" gap={1} mb={2}>
-                                    <Text fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest">Select Source</Text>
+                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Select Source</Text>
                                     <Tooltip content="Choose the market data source for the company to analyze.">
                                         <Box cursor="help">
-                                            <MdInfoOutline size={14} color="gray.600" />
+                                            <MdInfoOutline size={14} color="fg.muted" />
                                         </Box>
                                     </Tooltip>
                                 </Flex>
@@ -321,7 +334,7 @@ export default function Analysis() {
 
                             {/* Target Company */}
                             <Flex direction={"column"} align={"start"}>
-                                <Text mb={2} fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest">Target Company</Text>
+                                <Text mb={2} fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Target Company</Text>
                                 <SearchBar
                                     url={`${NEBULA_BASE}/search-stocks`}
                                     mainKey={sourceKeys.mainKey}
@@ -335,7 +348,7 @@ export default function Analysis() {
 
                             {/* Investor Profile */}
                             <Flex direction={"column"} align={"start"}>
-                                <Text mb={2} fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest">Investor Profile</Text>
+                                <Text mb={2} fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Investor Profile</Text>
                                 <Box width="full" position="relative">
                                     <select
                                         style={{
@@ -343,9 +356,9 @@ export default function Analysis() {
                                             height: "40px",
                                             padding: "0 12px",
                                             border: "1px solid",
-                                            borderColor: "var(--chakra-colors-gray-800)",
+                                            borderColor: "var(--chakra-colors-border)",
                                             borderRadius: "2px",
-                                            backgroundColor: "var(--chakra-colors-gray-900)",
+                                            backgroundColor: "var(--chakra-colors-bg-muted)",
                                             color: "inherit",
                                             appearance: "none",
                                             cursor: "pointer",
@@ -368,7 +381,7 @@ export default function Analysis() {
                                         top="50%"
                                         transform="translateY(-50%)"
                                         pointerEvents="none"
-                                        color="gray.600"
+                                        color="fg.muted"
                                     >
                                         <MdKeyboardArrowDown size={18} />
                                     </Box>
@@ -381,13 +394,13 @@ export default function Analysis() {
                 {/* Right: Analysis Status */}
                 <Box width={{ base: "full", md: "380px" }} flexShrink={0}>
                     <Box
-                        bg="gray.950"
+                        bg="bg.subtle"
                         border="1px solid"
-                        borderColor="gray.800"
+                        borderColor="border"
                         rounded="md"
                         p={6}
                     >
-                        <Text fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest" mb={5}>
+                        <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={5}>
                             Analysis Status
                         </Text>
 
@@ -404,22 +417,22 @@ export default function Analysis() {
                                 </HStack>
                                 <Box ml={6}>
                                     {dataPullStatus === "IDLE" ? (
-                                        <Text fontSize="xs" color="gray.500">
+                                        <Text fontSize="xs" color="fg.subtle">
                                             {config.share ? "Checking..." : "Select a company to check"}
                                         </Text>
                                     ) : dataPullStatus === "CHECKING" ? (
                                         <HStack gap={1}>
                                             <Spinner size="xs" />
-                                            <Text fontSize="xs" color="gray.500">Checking last data pull...</Text>
+                                            <Text fontSize="xs" color="fg.subtle">Checking last data pull...</Text>
                                         </HStack>
                                     ) : dataPullStatus === "PULLING" ? (
                                         <HStack gap={1}>
                                             <Spinner size="xs" />
-                                            <Text fontSize="xs" color="gray.500">Pulling latest data...</Text>
+                                            <Text fontSize="xs" color="fg.subtle">Pulling latest data...</Text>
                                         </HStack>
                                     ) : (
                                         <>
-                                            <Text fontSize="xs" color="gray.400" mb={2}>
+                                            <Text fontSize="xs" color="fg.muted" mb={2}>
                                                 {lastPullDate
                                                     ? `Last pulled: ${formatDate(lastPullDate)}`
                                                     : "No data pulled yet for this stock"}
@@ -435,21 +448,19 @@ export default function Analysis() {
                                                     <MdOutlineRefresh size={12} />
                                                     Pull Latest
                                                 </Button>
-                                                <Button
-                                                    size="xs"
-                                                    variant="ghost"
-                                                    onClick={() => navigate(`/manage-data?symbol=${config.share}&source=${config.source}`)}
-                                                >
-                                                    <MdOutlineStorage size={12} />
-                                                    Check Data
-                                                </Button>
+                                                <Link to={`/manage-data?symbol=${config.share}&source=${config.source}`} target="_blank">
+                                                    <Button size="xs" variant="ghost">
+                                                        <MdOutlineStorage size={12} />
+                                                        Check Data
+                                                    </Button>
+                                                </Link>
                                             </HStack>
                                         </>
                                     )}
                                 </Box>
                             </Box>
 
-                            <Separator borderColor="gray.800" />
+                            <Separator borderColor="border" />
 
                             {/* Step 2: Analysis */}
                             <Box>
@@ -463,38 +474,39 @@ export default function Analysis() {
                                 </HStack>
                                 <Box ml={6}>
                                     {!isConfigComplete ? (
-                                        <Text fontSize="xs" color="gray.500">
+                                        <Text fontSize="xs" color="fg.subtle">
                                             Complete configuration to run analysis
                                         </Text>
                                     ) : status === "PENDING" ? (
                                         <HStack gap={1}>
                                             <Spinner size="xs" />
-                                            <Text fontSize="xs" color="gray.500">Running analysis...</Text>
+                                            <Text fontSize="xs" color="fg.subtle">Running analysis...</Text>
                                         </HStack>
                                     ) : status === "COMPLETED" ? (
                                         <VStack gap={2} align="stretch">
-                                            <Text fontSize="xs" color="gray.400">
+                                            <Text fontSize="xs" color="fg.muted">
                                                 {analysisDuration
                                                     ? `Completed in ${analysisDuration}`
                                                     : "Analysis complete"}
                                             </Text>
+                                        <Link to={`/analysis-result/${correlationId}`}>
                                             <Button
                                                 size="sm"
                                                 variant="outline"
                                                 colorPalette="green"
-                                                onClick={() => navigate(`/analysis-result/${correlationId}`)}
                                                 rounded="sm"
                                                 fontSize="xs"
                                             >
                                                 View Analysis Report
                                             </Button>
+                                        </Link>
                                         </VStack>
                                     ) : status === "ERROR" ? (
                                         <Text fontSize="xs" color="red.400">Analysis encountered an error</Text>
                                     ) : status === "EMPTY" && id ? (
                                         <HStack gap={1}>
                                             <Spinner size="xs" />
-                                            <Text fontSize="xs" color="gray.500">Resuming analysis...</Text>
+                                            <Text fontSize="xs" color="fg.subtle">Resuming analysis...</Text>
                                         </HStack>
                                     ) : (
                                         <Button
@@ -510,7 +522,7 @@ export default function Analysis() {
                                             textTransform="uppercase"
                                             letterSpacing="wider"
                                         >
-                                            Initialize Deep Scan
+                                            Start Analysis
                                         </Button>
                                     )}
                                 </Box>
@@ -531,15 +543,10 @@ export default function Analysis() {
                 <Flex justify="center" align="center" direction="column" gap={4} p={10}>
                     <Spinner size="xl" borderWidth="4px" />
                     <Text>Analysis in progress... This may take a few minutes.</Text>
-                    {correlationId && (
-                        <Link to={`/analysis-result/${correlationId}`}>
-                            <Button variant="outline" colorPalette="green">View Progress in Real-time ↗</Button>
-                        </Link>
-                    )}
                 </Flex>
             ) : status === "COMPLETED" && correlationId ? (
                 <Flex justify="center" align="center" direction="column" gap={4} p={10}>
-                    <Text color="gray.500">You can find all your previous analyses in the list view.</Text>
+                    <Text color="fg.subtle">You can find all your previous analyses in the list view.</Text>
                 </Flex>
             ) : !id && (
                 <Flex justify={"center"} align={"center"} color={"grey"}>

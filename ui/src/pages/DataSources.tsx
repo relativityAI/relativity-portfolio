@@ -214,7 +214,7 @@ export default function DataSources() {
                         </Table.Row>
                     ) : uniqueSources.length === 0 ? (
                         <Table.Row>
-                            <Table.Cell colSpan={3} textAlign="center" color="gray.500">
+                            <Table.Cell colSpan={3} textAlign="center" color="fg.subtle">
                                 No data sources configured.
                             </Table.Cell>
                         </Table.Row>

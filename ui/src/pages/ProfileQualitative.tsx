@@ -6,16 +6,15 @@ import {
     Input,
     Box,
     Text,
-    Slider
 } from "@chakra-ui/react"
-import { MdDeleteForever } from "react-icons/md";
-import DropDown from "@/components/DropDown"
+import { MdDeleteForever, MdAdd } from "react-icons/md";
 
 interface ProfileDataQualitativeProps {
     data: any[];
     onUpdate: (data: any[]) => void;
     id: string;
     name: string;
+    metrics?: any;
 }
 
 export default function ProfileDataQualitative(props: ProfileDataQualitativeProps) {
@@ -23,28 +22,20 @@ export default function ProfileDataQualitative(props: ProfileDataQualitativeProp
 
     const handleChange = (index: number, field: string, value: any) => {
         const newArr = [...parameters];
-        newArr[index] = {
-            ...newArr[index],
-            [field]: value
-        }
+        newArr[index] = { ...newArr[index], [field]: value };
         setParameters(newArr);
         props.onUpdate(newArr);
     }
 
     const addParameter = (e: any) => {
         e.preventDefault();
-        const newParams = [...parameters, { 
-            parameter: "", 
-            content: "", 
-            weightage: 5, 
-            preferred_source: "Relativity Voyager" 
-        }];
+        const newParams = [...parameters, { parameter: "", content: "", weightage: 5 }];
         setParameters(newParams);
         props.onUpdate(newParams);
     }
 
     const deleteParam = (idx: number) => () => {
-        const reducedList = parameters.filter((_, index) => index !== idx)
+        const reducedList = parameters.filter((_, index) => index !== idx);
         setParameters(reducedList);
         props.onUpdate(reducedList);
     }
@@ -54,124 +45,158 @@ export default function ProfileDataQualitative(props: ProfileDataQualitativeProp
     }, [props.data])
 
     return (
-        <Flex direction={"column"} gap={8} width="full">
-            {parameters.map((param, index) => (
-                <Box 
-                    key={index} 
-                    p={6} 
-                    bg="gray.900" 
-                    rounded="sm" 
-                    border="1px solid" 
-                    borderColor="gray.800"
-                    position="relative"
-                    _hover={{ borderColor: "gray.700" }}
-                    transition="all 0.2s"
-                >
-                    <Flex direction="column" gap={6}>
-                        {/* Header: Title & Delete */}
-                        <Flex justify="space-between" align="center">
-                            <Flex direction="column" gap={1} flex={1}>
-                                <Text fontSize="2xs" fontWeight="black" color="gray.600" letterSpacing="widest">PARAMETER TITLE</Text>
-                                <Input 
-                                    variant="subtle" 
-                                    size="md"
-                                    placeholder="e.g. Management Quality"
-                                    value={param.parameter} 
-                                    onChange={(e) => handleChange(index, "parameter", e.target.value)} 
-                                    bg="gray.950"
-                                    _focus={{ bg: "gray.950", borderColor: "gray.700" }}
-                                    fontWeight="bold"
-                                    color="gray.200"
-                                    rounded="sm"
-                                    border="1px solid"
-                                    borderColor="transparent"
-                                />
-                            </Flex>
-                            
-                            <Button 
-                                size="xs" 
-                                variant="ghost" 
-                                color="gray.700" 
-                                _hover={{ color: "red.500", bg: "transparent" }} 
-                                onClick={deleteParam(index)}
-                                ml={4}
-                            >
-                                <MdDeleteForever size={20} />
-                            </Button>
-                        </Flex>
-
-                        {/* Metadata Rows: Slider & Source (Compact) */}
-                        <Flex gap={12} align="center" bg="gray.950/30" px={4} py={3} rounded="sm" border="1px solid" borderColor="gray.800/40">
-                            <Flex align="center" gap={4} flex={1}>
-                                <Text fontSize="2xs" fontWeight="bold" color="gray.600" letterSpacing="widest" whiteSpace="nowrap">WEIGHTAGE</Text>
-                                <Slider.Root 
-                                    size="sm" 
-                                    defaultValue={[param.weightage || 5]} 
-                                    min={0} 
-                                    max={10} 
-                                    step={1}
-                                    onValueChange={(details) => handleChange(index, "weightage", details.value[0])}
-                                    width="150px"
-                                >
-                                    <Slider.Control>
-                                        <Slider.Track bg="gray.800">
-                                            <Slider.Range bg="blue.600" />
-                                        </Slider.Track>
-                                        <Slider.Thumb index={0} />
-                                    </Slider.Control>
-                                </Slider.Root>
-                                <Text fontSize="xs" fontWeight="black" color="blue.500" minW="35px">{param.weightage || 5}/10</Text>
-                            </Flex>
-
-                            <Flex align="center" gap={4}>
-                                <Text fontSize="2xs" fontWeight="bold" color="gray.600" letterSpacing="widest" whiteSpace="nowrap">SOURCE</Text>
-                                <DropDown
-                                    initValue={param.preferred_source || "Custom Document"}
-                                    options={["Web Search", "Relativity Voyager", "Custom Document"]}
-                                    onChange={(e: any) => handleChange(index, "preferred_source", e.target.value)}
-                                    width="160px"
-                                />
-                            </Flex>
-                        </Flex>
-
-                        {/* Description */}
-                        <Flex direction="column" gap={2}>
-                            <Text fontSize="2xs" fontWeight="black" color="gray.600" letterSpacing="widest">DESCRIPTION / CONTEXT</Text>
-                            <Textarea
-                                autoresize
-                                minH="4lh"
-                                maxH="12lh"
-                                variant="subtle"
-                                placeholder="Enter detailed qualitative parameters, context, or notes..."
-                                value={param.content}
-                                size="md"
-                                onChange={(e) => handleChange(index, "content", e.target.value)}
-                                bg="gray.950"
-                                _focus={{ bg: "gray.950", borderColor: "gray.700" }}
-                                color="gray.400"
-                                lineHeight="relaxed"
-                                rounded="sm"
-                                border="1px solid"
-                                borderColor="transparent"
-                            />
-                        </Flex>
-                    </Flex>
-                </Box>
-            ))}
-
-            <Button 
-                variant="outline" 
-                color="gray.500" 
-                size="sm" 
-                onClick={addParameter} 
-                alignSelf="flex-start" 
-                fontWeight="bold" 
-                borderStyle="dashed"
-                borderColor="gray.800"
-                _hover={{ color: "white", bg: "gray.900", borderColor: "gray.700" }}
-                px={6}
+        <Flex direction="column" gap={0} width="full">
+            {/* Header row */}
+            <Flex
+                gap={3}
+                px={3}
+                py={2}
+                bg="bg.muted"
+                borderTopRadius="sm"
+                border="1px solid"
+                borderColor="border"
+                borderBottom="none"
+                fontSize="2xs"
+                fontWeight="bold"
+                color="fg.muted"
+                letterSpacing="widest"
             >
-                + ADD PARAMETER
+                <Box flex={1.5}>PARAMETER</Box>
+                <Box width="52px" textAlign="center" flexShrink={0}>WGT</Box>
+                <Box flex={3}>DESCRIPTION / CONTEXT</Box>
+                <Box width="32px" flexShrink={0} />
+            </Flex>
+
+            {parameters.length === 0 ? (
+                <Flex
+                    direction="column"
+                    align="center"
+                    gap={2}
+                    py={8}
+                    border="1px solid"
+                    borderColor="border"
+                    borderTop="none"
+                    borderBottomRadius="sm"
+                >
+                    <Text fontSize="sm" color="fg.muted">No qualitative parameters yet</Text>
+                    <Text fontSize="xs" color="fg.muted">Add parameters like management quality, brand strength, etc.</Text>
+                </Flex>
+            ) : (
+                parameters.map((param, index) => {
+                    const isLast = index === parameters.length - 1;
+                    return (
+                        <Flex
+                            key={index}
+                            gap={3}
+                            px={3}
+                            py={2.5}
+                            align="center"
+                            border="1px solid"
+                            borderColor="border"
+                            borderTop="none"
+                            borderBottomRadius={isLast ? "sm" : "none"}
+                            bg={index % 2 === 0 ? "bg.subtle/30" : "transparent"}
+                            _hover={{ bg: "bg.muted/50" }}
+                            transition="background 0.15s"
+                        >
+                            <Box flex={1.5}>
+                                <Input
+                                    variant="subtle"
+                                    size="2xs"
+                                    placeholder="e.g. Management Quality"
+                                    value={param.parameter}
+                                    onChange={(e) => handleChange(index, "parameter", e.target.value)}
+                                    bg="bg.subtle"
+                                    border="1px solid"
+                                    borderColor="border.emphasized"
+                                    _focus={{ borderColor: "fg.muted" }}
+                                    color="fg"
+                                    rounded="sm"
+                                    fontSize="xs"
+                                    minH="28px"
+                                    px={2}
+                                />
+                            </Box>
+                            <Box width="52px" flexShrink={0} textAlign="center">
+                                <Input
+                                    variant="subtle"
+                                    size="2xs"
+                                    type="number"
+                                    min={1}
+                                    max={10}
+                                    step={1}
+                                    value={param.weightage ?? 5}
+                                    onChange={(e) => handleChange(index, "weightage", Math.min(10, Math.max(1, parseInt(e.target.value) || 1)))}
+                                    bg="bg.subtle"
+                                    border="1px solid"
+                                    borderColor="border.emphasized"
+                                    _focus={{ borderColor: "fg.muted" }}
+                                    color="blue.400"
+                                    rounded="sm"
+                                    fontSize="xs"
+                                    fontWeight="bold"
+                                    textAlign="center"
+                                    minH="28px"
+                                    width="full"
+                                    px={1}
+                                />
+                            </Box>
+                            <Box flex={3}>
+                                <Textarea
+                                    autoresize
+                                    variant="subtle"
+                                    size="2xs"
+                                    minH="28px"
+                                    maxH="6lh"
+                                    placeholder="Describe the parameter or add context..."
+                                    value={param.content}
+                                    onChange={(e) => handleChange(index, "content", e.target.value)}
+                                    bg="bg.subtle"
+                                    border="1px solid"
+                                    borderColor="border.emphasized"
+                                    _focus={{ borderColor: "fg.muted" }}
+                                    color="fg.muted"
+                                    rounded="sm"
+                                    fontSize="xs"
+                                    px={2}
+                                    py={1}
+                                    lineHeight="short"
+                                />
+                            </Box>
+                            <Box width="32px" flexShrink={0}>
+                                <Button
+                                    size="xs"
+                                    variant="ghost"
+                                    color="fg.muted"
+                                    _hover={{ color: "red.500", bg: "transparent" }}
+                                    onClick={deleteParam(index)}
+                                    minW="auto"
+                                    h="auto"
+                                    p={1}
+                                >
+                                    <MdDeleteForever size={16} />
+                                </Button>
+                            </Box>
+                        </Flex>
+                    );
+                })
+            )}
+
+            <Button
+                variant="outline"
+                color="fg.subtle"
+                size="sm"
+                onClick={addParameter}
+                alignSelf="flex-start"
+                mt={3}
+                fontWeight="bold"
+                borderStyle="dashed"
+                borderColor="border"
+                _hover={{ color: "fg", bg: "bg.muted", borderColor: "border.emphasized" }}
+                px={5}
+            >
+                <MdAdd />
+                ADD PARAMETER
             </Button>
         </Flex>
     )

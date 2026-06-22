@@ -102,27 +102,27 @@ export default function ProfileDataSources(props: ProfileDataSourcesProps) {
                                 size="xs"
                                 variant="outline"
                                 border="1px solid"
-                                borderColor="gray.800"
-                                color="gray.400"
-                                bg="gray.900"
+                                borderColor="border"
+                                color="fg.muted"
+                                bg="bg.muted"
                                 py={4}
                                 px={4}
                                 rounded="sm"
                                 onClick={addNewDataSource(item.source)}
                                 _hover={{ 
-                                    bg: "gray.800", 
-                                    color: "white",
-                                    borderColor: "gray.600",
+                                    bg: "bg.emphasized", 
+                                    color: "fg",
+                                    borderColor: "border.emphasized",
                                     transform: "translateY(-1px)"
                                 }}
                                 transition="all 0.2s"
                             >
-                                <Text fontSize="xs" fontWeight="bold" mr={2} color="gray.600">{item.source[0].toUpperCase()}</Text>
+                                <Text fontSize="xs" fontWeight="bold" mr={2} color="fg.muted">{item.source[0].toUpperCase()}</Text>
                                 {item.source}
                             </Button>
                         ))
                     ) : (
-                        <Text textStyle={"sm"} color="gray.600" fontStyle="italic">
+                        <Text textStyle={"sm"} color="fg.muted" fontStyle="italic">
                             {error ? "Voyager unreachable" : "No additional sources available"}
                         </Text>
                     )}
