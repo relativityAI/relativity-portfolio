@@ -1,6 +1,6 @@
-import { Link as ChakraLink, Text, Flex, Button, Table, Badge, Box, HStack } from "@chakra-ui/react";
+import { Text, Flex, Button, Table, Badge, Box, HStack } from "@chakra-ui/react";
 import { useEffect, useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { MdDeleteForever, MdArrowUpward, MdArrowDownward } from "react-icons/md";
 import { AnalysisService } from "@/db";
 
@@ -120,42 +120,42 @@ export default function AnalysisList() {
                 </Button>
             </Flex>
 
-            <Box border="1px solid" borderColor="gray.800" rounded="md" overflow="hidden">
+            <Box border="1px solid" borderColor="border" rounded="md" overflow="hidden">
                 <Table.Root size="sm" variant="line">
-                    <Table.Header bg="gray.900">
+                    <Table.Header bg="bg.muted">
                         <Table.Row>
-                            <Table.ColumnHeader color="gray.400" py={4} cursor="pointer" onClick={() => toggleSort("id")} userSelect="none">
+                            <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("id")} userSelect="none">
                                 <HStack gap={1}>
                                     <span>ID</span>
                                     <SortIcon column="id" />
                                 </HStack>
                             </Table.ColumnHeader>
-                            <Table.ColumnHeader color="gray.400" py={4} cursor="pointer" onClick={() => toggleSort("share")} userSelect="none">
+                            <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("share")} userSelect="none">
                                 <HStack gap={1}>
                                     <span>Share</span>
                                     <SortIcon column="share" />
                                 </HStack>
                             </Table.ColumnHeader>
-                            <Table.ColumnHeader color="gray.400" py={4} cursor="pointer" onClick={() => toggleSort("created_at")} userSelect="none">
+                            <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("created_at")} userSelect="none">
                                 <HStack gap={1}>
                                     <span>Created At</span>
                                     <SortIcon column="created_at" />
                                 </HStack>
                             </Table.ColumnHeader>
-                            <Table.ColumnHeader color="gray.400" py={4} cursor="pointer" onClick={() => toggleSort("score")} userSelect="none">
+                            <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("score")} userSelect="none">
                                 <HStack gap={1}>
                                     <span>Final Score</span>
                                     <SortIcon column="score" />
                                 </HStack>
                             </Table.ColumnHeader>
-                            <Table.ColumnHeader color="gray.400" py={4}>Link</Table.ColumnHeader>
-                            <Table.ColumnHeader color="gray.400" py={4} cursor="pointer" onClick={() => toggleSort("status")} userSelect="none">
+                            <Table.ColumnHeader color="fg.muted" py={4}>Link</Table.ColumnHeader>
+                            <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("status")} userSelect="none">
                                 <HStack gap={1}>
                                     <span>Status</span>
                                     <SortIcon column="status" />
                                 </HStack>
                             </Table.ColumnHeader>
-                            <Table.ColumnHeader color="gray.400" py={4}></Table.ColumnHeader>
+                            <Table.ColumnHeader color="fg.muted" py={4}></Table.ColumnHeader>
                         </Table.Row>
                     </Table.Header>
                     <Table.Body>
@@ -167,7 +167,7 @@ export default function AnalysisList() {
                             </Table.Row>
                         ) : sorted.length === 0 && !loading ? (
                             <Table.Row>
-                                <Table.Cell colSpan={colSpan} textAlign="center" color="gray.500" py={8}>
+                                <Table.Cell colSpan={colSpan} textAlign="center" color="fg.subtle" py={8}>
                                     No analyses found.
                                 </Table.Cell>
                             </Table.Row>
@@ -175,22 +175,24 @@ export default function AnalysisList() {
                             sorted.map((item) => {
                                 const id = item.analysis_id || item._id || item.id;
                                 return (
-                                    <Table.Row key={id} _hover={{ bg: "gray.900" }}>
-                                        <Table.Cell fontSize="xs" color="gray.600">{id}</Table.Cell>
+                                    <Table.Row key={id} _hover={{ bg: "bg.muted" }}>
+                                        <Table.Cell fontSize="xs" color="fg.muted">{id}</Table.Cell>
                                         <Table.Cell>
-                                            <Badge variant="surface" colorPalette="gray" size="sm" color="gray.300">{item.symbol || item.share_name}</Badge>
+                                            <Badge variant="surface" colorPalette="gray" size="sm" color="fg">{item.symbol || item.share_name}</Badge>
                                         </Table.Cell>
-                                        <Table.Cell fontSize="sm" color="gray.500">{item.created_at ? new Date(item.created_at).toLocaleString() : ""}</Table.Cell>
+                                        <Table.Cell fontSize="sm" color="fg.subtle">{item.created_at ? new Date(item.created_at).toLocaleString() : ""}</Table.Cell>
                                         <Table.Cell>
                                             {item.total_score != null 
-                                                ? <Badge colorPalette={item.total_score >= 0.7 ? "green" : item.total_score >= 0.4 ? "yellow" : "red"} variant="surface" size="sm" bg="transparent" border="1px solid" borderColor={item.total_score >= 0.7 ? "green.900" : item.total_score >= 0.4 ? "yellow.900" : "red.900"}>{(item.total_score * 100).toFixed(1)}%</Badge> 
+                                                ? <Badge colorPalette={item.total_score >= 70 ? "green" : item.total_score >= 40 ? "yellow" : "red"} variant="surface" size="sm" bg="transparent" border="1px solid" borderColor={item.total_score >= 70 ? "green.900" : item.total_score >= 40 ? "yellow.900" : "red.900"}>{item.total_score.toFixed(1)}%</Badge> 
                                                 : "-"}
                                         </Table.Cell>
                                         <Table.Cell>
-                                            <ChakraLink variant="underline" href={"/analysis-result/" + id} color="gray.400" _hover={{ color: "white" }} fontSize="xs">View ↗</ChakraLink>
+                                            <Link to={"/analysis-result/" + id}>
+                                                <Text color="fg.muted" _hover={{ color: "fg" }} fontSize="xs" textDecoration="underline">View ↗</Text>
+                                            </Link>
                                         </Table.Cell>
                                         <Table.Cell>
-                                            <Badge size="xs" variant="surface" colorPalette="gray" color="gray.400" bg="gray.900">
+                                            <Badge size="xs" variant="surface" colorPalette="gray" color="fg.muted" bg="bg.muted">
                                                 {item.status ? String(item.status).toUpperCase() : "PENDING"}
                                             </Badge>
                                         </Table.Cell>

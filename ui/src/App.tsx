@@ -52,6 +52,7 @@ function App() {
             path="/profile"
             element={<Navigate to="/profiles" replace />}
           />
+          <Route path="/profile/new" element={<Profile />} />
           <Route path="/profile/:id" element={<Profile />} />
           <Route path="/profiles" element={<ProfilesList />} />
           <Route path="/analysis-list" element={<AnalysisList />} />

@@ -49,19 +49,19 @@ export default function Dashboard() {
             <Flex gap={12} align="stretch">
                 {/* Left Side: Metadata (Stats) */}
                 <Flex direction="column" gap={8} w="280px">
-                    <Box p={6} border="1px solid" borderColor="gray.800" rounded="lg" bg="gray.900">
-                        <Text fontWeight="bold" mb={6} color="gray.500" fontSize="xs" textTransform="uppercase" letterSpacing="widest">Overview</Text>
+                    <Box p={6} border="1px solid" borderColor="border" rounded="lg" bg="bg.muted">
+                        <Text fontWeight="bold" mb={6} color="fg.subtle" fontSize="xs" textTransform="uppercase" letterSpacing="widest">Overview</Text>
                         <Flex direction="column" gap={8}>
                             <Stat.Root>
-                                <Stat.Label color="gray.400">Total Profiles</Stat.Label>
+                                <Stat.Label color="fg.muted">Total Profiles</Stat.Label>
                                 <Stat.ValueText fontSize="4xl" fontWeight="bold" mt={1}>{stats.profiles}</Stat.ValueText>
                                 <Stat.HelpText color="blue.500" mt={1}>Active investment profiles</Stat.HelpText>
                             </Stat.Root>
 
                             <Stat.Root>
-                                <Stat.Label color="gray.400">Total Analyses</Stat.Label>
+                                <Stat.Label color="fg.muted">Total Analyses</Stat.Label>
                                 <Stat.ValueText fontSize="4xl" fontWeight="bold" mt={1}>{stats.analysis}</Stat.ValueText>
-                                <Stat.HelpText color="gray.500" mt={1}>Completed runs</Stat.HelpText>
+                                <Stat.HelpText color="fg.subtle" mt={1}>Completed runs</Stat.HelpText>
                             </Stat.Root>
                         </Flex>
                     </Box>

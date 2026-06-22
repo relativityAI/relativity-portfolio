@@ -109,24 +109,24 @@ export default function DataSourceTable(props: DataSourceTableProps) {
         : []
 
     return (
-        <Flex direction={"column"} gap={1} border="1px solid" borderColor="gray.800" p={6} rounded="sm" bg="gray.900">
+        <Flex direction={"column"} gap={1} border="1px solid" borderColor="border" p={6} rounded="sm" bg="bg.muted">
             <Flex align={"center"} justify={"space-between"} >
                 <Flex align={"center"} gap={3}>
                     {dataSource.image ?
-                        <Image rounded="sm" height="32px" src={dataSource.image} border="1px solid" borderColor="gray.800" />
+                        <Image rounded="sm" height="32px" src={dataSource.image} border="1px solid" borderColor="border" />
                         :
-                        <Flex w="32px" h="32px" bg="gray.800" rounded="sm" align="center" justify="center" border="1px solid" borderColor="gray.700">
-                            <Text fontSize="xs" color="gray.500" fontWeight="bold">{dataSource.source[0].toUpperCase()}</Text>
+                        <Flex w="32px" h="32px" bg="bg.emphasized" rounded="sm" align="center" justify="center" border="1px solid" borderColor="border.emphasized">
+                            <Text fontSize="xs" color="fg.subtle" fontWeight="bold">{dataSource.source[0].toUpperCase()}</Text>
                         </Flex>
                     }
-                    <Text fontWeight="bold" textStyle="3xl" letterSpacing="tight" color="gray.200">{dataSource.source}</Text>
-                    <Button size={"xs"} variant={"ghost"} onClick={() => setImgUrlEdit(!imgUrlEdit)} color="gray.500" _hover={{ color: "white", bg: "transparent" }}>
+                    <Text fontWeight="bold" textStyle="3xl" letterSpacing="tight" color="fg">{dataSource.source}</Text>
+                    <Button size={"xs"} variant={"ghost"} onClick={() => setImgUrlEdit(!imgUrlEdit)} color="fg.subtle" _hover={{ color: "fg", bg: "transparent" }}>
                         {imgUrlEdit ? <MdCheckCircle /> : <MdModeEdit />}
                     </Button>
                 </Flex>
 
                 <Flex gap={3} align={"center"}>
-                    <Text fontSize={"xs"} color="gray.600" fontWeight="bold" letterSpacing="widest">ADD METRIC</Text>
+                    <Text fontSize={"xs"} color="fg.muted" fontWeight="bold" letterSpacing="widest">ADD METRIC</Text>
                     <DropDown
                         options={availableMetrics}
                         onChange={addMetric}
@@ -143,8 +143,8 @@ export default function DataSourceTable(props: DataSourceTableProps) {
                     value={dataSource.image}
                     onChange={handleImageChange}
                     mt={4}
-                    bg="gray.950"
-                    borderColor="gray.800"
+                    bg="bg.subtle"
+                    borderColor="border"
                 />
             )}
 
@@ -160,10 +160,10 @@ export default function DataSourceTable(props: DataSourceTableProps) {
                 </Table.Header>
                 <Table.Body>
                     {dataSource.filters.map((item: any, index: number) => (
-                        <Table.Row key={item.metric} _hover={{ bg: "gray.950" }}>
+                        <Table.Row key={item.metric} _hover={{ bg: "bg.subtle" }}>
                             <Table.Cell py={4}>
-                                <Text fontWeight="bold" fontSize="sm" color="gray.300">{item.title || item.metric}</Text>
-                                <Text fontSize="2xs" color="gray.600" letterSpacing="widest" mt={0.5}>{item.type?.toUpperCase()}</Text>
+                                <Text fontWeight="bold" fontSize="sm" color="fg">{item.title || item.metric}</Text>
+                                <Text fontSize="2xs" color="fg.muted" letterSpacing="widest" mt={0.5}>{item.type?.toUpperCase()}</Text>
                             </Table.Cell>
 
                             <Table.Cell py={4}>
@@ -180,8 +180,8 @@ export default function DataSourceTable(props: DataSourceTableProps) {
                                     width="70px"
                                     value={item.threshold}
                                     onChange={handleDataChange("threshold", index)}
-                                    bg="gray.950"
-                                    borderColor="gray.800"
+                                    bg="bg.subtle"
+                                    borderColor="border"
                                     px={2}
                                 />
                             </Table.Cell>
@@ -193,26 +193,26 @@ export default function DataSourceTable(props: DataSourceTableProps) {
                                         width="50px"
                                         value={item.lower}
                                         onChange={handleDataChange("lower", index)}
-                                        bg="gray.950"
-                                        borderColor="gray.800"
+                                        bg="bg.subtle"
+                                        borderColor="border"
                                         px={2}
                                     />
-                                    <Text color="gray.700">-</Text>
+                                    <Text color="fg.muted">-</Text>
                                     <Input
                                         variant="subtle"
                                         size="xs"
                                         width="50px"
                                         value={item.upper}
                                         onChange={handleDataChange("upper", index)}
-                                        bg="gray.950"
-                                        borderColor="gray.800"
+                                        bg="bg.subtle"
+                                        borderColor="border"
                                         px={2}
                                     />
                                 </Flex>
                             </Table.Cell>
 
                             <Table.Cell py={4} textAlign="right">
-                                <Button size="xs" variant="ghost" color="gray.700" _hover={{ color: "red.400", bg: "transparent" }} onClick={deleteMetric(index)}>
+                                <Button size="xs" variant="ghost" color="fg.muted" _hover={{ color: "red.400", bg: "transparent" }} onClick={deleteMetric(index)}>
                                     <MdDeleteForever size={18} />
                                 </Button>
                             </Table.Cell>
@@ -222,14 +222,14 @@ export default function DataSourceTable(props: DataSourceTableProps) {
             </Table.Root>
 
             <Flex justify="space-between" align="center" mt={6}>
-                <Text textStyle={"xs"} fontWeight={"bold"} color="gray.600" letterSpacing="widest">
-                    METRICS: <Kbd rounded="sm" bg="gray.800" color="gray.400" border="1px solid" borderColor="gray.700">{dataSource.filters.length}</Kbd> / {Object.keys(schema?.properties || {}).length}
+                <Text textStyle={"xs"} fontWeight={"bold"} color="fg.muted" letterSpacing="widest">
+                    METRICS: <Kbd rounded="sm" bg="bg.emphasized" color="fg.muted" border="1px solid" borderColor="border.emphasized">{dataSource.filters.length}</Kbd> / {Object.keys(schema?.properties || {}).length}
                 </Text>
                 
                 <Button
                     size={"xs"}
                     variant={"ghost"}
-                    color="gray.600"
+                    color="fg.muted"
                     _hover={{ color: "red.500", bg: "transparent" }}
                     onClick={props.removeDataSource}
                 >

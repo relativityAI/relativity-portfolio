@@ -16,6 +16,7 @@ interface Profile {
     name: string;
     created_at: string;
     qualitative?: any[];
+    quantitative?: any[];
     data_sources?: any[];
 }
 
@@ -46,16 +47,8 @@ export default function ProfilesList() {
         }
     }
 
-    const handleCreate = async () => {
-        try {
-            const data = await ProfileService.createProfile();
-            if (data && (data.id || data._id)) {
-                const id = data.id || data._id;
-                navigate("/profile/" + id);
-            }
-        } catch (error) {
-            console.error("Error creating profile:", error);
-        }
+    const handleCreate = () => {
+        navigate("/profile/new");
     }
 
     const onRowClick = (id: string) => {
@@ -73,7 +66,8 @@ export default function ProfilesList() {
                     Investor Profiles
                 </Text>
                 <Button
-                    colorPalette="blue"
+                    variant="outline"
+                    colorPalette="gray"
                     size="sm"
                     loading={loading}
                     onClick={handleCreate}>
@@ -81,15 +75,15 @@ export default function ProfilesList() {
                 </Button>
             </Flex>
 
-            <Box border="1px solid" borderColor="gray.800" rounded="md" overflow="hidden">
+            <Box border="1px solid" borderColor="border" rounded="md" overflow="hidden">
                 <Table.Root size="sm" variant="line" interactive>
-                    <Table.Header bg="gray.900">
+                    <Table.Header bg="bg.muted">
                         <Table.Row>
-                            <Table.ColumnHeader color="gray.400" py={4}>Name</Table.ColumnHeader>
-                            <Table.ColumnHeader color="gray.400" textAlign="center" py={4}>Params</Table.ColumnHeader>
-                            <Table.ColumnHeader color="gray.400" textAlign="center" py={4}>Sources</Table.ColumnHeader>
-                            <Table.ColumnHeader color="gray.400" py={4}>Created At</Table.ColumnHeader>
-                            <Table.ColumnHeader color="gray.400" py={4}>ID</Table.ColumnHeader>
+                            <Table.ColumnHeader color="fg.muted" py={4}>Name</Table.ColumnHeader>
+                            <Table.ColumnHeader color="fg.muted" textAlign="center" py={4}>Qual</Table.ColumnHeader>
+                            <Table.ColumnHeader color="fg.muted" textAlign="center" py={4}>Quant</Table.ColumnHeader>
+                            <Table.ColumnHeader color="fg.muted" py={4}>Created At</Table.ColumnHeader>
+                            <Table.ColumnHeader color="fg.muted" py={4}>ID</Table.ColumnHeader>
                         </Table.Row>
                     </Table.Header>
                     <Table.Body>
@@ -101,7 +95,7 @@ export default function ProfilesList() {
                             </Table.Row>
                         ) : uniqueProfiles.length === 0 && !loading ? (
                             <Table.Row>
-                                <Table.Cell colSpan={5} textAlign="center" color="gray.500" py={8}>
+                                <Table.Cell colSpan={5} textAlign="center" color="fg.subtle" py={8}>
                                     No profiles found.
                                 </Table.Cell>
                             </Table.Row>
@@ -111,13 +105,13 @@ export default function ProfilesList() {
                                     key={item._id || item.id}
                                     cursor="pointer"
                                     onClick={() => onRowClick(item._id || item.id as string)}
-                                    _hover={{ bg: "gray.900" }}
+                                    _hover={{ bg: "bg.muted" }}
                                 >
                                     <Table.Cell fontWeight="bold">{item.name}</Table.Cell>
                                     <Table.Cell textAlign="center">{(item.qualitative || (item as any).qualitativeData)?.length || 0}</Table.Cell>
-                                    <Table.Cell textAlign="center">{(item.data_sources || (item as any).data_sources)?.length || 0}</Table.Cell>
-                                    <Table.Cell fontSize="sm" color="gray.300">{item.created_at ? new Date(item.created_at).toLocaleString() : "N/A"}</Table.Cell>
-                                    <Table.Cell fontSize="xs" color="gray.500">{item._id || item.id}</Table.Cell>
+                                    <Table.Cell textAlign="center">{item.quantitative?.length || 0}</Table.Cell>
+                                    <Table.Cell fontSize="sm" color="fg">{item.created_at ? new Date(item.created_at).toLocaleString() : "N/A"}</Table.Cell>
+                                    <Table.Cell fontSize="xs" color="fg.subtle">{item._id || item.id}</Table.Cell>
                                 </Table.Row>
                             ))
                         )}

@@ -43,7 +43,8 @@ export default function SearchBar(props) {
         if (value[0] !== undefined) {
              props.onChange(props.field, value[0], selectedItem)
         }
-    }, [value, items, mainKey, props.field, props.onChange])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [value])
 
 
 

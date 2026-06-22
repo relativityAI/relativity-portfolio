@@ -3,6 +3,7 @@ import { Flex, Text } from "@chakra-ui/react"
 import { Link } from "react-router-dom";
 import { runHealthCheck } from "../utils"
 import { MdCheckCircle, MdError } from "react-icons/md";
+import { ColorModeButton } from "@/components/ui/color-mode";
 
 
 export default function NavBar() {
@@ -36,38 +37,39 @@ export default function NavBar() {
             paddingX={8} 
             paddingY={2} 
             borderBottom="1px solid" 
-            borderColor="gray.800" 
+            borderColor="border" 
             justify={"space-between"} 
             align={"center"}
-            bg="black"
+            bg="bg.subtle"
             height="56px"
         >
             <Flex align="center" gap={8}>
-                <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight">RELATIVITY</Text>
+                <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
                 
                 <Flex gap={6} align="center">
                     <Link to={"/"}>
-                        <Text fontSize="sm" fontWeight="medium" color="gray.400" _hover={{ color: "white" }}>Dashboard</Text>
+                        <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Dashboard</Text>
                     </Link>
                     <Link to={"/profiles"}>
-                        <Text fontSize="sm" fontWeight="medium" color="gray.400" _hover={{ color: "white" }}>Profiles</Text>
+                        <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Profiles</Text>
                     </Link>
                     <Link to={"/analysis-list"}>
-                        <Text fontSize="sm" fontWeight="medium" color="gray.400" _hover={{ color: "white" }}>Analysis</Text>
+                        <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Analysis</Text>
                     </Link>
                     <Link to={"/manage-data"}>
-                        <Text fontSize="sm" fontWeight="medium" color="gray.400" _hover={{ color: "white" }}>Data</Text>
+                        <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Data</Text>
                     </Link>
                 </Flex>
             </Flex>
 
             <Flex justify={"flex-end"} gap={6} align="center">
+                <ColorModeButton />
                 <Flex gap={4} align={"center"}>
                     <Flex gap={1} align={"center"}>
                         <Text 
                             textStyle={"xs"} 
                             fontWeight={"bold"} 
-                            color={systemStatus.db ? "gray.500" : "red.500"} 
+                            color={systemStatus.db ? "fg.subtle" : "red.500"} 
                             cursor={"pointer"}
                             _hover={{ color: "blue.500" }}
                             onClick={() => window.open(endpoints.db, "_blank")}
@@ -81,7 +83,7 @@ export default function NavBar() {
                         <Text 
                             textStyle={"xs"} 
                             fontWeight={"bold"} 
-                            color={systemStatus.voyagerApi ? "gray.500" : "red.500"} 
+                            color={systemStatus.voyagerApi ? "fg.subtle" : "red.500"} 
                             cursor={"pointer"}
                             _hover={{ color: "blue.500" }}
                             onClick={() => window.open(endpoints.voyagerApi, "_blank")}

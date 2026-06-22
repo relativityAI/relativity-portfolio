@@ -183,5 +183,17 @@ export const VoyagerService = {
             if (error?.response?.data) return error.response.data;
             return null;
         }
+    },
+
+    async getAvailableMetrics(source: string) {
+        try {
+            const response = await axios.get(`${VOYAGER_BASE}/available-metrics`, {
+                params: { source }
+            });
+            return response.data;
+        } catch (error: any) {
+            if (error?.response?.data) return error.response.data;
+            return { categories: [] };
+        }
     }
 };

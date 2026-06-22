@@ -1,20 +1,20 @@
 import {
     Text,
-    DownloadTrigger,
     Flex,
     Button,
     Spinner,
     Input,
-    Box
+    Box,
+    Tabs,
 } from "@chakra-ui/react"
 import { MdOutlineFileDownload, MdSave, MdDeleteForever } from "react-icons/md";
 
 import { useParams, useNavigate } from "react-router-dom"
 import { useState, useEffect } from "react"
-import { ProfileService } from "@/db";
+import { ProfileService, VoyagerService } from "@/db";
 
 import ProfileDataQualitative from "./ProfileQualitative"
-import ProfileDataSources from "./ProfileDataSources"
+import ProfileQuantitative from "./ProfileQuantitative"
 
 
 export default function Profile() {
@@ -25,22 +25,47 @@ export default function Profile() {
     const [saving, setSaving] = useState(false)
     const [saved, setSaved] = useState(false)
     const [isDirty, setIsDirty] = useState(false)
+    const [availableMetrics, setAvailableMetrics] = useState<any>(null)
+    const [metricsSource, setMetricsSource] = useState<string>("NSE")
     const [profile, setProfile] = useState<any>({
         name: "",
         id: "",
         created_at: "",
+        source: "",
         qualitative: [],
-        data_sources: []
+        quantitative: [],
     })
+
+    const isNew = urlParams.id === "new";
 
     const fetchProfile = async () => {
         try {
-            if (urlParams.id) {
+            if (urlParams.id && !isNew) {
                 const data = await ProfileService.readProfile(urlParams.id);
                 if (data) {
-                    setProfile(data);
-                    setIsDirty(false); // Reset on initial load
+                    setProfile({
+                        name: data.name || "",
+                        id: data.id || data._id || "",
+                        _id: data._id || data.id || "",
+                        created_at: data.created_at || "",
+                        source: data.source || "",
+                        qualitative: data.qualitative || [],
+                        quantitative: data.quantitative || [],
+                    });
+                    if (data.source) setMetricsSource(data.source);
+                    setIsDirty(false);
                 }
+            } else {
+                setProfile({
+                    name: "",
+                    id: "",
+                    _id: "",
+                    created_at: "",
+                    source: "",
+                    qualitative: [],
+                    quantitative: [],
+                });
+                setIsDirty(true);
             }
         } catch (error) {
             console.error("API Error:", error);
@@ -49,22 +74,63 @@ export default function Profile() {
         }
     }
 
+    const fetchMetrics = async (source: string) => {
+        if (!source) {
+            setAvailableMetrics(null);
+            return;
+        }
+        try {
+            const data = await VoyagerService.getAvailableMetrics(source);
+            if (data?.categories) setAvailableMetrics(data);
+        } catch {
+            // silently fail
+        }
+    }
+
     useEffect(() => {
         fetchProfile();
     }, [urlParams.id]);
 
+    useEffect(() => {
+        if (!isNew || metricsSource) {
+            fetchMetrics(metricsSource);
+        }
+    }, [metricsSource]);
+
     const handleSave = async () => {
         try {
             setSaving(true);
+            let profileId = profile.id || profile._id;
+            if (!profileId) {
+                const created = await ProfileService.createProfile();
+                profileId = created.id || created._id;
+            }
             const dataToSave = {
-                id: profile.id,
+                id: profileId,
                 name: profile.name,
+                source: profile.source,
                 qualitative: profile.qualitative,
-                data_sources: profile.data_sources
+                quantitative: profile.quantitative,
             };
             await ProfileService.updateProfile(dataToSave);
+            const saved = await ProfileService.readProfile(profileId);
+            if (saved) {
+                setProfile((prev: any) => ({
+                    ...prev,
+                    id: saved.id || saved._id || profileId,
+                    _id: saved._id || saved.id || profileId,
+                    name: saved.name || prev.name,
+                    source: saved.source || prev.source,
+                    qualitative: saved.qualitative || prev.qualitative,
+                    quantitative: saved.quantitative || prev.quantitative,
+                    created_at: saved.created_at || prev.created_at,
+                }));
+            }
             setSaved(true);
-            setIsDirty(false); // Reset on success
+            setIsDirty(false);
+            if (isNew) {
+                navigate("/profile/" + profileId, { replace: true });
+            }
             setTimeout(() => setSaved(false), 3000);
         } catch (error) {
             console.error("Save Error:", error);
@@ -76,13 +142,38 @@ export default function Profile() {
     const handleDelete = async () => {
         if (confirm(`Are you sure you want to delete the profile "${profile.name}"?`)) {
             try {
-                await ProfileService.deleteProfile(profile.id);
+                await ProfileService.deleteProfile(profile.id || profile._id);
                 navigate("/profiles");
             } catch (error) {
                 console.error("Delete Error:", error);
             }
         }
     }
+
+    const handleExport = async () => {
+        const profileId = profile.id || profile._id;
+        if (!profileId) return;
+        try {
+            const data = await ProfileService.readProfile(profileId);
+            if (!data) return;
+            const json = JSON.stringify(data, null, "  ");
+            const blob = new Blob([json], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = (data.name || "profile").replace(/\s+/g, "_") + "_" + new Date().toISOString().split("T")[0].replace(/-/g, "_") + ".json";
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error("Export Error:", error);
+        }
+    }
+
+    const handleSourceChange = (newSource: string) => {
+        setProfile((prev: any) => ({ ...prev, source: newSource }));
+        setMetricsSource(newSource);
+        if (!loading) setIsDirty(true);
+    };
 
     const updateProfile = (updates: any) => {
         setProfile((prev: any) => ({ ...prev, ...updates }));
@@ -94,18 +185,18 @@ export default function Profile() {
     return (
 
         <Flex direction={"column"} gap={10}>
-            <Flex justify="space-between" align="start" borderBottom="1px solid" borderColor="gray.800" pb={8}>
+            <Flex justify="space-between" align="start" borderBottom="1px solid" borderColor="border" pb={8}>
 
                 <Flex direction="column" gap={1} flex={1} maxW="400px">
-                    <Text fontSize="xs" fontWeight="bold" color="gray.600" letterSpacing="widest" mb={1}>PROFILE NAME</Text>
+                    <Text fontSize="xs" fontWeight="bold" color="fg.muted" letterSpacing="widest" mb={1}>PROFILE NAME</Text>
                     <Input
                         variant="subtle"
                         fontWeight="bold"
                         fontSize="lg"
                         value={profile.name}
                         onChange={(e) => updateProfile({ name: e.target.value })}
-                        bg="gray.900"
-                        _focus={{ bg: "gray.950", borderColor: "gray.700" }}
+                        bg="bg.muted"
+                        _focus={{ bg: "bg.subtle", borderColor: "border.emphasized" }}
                         px={3}
                         py={4}
                         h="auto"
@@ -116,29 +207,26 @@ export default function Profile() {
 
                 <Flex direction="column" align="flex-end" gap={4} pt={6}>
                     <Flex gap={3}>
-                        <Button
-                            variant="ghost"
-                            color="gray.500"
-                            _hover={{ color: "red.500", bg: "transparent" }}
-                            onClick={handleDelete}
-                            size="sm"
-                            fontWeight="bold"
-                        >
-                            <MdDeleteForever size={18} />
-                            DELETE
-                        </Button>
+                        {!isNew && (
+                            <Button
+                                variant="ghost"
+                                color="fg.subtle"
+                                _hover={{ color: "red.500", bg: "transparent" }}
+                                onClick={handleDelete}
+                                size="sm"
+                                fontWeight="bold"
+                            >
+                                <MdDeleteForever size={18} />
+                                DELETE
+                            </Button>
+                        )}
 
-                        <DownloadTrigger
-                            data={JSON.stringify(profile, null, "  ")}
-                            fileName={profile.name.replace(/\s+/g, "_") + "_" + (new Date()).toISOString().split("T")[0].replace(/-/g, "_") + ".json"}
-                            mimeType="application/json"
-                            asChild
-                        >
-                            <Button variant="outline" size="sm" color="gray.400" borderColor="gray.800" _hover={{ bg: "gray.900", color: "white" }}>
+                        {!isNew && (
+                            <Button variant="outline" size="sm" color="fg.muted" borderColor="border" _hover={{ bg: "bg.muted", color: "fg" }} onClick={handleExport}>
                                 <MdOutlineFileDownload />
                                 EXPORT JSON
                             </Button>
-                        </DownloadTrigger>
+                        )}
 
                         <Button
                             variant="subtle"
@@ -147,14 +235,14 @@ export default function Profile() {
                             onClick={handleSave}
                             size="sm"
                             px={6}
-                            bg={isDirty ? "blue.800" : "gray.800"}
-                            color="white"
-                            _hover={{ bg: isDirty ? "blue.700" : "gray.700" }}
+                            bg={isDirty ? "blue.800" : "bg.emphasized"}
+                            color="fg"
+                            _hover={{ bg: isDirty ? "blue.700" : "border.emphasized" }}
                             border="1px solid"
                             borderColor={isDirty ? "blue.600" : "transparent"}
                         >
                             <MdSave />
-                            SAVE PROFILE
+                            {isNew ? "CREATE PROFILE" : "SAVE PROFILE"}
                         </Button>
                     </Flex>
                     {isDirty && (
@@ -165,29 +253,55 @@ export default function Profile() {
                 </Flex>
             </Flex>
 
-            <Flex direction={{ base: "column", xl: "row" }} gap={12} align="start">
-                {/* Left Column: Qualitative (50%) */}
-                <Box flex="1" width="full">
-                    <Text fontSize="xs" fontWeight="black" color="gray.600" letterSpacing="widest" mb={6}>I. QUALITATIVE PARAMETERS</Text>
+            <Tabs.Root defaultValue="qualitative" variant="line">
+                <Tabs.List borderColor="border">
+                    <Tabs.Trigger
+                        value="qualitative"
+                        color="fg.subtle"
+                        _selected={{ color: "fg", borderColor: "blue.500" }}
+                        fontSize="sm"
+                        fontWeight="bold"
+                        px={6}
+                        py={3}
+                    >
+                        I. QUALITATIVE PARAMETERS
+                    </Tabs.Trigger>
+                    <Tabs.Trigger
+                        value="quantitative"
+                        color="fg.subtle"
+                        _selected={{ color: "fg", borderColor: "blue.500" }}
+                        fontSize="sm"
+                        fontWeight="bold"
+                        px={6}
+                        py={3}
+                    >
+                        II. QUANTITATIVE CRITERIA
+                    </Tabs.Trigger>
+                    <Tabs.Indicator bg="blue.500" />
+                </Tabs.List>
+
+                <Tabs.Content value="qualitative" pt={6}>
                     <ProfileDataQualitative
                         name={profile.name}
                         data={profile.qualitative}
-                        id={profile._id}
+                        id={profile._id || profile.id}
+                        metrics={availableMetrics}
                         onUpdate={(newData: any) => updateProfile({ qualitative: newData })}
                     />
-                </Box>
+                </Tabs.Content>
 
-                {/* Right Column: Data Sources (50%) */}
-                <Box flex="1" width="full" borderLeft={{ base: "none", xl: "1px solid" }} borderColor="gray.800" pl={{ base: 0, xl: 12 }}>
-                    <Text fontSize="xs" fontWeight="black" color="gray.600" letterSpacing="widest" mb={6}>II. DATA SOURCES CONFIGURATION</Text>
-                    <ProfileDataSources
+                <Tabs.Content value="quantitative" pt={6}>
+                    <ProfileQuantitative
                         name={profile.name}
-                        data={profile.data_sources}
-                        id={profile._id}
-                        onUpdate={(newData: any) => updateProfile({ data_sources: newData })}
+                        data={profile.quantitative}
+                        id={profile._id || profile.id}
+                        metrics={availableMetrics}
+                        source={profile.source}
+                        onSourceChange={handleSourceChange}
+                        onUpdate={(newData: any) => updateProfile({ quantitative: newData })}
                     />
-                </Box>
-            </Flex>
+                </Tabs.Content>
+            </Tabs.Root>
         </Flex>
     )
 }

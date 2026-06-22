@@ -64,19 +64,19 @@ function DataTableSection({ title, records }: { title: string; records: any[] })
     if (!records || records.length === 0) return null;
 
     return (
-        <Box border="1px solid" borderColor="gray.800" rounded="md" overflow="hidden">
+        <Box border="1px solid" borderColor="border" rounded="md" overflow="hidden">
             <Flex
                 justify="space-between"
                 align="center"
                 p={3}
-                bg="gray.900"
+                bg="bg.muted"
                 cursor="pointer"
                 onClick={() => setExpanded(!expanded)}
                 userSelect="none"
             >
                 <HStack gap={2}>
                     <Text fontSize="sm" fontWeight="semibold">{title}</Text>
-                    <Badge size="xs" variant="surface" colorPalette="gray" color="gray.400">{records.length}</Badge>
+                    <Badge size="xs" variant="surface" colorPalette="gray" color="fg.muted">{records.length}</Badge>
                     {search && (
                         <Badge size="xs" variant="surface" colorPalette="blue" color="blue.300">
                             {filtered.length} matched
@@ -88,7 +88,7 @@ function DataTableSection({ title, records }: { title: string; records: any[] })
                 </Box>
             </Flex>
             {expanded && (
-                <Box p={3} borderTop="1px solid" borderColor="gray.800">
+                <Box p={3} borderTop="1px solid" borderColor="border">
                     <Input
                         placeholder={`Search ${title.toLowerCase().replace(/-/g, " ")}...`}
                         value={search}
@@ -102,7 +102,7 @@ function DataTableSection({ title, records }: { title: string; records: any[] })
                             <Table.Header>
                                 <Table.Row>
                                     {columns.map(col => (
-                                        <Table.ColumnHeader key={col} color="gray.500" fontSize="10px" py={2} whiteSpace="nowrap">
+                                        <Table.ColumnHeader key={col} color="fg.subtle" fontSize="10px" py={2} whiteSpace="nowrap">
                                             {col}
                                         </Table.ColumnHeader>
                                     ))}
@@ -111,15 +111,15 @@ function DataTableSection({ title, records }: { title: string; records: any[] })
                             <Table.Body>
                                 {displayed.length === 0 ? (
                                     <Table.Row>
-                                        <Table.Cell colSpan={columns.length} textAlign="center" color="gray.600" py={6}>
+                                        <Table.Cell colSpan={columns.length} textAlign="center" color="fg.muted" py={6}>
                                             No matching records
                                         </Table.Cell>
                                     </Table.Row>
                                 ) : (
                                     displayed.map((record, i) => (
-                                        <Table.Row key={i} _hover={{ bg: "gray.900" }}>
+                                        <Table.Row key={i} _hover={{ bg: "bg.muted" }}>
                                             {columns.map(col => (
-                                                <Table.Cell key={col} fontSize="10px" color="gray.400" maxW="220px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                                                <Table.Cell key={col} fontSize="10px" color="fg.muted" maxW="220px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
                                                     {formatCell(record[col])}
                                                 </Table.Cell>
                                             ))}
@@ -358,10 +358,10 @@ export default function ManageData() {
             </Flex>
 
             {/* Search Section */}
-            <Box bg="gray.950" border="1px solid" borderColor="gray.800" rounded="md" p={6}>
+            <Box bg="bg.subtle" border="1px solid" borderColor="border" rounded="md" p={6}>
                 <Flex direction={{ base: "column", md: "row" }} gap={4} align={{ md: "end" }}>
                     <Box width={{ base: "full", md: "240px" }} flexShrink={0}>
-                        <Text mb={2} fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest">Source</Text>
+                        <Text mb={2} fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Source</Text>
                         <Select.Root
                             collection={sourceOptions}
                             value={[source]}
@@ -401,7 +401,7 @@ export default function ManageData() {
                     </Box>
 
                     <Box flex="1">
-                        <Text mb={2} fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest">Search Stock</Text>
+                        <Text mb={2} fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Search Stock</Text>
                         <SearchBar
                             url={`${NEBULA_BASE}/search-stocks`}
                             mainKey={sourceKeys.mainKey}
@@ -417,13 +417,13 @@ export default function ManageData() {
 
             {/* Stock Info & Actions */}
             {symbol && (
-                <Box bg="gray.950" border="1px solid" borderColor="gray.800" rounded="md" p={6}>
+                <Box bg="bg.subtle" border="1px solid" borderColor="border" rounded="md" p={6}>
                     <Flex direction={{ base: "column", md: "row" }} justify="space-between" align={{ md: "center" }} gap={4}>
                         <HStack gap={3}>
-                            <Box bg="gray.900" px={3} py={1.5} rounded="sm">
+                            <Box bg="bg.muted" px={3} py={1.5} rounded="sm">
                                 <Text fontSize="lg" fontWeight="bold" fontFamily="mono">{symbol}</Text>
                             </Box>
-                            {name && <Text fontSize="sm" color="gray.400">{name}</Text>}
+                            {name && <Text fontSize="sm" color="fg.muted">{name}</Text>}
                             <Badge variant="surface" colorPalette={source === "SEC" ? "blue" : "orange"} size="sm">
                                 {source}
                             </Badge>
@@ -470,49 +470,49 @@ export default function ManageData() {
                         </HStack>
                     </Flex>
 
-                    <Separator borderColor="gray.800" my={4} />
+                    <Separator borderColor="border" my={4} />
 
                     {statusLoading ? (
                         <Flex justify="center" py={6}>
                             <HStack gap={2}>
                                 <Spinner size="sm" />
-                                <Text fontSize="sm" color="gray.500">Checking data status...</Text>
+                                <Text fontSize="sm" color="fg.subtle">Checking data status...</Text>
                             </HStack>
                         </Flex>
                     ) : statusNotFound ? (
                         <Flex direction="column" align="center" gap={2} py={6}>
-                            <MdErrorOutline size={24} color="gray.600" />
-                            <Text fontSize="sm" color="gray.500">No data found for <Kbd>{symbol}</Kbd> on {source}</Text>
-                            <Text fontSize="xs" color="gray.600">Use "Pull Latest Data" to fetch it for the first time</Text>
+                            <MdErrorOutline size={24} color="fg.muted" />
+                            <Text fontSize="sm" color="fg.subtle">No data found for <Kbd>{symbol}</Kbd> on {source}</Text>
+                            <Text fontSize="xs" color="fg.muted">Use "Pull Latest Data" to fetch it for the first time</Text>
                         </Flex>
                     ) : status ? (
                         <VStack gap={4} align="stretch">
                             <SimpleGrid columns={{ base: 1, sm: 2, md: 4 }} gap={4}>
-                                <Box bg="gray.900" p={3} rounded="sm">
+                                <Box bg="bg.muted" p={3} rounded="sm">
                                     <HStack gap={2} mb={1}>
-                                        <MdHistory size={14} color="gray.500" />
-                                        <Text fontSize="xs" color="gray.500">Last Pull</Text>
+                                        <MdHistory size={14} color="fg.subtle" />
+                                        <Text fontSize="xs" color="fg.subtle">Last Pull</Text>
                                     </HStack>
                                     <Text fontSize="sm" fontWeight="medium">{formatDate(status.last_pull)}</Text>
                                 </Box>
-                                <Box bg="gray.900" p={3} rounded="sm">
+                                <Box bg="bg.muted" p={3} rounded="sm">
                                     <HStack gap={2} mb={1}>
-                                        <MdOutlineRefresh size={14} color="gray.500" />
-                                        <Text fontSize="xs" color="gray.500">Total Pulls</Text>
+                                        <MdOutlineRefresh size={14} color="fg.subtle" />
+                                        <Text fontSize="xs" color="fg.subtle">Total Pulls</Text>
                                     </HStack>
                                     <Text fontSize="sm" fontWeight="medium">{status.total_pulls ?? "-"}</Text>
                                 </Box>
-                                <Box bg="gray.900" p={3} rounded="sm">
+                                <Box bg="bg.muted" p={3} rounded="sm">
                                     <HStack gap={2} mb={1}>
-                                        <MdCalendarToday size={14} color="gray.500" />
-                                        <Text fontSize="xs" color="gray.500">Created</Text>
+                                        <MdCalendarToday size={14} color="fg.subtle" />
+                                        <Text fontSize="xs" color="fg.subtle">Created</Text>
                                     </HStack>
                                     <Text fontSize="sm" fontWeight="medium">{formatDate(status.created_at)}</Text>
                                 </Box>
-                                <Box bg="gray.900" p={3} rounded="sm">
+                                <Box bg="bg.muted" p={3} rounded="sm">
                                     <HStack gap={2} mb={1}>
-                                        <MdOutlineCloudDone size={14} color="gray.500" />
-                                        <Text fontSize="xs" color="gray.500">Updated</Text>
+                                        <MdOutlineCloudDone size={14} color="fg.subtle" />
+                                        <Text fontSize="xs" color="fg.subtle">Updated</Text>
                                     </HStack>
                                     <Text fontSize="sm" fontWeight="medium">{formatDate(status.updated_at)}</Text>
                                 </Box>
@@ -520,10 +520,10 @@ export default function ManageData() {
 
                             {status.record_counts && (
                                 <Box>
-                                    <Text fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest" mb={2}>Record Counts</Text>
+                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Record Counts</Text>
                                     <Flex gap={2} flexWrap="wrap">
                                         {Object.entries(status.record_counts).map(([key, count]: any) => (
-                                            <Badge key={key} variant="surface" colorPalette="gray" color="gray.400" bg="gray.900" px={2} py={1} rounded="sm" fontSize="xs">
+                                            <Badge key={key} variant="surface" colorPalette="gray" color="fg.muted" bg="bg.muted" px={2} py={1} rounded="sm" fontSize="xs">
                                                 {key}: {count}
                                             </Badge>
                                         ))}
@@ -533,10 +533,10 @@ export default function ManageData() {
 
                             {status.previous_pulls && status.previous_pulls.length > 0 && (
                                 <Box>
-                                    <Text fontSize="xs" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest" mb={2}>Previous Pulls</Text>
+                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Previous Pulls</Text>
                                     <Flex gap={1.5} flexWrap="wrap">
                                         {status.previous_pulls.map((date: string, i: number) => (
-                                            <Text key={i} fontSize="xs" color="gray.600" fontFamily="mono">
+                                            <Text key={i} fontSize="xs" color="fg.muted" fontFamily="mono">
                                                 {formatDate(date)}
                                             </Text>
                                         ))}
@@ -546,7 +546,7 @@ export default function ManageData() {
                         </VStack>
                     ) : (
                         <Flex justify="center" py={4}>
-                            <Text fontSize="sm" color="gray.500">Unable to fetch status</Text>
+                            <Text fontSize="sm" color="fg.subtle">Unable to fetch status</Text>
                         </Flex>
                     )}
                 </Box>
@@ -557,13 +557,13 @@ export default function ManageData() {
                 <Flex justify="center" py={10}>
                     <HStack gap={3}>
                         <Spinner size="lg" borderWidth="3px" />
-                        <Text color="gray.500">Loading stock data...</Text>
+                        <Text color="fg.subtle">Loading stock data...</Text>
                     </HStack>
                 </Flex>
             ) : stockData ? (
                 <Box>
                     <Flex justify="space-between" align="center" mb={4}>
-                        <Text fontSize="sm" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest">
+                        <Text fontSize="sm" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">
                             Stock Data · {stockData.total_records ?? 0} total records
                             {!hasData && " · no categories loaded"}
                         </Text>
@@ -576,7 +576,7 @@ export default function ManageData() {
                         </VStack>
                     ) : (
                         <Flex justify="center" py={8}>
-                            <Text color="gray.500">Response received but no data categories found</Text>
+                            <Text color="fg.subtle">Response received but no data categories found</Text>
                         </Flex>
                     )}
                 </Box>
@@ -587,13 +587,13 @@ export default function ManageData() {
                 <Flex justify="center" py={10}>
                     <HStack gap={3}>
                         <Spinner size="lg" borderWidth="3px" />
-                        <Text color="gray.500">Calculating financial ratios...</Text>
+                        <Text color="fg.subtle">Calculating financial ratios...</Text>
                     </HStack>
                 </Flex>
             ) : ratiosData ? (
                 <Box>
                     <Flex justify="space-between" align="center" mb={4}>
-                        <Text fontSize="sm" fontWeight="bold" color="gray.500" textTransform="uppercase" letterSpacing="widest">
+                        <Text fontSize="sm" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">
                             Financial Ratios · {ratiosData.symbol} · {ratiosData.consolidated ?? "Consolidated"}
                         </Text>
                         <Badge variant="surface" colorPalette="purple" size="sm">{ratiosData.records?.length ?? 0} periods</Badge>
@@ -606,7 +606,7 @@ export default function ManageData() {
                         </VStack>
                     ) : (
                         <Flex justify="center" py={8}>
-                            <Text color="gray.500">No ratio data found</Text>
+                            <Text color="fg.subtle">No ratio data found</Text>
                         </Flex>
                     )}
                 </Box>
