@@ -59,6 +59,9 @@ export default function NavBar() {
                     <Link to={"/manage-data"}>
                         <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Data</Text>
                     </Link>
+                    <Link to={"/settings"}>
+                        <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Settings</Text>
+                    </Link>
                 </Flex>
             </Flex>
 

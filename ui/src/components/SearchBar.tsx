@@ -7,16 +7,16 @@ import {
     Portal,
     Span,
     Spinner,
-    useListCollection,
 } from "@chakra-ui/react"
-import { useEffect, useState, useMemo } from "react"
-import { useAsync } from "react-use"
-
+import { useEffect, useState, useMemo, useRef } from "react"
 
 export default function SearchBar(props) {
     const [inputValue, setInputValue] = useState("")
     const [items, setItems] = useState([])
     const [value, setValue] = useState<string[]>([])
+    const [loading, setLoading] = useState(false)
+    const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+    const abortRef = useRef<AbortController>()
 
     const mainKey = props.mainKey || "SYMBOL"
     const secondaryKey = props.secondaryKey || "NAME"
@@ -28,15 +28,49 @@ export default function SearchBar(props) {
         itemToValue: (item) => (item ? item[mainKey] : ""),
     }), [items, mainKey])
 
-    const state = useAsync(async () => {
-        const params = new URLSearchParams({ query: inputValue })
-        Object.entries(searchParams).forEach(([key, val]) => {
-            if (val) params.set(key, val as string)
-        })
-        const response = await fetch(`${props.url}?${params}`)
-        const data = await response.json()
-        setItems(Array.isArray(data) ? data : [])
-    }, [inputValue, props.url, JSON.stringify(searchParams)])
+    useEffect(() => {
+        if (debounceRef.current) clearTimeout(debounceRef.current)
+        if (abortRef.current) abortRef.current.abort()
+
+        if (!inputValue.trim()) {
+            setItems([])
+            setLoading(false)
+            return
+        }
+
+        setLoading(true)
+
+        debounceRef.current = setTimeout(async () => {
+            const controller = new AbortController()
+            abortRef.current = controller
+
+            try {
+                const params = new URLSearchParams({ query: inputValue })
+                Object.entries(searchParams).forEach(([key, val]) => {
+                    if (val) params.set(key, val as string)
+                })
+                const response = await fetch(`${props.url}?${params}`, {
+                    signal: controller.signal
+                })
+                const data = await response.json()
+                if (!controller.signal.aborted) {
+                    setItems(Array.isArray(data) ? data : [])
+                }
+            } catch (err: any) {
+                if (err.name !== "AbortError") {
+                    setItems([])
+                }
+            } finally {
+                if (!controller.signal.aborted) {
+                    setLoading(false)
+                }
+            }
+        }, 300)
+
+        return () => {
+            if (debounceRef.current) clearTimeout(debounceRef.current)
+        }
+    }, [inputValue, props.url, searchParams])
 
     useEffect(() => {
         const selectedItem = items.find(i => i[mainKey] === value[0]);
@@ -45,8 +79,6 @@ export default function SearchBar(props) {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value])
-
-
 
     return (
         <Combobox.Root
@@ -65,7 +97,6 @@ export default function SearchBar(props) {
                     null
             }
 
-
             <Combobox.Control>
                 <Combobox.Input placeholder="Type to search" />
                 <Combobox.IndicatorGroup>
@@ -77,15 +108,11 @@ export default function SearchBar(props) {
             <Portal>
                 <Combobox.Positioner>
                     <Combobox.Content minW="sm">
-                        {state.loading ? (
+                        {loading ? (
                             <HStack p="2">
                                 <Spinner size="xs" borderWidth="1px" />
                                 <Span>Loading...</Span>
                             </HStack>
-                        ) : state.error ? (
-                            <Span p="2" color="fg.error">
-                                Error fetching
-                            </Span>
                         ) : items.length === 0 && inputValue.length > 0 ? (
                             <Span p="2" color="fg.muted">
                                 No results found
@@ -114,4 +141,3 @@ export default function SearchBar(props) {
         </Combobox.Root>
     )
 }
-

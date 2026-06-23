@@ -17,6 +17,7 @@ import AnalysisList from "./pages/AnalysisList";
 import Analysis from "./pages/Analysis";
 import AnalysisResult from "./pages/AnalysisResult";
 import ManageData from "./pages/ManageData";
+import Settings from "./pages/Settings";
 import NavBar from "./components/NavBar";
 
 
@@ -33,6 +34,7 @@ function App() {
       if (path.startsWith("/analysis-result/")) return "Analysis Result";
       if (path === "/analysis") return "New Analysis";
       if (path === "/manage-data") return "Manage Data";
+      if (path === "/settings") return "Settings";
       return "Relativity AI";
     };
     
@@ -64,6 +66,7 @@ function App() {
             element={<Navigate to="/analysis-list" replace />}
           />
           <Route path="/manage-data" element={<ManageData />} />
+          <Route path="/settings" element={<Settings />} />
           <Route
             path="/check-data"
             element={<Navigate to="/manage-data" replace />}

@@ -16,10 +16,11 @@ import {
     VStack,
 } from "@chakra-ui/react";
 import { AnalysisService } from "@/db";
+import ReactMarkdown from "react-markdown";
 import {
     MdArrowBack, MdAnalytics, MdHistory, MdOutlineCheckCircle,
-    MdOutlineSpeed, MdOutlineStar, MdOutlineTimer, MdOutlineMemory,
-    MdOutlineRepeat, MdOutlineHub, MdOutlineFactCheck, MdOutlinePsychology
+    MdOutlineStar, MdOutlineTimer, MdOutlineMemory,
+    MdOutlineFactCheck, MdOutlinePsychology, MdErrorOutline
 } from "react-icons/md";
 
 function scoreColor(score: number): string {
@@ -79,7 +80,8 @@ export default function AnalysisResult() {
             const data = await AnalysisService.readAnalysis(id);
             if (data) {
                 setAnalysis(data);
-                if (data.status === "PENDING" || data.status === "pending") {
+                const s = (data.status || "").toLowerCase();
+                if (s === "pending" || s === "running" || s === "processing") {
                     setTimeout(fetchResult, 3000);
                 }
             } else {
@@ -118,10 +120,15 @@ export default function AnalysisResult() {
 
     if (!analysis) return null;
 
-    const isComplete = analysis.status === "COMPLETED" || analysis.status === "complete";
+    const terminalStatuses = ["complete", "completed", "success", "error", "failed"];
+    const s = (analysis.status || "").toLowerCase();
+    const isComplete = terminalStatuses.includes(s);
+    const isError = s === "error" || s === "failed";
 
     const quantAnalysis = analysis.quantitative_analysis || {};
     const qualAnalysis = analysis.qualitative_analysis || {};
+    const docs = analysis.documents || [];
+    const webSrc = analysis.web_sources || [];
 
     return (
         <Box>
@@ -154,12 +161,12 @@ export default function AnalysisResult() {
                             </Flex>
                             <Flex align="center" gap={3} wrap="wrap">
                                 <Badge
-                                    colorPalette={isComplete ? "green" : "yellow"}
+                                    colorPalette={isError ? "red" : isComplete ? "green" : "yellow"}
                                     variant="surface"
                                     size="sm"
                                     px={2.5}
                                 >
-                                    {isComplete ? <MdOutlineCheckCircle style={{ display: "inline", marginRight: 4 }} /> : null}
+                                    {isError ? <MdErrorOutline style={{ display: "inline", marginRight: 4 }} /> : isComplete ? <MdOutlineCheckCircle style={{ display: "inline", marginRight: 4 }} /> : null}
                                     {analysis.status?.toUpperCase()}
                                 </Badge>
                                 <Text color="fg.muted" fontSize="xs">
@@ -175,19 +182,37 @@ export default function AnalysisResult() {
                         {isComplete && (
                             <Box textAlign="right">
                                 <Text fontSize="2xs" fontWeight="bold" color="fg.muted" letterSpacing="widest" mb={1}>TOTAL SCORE</Text>
-                                <Text
-                                    fontSize="5xl"
-                                    fontWeight="black"
-                                    lineHeight="1"
-                                    color={`${scoreColor(analysis.total_score)}.400`}
-                                >
-                                    {analysis.total_score.toFixed(1)}
-                                    <Text as="span" fontSize="2xl" fontWeight="normal" color="fg.muted">%</Text>
-                                </Text>
+                                {analysis.total_score != null ? (
+                                    <Text
+                                        fontSize="5xl"
+                                        fontWeight="black"
+                                        lineHeight="1"
+                                        color={`${scoreColor(analysis.total_score)}.400`}
+                                    >
+                                        {analysis.total_score.toFixed(1)}
+                                        <Text as="span" fontSize="2xl" fontWeight="normal" color="fg.muted">%</Text>
+                                    </Text>
+                                ) : (
+                                    <Text fontSize="2xl" fontWeight="bold" color="fg.muted">N/A</Text>
+                                )}
                             </Box>
                         )}
                     </Flex>
                 </Box>
+
+                {analysis.error && (
+                    <Box p={4} bg="red.50" border="1px solid" borderColor="red.200" rounded="md" _dark={{ bg: "red.900/20", borderColor: "red.700" }}>
+                        <Flex gap={2} align="start">
+                            <MdErrorOutline size={18} color="red.500" style={{ marginTop: 2 }} />
+                            <Box>
+                                <Text fontSize="sm" fontWeight="bold" color="red.700" _dark={{ color: "red.300" }} mb={1}>Analysis Error</Text>
+                                <Text fontSize="xs" color="red.600" _dark={{ color: "red.300" }} whiteSpace="pre-wrap" fontFamily="mono">
+                                    {analysis.error}
+                                </Text>
+                            </Box>
+                        </Flex>
+                    </Box>
+                )}
 
                 {!isComplete ? (
                     <Box p={10} textAlign="center" bg="bg.muted" rounded="md" border="1px dashed" borderColor="border">
@@ -198,15 +223,13 @@ export default function AnalysisResult() {
                 ) : (
                     <>
                         {/* Metadata Row */}
-                        <SimpleGrid columns={{ base: 2, md: 4, lg: 7 }} gap={3}>
+                        <SimpleGrid columns={{ base: 2, md: 3, lg: 5 }} gap={3}>
                             {[
                                 { icon: MdOutlineMemory, label: "MODEL", value: analysis.model || "N/A" },
-                                { icon: MdOutlineRepeat, label: "ITERATIONS", value: String(analysis.iterations ?? "N/A") },
-                                { icon: MdOutlineSpeed, label: "RPM", value: String(analysis.rpm ?? "N/A") },
-                                { icon: MdOutlineHub, label: "MAX RETRY", value: String(analysis.max_retry ?? "N/A") },
                                 { icon: MdOutlineTimer, label: "DURATION", value: analysis.duration ? `${analysis.duration.toFixed(1)}s` : "N/A" },
                                 { icon: MdOutlineTimer, label: "END TIME", value: analysis.end_time ? new Date(analysis.end_time * 1000).toLocaleTimeString() : "N/A" },
                                 { icon: MdOutlineFactCheck, label: "SOURCE", value: analysis.source || "N/A" },
+                                { icon: MdOutlineStar, label: "PROFILE", value: analysis.profile || "N/A" },
                             ].map(({ icon: Icon, label, value }) => (
                                 <Box key={label} bg="bg.subtle" p={3} rounded="sm" border="1px solid" borderColor="border">
                                     <HStack gap={1.5} mb={1}>
@@ -222,44 +245,56 @@ export default function AnalysisResult() {
                         <SimpleGrid columns={{ base: 1, md: 3 }} gap={4}>
                             <Box bg="bg.subtle" p={5} rounded="md" border="1px solid" borderColor="border">
                                 <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>QUANTITATIVE SCORE</Text>
-                                <Text fontSize="3xl" fontWeight="black" color={`${scoreColor(analysis.quantitative_score)}.400`}>
-                                    {analysis.quantitative_score.toFixed(1)}%
-                                </Text>
-                                <Progress.Root
-                                    value={analysis.quantitative_score}
-                                    max={100}
-                                    size="xs"
-                                    mt={2}
-                                    colorPalette={scoreColor(analysis.quantitative_score)}
-                                >
-                                    <Progress.Track bg="bg.emphasized">
-                                        <Progress.Range />
-                                    </Progress.Track>
-                                </Progress.Root>
+                                {analysis.quantitative_score != null ? (
+                                    <>
+                                        <Text fontSize="3xl" fontWeight="black" color={`${scoreColor(analysis.quantitative_score)}.400`}>
+                                            {analysis.quantitative_score.toFixed(1)}%
+                                        </Text>
+                                        <Progress.Root
+                                            value={analysis.quantitative_score}
+                                            max={100}
+                                            size="xs"
+                                            mt={2}
+                                            colorPalette={scoreColor(analysis.quantitative_score)}
+                                        >
+                                            <Progress.Track bg="bg.emphasized">
+                                                <Progress.Range />
+                                            </Progress.Track>
+                                        </Progress.Root>
+                                    </>
+                                ) : (
+                                    <Text fontSize="2xl" fontWeight="bold" color="fg.muted">N/A</Text>
+                                )}
                                 <Text fontSize="2xs" color="fg.muted" mt={1}>Metric compliance score</Text>
                             </Box>
                             <Box bg="bg.subtle" p={5} rounded="md" border="1px solid" borderColor="border">
                                 <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>QUALITATIVE SCORE</Text>
-                                <Text fontSize="3xl" fontWeight="black" color={`${scoreColor(analysis.qualitative_score)}.400`}>
-                                    {analysis.qualitative_score.toFixed(1)}%
-                                </Text>
-                                <Progress.Root
-                                    value={analysis.qualitative_score}
-                                    max={100}
-                                    size="xs"
-                                    mt={2}
-                                    colorPalette={scoreColor(analysis.qualitative_score)}
-                                >
-                                    <Progress.Track bg="bg.emphasized">
-                                        <Progress.Range />
-                                    </Progress.Track>
-                                </Progress.Root>
+                                {analysis.qualitative_score != null ? (
+                                    <>
+                                        <Text fontSize="3xl" fontWeight="black" color={`${scoreColor(analysis.qualitative_score)}.400`}>
+                                            {analysis.qualitative_score.toFixed(1)}%
+                                        </Text>
+                                        <Progress.Root
+                                            value={analysis.qualitative_score}
+                                            max={100}
+                                            size="xs"
+                                            mt={2}
+                                            colorPalette={scoreColor(analysis.qualitative_score)}
+                                        >
+                                            <Progress.Track bg="bg.emphasized">
+                                                <Progress.Range />
+                                            </Progress.Track>
+                                        </Progress.Root>
+                                    </>
+                                ) : (
+                                    <Text fontSize="2xl" fontWeight="bold" color="fg.muted">N/A</Text>
+                                )}
                                 <Text fontSize="2xs" color="fg.muted" mt={1}>Contextual analysis score</Text>
                             </Box>
                             <Box bg="bg.subtle" p={5} rounded="md" border="1px solid" borderColor="border">
                                 <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>TOTAL DURATION</Text>
                                 <Text fontSize="3xl" fontWeight="black" color="fg">
-                                    {analysis.duration?.toFixed(1)}s
+                                    {analysis.duration != null ? `${analysis.duration.toFixed(1)}s` : "N/A"}
                                 </Text>
                                 <Progress.Root value={100} max={100} size="xs" mt={2} colorPalette="gray">
                                     <Progress.Track bg="bg.emphasized">
@@ -269,6 +304,33 @@ export default function AnalysisResult() {
                                 <Text fontSize="2xs" color="fg.muted" mt={1}>Total processing time</Text>
                             </Box>
                         </SimpleGrid>
+
+                        {(docs.length > 0 || webSrc.length > 0) && (
+                            <Flex gap={4} p={4} bg="bg.muted" border="1px solid" borderColor="border" rounded="md" wrap="wrap" align="center">
+                                {docs.length > 0 && (
+                                    <Box>
+                                        <Text fontSize="2xs" fontWeight="bold" color="fg.subtle" letterSpacing="widest" mb={1}>DOCUMENTS</Text>
+                                        <Text fontSize="xs" color="fg.muted">{docs.length} file{docs.length > 1 ? "s" : ""}</Text>
+                                    </Box>
+                                )}
+                                {webSrc.length > 0 && (
+                                    <Box>
+                                        <Text fontSize="2xs" fontWeight="bold" color="fg.subtle" letterSpacing="widest" mb={1}>WEB SOURCES</Text>
+                                        <Flex gap={1} wrap="wrap">
+                                            {webSrc.map((s: string) => (
+                                                <Badge key={s} variant="surface" size="xs" colorPalette="gray" color="fg.muted">{s}</Badge>
+                                            ))}
+                                        </Flex>
+                                    </Box>
+                                )}
+                                {analysis.web_search && (
+                                    <Box>
+                                        <Text fontSize="2xs" fontWeight="bold" color="fg.subtle" letterSpacing="widest" mb={1}>WEB SEARCH</Text>
+                                        <Text fontSize="xs" color="fg.muted">Enabled</Text>
+                                    </Box>
+                                )}
+                            </Flex>
+                        )}
 
                         <Separator borderColor="border" />
 
@@ -372,9 +434,26 @@ export default function AnalysisResult() {
                                                             wgt {paramData.weightage ?? "-"}
                                                         </Badge>
                                                     </Flex>
-                                                    <Text fontSize="sm" color="fg.subtle" lineHeight="relaxed">
-                                                        {paramData.analysis || "No analysis available"}
-                                                    </Text>
+                                                    <Box fontSize="sm" color="fg.subtle" lineHeight="relaxed" css={{
+                                                            "& h1, & h2, & h3, & h4": { fontWeight: "bold", mt: 3, mb: 1, color: "var(--chakra-colors-fg)" },
+                                                            "& h1": { fontSize: "xl" },
+                                                            "& h2": { fontSize: "lg" },
+                                                            "& h3": { fontSize: "md" },
+                                                            "& p": { mb: 2, "&:last-child": { mb: 0 } },
+                                                            "& ul, & ol": { pl: 5, mb: 2 },
+                                                            "& li": { mb: 0.5 },
+                                                            "& strong": { fontWeight: "bold", color: "var(--chakra-colors-fg)" },
+                                                            "& code": { bg: "var(--chakra-colors-bg-emphasized)", px: 1, py: 0.5, rounded: "sm", fontSize: "xs" },
+                                                            "& pre": { bg: "var(--chakra-colors-bg-emphasized)", p: 3, rounded: "md", overflow: "auto", mb: 2, fontSize: "xs" },
+                                                            "& blockquote": { borderLeft: "3px solid", borderColor: "var(--chakra-colors-border)", pl: 3, mb: 2, color: "fg.muted", fontStyle: "italic" },
+                                                            "& table": { borderCollapse: "collapse", mb: 2, width: "full" },
+                                                            "& th, & td": { border: "1px solid", borderColor: "var(--chakra-colors-border)", px: 2, py: 1, textAlign: "left" },
+                                                            "& th": { fontWeight: "bold", bg: "var(--chakra-colors-bg-emphasized)" },
+                                                            "& hr": { my: 3, borderColor: "var(--chakra-colors-border)" },
+                                                            "& a": { color: "blue.400", textDecoration: "underline" },
+                                                        }}>
+                                                        <ReactMarkdown>{paramData.analysis || "_No analysis available_"}</ReactMarkdown>
+                                                    </Box>
                                                 </Box>
                                                 <ScoreBadge score={paramData.score ?? 0} size="md" />
                                             </Flex>
