@@ -1,6 +1,6 @@
 import SearchBar from "@/components/SearchBar";
 import {
-    Badge, Button, Flex, Text, Spinner, Box, Select,
+    Badge, Button, Flex, Text, Spinner, Box, Select, Checkbox,
     createListCollection, Portal, HStack, VStack, Input, Table,
     Separator, SimpleGrid, Kbd
 } from "@chakra-ui/react";
@@ -163,6 +163,18 @@ export default function ManageData() {
     const [statusNotFound, setStatusNotFound] = useState(false);
     const [ratiosData, setRatiosData] = useState<any>(null);
     const [ratiosLoading, setRatiosLoading] = useState(false);
+    const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
+
+    const collectionOptions = useMemo(() => {
+        if (!status?.record_counts) return [];
+        return Object.keys(status.record_counts);
+    }, [status]);
+
+    useEffect(() => {
+        if (collectionOptions.length > 0) {
+            setSelectedCollections(collectionOptions);
+        }
+    }, [collectionOptions]);
 
     const symbolRef = useRef(symbol);
     symbolRef.current = symbol;
@@ -208,7 +220,7 @@ export default function ManageData() {
         if (!sym || !src) return;
         setDataLoading(true);
         try {
-            const result = await VoyagerService.getStockData(sym, src);
+            const result = await VoyagerService.getStockData(sym, src, selectedCollections.length > 0 ? selectedCollections : undefined);
             if (sym !== symbolRef.current || src !== sourceRef.current) return;
             const hasCategories = result && result.data && typeof result.data === "object";
             setStockData(hasCategories ? result : null);
@@ -221,7 +233,7 @@ export default function ManageData() {
                 setDataLoading(false);
             }
         }
-    }, []);
+    }, [selectedCollections]);
 
     const pullData = useCallback(async () => {
         const sym = symbolRef.current;
@@ -526,6 +538,32 @@ export default function ManageData() {
                                             <Badge key={key} variant="surface" colorPalette="gray" color="fg.muted" bg="bg.muted" px={2} py={1} rounded="sm" fontSize="xs">
                                                 {key}: {count}
                                             </Badge>
+                                        ))}
+                                    </Flex>
+                                </Box>
+                            )}
+
+                            {collectionOptions.length > 0 && (
+                                <Box>
+                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Collections to Load</Text>
+                                    <Flex gap={3} flexWrap="wrap">
+                                        {collectionOptions.map(col => (
+                                            <Checkbox.Root
+                                                key={col}
+                                                checked={selectedCollections.includes(col)}
+                                                onCheckedChange={({ checked }) => {
+                                                    setSelectedCollections(prev =>
+                                                        checked === true
+                                                            ? [...prev, col]
+                                                            : prev.filter(c => c !== col)
+                                                    );
+                                                }}
+                                                size="xs"
+                                            >
+                                                <Checkbox.HiddenInput />
+                                                <Checkbox.Control />
+                                                <Checkbox.Label fontSize="xs">{col}</Checkbox.Label>
+                                            </Checkbox.Root>
                                         ))}
                                     </Flex>
                                 </Box>

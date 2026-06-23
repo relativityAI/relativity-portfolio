@@ -1,5 +1,20 @@
 import axios from "axios";
 
+axios.interceptors.request.use((config) => {
+    const openaiKey = localStorage.getItem("openai_key");
+    const geminiKey = localStorage.getItem("gemini_key");
+    const cerebrasKey = localStorage.getItem("cerebras_key");
+
+    if (openaiKey) config.headers["X-LLM-OpenAI-Key"] = openaiKey;
+    if (geminiKey) config.headers["X-LLM-Gemini-Key"] = geminiKey;
+    if (cerebrasKey) config.headers["X-LLM-Cerebras-Key"] = cerebrasKey;
+
+    const tavilyKey = localStorage.getItem("tavily_key");
+    if (tavilyKey) config.headers["X-LLM-Tavily-Key"] = tavilyKey;
+
+    return config;
+});
+
 // Directly targeting services via Vite proxy to bypass CORS
 const VOYAGER_BASE = "/voyager-api";
 export const NEBULA_BASE = "/nebula-api";
@@ -75,14 +90,26 @@ export const AnalysisService = {
         return response.data;
     },
 
-    async runAnalysis(config: { share_name: string; symbol: string; profile_name: string }) {
-        // Nebula endpoint is /run-analysis, not /correlate
+    async runAnalysis(config: {
+        share_name: string;
+        symbol: string;
+        profile_name: string;
+        model?: string;
+        documents?: string[];
+        web_search?: boolean;
+        web_sources?: string[];
+    }) {
         const response = await axios.post(`${NEBULA_BASE}/run-analysis`, config);
         return response.data;
     },
 
     async getAvailableSources() {
         const response = await axios.get(`${NEBULA_BASE}/available-sources`);
+        return response.data;
+    },
+
+    async getAvailableModels() {
+        const response = await axios.get(`${NEBULA_BASE}/available-models`);
         return response.data;
     }
 };
@@ -145,10 +172,12 @@ export const VoyagerService = {
         }
     },
 
-    async getStockData(symbol: string, source: string) {
-        const response = await axios.get(`${VOYAGER_BASE}/stock-data`, {
-            params: { source, symbol }
-        });
+    async getStockData(symbol: string, source: string, collections?: string[]) {
+        let url = `${VOYAGER_BASE}/stock-data?source=${encodeURIComponent(source)}&symbol=${encodeURIComponent(symbol)}`;
+        if (collections && collections.length > 0) {
+            url += collections.map(c => `&collections=${encodeURIComponent(c)}`).join('');
+        }
+        const response = await axios.get(url);
         return response.data;
     },
 
@@ -182,6 +211,15 @@ export const VoyagerService = {
         } catch (error: any) {
             if (error?.response?.data) return error.response.data;
             return null;
+        }
+    },
+
+    async getAvailableWebSources() {
+        try {
+            const response = await axios.get(`${VOYAGER_BASE}/available-web-sources`);
+            return response.data;
+        } catch {
+            return { sources: [] };
         }
     },
 
