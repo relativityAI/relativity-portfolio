@@ -6,8 +6,9 @@ import {
     Input,
     Box,
     Text,
+    IconButton,
 } from "@chakra-ui/react"
-import { MdDeleteForever, MdAdd } from "react-icons/md";
+import { MdDeleteForever, MdAdd, MdRemove } from "react-icons/md";
 
 interface ProfileDataQualitativeProps {
     data: any[];
@@ -90,7 +91,7 @@ export default function ProfileDataQualitative(props: ProfileDataQualitativeProp
                             gap={3}
                             px={3}
                             py={2.5}
-                            align="center"
+                            align="flex-start"
                             border="1px solid"
                             borderColor="border"
                             borderTop="none"
@@ -118,28 +119,42 @@ export default function ProfileDataQualitative(props: ProfileDataQualitativeProp
                                 />
                             </Box>
                             <Box width="52px" flexShrink={0} textAlign="center">
-                                <Input
-                                    variant="subtle"
-                                    size="2xs"
-                                    type="number"
-                                    min={1}
-                                    max={10}
-                                    step={1}
-                                    value={param.weightage ?? 5}
-                                    onChange={(e) => handleChange(index, "weightage", Math.min(10, Math.max(1, parseInt(e.target.value) || 1)))}
-                                    bg="bg.subtle"
-                                    border="1px solid"
-                                    borderColor="border.emphasized"
-                                    _focus={{ borderColor: "fg.muted" }}
-                                    color="blue.400"
-                                    rounded="sm"
-                                    fontSize="xs"
-                                    fontWeight="bold"
-                                    textAlign="center"
-                                    minH="28px"
-                                    width="full"
-                                    px={1}
-                                />
+                                <Flex align="center" justify="center" gap={0}>
+                                    <IconButton
+                                        size="2xs"
+                                        variant="ghost"
+                                        color="fg.muted"
+                                        _hover={{ color: "fg" }}
+                                        onClick={() => handleChange(index, "weightage", Math.max(1, (param.weightage ?? 5) - 1))}
+                                        minW="16px"
+                                        h="22px"
+                                        p={0}
+                                    >
+                                        <MdRemove size={10} />
+                                    </IconButton>
+                                    <Text
+                                        fontSize="xs"
+                                        fontWeight="bold"
+                                        color="fg"
+                                        minW="16px"
+                                        textAlign="center"
+                                        userSelect="none"
+                                    >
+                                        {param.weightage ?? 5}
+                                    </Text>
+                                    <IconButton
+                                        size="2xs"
+                                        variant="ghost"
+                                        color="fg.muted"
+                                        _hover={{ color: "fg" }}
+                                        onClick={() => handleChange(index, "weightage", Math.min(10, (param.weightage ?? 5) + 1))}
+                                        minW="16px"
+                                        h="22px"
+                                        p={0}
+                                    >
+                                        <MdAdd size={10} />
+                                    </IconButton>
+                                </Flex>
                             </Box>
                             <Box flex={3}>
                                 <Textarea

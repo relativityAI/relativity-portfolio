@@ -38,10 +38,110 @@ function formatCell(val: any): string {
 
 const ROW_LIMIT = 100;
 
+function isFinancialsData(records: any[]): boolean {
+    if (!records || records.length === 0) return false;
+    const first = records[0];
+    const keys = Object.keys(first);
+    if (keys.includes("date") && keys.includes("financials")) {
+        const fin = first.financials;
+        if (Array.isArray(fin) && fin.length > 0) {
+            return Object.keys(fin[0]).includes("tag") && Object.keys(fin[0]).includes("value");
+        }
+    }
+    return false;
+}
+
+function FinancialsTable({ records }: { records: any[] }) {
+    const dates = useMemo(() => {
+        return records.map(r => r.date).filter(Boolean).sort();
+    }, [records]);
+
+    const rows = useMemo(() => {
+        const tagMap = new Map<string, { tag: string; values: Record<string, string> }>();
+        records.forEach(period => {
+            const date = period.date;
+            const fin = Array.isArray(period.financials) ? period.financials : [];
+            fin.forEach((f: any) => {
+                const tag = f.tag;
+                if (!tagMap.has(tag)) tagMap.set(tag, { tag, values: {} });
+                if (date) {
+                    tagMap.get(tag)!.values[date] = formatCell(f.value);
+                }
+            });
+        });
+        return Array.from(tagMap.values());
+    }, [records]);
+
+    const allCols = ["tag", ...dates];
+
+    return (
+        <Box overflowX="auto" maxH="480px" overflowY="auto">
+            <Table.Root size="xs" variant="line">
+                <Table.Header>
+                    <Table.Row>
+                        {allCols.map(col => (
+                            <Table.ColumnHeader
+                                key={col}
+                                color="fg.subtle"
+                                fontSize="10px"
+                                py={2}
+                                whiteSpace="nowrap"
+                                position={col === "tag" ? "sticky" : undefined}
+                                left={col === "tag" ? 0 : undefined}
+                                bg="bg.muted"
+                                zIndex={col === "tag" ? 1 : undefined}
+                                minW={col === "tag" ? "180px" : "110px"}
+                            >
+                                {col === "tag" ? "Metric" : col}
+                            </Table.ColumnHeader>
+                        ))}
+                    </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                    {rows.length === 0 ? (
+                        <Table.Row>
+                            <Table.Cell colSpan={allCols.length} textAlign="center" color="fg.muted" py={6}>
+                                No financial data
+                            </Table.Cell>
+                        </Table.Row>
+                    ) : (
+                        rows.map((row, i) => (
+                            <Table.Row key={row.tag} _hover={{ bg: "bg.muted" }}>
+                                <Table.Cell
+                                    fontSize="10px"
+                                    fontWeight="medium"
+                                    color="fg"
+                                    position="sticky"
+                                    left={0}
+                                    bg="bg"
+                                    minW="180px"
+                                    maxW="220px"
+                                    overflow="hidden"
+                                    textOverflow="ellipsis"
+                                    whiteSpace="nowrap"
+                                >
+                                    {row.tag}
+                                </Table.Cell>
+                                {dates.map(d => (
+                                    <Table.Cell key={d} fontSize="10px" color="fg.muted" minW="110px">
+                                        {row.values[d] ?? "-"}
+                                    </Table.Cell>
+                                ))}
+                            </Table.Row>
+                        ))
+                    )}
+                </Table.Body>
+            </Table.Root>
+        </Box>
+    );
+}
+
 function DataTableSection({ title, records }: { title: string; records: any[] }) {
     const [search, setSearch] = useState("");
     const [expanded, setExpanded] = useState(true);
     const [showAll, setShowAll] = useState(false);
+
+    const financials = isFinancialsData(records);
 
     const filtered = useMemo(() => {
         if (!search.trim()) return records;
@@ -54,10 +154,10 @@ function DataTableSection({ title, records }: { title: string; records: any[] })
     }, [records, search]);
 
     const columns = useMemo(() => {
-        if (records.length === 0) return [];
+        if (financials || records.length === 0) return [];
         const skip = new Set(["_id", "_content_hash", "pulled_at"]);
         return Object.keys(records[0]).filter(k => !skip.has(k));
-    }, [records]);
+    }, [records, financials]);
 
     const displayed = showAll ? filtered : filtered.slice(0, ROW_LIMIT);
 
@@ -97,39 +197,43 @@ function DataTableSection({ title, records }: { title: string; records: any[] })
                         size="sm"
                         variant="subtle"
                     />
-                    <Box overflowX="auto" maxH="480px" overflowY="auto">
-                        <Table.Root size="xs" variant="line">
-                            <Table.Header>
-                                <Table.Row>
-                                    {columns.map(col => (
-                                        <Table.ColumnHeader key={col} color="fg.subtle" fontSize="10px" py={2} whiteSpace="nowrap">
-                                            {col}
-                                        </Table.ColumnHeader>
-                                    ))}
-                                </Table.Row>
-                            </Table.Header>
-                            <Table.Body>
-                                {displayed.length === 0 ? (
+                    {financials ? (
+                        <FinancialsTable records={records} />
+                    ) : (
+                        <Box overflowX="auto" maxH="480px" overflowY="auto">
+                            <Table.Root size="xs" variant="line">
+                                <Table.Header>
                                     <Table.Row>
-                                        <Table.Cell colSpan={columns.length} textAlign="center" color="fg.muted" py={6}>
-                                            No matching records
-                                        </Table.Cell>
+                                        {columns.map(col => (
+                                            <Table.ColumnHeader key={col} color="fg.subtle" fontSize="10px" py={2} whiteSpace="nowrap">
+                                                {col}
+                                            </Table.ColumnHeader>
+                                        ))}
                                     </Table.Row>
-                                ) : (
-                                    displayed.map((record, i) => (
-                                        <Table.Row key={i} _hover={{ bg: "bg.muted" }}>
-                                            {columns.map(col => (
-                                                <Table.Cell key={col} fontSize="10px" color="fg.muted" maxW="220px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
-                                                    {formatCell(record[col])}
-                                                </Table.Cell>
-                                            ))}
+                                </Table.Header>
+                                <Table.Body>
+                                    {displayed.length === 0 ? (
+                                        <Table.Row>
+                                            <Table.Cell colSpan={columns.length} textAlign="center" color="fg.muted" py={6}>
+                                                No matching records
+                                            </Table.Cell>
                                         </Table.Row>
-                                    ))
-                                )}
-                            </Table.Body>
-                        </Table.Root>
-                    </Box>
-                    {filtered.length > ROW_LIMIT && (
+                                    ) : (
+                                        displayed.map((record, i) => (
+                                            <Table.Row key={i} _hover={{ bg: "bg.muted" }}>
+                                                {columns.map(col => (
+                                                    <Table.Cell key={col} fontSize="10px" color="fg.muted" maxW="220px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                                                        {formatCell(record[col])}
+                                                    </Table.Cell>
+                                                ))}
+                                            </Table.Row>
+                                        ))
+                                    )}
+                                </Table.Body>
+                            </Table.Root>
+                        </Box>
+                    )}
+                    {!financials && filtered.length > ROW_LIMIT && (
                         <Flex justify="center" mt={2}>
                             <Button size="xs" variant="ghost" onClick={() => setShowAll(!showAll)}>
                                 {showAll
@@ -164,11 +268,25 @@ export default function ManageData() {
     const [ratiosData, setRatiosData] = useState<any>(null);
     const [ratiosLoading, setRatiosLoading] = useState(false);
     const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
+    const [selectedMetrics, setSelectedMetrics] = useState<string[]>([]);
+    const [limit, setLimit] = useState<number>(0);
+    const [statusAvailableMetrics, setStatusAvailableMetrics] = useState<Record<string, string[]> | null>(null);
+    const [statusMetricsCatalog, setStatusMetricsCatalog] = useState<any[] | null>(null);
 
     const collectionOptions = useMemo(() => {
         if (!status?.record_counts) return [];
         return Object.keys(status.record_counts);
     }, [status]);
+
+    const allMetricTags = useMemo(() => {
+        if (!statusAvailableMetrics) return [];
+        const tags = new Set<string>();
+        selectedCollections.forEach(col => {
+            const metrics = statusAvailableMetrics[col];
+            if (metrics) metrics.forEach(m => tags.add(m));
+        });
+        return Array.from(tags).sort();
+    }, [statusAvailableMetrics, selectedCollections]);
 
     useEffect(() => {
         if (collectionOptions.length > 0) {
@@ -198,6 +316,8 @@ export default function ManageData() {
                 setStatus(null);
             } else if (result && result.symbol) {
                 setStatus(result);
+                setStatusAvailableMetrics(result.available_metrics || null);
+                setStatusMetricsCatalog(result.metrics_catalog || null);
                 setStatusNotFound(false);
             } else {
                 setStatus(null);
@@ -220,7 +340,12 @@ export default function ManageData() {
         if (!sym || !src) return;
         setDataLoading(true);
         try {
-            const result = await VoyagerService.getStockData(sym, src, selectedCollections.length > 0 ? selectedCollections : undefined);
+            const result = await VoyagerService.getStockData(
+                sym, src,
+                selectedCollections.length > 0 ? selectedCollections : undefined,
+                selectedMetrics.length > 0 ? selectedMetrics : undefined,
+                limit > 0 ? limit : undefined
+            );
             if (sym !== symbolRef.current || src !== sourceRef.current) return;
             const hasCategories = result && result.data && typeof result.data === "object";
             setStockData(hasCategories ? result : null);
@@ -233,7 +358,7 @@ export default function ManageData() {
                 setDataLoading(false);
             }
         }
-    }, [selectedCollections]);
+    }, [selectedCollections, selectedMetrics, limit]);
 
     const pullData = useCallback(async () => {
         const sym = symbolRef.current;
@@ -291,6 +416,10 @@ export default function ManageData() {
         setRatiosData(null);
         setStatusNotFound(false);
         setPullComplete(false);
+        setSelectedMetrics([]);
+        setStatusAvailableMetrics(null);
+        setStatusMetricsCatalog(null);
+        setLimit(0);
     }, [sourceKeys]);
 
     useEffect(() => {
@@ -386,6 +515,10 @@ export default function ManageData() {
                                 setStatus(null);
                                 setStatusNotFound(false);
                                 setPullComplete(false);
+                                setSelectedMetrics([]);
+                                setStatusAvailableMetrics(null);
+                                setStatusMetricsCatalog(null);
+                                setLimit(0);
                             }}
                         >
                             <Select.HiddenSelect />
@@ -543,6 +676,42 @@ export default function ManageData() {
                                 </Box>
                             )}
 
+                            {statusAvailableMetrics && Object.keys(statusAvailableMetrics).length > 0 && (
+                                <Box>
+                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Available Metrics</Text>
+                                    <VStack gap={2} align="stretch">
+                                        {Object.entries(statusAvailableMetrics).map(([col, metrics]: [string, any]) => (
+                                            <Box key={col}>
+                                                <Text fontSize="xs" color="fg.muted" mb={1}>{col}: {(metrics as string[]).length} metrics</Text>
+                                                <Flex gap={1} flexWrap="wrap">
+                                                    {(metrics as string[]).slice(0, 15).map((m: string) => (
+                                                        <Badge key={m} variant="surface" colorPalette="gray" bg="bg.muted" px={1.5} py={0.5} rounded="sm" fontSize="xs">
+                                                            {m}
+                                                        </Badge>
+                                                    ))}
+                                                    {(metrics as string[]).length > 15 && (
+                                                        <Text fontSize="xs" color="fg.muted">+{(metrics as string[]).length - 15} more</Text>
+                                                    )}
+                                                </Flex>
+                                            </Box>
+                                        ))}
+                                    </VStack>
+                                </Box>
+                            )}
+
+                            {statusMetricsCatalog && statusMetricsCatalog.length > 0 && (
+                                <Box>
+                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Metrics Catalog</Text>
+                                    <Flex gap={1.5} flexWrap="wrap">
+                                        {statusMetricsCatalog.map((m: any) => (
+                                            <Badge key={m.id} variant="surface" colorPalette="blue" bg="bg.muted" px={1.5} py={0.5} rounded="sm" fontSize="xs">
+                                                {m.name} <Text as="span" color="fg.muted">({m.category ?? m.type})</Text>
+                                            </Badge>
+                                        ))}
+                                    </Flex>
+                                </Box>
+                            )}
+
                             {collectionOptions.length > 0 && (
                                 <Box>
                                     <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Collections to Load</Text>
@@ -566,6 +735,45 @@ export default function ManageData() {
                                             </Checkbox.Root>
                                         ))}
                                     </Flex>
+                                </Box>
+                            )}
+
+                            {allMetricTags.length > 0 && (
+                                <Box>
+                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Metric Filters (optional)</Text>
+                                    <Flex gap={3} flexWrap="wrap" mb={3}>
+                                        {allMetricTags.map(tag => (
+                                            <Checkbox.Root
+                                                key={tag}
+                                                checked={selectedMetrics.includes(tag)}
+                                                onCheckedChange={({ checked }) => {
+                                                    setSelectedMetrics(prev =>
+                                                        checked === true
+                                                            ? [...prev, tag]
+                                                            : prev.filter(t => t !== tag)
+                                                    );
+                                                }}
+                                                size="xs"
+                                            >
+                                                <Checkbox.HiddenInput />
+                                                <Checkbox.Control />
+                                                <Checkbox.Label fontSize="xs">{tag}</Checkbox.Label>
+                                            </Checkbox.Root>
+                                        ))}
+                                    </Flex>
+                                    <HStack gap={2} align="center">
+                                        <Text fontSize="xs" color="fg.subtle" whiteSpace="nowrap">Limit per collection:</Text>
+                                        <Input
+                                            type="number"
+                                            size="sm"
+                                            variant="subtle"
+                                            placeholder="No limit"
+                                            value={limit || ""}
+                                            onChange={(e) => setLimit(parseInt(e.target.value) || 0)}
+                                            width="100px"
+                                            minW="100px"
+                                        />
+                                    </HStack>
                                 </Box>
                             )}
 

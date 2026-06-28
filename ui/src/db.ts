@@ -172,10 +172,16 @@ export const VoyagerService = {
         }
     },
 
-    async getStockData(symbol: string, source: string, collections?: string[]) {
+    async getStockData(symbol: string, source: string, collections?: string[], metrics?: string[], limit?: number) {
         let url = `${VOYAGER_BASE}/stock-data?source=${encodeURIComponent(source)}&symbol=${encodeURIComponent(symbol)}`;
         if (collections && collections.length > 0) {
             url += collections.map(c => `&collections=${encodeURIComponent(c)}`).join('');
+        }
+        if (metrics && metrics.length > 0) {
+            url += metrics.map(m => `&metrics=${encodeURIComponent(m)}`).join('');
+        }
+        if (limit !== undefined && limit > 0) {
+            url += `&limit=${limit}`;
         }
         const response = await axios.get(url);
         return response.data;

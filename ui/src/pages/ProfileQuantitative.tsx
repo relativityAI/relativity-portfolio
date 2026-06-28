@@ -9,8 +9,9 @@ import {
     createListCollection,
     Portal,
     Badge,
+    IconButton,
 } from "@chakra-ui/react"
-import { MdDeleteForever, MdAdd, MdFunctions, MdWarning } from "react-icons/md";
+import { MdDeleteForever, MdAdd, MdRemove, MdFunctions, MdWarning } from "react-icons/md";
 
 interface ProfileQuantitativeProps {
     data: any[];
@@ -263,9 +264,9 @@ export default function ProfileQuantitative(props: ProfileQuantitativeProps) {
                 <>
                     {/* Header row */}
                     <Flex
-                        gap={2}
-                        px={3}
-                        py={2}
+                        gap={1}
+                        px={2}
+                        py={1}
                         bg="bg.muted"
                         borderTopRadius="sm"
                         border="1px solid"
@@ -309,9 +310,9 @@ export default function ProfileQuantitative(props: ProfileQuantitativeProps) {
                             return (
                                 <Flex
                                     key={index}
-                                    gap={2}
-                                    px={3}
-                                    py={2.5}
+                                    gap={1}
+                                    px={2}
+                                    py={0.5}
                                     align="center"
                                     border="1px solid"
                                     borderColor="border"
@@ -338,28 +339,42 @@ export default function ProfileQuantitative(props: ProfileQuantitativeProps) {
                                         />
                                     </Box>
                                     <Box width="44px" flexShrink={0} textAlign="center">
-                                        <Input
-                                            variant="subtle"
-                                            size="2xs"
-                                            type="number"
-                                            min={1}
-                                            max={10}
-                                            step={1}
-                                            value={criterion.weightage ?? 5}
-                                            onChange={(e) => handleChange(index, "weightage", Math.min(10, Math.max(1, parseInt(e.target.value) || 1)))}
-                                            bg="bg.subtle"
-                                            border="1px solid"
-                                            borderColor="border.emphasized"
-                                            _focus={{ borderColor: "fg.muted" }}
-                                            color="blue.400"
-                                            rounded="sm"
-                                            fontSize="xs"
-                                            fontWeight="bold"
-                                            textAlign="center"
-                                            minH="28px"
-                                            width="full"
-                                            px={1}
-                                        />
+                                        <Flex align="center" justify="center" gap={0}>
+                                            <IconButton
+                                                size="2xs"
+                                                variant="ghost"
+                                                color="fg.muted"
+                                                _hover={{ color: "fg" }}
+                                                onClick={() => handleChange(index, "weightage", Math.max(1, (criterion.weightage ?? 5) - 1))}
+                                                minW="14px"
+                                                h="22px"
+                                                p={0}
+                                            >
+                                                <MdRemove size={10} />
+                                            </IconButton>
+                                            <Text
+                                                fontSize="xs"
+                                                fontWeight="bold"
+                                                color="fg"
+                                                minW="16px"
+                                                textAlign="center"
+                                                userSelect="none"
+                                            >
+                                                {criterion.weightage ?? 5}
+                                            </Text>
+                                            <IconButton
+                                                size="2xs"
+                                                variant="ghost"
+                                                color="fg.muted"
+                                                _hover={{ color: "fg" }}
+                                                onClick={() => handleChange(index, "weightage", Math.min(10, (criterion.weightage ?? 5) + 1))}
+                                                minW="14px"
+                                                h="22px"
+                                                p={0}
+                                            >
+                                                <MdAdd size={10} />
+                                            </IconButton>
+                                        </Flex>
                                     </Box>
                                     <Box flex={1}>
                                         <SelectInput

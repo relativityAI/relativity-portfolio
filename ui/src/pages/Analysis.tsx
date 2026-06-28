@@ -6,7 +6,7 @@ import {
 import { memo, useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
     MdInfoOutline, MdCheckCircle, MdErrorOutline, MdOutlineRefresh,
-    MdOutlineStorage, MdKeyboardArrowDown, MdSearch, MdWeb, MdDescription,
+    MdOutlineStorage, MdSearch, MdWeb, MdDescription,
     MdWarning
 } from "react-icons/md";
 import { Link, useParams } from "react-router-dom";
@@ -134,6 +134,18 @@ export default function Analysis() {
     const [dataPullStatus, setDataPullStatus] = useState<DataPullStatus>("IDLE");
     const [lastPullDate, setLastPullDate] = useState<string | null>(null);
     const [analysisDuration, setAnalysisDuration] = useState<string>("");
+    const [elapsedTime, setElapsedTime] = useState(0);
+
+    useEffect(() => {
+        if (status === "PENDING") {
+            const start = Date.now();
+            setElapsedTime(0);
+            const interval = setInterval(() => {
+                setElapsedTime(Math.floor((Date.now() - start) / 1000));
+            }, 1000);
+            return () => clearInterval(interval);
+        }
+    }, [status]);
 
     const [config, setConfig] = useState({
         source: "NSE",
@@ -165,6 +177,15 @@ export default function Analysis() {
         });
     }, [availableSources]);
 
+    const profileOptions = useMemo(() => {
+        const items = availableProfiles.map((p: any) => ({ label: p.name, value: p.name }));
+        return createListCollection({
+            items,
+            itemToString: (item: any) => item.label,
+            itemToValue: (item: any) => item.value,
+        });
+    }, [availableProfiles]);
+
     // ===== Announcements / Documents =====
     const [announcementQuery, setAnnouncementQuery] = useState("");
     const debouncedAnnouncementQuery = useDebounce(announcementQuery, 250);
@@ -183,7 +204,7 @@ export default function Analysis() {
 
     // ===== Model Selection =====
     const [availableModels, setAvailableModels] = useState<string[]>([]);
-    const [selectedModel, setSelectedModel] = useState("cerebras/qwen-3-32b");
+    const [selectedModel, setSelectedModel] = useState("gemini/gemini-flash-lite-latest");
     const [modelQuery, setModelQuery] = useState("");
     const debouncedModelQuery = useDebounce(modelQuery, 200);
     const [showModelList, setShowModelList] = useState(false);
@@ -417,8 +438,9 @@ export default function Analysis() {
                     const isComplete = s === "complete" || s === "completed" || s === "success";
                     setStatus(isComplete ? "COMPLETED" : "ERROR");
                     setDataPullStatus("AVAILABLE");
-                    if (data.duration) {
-                        setAnalysisDuration(`${data.duration.toFixed(1)}s`);
+                    if (data.duration != null) {
+                        const d = data.duration;
+                        setAnalysisDuration(d >= 60 ? `${Math.floor(d / 60)}m ${Math.floor(d % 60)}s` : `${d.toFixed(1)}s`);
                     }
                 } else {
                     setStatus("PENDING");
@@ -460,8 +482,9 @@ export default function Analysis() {
                             const isComplete = s === "complete" || s === "completed" || s === "success";
                             setStatus(isComplete ? "COMPLETED" : "ERROR");
                             setDataPullStatus("AVAILABLE");
-                            if (data.duration) {
-                                setAnalysisDuration(`${data.duration.toFixed(1)}s`);
+                            if (data.duration != null) {
+                                const d = data.duration;
+                                setAnalysisDuration(d >= 60 ? `${Math.floor(d / 60)}m ${Math.floor(d % 60)}s` : `${d.toFixed(1)}s`);
                             }
                             clearInterval(interval);
                             return;
@@ -496,6 +519,7 @@ export default function Analysis() {
         }
     };
 
+    const searchParams = useMemo(() => ({ source: config.source }), [config.source]);
     const isConfigComplete = config.share !== "" && config.profile !== "";
     const webSearchValid = webSearchEnabled && tavilyKeySet;
     const hasDataSource = selectedDocuments.length > 0 || webSearchValid || selectedWebSources.length > 0;
@@ -582,49 +606,43 @@ export default function Analysis() {
                                     secondaryKey={sourceKeys.secondaryKey}
                                     onChange={handleConfigChange}
                                     field="share"
-                                    params={{ source: config.source }}
+                                    params={searchParams}
                                     placeholder={config.source === "SEC" ? "Search US stocks (e.g., AAPL)" : "Search Indian stocks (e.g., RELIANCE)"}
                                 />
                             </Flex>
 
                             <Flex direction={"column"} align={"start"}>
                                 <Text mb={2} fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Investor Profile</Text>
-                                <Box width="full" position="relative">
-                                    <select
-                                        style={{
-                                            width: "100%",
-                                            height: "40px",
-                                            padding: "0 12px",
-                                            border: "1px solid",
-                                            borderColor: "var(--chakra-colors-border)",
-                                            borderRadius: "2px",
-                                            backgroundColor: "var(--chakra-colors-bg-muted)",
-                                            color: "inherit",
-                                            appearance: "none",
-                                            cursor: "pointer",
-                                            fontSize: "14px",
-                                            outline: "none"
-                                        }}
-                                        value={config.profile}
-                                        onChange={(e) => {
-                                            setConfig({ ...config, profile: e.target.value });
+                                <Box width="full">
+                                    <Select.Root
+                                        collection={profileOptions}
+                                        value={config.profile ? [config.profile] : []}
+                                        onValueChange={(e) => {
+                                            setConfig({ ...config, profile: e.value[0] });
                                         }}
                                     >
-                                        <option value="" style={{ color: "black" }}>Select Portfolio Strategy</option>
-                                        {availableProfiles.map((p, idx) => (
-                                            <option key={idx} value={p.name} style={{ color: "black" }}>{p.name}</option>
-                                        ))}
-                                    </select>
-                                    <Box
-                                        position="absolute"
-                                        right="10px"
-                                        top="50%"
-                                        transform="translateY(-50%)"
-                                        pointerEvents="none"
-                                        color="fg.muted"
-                                    >
-                                        <MdKeyboardArrowDown size={18} />
-                                    </Box>
+                                        <Select.HiddenSelect />
+                                        <Select.Control>
+                                            <Select.Trigger>
+                                                <Select.ValueText placeholder="Select Portfolio Strategy" />
+                                            </Select.Trigger>
+                                            <Select.IndicatorGroup>
+                                                <Select.Indicator />
+                                            </Select.IndicatorGroup>
+                                        </Select.Control>
+                                        <Portal>
+                                            <Select.Positioner>
+                                                <Select.Content>
+                                                    {profileOptions.items.map((item: any) => (
+                                                        <Select.Item item={item} key={item.value}>
+                                                            {item.label}
+                                                            <Select.ItemIndicator />
+                                                        </Select.Item>
+                                                    ))}
+                                                </Select.Content>
+                                            </Select.Positioner>
+                                        </Portal>
+                                    </Select.Root>
                                 </Box>
                             </Flex>
 
@@ -1107,6 +1125,11 @@ export default function Analysis() {
                                         <HStack gap={1}>
                                             <Spinner size="xs" />
                                             <Text fontSize="xs" color="fg.subtle">Running analysis...</Text>
+                                            {elapsedTime > 0 && (
+                                                <Text fontSize="xs" color="fg.muted" ml={1}>
+                                                    ({elapsedTime >= 60 ? `${Math.floor(elapsedTime / 60)}m ${elapsedTime % 60}s` : `${elapsedTime}s`})
+                                                </Text>
+                                            )}
                                         </HStack>
                                     ) : status === "COMPLETED" ? (
                                         <VStack gap={2} align="stretch">
@@ -1115,6 +1138,7 @@ export default function Analysis() {
                                                     ? `Completed in ${analysisDuration}`
                                                     : "Analysis complete"}
                                             </Text>
+                                        <HStack gap={2}>
                                         <Link to={`/analysis-result/${correlationId}`}>
                                             <Button
                                                 size="sm"
@@ -1126,10 +1150,30 @@ export default function Analysis() {
                                                 View Analysis Report
                                             </Button>
                                         </Link>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            colorPalette="blue"
+                                            rounded="sm"
+                                            fontSize="xs"
+                                            onClick={() => {
+                                                setStatus("EMPTY");
+                                                setDataPullStatus("AVAILABLE");
+                                            }}
+                                        >
+                                            Run Again
+                                        </Button>
+                                        </HStack>
                                         </VStack>
                                     ) : status === "ERROR" ? (
                                         <VStack gap={2} align="stretch">
                                             <Text fontSize="xs" color="red.400">Analysis encountered an error</Text>
+                                            <HStack gap={2}>
+                                            {correlationId && (
+                                                <Link to={`/analysis-result/${correlationId}`}>
+                                                    <Button size="sm" variant="outline" colorPalette="green" rounded="sm" fontSize="xs">View Report</Button>
+                                                </Link>
+                                            )}
                                             <Button
                                                 size="sm"
                                                 variant="outline"
@@ -1143,6 +1187,7 @@ export default function Analysis() {
                                             >
                                                 Try Again
                                             </Button>
+                                            </HStack>
                                         </VStack>
                                     ) : status === "EMPTY" && id ? (
                                         <HStack gap={1}>

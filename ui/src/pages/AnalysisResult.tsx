@@ -20,7 +20,8 @@ import ReactMarkdown from "react-markdown";
 import {
     MdArrowBack, MdAnalytics, MdHistory, MdOutlineCheckCircle,
     MdOutlineStar, MdOutlineTimer, MdOutlineMemory,
-    MdOutlineFactCheck, MdOutlinePsychology, MdErrorOutline
+    MdOutlineFactCheck, MdOutlinePsychology, MdErrorOutline,
+    MdDownload, MdExpandMore, MdExpandLess
 } from "react-icons/md";
 
 function scoreColor(score: number): string {
@@ -57,6 +58,16 @@ function formatCurrency(val: number): string {
     return `₹${val.toLocaleString()}`;
 }
 
+function formatDuration(sec: number): string {
+    if (sec == null) return "N/A";
+    if (sec >= 60) {
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${m}m ${s}s`;
+    }
+    return `${sec.toFixed(1)}s`;
+}
+
 function formatValue(val: any, type?: string): string {
     if (val == null) return "-";
     if (type === "currency" && typeof val === "number") return formatCurrency(val);
@@ -72,6 +83,7 @@ export default function AnalysisResult() {
     const [analysis, setAnalysis] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
 
     const fetchResult = async () => {
         if (!id) return;
@@ -127,18 +139,44 @@ export default function AnalysisResult() {
 
     const quantAnalysis = analysis.quantitative_analysis || {};
     const qualAnalysis = analysis.qualitative_analysis || {};
+    const toolCalls = analysis.qualitative_tool_calls || {};
     const docs = analysis.documents || [];
     const webSrc = analysis.web_sources || [];
+
+    const toggleToolCalls = (param: string) => {
+        setExpandedTools(prev => ({ ...prev, [param]: !prev[param] }));
+    };
+
+    const downloadResult = () => {
+        if (!analysis) return;
+        const json = JSON.stringify(analysis, null, 2);
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${analysis.symbol || analysis.share_name || "analysis"}-${id?.slice(0, 8) || "result"}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
 
     return (
         <Box>
             <Flex direction="column" gap={8}>
-                {/* Back Button */}
-                <Link to="/analysis-list">
-                    <Button variant="ghost" size="xs" color="fg.subtle" _hover={{ color: "fg" }} pl={0}>
-                        <MdArrowBack /> Back to Analysis List
-                    </Button>
-                </Link>
+                {/* Back Button + Download */}
+                <Flex justify="space-between" align="center">
+                    <Link to="/analysis-list">
+                        <Button variant="ghost" size="xs" color="fg.subtle" _hover={{ color: "fg" }} pl={0}>
+                            <MdArrowBack /> Back to Analysis List
+                        </Button>
+                    </Link>
+                    {isComplete && (
+                        <Button variant="outline" size="xs" onClick={downloadResult}>
+                            <MdDownload /> Download
+                        </Button>
+                    )}
+                </Flex>
 
                 {/* Header Card */}
                 <Box bg="bg.muted" border="1px solid" borderColor="border" rounded="md" p={6}>
@@ -226,7 +264,7 @@ export default function AnalysisResult() {
                         <SimpleGrid columns={{ base: 2, md: 3, lg: 5 }} gap={3}>
                             {[
                                 { icon: MdOutlineMemory, label: "MODEL", value: analysis.model || "N/A" },
-                                { icon: MdOutlineTimer, label: "DURATION", value: analysis.duration ? `${analysis.duration.toFixed(1)}s` : "N/A" },
+                                { icon: MdOutlineTimer, label: "DURATION", value: formatDuration(analysis.duration) },
                                 { icon: MdOutlineTimer, label: "END TIME", value: analysis.end_time ? new Date(analysis.end_time * 1000).toLocaleTimeString() : "N/A" },
                                 { icon: MdOutlineFactCheck, label: "SOURCE", value: analysis.source || "N/A" },
                                 { icon: MdOutlineStar, label: "PROFILE", value: analysis.profile || "N/A" },
@@ -294,7 +332,7 @@ export default function AnalysisResult() {
                             <Box bg="bg.subtle" p={5} rounded="md" border="1px solid" borderColor="border">
                                 <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>TOTAL DURATION</Text>
                                 <Text fontSize="3xl" fontWeight="black" color="fg">
-                                    {analysis.duration != null ? `${analysis.duration.toFixed(1)}s` : "N/A"}
+                                    {formatDuration(analysis.duration)}
                                 </Text>
                                 <Progress.Root value={100} max={100} size="xs" mt={2} colorPalette="gray">
                                     <Progress.Track bg="bg.emphasized">
@@ -457,6 +495,73 @@ export default function AnalysisResult() {
                                                 </Box>
                                                 <ScoreBadge score={paramData.score ?? 0} size="md" />
                                             </Flex>
+                                            {toolCalls[paramName]?.length > 0 && (
+                                                <Box mt={3} borderTop="1px solid" borderColor="border" pt={3}>
+                                                    <Button
+                                                        size="xs"
+                                                        variant="ghost"
+                                                        onClick={() => toggleToolCalls(paramName)}
+                                                        color="fg.muted"
+                                                        _hover={{ color: "fg" }}
+                                                        gap={1}
+                                                        px={1}
+                                                    >
+                                                        {expandedTools[paramName] ? <MdExpandLess /> : <MdExpandMore />}
+                                                        Tool Calls ({toolCalls[paramName].length})
+                                                    </Button>
+                                                    {expandedTools[paramName] && (
+                                                        <VStack gap={2} mt={2} align="stretch">
+                                                            {toolCalls[paramName].map((call: any, i: number) => (
+                                                                <Box
+                                                                    key={i}
+                                                                    p={2}
+                                                                    bg="bg.subtle"
+                                                                    rounded="sm"
+                                                                    fontSize="xs"
+                                                                    border="1px solid"
+                                                                    borderColor="border"
+                                                                >
+                                                                    <HStack gap={2} mb={1}>
+                                                                        <Badge size="xs" variant="surface" colorPalette="blue" color="blue.400" bg="transparent" fontFamily="mono">
+                                                                            {call.tool_name}
+                                                                        </Badge>
+                                                                        <Badge size="xs" variant="solid" colorPalette={call.status === "OK" ? "green" : "red"}>
+                                                                            {call.status}
+                                                                        </Badge>
+                                                                        {call.duration != null && (
+                                                                            <Text fontSize="2xs" color="fg.muted">{call.duration.toFixed(2)}s</Text>
+                                                                        )}
+                                                                        {call.error && (
+                                                                            <Text fontSize="2xs" color="red.400" fontFamily="mono">{call.error}</Text>
+                                                                        )}
+                                                                    </HStack>
+                                                                    {call.args && Object.keys(call.args).length > 0 && (
+                                                                        <Text fontSize="2xs" color="fg.muted" fontFamily="mono" mb={1} wordBreak="break-all">
+                                                                            {JSON.stringify(call.args)}
+                                                                        </Text>
+                                                                    )}
+                                                                    {call.result && (
+                                                                        <Box
+                                                                            as="pre"
+                                                                            maxH="120px"
+                                                                            overflow="auto"
+                                                                            bg="bg.emphasized"
+                                                                            p={1.5}
+                                                                            rounded="sm"
+                                                                            fontSize="2xs"
+                                                                            lineHeight="short"
+                                                                            color="fg.muted"
+                                                                            css={{ "&::-webkit-scrollbar": { height: "4px", width: "4px" } }}
+                                                                        >
+                                                                            {call.result}
+                                                                        </Box>
+                                                                    )}
+                                                                </Box>
+                                                            ))}
+                                                        </VStack>
+                                                    )}
+                                                </Box>
+                                            )}
                                         </Box>
                                     ))}
                                 </VStack>

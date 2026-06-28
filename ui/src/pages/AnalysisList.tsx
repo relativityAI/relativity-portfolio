@@ -1,10 +1,20 @@
 import { Text, Flex, Button, Table, Badge, Box, HStack } from "@chakra-ui/react";
 import { useEffect, useState, useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { MdDeleteForever, MdArrowUpward, MdArrowDownward } from "react-icons/md";
 import { AnalysisService } from "@/db";
 
-type SortKey = "id" | "share" | "created_at" | "score" | "status";
+type SortKey = "id" | "share" | "created_at" | "score" | "status" | "profile" | "duration";
+
+function formatDuration(sec: number): string {
+    if (sec == null) return "";
+    if (sec >= 60) {
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${m}m ${s}s`;
+    }
+    return `${sec.toFixed(1)}s`;
+}
 
 export default function AnalysisList() {
     let navigate = useNavigate();
@@ -82,6 +92,14 @@ export default function AnalysisList() {
                     aVal = a.total_score ?? -1;
                     bVal = b.total_score ?? -1;
                     break;
+                case "profile":
+                    aVal = (a.profile_name || a.profile || "").toLowerCase();
+                    bVal = (b.profile_name || b.profile || "").toLowerCase();
+                    break;
+                case "duration":
+                    aVal = a.duration ?? -1;
+                    bVal = b.duration ?? -1;
+                    break;
                 case "status":
                     aVal = (a.status || "").toLowerCase();
                     bVal = (b.status || "").toLowerCase();
@@ -101,7 +119,11 @@ export default function AnalysisList() {
         return sortDir === "asc" ? <MdArrowUpward size={12} /> : <MdArrowDownward size={12} />;
     };
 
-    const colSpan = 7;
+    const colSpan = 8;
+
+    const onRowClick = (id: string) => {
+        window.open("/analysis-result/" + id, "_blank");
+    };
 
     return (
         <Flex direction={"column"} gap={6}>
@@ -121,7 +143,7 @@ export default function AnalysisList() {
             </Flex>
 
             <Box border="1px solid" borderColor="border" rounded="md" overflow="hidden">
-                <Table.Root size="sm" variant="line">
+                <Table.Root size="sm" variant="line" interactive>
                     <Table.Header bg="bg.muted">
                         <Table.Row>
                             <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("id")} userSelect="none">
@@ -136,6 +158,12 @@ export default function AnalysisList() {
                                     <SortIcon column="share" />
                                 </HStack>
                             </Table.ColumnHeader>
+                            <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("profile")} userSelect="none">
+                                <HStack gap={1}>
+                                    <span>Profile</span>
+                                    <SortIcon column="profile" />
+                                </HStack>
+                            </Table.ColumnHeader>
                             <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("created_at")} userSelect="none">
                                 <HStack gap={1}>
                                     <span>Created At</span>
@@ -144,11 +172,16 @@ export default function AnalysisList() {
                             </Table.ColumnHeader>
                             <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("score")} userSelect="none">
                                 <HStack gap={1}>
-                                    <span>Final Score</span>
+                                    <span>Score</span>
                                     <SortIcon column="score" />
                                 </HStack>
                             </Table.ColumnHeader>
-                            <Table.ColumnHeader color="fg.muted" py={4}>Link</Table.ColumnHeader>
+                            <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("duration")} userSelect="none">
+                                <HStack gap={1}>
+                                    <span>Duration</span>
+                                    <SortIcon column="duration" />
+                                </HStack>
+                            </Table.ColumnHeader>
                             <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("status")} userSelect="none">
                                 <HStack gap={1}>
                                     <span>Status</span>
@@ -175,10 +208,18 @@ export default function AnalysisList() {
                             sorted.map((item) => {
                                 const id = item.analysis_id || item._id || item.id;
                                 return (
-                                    <Table.Row key={id} _hover={{ bg: "bg.muted" }}>
+                                    <Table.Row
+                                        key={id}
+                                        cursor="pointer"
+                                        onClick={() => onRowClick(id)}
+                                        _hover={{ bg: "bg.muted" }}
+                                    >
                                         <Table.Cell fontSize="xs" color="fg.muted">{id}</Table.Cell>
                                         <Table.Cell>
                                             <Badge variant="surface" colorPalette="gray" size="sm" color="fg">{item.symbol || item.share_name}</Badge>
+                                        </Table.Cell>
+                                        <Table.Cell fontSize="xs" color="fg.subtle" maxW="120px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                                            {item.profile_name || item.profile || "-"}
                                         </Table.Cell>
                                         <Table.Cell fontSize="sm" color="fg.subtle">{item.created_at ? new Date(item.created_at).toLocaleString() : ""}</Table.Cell>
                                         <Table.Cell>
@@ -186,10 +227,8 @@ export default function AnalysisList() {
                                                 ? <Badge colorPalette={item.total_score >= 70 ? "green" : item.total_score >= 40 ? "yellow" : "red"} variant="surface" size="sm" bg="transparent" border="1px solid" borderColor={item.total_score >= 70 ? "green.900" : item.total_score >= 40 ? "yellow.900" : "red.900"}>{item.total_score.toFixed(1)}%</Badge> 
                                                 : "-"}
                                         </Table.Cell>
-                                        <Table.Cell>
-                                            <Link to={"/analysis-result/" + id}>
-                                                <Text color="fg.muted" _hover={{ color: "fg" }} fontSize="xs" textDecoration="underline">View ↗</Text>
-                                            </Link>
+                                        <Table.Cell fontSize="xs" color="fg.subtle">
+                                            {item.duration != null ? formatDuration(item.duration) : "-"}
                                         </Table.Cell>
                                         <Table.Cell>
                                             <Badge size="xs" variant="surface" colorPalette="gray" color="fg.muted" bg="bg.muted">
@@ -198,7 +237,7 @@ export default function AnalysisList() {
                                         </Table.Cell>
                                         <Table.Cell>
                                             <MdDeleteForever
-                                                onClick={() => handleDelete(id)}
+                                                onClick={(e) => { e.stopPropagation(); handleDelete(id); }}
                                                 color="rgba(255,0,0,0.5)"
                                                 size={20} style={{ cursor: "pointer" }} />
                                         </Table.Cell>

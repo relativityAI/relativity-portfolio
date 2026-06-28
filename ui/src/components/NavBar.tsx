@@ -5,6 +5,8 @@ import { runHealthCheck } from "../utils"
 import { MdCheckCircle, MdError } from "react-icons/md";
 import { ColorModeButton } from "@/components/ui/color-mode";
 
+const VOYAGER_DOCS_URL = import.meta.env.VITE_VOYAGER_DOCS_URL || "http://localhost:8001";
+const NEBULA_DOCS_URL = import.meta.env.VITE_NEBULA_DOCS_URL || "http://localhost:8002";
 
 export default function NavBar() {
 
@@ -89,7 +91,7 @@ export default function NavBar() {
                             color={systemStatus.voyagerApi ? "fg.subtle" : "red.500"} 
                             cursor={"pointer"}
                             _hover={{ color: "blue.500" }}
-                            onClick={() => window.open(endpoints.voyagerApi, "_blank")}
+                            onClick={() => window.open(VOYAGER_DOCS_URL + "/docs", "_blank")}
                         >
                             VOYAGER
                         </Text>
@@ -103,7 +105,7 @@ export default function NavBar() {
                             color={systemStatus.nebulaApi ? "gray.500" : "red.500"} 
                             cursor={"pointer"}
                             _hover={{ color: "blue.500" }}
-                            onClick={() => window.open(endpoints.nebulaApi, "_blank")}
+                            onClick={() => window.open(NEBULA_DOCS_URL + "/docs", "_blank")}
                         >
                             NEBULA
                         </Text>
