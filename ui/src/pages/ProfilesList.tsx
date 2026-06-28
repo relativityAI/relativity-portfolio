@@ -107,11 +107,11 @@ export default function ProfilesList() {
                                     onClick={() => onRowClick(item._id || item.id as string)}
                                     _hover={{ bg: "bg.muted" }}
                                 >
-                                    <Table.Cell fontWeight="bold">{item.name}</Table.Cell>
-                                    <Table.Cell textAlign="center">{(item.qualitative || (item as any).qualitativeData)?.length || 0}</Table.Cell>
-                                    <Table.Cell textAlign="center">{item.quantitative?.length || 0}</Table.Cell>
-                                    <Table.Cell fontSize="sm" color="fg">{item.created_at ? new Date(item.created_at).toLocaleString() : "N/A"}</Table.Cell>
-                                    <Table.Cell fontSize="xs" color="fg.subtle">{item._id || item.id}</Table.Cell>
+                                    <Table.Cell fontWeight="semibold" fontSize="sm" color="fg">{item.name}</Table.Cell>
+                                    <Table.Cell textAlign="center" fontSize="xs" color="fg.subtle">{(item.qualitative || (item as any).qualitativeData)?.length || 0}</Table.Cell>
+                                    <Table.Cell textAlign="center" fontSize="xs" color="fg.subtle">{item.quantitative?.length || 0}</Table.Cell>
+                                    <Table.Cell fontSize="sm" color="fg.subtle">{item.created_at ? new Date(item.created_at).toLocaleString() : "N/A"}</Table.Cell>
+                                    <Table.Cell fontSize="xs" color="fg.muted" fontFamily="mono">{item._id || item.id}</Table.Cell>
                                 </Table.Row>
                             ))
                         )}

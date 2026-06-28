@@ -202,6 +202,15 @@ export default function Profile() {
                         h="auto"
                         rounded="sm"
                     />
+                    {!isNew && (
+                        <Flex gap={4} mt={3} color="fg.muted" fontSize="xs" flexWrap="wrap">
+                            <Text>ID: <Text as="span" fontFamily="mono" color="fg.subtle">{profile._id || profile.id}</Text></Text>
+                            <Text>Created: <Text as="span" color="fg.subtle">{profile.created_at ? new Date(profile.created_at).toLocaleString() : "N/A"}</Text></Text>
+                            <Text>Source: <Text as="span" color="fg.subtle">{profile.source || "N/A"}</Text></Text>
+                            <Text>Qual: <Text as="span" color="fg.subtle">{(profile.qualitative || []).length} params</Text></Text>
+                            <Text>Quant: <Text as="span" color="fg.subtle">{(profile.quantitative || []).length} criteria</Text></Text>
+                        </Flex>
+                    )}
                     {saved && <Text color="green.600" fontSize="xs" fontWeight="bold" mt={2}>Changes saved successfully</Text>}
                 </Flex>
 
@@ -253,31 +262,38 @@ export default function Profile() {
                 </Flex>
             </Flex>
 
-            <Tabs.Root defaultValue="qualitative" variant="line">
-                <Tabs.List borderColor="border">
+            <Tabs.Root defaultValue="qualitative" variant="plain">
+                <Tabs.List borderColor="border" borderBottom="1px solid" gap={0}>
                     <Tabs.Trigger
                         value="qualitative"
                         color="fg.subtle"
-                        _selected={{ color: "fg", borderColor: "blue.500" }}
                         fontSize="sm"
-                        fontWeight="bold"
-                        px={6}
-                        py={3}
+                        fontWeight="semibold"
+                        px={5}
+                        py={2.5}
+                        border="1px solid"
+                        borderColor="border"
+                        mb="-1px"
+                        roundedTop="sm"
+                        _selected={{ color: "fg", bg: "bg.canvas", borderBottomColor: "bg.canvas" }}
                     >
                         I. QUALITATIVE PARAMETERS
                     </Tabs.Trigger>
                     <Tabs.Trigger
                         value="quantitative"
                         color="fg.subtle"
-                        _selected={{ color: "fg", borderColor: "blue.500" }}
                         fontSize="sm"
-                        fontWeight="bold"
-                        px={6}
-                        py={3}
+                        fontWeight="semibold"
+                        px={5}
+                        py={2.5}
+                        border="1px solid"
+                        borderColor="border"
+                        mb="-1px"
+                        roundedTop="sm"
+                        _selected={{ color: "fg", bg: "bg.canvas", borderBottomColor: "bg.canvas" }}
                     >
                         II. QUANTITATIVE CRITERIA
                     </Tabs.Trigger>
-                    <Tabs.Indicator bg="blue.500" />
                 </Tabs.List>
 
                 <Tabs.Content value="qualitative" pt={6}>
