@@ -219,7 +219,7 @@ export default function AnalysisResult() {
 
                         {isComplete && (
                             <Box textAlign="right">
-                                <Text fontSize="2xs" fontWeight="bold" color="fg.muted" letterSpacing="widest" mb={1}>TOTAL SCORE</Text>
+                                <Text fontSize="2xs" fontWeight="bold" color="fg.muted" letterSpacing="widest" mb={1}>COMPATIBILITY</Text>
                                 {analysis.total_score != null ? (
                                     <Text
                                         fontSize="5xl"
@@ -282,7 +282,7 @@ export default function AnalysisResult() {
                         {/* Score Summary */}
                         <SimpleGrid columns={{ base: 1, md: 3 }} gap={4}>
                             <Box bg="bg.subtle" p={5} rounded="md" border="1px solid" borderColor="border">
-                                <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>QUANTITATIVE SCORE</Text>
+                                <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>METRIC MATCH</Text>
                                 {analysis.quantitative_score != null ? (
                                     <>
                                         <Text fontSize="3xl" fontWeight="black" color={`${scoreColor(analysis.quantitative_score)}.400`}>
@@ -303,10 +303,9 @@ export default function AnalysisResult() {
                                 ) : (
                                     <Text fontSize="2xl" fontWeight="bold" color="fg.muted">N/A</Text>
                                 )}
-                                <Text fontSize="2xs" color="fg.muted" mt={1}>Metric compliance score</Text>
                             </Box>
                             <Box bg="bg.subtle" p={5} rounded="md" border="1px solid" borderColor="border">
-                                <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>QUALITATIVE SCORE</Text>
+                                <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>CONTEXT MATCH</Text>
                                 {analysis.qualitative_score != null ? (
                                     <>
                                         <Text fontSize="3xl" fontWeight="black" color={`${scoreColor(analysis.qualitative_score)}.400`}>
@@ -327,7 +326,6 @@ export default function AnalysisResult() {
                                 ) : (
                                     <Text fontSize="2xl" fontWeight="bold" color="fg.muted">N/A</Text>
                                 )}
-                                <Text fontSize="2xs" color="fg.muted" mt={1}>Contextual analysis score</Text>
                             </Box>
                             <Box bg="bg.subtle" p={5} rounded="md" border="1px solid" borderColor="border">
                                 <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>TOTAL DURATION</Text>

@@ -8,7 +8,7 @@ import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
     MdOutlineRefresh, MdOutlineStorage, MdKeyboardArrowDown,
     MdCheckCircle, MdErrorOutline, MdHistory, MdOutlineCloudDone,
-    MdCalendarToday, MdAssessment
+    MdCalendarToday, MdAssessment, MdDownload
 } from "react-icons/md";
 import { useSearchParams } from "react-router-dom";
 import { VoyagerService, NEBULA_BASE } from "@/db";
@@ -37,6 +37,20 @@ function formatCell(val: any): string {
 }
 
 const ROW_LIMIT = 100;
+
+function downloadCSV(filename: string, headers: string[], rows: string[][]) {
+    const csv = [
+        headers.join(","),
+        ...rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")),
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+}
 
 function isFinancialsData(records: any[]): boolean {
     if (!records || records.length === 0) return false;
@@ -136,7 +150,7 @@ function FinancialsTable({ records }: { records: any[] }) {
     );
 }
 
-function DataTableSection({ title, records }: { title: string; records: any[] }) {
+function DataTableSection({ title, records, symbol, source }: { title: string; records: any[]; symbol?: string; source?: string }) {
     const [search, setSearch] = useState("");
     const [expanded, setExpanded] = useState(true);
     const [showAll, setShowAll] = useState(false);
@@ -161,6 +175,28 @@ function DataTableSection({ title, records }: { title: string; records: any[] })
 
     const displayed = showAll ? filtered : filtered.slice(0, ROW_LIMIT);
 
+    const handleDownload = () => {
+        if (financials) {
+            const dates = records.map(r => r.date).filter(Boolean).sort();
+            const tagMap = new Map<string, { tag: string; values: Record<string, string> }>();
+            records.forEach(period => {
+                const date = period.date;
+                const fin = Array.isArray(period.financials) ? period.financials : [];
+                fin.forEach((f: any) => {
+                    const tag = f.tag;
+                    if (!tagMap.has(tag)) tagMap.set(tag, { tag, values: {} });
+                    if (date) tagMap.get(tag)!.values[date] = formatCell(f.value);
+                });
+            });
+            const rows = Array.from(tagMap.values());
+            const headers = ["Metric", ...dates];
+            const data = rows.map(row => [row.tag, ...dates.map(d => row.values[d] ?? "-")]);
+            downloadCSV(`${symbol}_${source}_${title}.csv`, headers, data);
+        } else {
+            downloadCSV(`${symbol}_${source}_${title}.csv`, columns, filtered.map(r => columns.map(col => formatCell(r[col]))));
+        }
+    };
+
     if (!records || records.length === 0) return null;
 
     return (
@@ -170,22 +206,31 @@ function DataTableSection({ title, records }: { title: string; records: any[] })
                 align="center"
                 p={3}
                 bg="bg.muted"
-                cursor="pointer"
-                onClick={() => setExpanded(!expanded)}
-                userSelect="none"
             >
-                <HStack gap={2}>
-                    <Text fontSize="sm" fontWeight="semibold">{title}</Text>
-                    <Badge size="xs" variant="surface" colorPalette="gray" color="fg.muted">{records.length}</Badge>
-                    {search && (
-                        <Badge size="xs" variant="surface" colorPalette="blue" color="blue.300">
-                            {filtered.length} matched
-                        </Badge>
-                    )}
-                </HStack>
-                <Box transform={expanded ? "rotate(180deg)" : ""} transition="transform 0.2s">
-                    <MdKeyboardArrowDown size={18} />
-                </Box>
+                <Flex
+                    gap={2}
+                    align="center"
+                    cursor="pointer"
+                    onClick={() => setExpanded(!expanded)}
+                    userSelect="none"
+                    flex={1}
+                >
+                    <HStack gap={2}>
+                        <Text fontSize="sm" fontWeight="semibold">{title}</Text>
+                        <Badge size="xs" variant="surface" colorPalette="gray" color="fg.muted">{records.length}</Badge>
+                        {search && (
+                            <Badge size="xs" variant="surface" colorPalette="blue" color="blue.300">
+                                {filtered.length} matched
+                            </Badge>
+                        )}
+                    </HStack>
+                    <Box transform={expanded ? "rotate(180deg)" : ""} transition="transform 0.2s">
+                        <MdKeyboardArrowDown size={18} />
+                    </Box>
+                </Flex>
+                <Button size="xs" variant="ghost" onClick={handleDownload} title="Download CSV">
+                    <MdDownload size={14} />
+                </Button>
             </Flex>
             {expanded && (
                 <Box p={3} borderTop="1px solid" borderColor="border">
@@ -817,7 +862,7 @@ export default function ManageData() {
                     {hasData ? (
                         <VStack gap={3} align="stretch">
                             {dataCategories.map(({ key, records }) => (
-                                <DataTableSection key={key} title={key} records={records} />
+                                <DataTableSection key={key} title={key} records={records} symbol={symbol} source={source} />
                             ))}
                         </VStack>
                     ) : (
@@ -847,7 +892,7 @@ export default function ManageData() {
                     {ratioCategories.length > 0 ? (
                         <VStack gap={3} align="stretch">
                             {ratioCategories.map(({ key, records }) => (
-                                <DataTableSection key={key} title={key.replace(/_/g, " ")} records={records} />
+                                <DataTableSection key={key} title={key.replace(/_/g, " ")} records={records} symbol={symbol} source={source} />
                             ))}
                         </VStack>
                     ) : (

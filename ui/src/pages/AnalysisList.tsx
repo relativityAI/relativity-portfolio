@@ -172,7 +172,7 @@ export default function AnalysisList() {
                             </Table.ColumnHeader>
                             <Table.ColumnHeader color="fg.muted" py={4} cursor="pointer" onClick={() => toggleSort("score")} userSelect="none">
                                 <HStack gap={1}>
-                                    <span>Score</span>
+                                    <span>Match</span>
                                     <SortIcon column="score" />
                                 </HStack>
                             </Table.ColumnHeader>

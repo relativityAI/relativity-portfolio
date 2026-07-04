@@ -149,7 +149,7 @@ export default function Dashboard() {
                                                 <Table.ColumnHeader color="fg.muted" px={1}>#</Table.ColumnHeader>
                                                 <Table.ColumnHeader color="fg.muted" px={1}>Symbol</Table.ColumnHeader>
                                                 <Table.ColumnHeader color="fg.muted" px={1} textAlign="center">Runs</Table.ColumnHeader>
-                                                <Table.ColumnHeader color="fg.muted" px={1} textAlign="right">Avg</Table.ColumnHeader>
+                                                <Table.ColumnHeader color="fg.muted" px={1} textAlign="right">Match</Table.ColumnHeader>
                                             </Table.Row>
                                         </Table.Header>
                                         <Table.Body>
@@ -180,7 +180,7 @@ export default function Dashboard() {
                                                 <Table.ColumnHeader color="fg.muted" px={1}>#</Table.ColumnHeader>
                                                 <Table.ColumnHeader color="fg.muted" px={1}>Profile</Table.ColumnHeader>
                                                 <Table.ColumnHeader color="fg.muted" px={1} textAlign="center">Runs</Table.ColumnHeader>
-                                                <Table.ColumnHeader color="fg.muted" px={1} textAlign="right">Avg</Table.ColumnHeader>
+                                                <Table.ColumnHeader color="fg.muted" px={1} textAlign="right">Match</Table.ColumnHeader>
                                             </Table.Row>
                                         </Table.Header>
                                         <Table.Body>
