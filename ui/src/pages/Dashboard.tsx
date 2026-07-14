@@ -208,9 +208,9 @@ export default function Dashboard() {
 
                 <SimpleGrid columns={2} gap={2} flex={1}>
                     <RelCard
-                        title="Investor Profiles"
+                        title="Portfolio Profiles"
                         to="/profiles"
-                        description="View or create a new investor profile"
+                        description="View or create a new portfolio profile"
                         button="View / Create"
                         icon={<FaFilePen size={logoSize} />}
                     />

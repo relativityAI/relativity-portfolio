@@ -44,19 +44,19 @@ export const ProfileService = {
     },
 
     async updateProfile(profile: any) {
-        // Nebula ProfileModel expects '_id'
-        const data = {
-            ...profile,
-            _id: profile._id || profile.id
-        };
-        console.log(data)
-        const response = await axios.post(`${NEBULA_BASE}/update-profile`, data);
+        const response = await axios.post(`${NEBULA_BASE}/update-profile`, profile);
         return response.data;
     },
 
     async deleteProfile(id: string) {
-        // Nebula expects a ProfileModel object with '_id'
         const response = await axios.post(`${NEBULA_BASE}/delete-profile`, { _id: id });
+        return response.data;
+    },
+
+    async searchProfiles(query: string) {
+        const response = await axios.get(`${NEBULA_BASE}/search-profiles`, {
+            params: { query }
+        });
         return response.data;
     }
 };
@@ -130,23 +130,31 @@ export const SearchService = {
     }
 };
 
+function toCountrySource(profileSource: string): { country: string; source: string } {
+    if (profileSource === "SEC") return { country: "us", source: "sec" }
+    if (profileSource === "NSE") return { country: "in", source: "nse" }
+    return { country: "in", source: profileSource.toLowerCase() }
+}
+
 export const VoyagerService = {
     async getSources() {
-        const response = await axios.get(`${VOYAGER_BASE}/sources`);
+        const response = await axios.get(`${VOYAGER_BASE}/equity/sources`);
         return response.data.sources || [];
     },
 
     async getSchema(source: string) {
-        const response = await axios.get(`${VOYAGER_BASE}/schema/${source}`);
+        const response = await axios.get(`${VOYAGER_BASE}/equity/schema/${source}`);
         return response.data;
     },
 
     async getLastDataPull(symbol: string, source: string) {
         try {
-            const response = await axios.get(`${VOYAGER_BASE}/last-data-pull`, {
-                params: { symbol, source }
+            const cs = toCountrySource(source)
+            const response = await axios.get(`${VOYAGER_BASE}/equity/data/status`, {
+                params: { symbol, ...cs }
             });
-            return response.data;
+            const d = response.data;
+            return { last_pull: d.last_pull || d.lastPulledAt || null };
         } catch {
             return { last_pull: null };
         }
@@ -154,7 +162,10 @@ export const VoyagerService = {
 
     async pullLatestData(symbol: string, source: string) {
         try {
-            const response = await axios.post(`${VOYAGER_BASE}/pull-data`, { symbol, source });
+            const cs = toCountrySource(source)
+            const response = await axios.post(`${VOYAGER_BASE}/equity/data/pull`, null, {
+                params: { symbol, ...cs }
+            });
             return response.data;
         } catch {
             return { status: "initiated" };
@@ -163,34 +174,31 @@ export const VoyagerService = {
 
     async checkDataStatus(symbol: string, source: string) {
         try {
-            const response = await axios.get(`${VOYAGER_BASE}/data-status`, {
-                params: { symbol, source }
+            const cs = toCountrySource(source)
+            const response = await axios.get(`${VOYAGER_BASE}/equity/data/status`, {
+                params: { symbol, ...cs }
             });
-            return response.data;
+            return { ...response.data, symbol, source, status: "ok" };
         } catch {
             return { symbol, source, status: "unknown" };
         }
     },
 
     async getStockData(symbol: string, source: string, collections?: string[], metrics?: string[], limit?: number) {
-        let url = `${VOYAGER_BASE}/stock-data?source=${encodeURIComponent(source)}&symbol=${encodeURIComponent(symbol)}`;
-        if (collections && collections.length > 0) {
-            url += collections.map(c => `&collections=${encodeURIComponent(c)}`).join('');
-        }
-        if (metrics && metrics.length > 0) {
-            url += metrics.map(m => `&metrics=${encodeURIComponent(m)}`).join('');
-        }
-        if (limit !== undefined && limit > 0) {
-            url += `&limit=${limit}`;
-        }
-        const response = await axios.get(url);
+        const cs = toCountrySource(source)
+        const params: Record<string, any> = { symbol, ...cs }
+        if (collections?.length) params.collections = collections
+        if (metrics?.length) params.metrics = metrics
+        if (limit && limit > 0) params.limit = limit
+        const response = await axios.get(`${VOYAGER_BASE}/equity/data/metrics`, { params });
         return response.data;
     },
 
     async getStockDataStatus(symbol: string, source: string) {
         try {
-            const response = await axios.get(`${VOYAGER_BASE}/stock-data-status`, {
-                params: { symbol, source }
+            const cs = toCountrySource(source)
+            const response = await axios.get(`${VOYAGER_BASE}/equity/data/status`, {
+                params: { symbol, ...cs }
             });
             return response.data;
         } catch (error: any) {
@@ -201,7 +209,10 @@ export const VoyagerService = {
 
     async pullStockData(symbol: string, source: string) {
         try {
-            const response = await axios.post(`${VOYAGER_BASE}/pull-stock-data`, { source, symbol });
+            const cs = toCountrySource(source)
+            const response = await axios.post(`${VOYAGER_BASE}/equity/data/pull`, null, {
+                params: { symbol, ...cs }
+            });
             return response.data;
         } catch {
             return { status: "initiated" };
@@ -210,8 +221,9 @@ export const VoyagerService = {
 
     async getFinancialRatios(symbol: string, source: string, consolidated = "Consolidated") {
         try {
-            const response = await axios.get(`${VOYAGER_BASE}/financial-ratios`, {
-                params: { symbol, source, consolidated }
+            const cs = toCountrySource(source)
+            const response = await axios.get(`${VOYAGER_BASE}/equity/data/ratios`, {
+                params: { symbol, ...cs, consolidated }
             });
             return response.data;
         } catch (error: any) {
@@ -222,7 +234,7 @@ export const VoyagerService = {
 
     async getAvailableWebSources() {
         try {
-            const response = await axios.get(`${VOYAGER_BASE}/available-web-sources`);
+            const response = await axios.get(`${VOYAGER_BASE}/equity/web/sources`);
             return response.data;
         } catch {
             return { sources: [] };
@@ -231,8 +243,9 @@ export const VoyagerService = {
 
     async getAvailableMetrics(source: string) {
         try {
-            const response = await axios.get(`${VOYAGER_BASE}/available-metrics`, {
-                params: { source }
+            const cs = toCountrySource(source)
+            const response = await axios.get(`${VOYAGER_BASE}/equity/data/metrics/available`, {
+                params: cs
             });
             return response.data;
         } catch (error: any) {

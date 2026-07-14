@@ -1,116 +1,18 @@
 import SearchBar from "@/components/SearchBar";
 import {
-    Badge, Button, Flex, Text, Separator, Spinner, Box, Select,
-    createListCollection, Portal, HStack, VStack, Input, Checkbox
+    Button, Flex, Text, Separator, Spinner, Box, Select, Input,
+    createListCollection, Portal, HStack, VStack
 } from "@chakra-ui/react";
-import { memo, useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
 import {
-    MdInfoOutline, MdCheckCircle, MdErrorOutline, MdOutlineRefresh,
-    MdOutlineStorage, MdSearch, MdWeb, MdDescription,
-    MdWarning
+    MdInfoOutline, MdOutlineRefresh,
+    MdOutlineStorage
 } from "react-icons/md";
 import { Link, useParams } from "react-router-dom";
 import { AnalysisService, ProfileService, VoyagerService, NEBULA_BASE } from "@/db";
 import { Tooltip } from "@/components/ui/tooltip";
 
-const MAX_POLL_RETRIES = 30;
-
-const DocumentRow = memo(function DocumentRow({ doc, checked, onToggle }: { doc: any; checked: boolean; onToggle: () => void }) {
-    const fileUrl = doc.attchmntFile || "";
-    const text = doc.attchmntText || "";
-    const date = doc.an_dt || "";
-    const isLink = fileUrl.startsWith("http") || fileUrl.startsWith("www");
-    return (
-        <Flex
-            p={2}
-            _hover={{ bg: "bg.muted" }}
-            cursor="pointer"
-            align="center"
-            gap={2}
-            borderBottom="1px solid"
-            borderColor="border"
-            _last={{ borderBottom: "none" }}
-            onClick={onToggle}
-        >
-            <Checkbox.Root
-                checked={checked}
-                onCheckedChange={onToggle}
-            >
-                <Checkbox.HiddenInput />
-                <Checkbox.Control />
-            </Checkbox.Root>
-            <Box flex={1} minW={0}>
-                <Text fontSize="xs" lineHeight={1.6} truncate>
-                    {date && <Text as="span" color="fg.muted">{date} · </Text>}
-                    {isLink ? (
-                        <Box
-                            as="a"
-                            href={fileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            color="blue.400"
-                            textDecoration="underline"
-                            onClick={e => e.stopPropagation()}
-                        >
-                            Link ↗
-                        </Box>
-                    ) : fileUrl ? (
-                        <Text as="span" color="fg.muted">{fileUrl}</Text>
-                    ) : null}
-                    {text && <Text as="span" color="fg.muted"> · {text}</Text>}
-                </Text>
-            </Box>
-        </Flex>
-    );
-});
-
-const DocumentList = memo(function DocumentList({
-    documents,
-    allDocs,
-    selectedDocuments,
-    onToggle,
-}: {
-    documents: any[];
-    allDocs: any[];
-    selectedDocuments: string[];
-    onToggle: (idx: number) => void;
-}) {
-    const docCount = documents.length;
-    const maxVisible = 200;
-    const visible = docCount > maxVisible ? documents.slice(0, maxVisible) : documents;
-    const toggleRefs = useRef<Map<number, () => void>>(new Map());
-
-    const getToggle = useCallback((idx: number) => {
-        let fn = toggleRefs.current.get(idx);
-        if (!fn) {
-            fn = () => onToggle(idx);
-            toggleRefs.current.set(idx, fn);
-        }
-        return fn;
-    }, [onToggle]);
-
-    return (
-        <>
-            {visible.map((doc: any) => {
-                const docIdx = allDocs.indexOf(doc);
-                const key = String(docIdx);
-                return (
-                    <DocumentRow
-                        key={docIdx}
-                        doc={doc}
-                        checked={selectedDocuments.includes(key)}
-                        onToggle={getToggle(docIdx)}
-                    />
-                );
-            })}
-            {docCount > maxVisible && (
-                <Text px={2} py={1} fontSize="xs" color="fg.muted">
-                    Showing {maxVisible} of {docCount} results. Refine your search.
-                </Text>
-            )}
-        </>
-    );
-});
+const MAX_POLL_RETRIES = 600;
 
 type StatusType = "EMPTY" | "PENDING" | "COMPLETED" | "ERROR";
 type DataPullStatus = "IDLE" | "CHECKING" | "AVAILABLE" | "PULLING" | "PULLED" | "ERROR";
@@ -122,6 +24,130 @@ function useDebounce<T>(value: T, delay: number): T {
         return () => clearTimeout(timer);
     }, [value, delay]);
     return debounced;
+}
+
+function StatusDot({ state }: { state: "idle" | "active" | "done" | "error" }) {
+    if (state === "active") {
+        return <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />;
+    }
+    if (state === "error") {
+        return (
+            <Box
+                w="6px"
+                h="6px"
+                borderRadius="50%"
+                bg="var(--signal-negative)"
+                flexShrink={0}
+            />
+        );
+    }
+    return (
+        <Box
+            w="6px"
+            h="6px"
+            borderRadius="1px"
+            bg={state === "done" ? "var(--ink-primary)" : "transparent"}
+            border={state === "done" ? "none" : "1px solid var(--hairline)"}
+            flexShrink={0}
+        />
+    );
+}
+
+function AnalysisHero() {
+    return (
+        <Flex direction="column" gap={1}>
+            <Text
+                fontSize="10.5px"
+                fontWeight={500}
+                color="var(--ink-tertiary)"
+                textTransform="uppercase"
+                letterSpacing="0.06em"
+            >
+                Stock Analysis
+            </Text>
+            <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
+                New Analysis
+            </Text>
+            <Text fontSize="13px" color="var(--ink-secondary)">
+                Configure and run a new stock analysis.
+            </Text>
+        </Flex>
+    );
+}
+
+function AnalysisStepper({ sourceComplete, companyComplete, profileComplete }: {
+    sourceComplete: boolean;
+    companyComplete: boolean;
+    profileComplete: boolean;
+}) {
+    const steps = [
+        { label: "Source", done: sourceComplete },
+        { label: "Company", done: companyComplete },
+        { label: "Profile", done: profileComplete },
+    ];
+    return (
+        <Flex align="center" gap={0}>
+            {steps.map((step, i) => (
+                <Fragment key={step.label}>
+                    <Flex direction="column" align="center" gap={1.5} flex={i > 0 && i < steps.length - 1 ? 0 : undefined}>
+                        <StatusDot state={step.done ? "done" : "idle"} />
+                        <Text
+                            fontSize="12px"
+                            color={step.done ? "var(--ink-primary)" : "var(--ink-tertiary)"}
+                            fontWeight={step.done ? 500 : 400}
+                        >
+                            {step.label}
+                        </Text>
+                    </Flex>
+                    {i < steps.length - 1 && (
+                        <Box flex={1} h="1px" bg="var(--hairline)" mb={4} />
+                    )}
+                </Fragment>
+            ))}
+        </Flex>
+    );
+}
+
+function AnalysisGettingStarted() {
+    const cards = [
+        { num: "01", title: "Select a market source", desc: "Choose between SEC (US Market) or NSE (Indian Market)." },
+        { num: "02", title: "Search and select a company", desc: "Find and pick the target company for analysis." },
+        { num: "03", title: "Choose an investor profile", desc: "Pick a predefined portfolio strategy to guide the LLM." },
+        { num: "04", title: "Configure data inputs & run", desc: "Select documents, enable web search, pick web sources, then check data status and run the analysis." },
+    ];
+    return (
+        <Flex direction={{ base: "column", sm: "row" }} gap={4} wrap="wrap">
+            {cards.map(card => (
+                <Flex
+                    key={card.num}
+                    direction="column"
+                    gap={2}
+                    p={5}
+                    bg="var(--surface-panel)"
+                    border="1px solid var(--hairline)"
+                    borderRadius="2px"
+                    flex="1"
+                    minW="180px"
+                >
+                    <Text
+                        fontSize="11px"
+                        fontWeight={500}
+                        color="var(--ink-tertiary)"
+                        fontFamily="var(--font-mono)"
+                        letterSpacing="0.06em"
+                    >
+                        {card.num}
+                    </Text>
+                    <Text fontSize="13px" fontWeight={500} color="var(--ink-primary)">
+                        {card.title}
+                    </Text>
+                    <Text fontSize="12px" color="var(--ink-secondary)" lineHeight="relaxed">
+                        {card.desc}
+                    </Text>
+                </Flex>
+            ))}
+        </Flex>
+    );
 }
 
 export default function Analysis() {
@@ -186,23 +212,6 @@ export default function Analysis() {
         });
     }, [availableProfiles]);
 
-    // ===== Announcements / Documents =====
-    const [announcementQuery, setAnnouncementQuery] = useState("");
-    const debouncedAnnouncementQuery = useDebounce(announcementQuery, 250);
-    const [allAnnouncements, setAllAnnouncements] = useState<any[]>([]);
-    const [announcementLoading, setAnnouncementLoading] = useState(false);
-    const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
-    const [stockDataLoaded, setStockDataLoaded] = useState(false);
-
-    // ===== Web Search =====
-    const [webSearchEnabled, setWebSearchEnabled] = useState(false);
-    const tavilyKeySet = typeof window !== "undefined" && !!localStorage.getItem("tavily_key");
-
-    // ===== Web Sources =====
-    const [selectedWebSources, setSelectedWebSources] = useState<string[]>([]);
-    const [availableWebSources, setAvailableWebSources] = useState<any[]>([]);
-
-    // ===== Model Selection =====
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [selectedModel, setSelectedModel] = useState("gemini/gemini-flash-lite-latest");
     const [modelQuery, setModelQuery] = useState("");
@@ -235,15 +244,6 @@ export default function Analysis() {
         }
     }, []);
 
-    const fetchWebSources = useCallback(async () => {
-        try {
-            const data = await VoyagerService.getAvailableWebSources();
-            setAvailableWebSources(data.sources || []);
-        } catch {
-            setAvailableWebSources([]);
-        }
-    }, []);
-
     const fetchModels = useCallback(async () => {
         try {
             const data = await AnalysisService.getAvailableModels();
@@ -251,48 +251,6 @@ export default function Analysis() {
         } catch {
             setAvailableModels([]);
         }
-    }, []);
-
-    const loadAnnouncementsFromStockData = useCallback(async (symbol: string, source: string) => {
-        if (!symbol) return;
-        setAnnouncementLoading(true);
-        try {
-            const result = await VoyagerService.getStockData(symbol, source, ["announcements-equity"]);
-            const sourceData = result?.data || result;
-            if (typeof sourceData === "object") {
-                const category = Object.entries(sourceData).find(
-                    ([key]) => key.toLowerCase().includes("announ") || key.toLowerCase().includes("filing") || key.toLowerCase().includes("event")
-                );
-                if (category) {
-                    const records = category[1] as any[];
-                    setAllAnnouncements(Array.isArray(records) ? records : []);
-                    setStockDataLoaded(true);
-                } else {
-                    setAllAnnouncements([]);
-                    setStockDataLoaded(false);
-                }
-            }
-        } catch {
-            setAllAnnouncements([]);
-            setStockDataLoaded(false);
-        } finally {
-            setAnnouncementLoading(false);
-        }
-    }, []);
-
-    const filteredAnnouncements = useMemo(() => {
-        if (!debouncedAnnouncementQuery.trim()) return allAnnouncements;
-        const q = debouncedAnnouncementQuery.toLowerCase();
-        return allAnnouncements.filter(r =>
-            Object.values(r).some(v => v != null && String(v).toLowerCase().includes(q))
-        );
-    }, [allAnnouncements, debouncedAnnouncementQuery]);
-
-    const toggleDocument = useCallback((idx: number) => {
-        setSelectedDocuments(prev => {
-            const key = String(idx);
-            return prev.includes(key) ? prev.filter(u => u !== key) : [...prev, key];
-        });
     }, []);
 
     const handleConfigChange = useCallback((field: string, value: string, item?: any) => {
@@ -305,10 +263,6 @@ export default function Analysis() {
         if (field === 'share' && value) {
             setDataPullStatus("CHECKING");
             setLastPullDate(null);
-            setSelectedDocuments([]);
-            setAnnouncementQuery("");
-            setAllAnnouncements([]);
-            setStockDataLoaded(false);
             checkLastDataPull(config.source, value);
         }
     }, [sourceKeys, config.source]);
@@ -322,11 +276,6 @@ export default function Analysis() {
         }));
         setDataPullStatus("IDLE");
         setLastPullDate(null);
-        setSelectedDocuments([]);
-        setAnnouncementQuery("");
-        setAllAnnouncements([]);
-        setStockDataLoaded(false);
-        setSelectedWebSources([]);
     }, []);
 
     const checkLastDataPull = useCallback((source?: string, symbol?: string) => {
@@ -389,20 +338,11 @@ export default function Analysis() {
                 setDataPullStatus("PULLED");
             }
 
-            const selectedUrls = selectedDocuments
-                .map(idx => allAnnouncements[parseInt(idx)])
-                .filter(Boolean)
-                .map(r => r.attchmntFile || null)
-                .filter(Boolean);
-
             const result = await AnalysisService.runAnalysis({
                 share_name: config.shareName || config.share,
                 symbol: config.share,
                 profile_name: config.profile,
                 model: selectedModel || undefined,
-                documents: selectedUrls.length > 0 ? selectedUrls : undefined,
-                web_search: webSearchEnabled || undefined,
-                web_sources: selectedWebSources.length > 0 ? selectedWebSources : undefined,
             });
 
             if (result && (result.corr_id || result.analysis_id)) {
@@ -447,9 +387,6 @@ export default function Analysis() {
                     setDataPullStatus("AVAILABLE");
                 }
 
-                if (data.documents) setSelectedDocuments(data.documents);
-                if (data.web_search !== undefined) setWebSearchEnabled(data.web_search);
-                if (data.web_sources) setSelectedWebSources(data.web_sources);
                 if (data.model) setSelectedModel(data.model);
             }
         } catch {
@@ -462,12 +399,11 @@ export default function Analysis() {
     useEffect(() => {
         fetchAvailableSources();
         fetchAvailableProfiles();
-        fetchWebSources();
         fetchModels();
         if (id) {
             fetchAnalysisData(id);
         }
-    }, [id, fetchAvailableSources, fetchAvailableProfiles, fetchWebSources, fetchModels, fetchAnalysisData]);
+    }, [id, fetchAvailableSources, fetchAvailableProfiles, fetchModels, fetchAnalysisData]);
 
     const pollRetriesRef = useRef(0);
     useEffect(() => {
@@ -521,49 +457,55 @@ export default function Analysis() {
 
     const searchParams = useMemo(() => ({ source: config.source }), [config.source]);
     const isConfigComplete = config.share !== "" && config.profile !== "";
-    const webSearchValid = webSearchEnabled && tavilyKeySet;
-    const hasDataSource = selectedDocuments.length > 0 || webSearchValid || selectedWebSources.length > 0;
-    const canRunAnalysis = isConfigComplete && (dataPullStatus === "AVAILABLE" || dataPullStatus === "PULLED") && hasDataSource;
+    const canRunAnalysis = isConfigComplete && (dataPullStatus === "AVAILABLE" || dataPullStatus === "PULLED");
 
-    const statusIcons = (active: boolean, done: boolean, error: boolean) => {
-        if (error) return <MdErrorOutline color="red" size={16} />;
-        if (active) return <Spinner size="xs" />;
-        if (done) return <MdCheckCircle color="var(--chakra-colors-green-400)" size={16} />;
-        return <Box w="14px" h="14px" rounded="full" border="2px solid" borderColor="gray.600" />;
-    };
+    const dataStatusState: "idle" | "active" | "done" | "error" =
+        dataPullStatus === "ERROR" ? "error"
+        : dataPullStatus === "CHECKING" || dataPullStatus === "PULLING" ? "active"
+        : dataPullStatus === "AVAILABLE" || dataPullStatus === "PULLED" ? "done"
+        : "idle";
+
+    const analysisState: "idle" | "active" | "done" | "error" =
+        status === "ERROR" ? "error"
+        : status === "PENDING" ? "active"
+        : status === "COMPLETED" ? "done"
+        : "idle";
 
     return (
-        <Flex direction={"column"} gap={8} py={4}>
-            <Flex justify={"space-between"} align="center">
-                <Text textStyle={"3xl"} fontWeight="bold" letterSpacing="tight">
-                    New Analysis
-                </Text>
-                <Flex gap={2}>
-                    <Badge variant="subtle" colorPalette="gray" size="sm" rounded="sm">Step 1: Source</Badge>
-                    <Badge variant="subtle" colorPalette="gray" size="sm" rounded="sm">Step 2: Company</Badge>
-                    <Badge variant="subtle" colorPalette="gray" size="sm" rounded="sm">Step 3: Profile</Badge>
-                </Flex>
-            </Flex>
+        <Flex direction="column" gap={8} py={4} bg="var(--surface-canvas)" minH="100vh" px={6}>
+            <AnalysisHero />
 
-            <Flex direction={{ base: "column", md: "row" }} gap={8} align="start">
+            <AnalysisStepper
+                sourceComplete={!!config.source}
+                companyComplete={!!config.share}
+                profileComplete={!!config.profile}
+            />
+
+            <Flex direction={{ base: "column", md: "row" }} gap={8} align="start" mb={4}>
                 {/* Left: Configuration */}
                 <Box flex="1" width="full" minW={0} overflow="hidden">
-                    {/* Basic Config */}
                     <Box
-                        bg="bg.subtle"
-                        border="1px solid"
-                        borderColor="border"
-                        rounded="md"
+                        bg="var(--surface-panel)"
+                        border="1px solid var(--hairline)"
+                        borderRadius="2px"
                         p={8}
                         mb={6}
                     >
-                        <Flex direction={"column"} gap={6}>
-                            <Flex direction={"column"} align={"start"}>
+                        <Flex direction="column" gap={6}>
+                            <Flex direction="column" align="start">
                                 <Flex align="center" gap={1} mb={2}>
-                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Select Source</Text>
+                                    <Text
+                                        fontSize="10.5px"
+                                        fontWeight={500}
+                                        color="var(--ink-tertiary)"
+                                        textTransform="uppercase"
+                                        letterSpacing="0.06em"
+                                    >
+                                        Select Source
+                                    </Text>
                                     <Tooltip content="Choose the market data source for the company to analyze.">
                                         <Box cursor="help">
-                                            <MdInfoOutline size={14} color="fg.muted" />
+                                            <MdInfoOutline size={14} color="var(--ink-tertiary)" />
                                         </Box>
                                     </Tooltip>
                                 </Flex>
@@ -575,7 +517,7 @@ export default function Analysis() {
                                     >
                                         <Select.HiddenSelect />
                                         <Select.Control>
-                                            <Select.Trigger>
+                                            <Select.Trigger borderColor="var(--hairline)">
                                                 <Select.ValueText placeholder="Select source" />
                                             </Select.Trigger>
                                             <Select.IndicatorGroup>
@@ -598,8 +540,17 @@ export default function Analysis() {
                                 </Box>
                             </Flex>
 
-                            <Flex direction={"column"} align={"start"}>
-                                <Text mb={2} fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Target Company</Text>
+                            <Flex direction="column" align="start">
+                                <Text
+                                    mb={2}
+                                    fontSize="10.5px"
+                                    fontWeight={500}
+                                    color="var(--ink-tertiary)"
+                                    textTransform="uppercase"
+                                    letterSpacing="0.06em"
+                                >
+                                    Target Company
+                                </Text>
                                 <SearchBar
                                     url={`${NEBULA_BASE}/search-stocks`}
                                     mainKey={sourceKeys.mainKey}
@@ -611,8 +562,17 @@ export default function Analysis() {
                                 />
                             </Flex>
 
-                            <Flex direction={"column"} align={"start"}>
-                                <Text mb={2} fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Investor Profile</Text>
+                            <Flex direction="column" align="start">
+                                <Text
+                                    mb={2}
+                                    fontSize="10.5px"
+                                    fontWeight={500}
+                                    color="var(--ink-tertiary)"
+                                    textTransform="uppercase"
+                                    letterSpacing="0.06em"
+                                >
+                                    Portfolio Profile
+                                </Text>
                                 <Box width="full">
                                     <Select.Root
                                         collection={profileOptions}
@@ -623,7 +583,7 @@ export default function Analysis() {
                                     >
                                         <Select.HiddenSelect />
                                         <Select.Control>
-                                            <Select.Trigger>
+                                            <Select.Trigger borderColor="var(--hairline)">
                                                 <Select.ValueText placeholder="Select Portfolio Strategy" />
                                             </Select.Trigger>
                                             <Select.IndicatorGroup>
@@ -646,8 +606,17 @@ export default function Analysis() {
                                 </Box>
                             </Flex>
 
-                            <Flex direction={"column"} align={"start"}>
-                                <Text mb={2} fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Model</Text>
+                            <Flex direction="column" align="start">
+                                <Text
+                                    mb={2}
+                                    fontSize="10.5px"
+                                    fontWeight={500}
+                                    color="var(--ink-tertiary)"
+                                    textTransform="uppercase"
+                                    letterSpacing="0.06em"
+                                >
+                                    Model
+                                </Text>
                                 <Box width="full" position="relative" ref={modelRef}>
                                     <Input
                                         placeholder="Search model (e.g., qwen, gpt, claude)..."
@@ -661,7 +630,9 @@ export default function Analysis() {
                                             setShowModelList(true);
                                         }}
                                         size="sm"
-                                        variant="subtle"
+                                        borderColor="var(--hairline)"
+                                        borderRadius="2px"
+                                        _focus={{ borderColor: "var(--accent-primary)" }}
                                     />
                                     {showModelList && (
                                         <Box
@@ -673,20 +644,18 @@ export default function Analysis() {
                                             mt={1}
                                             maxH="200px"
                                             overflowY="auto"
-                                            border="1px solid"
-                                            borderColor="border"
-                                            rounded="sm"
-                                            bg="bg"
-                                            boxShadow="md"
+                                            border="1px solid var(--hairline)"
+                                            borderRadius="2px"
+                                            bg="var(--surface-panel)"
                                         >
                                             {filteredModels.length > 0 ? (
                                                 filteredModels.map(m => (
                                                     <Flex
                                                         key={m}
                                                         p={2}
-                                                        fontSize="xs"
+                                                        fontSize="12px"
                                                         cursor="pointer"
-                                                        _hover={{ bg: "bg.muted" }}
+                                                        _hover={{ bg: "var(--surface-recessed)" }}
                                                         onClick={() => {
                                                             setSelectedModel(m);
                                                             setModelQuery("");
@@ -697,7 +666,9 @@ export default function Analysis() {
                                                     </Flex>
                                                 ))
                                             ) : (
-                                                <Text p={2} fontSize="xs" color="fg.muted">No models found</Text>
+                                                <Text p={2} fontSize="12px" color="var(--ink-tertiary)">
+                                                    No models found
+                                                </Text>
                                             )}
                                         </Box>
                                     )}
@@ -705,299 +676,24 @@ export default function Analysis() {
                             </Flex>
                         </Flex>
                     </Box>
-
-                    {/* Data Inputs */}
-                    {config.share && (
-                        <Box
-                            bg="bg.subtle"
-                            border="1px solid"
-                            borderColor="border"
-                            rounded="md"
-                            p={8}
-                        >
-                            <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={5}>
-                                Data Inputs for LLM
-                            </Text>
-
-                            <VStack gap={6} align="stretch">
-                                {/* 1. Documents from Announcements */}
-                                <Box>
-                                    <Flex align="center" gap={1} mb={2}>
-                                        <MdDescription size={14} color="fg.muted" />
-                                        <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">
-                                            Documents from Announcements
-                                        </Text>
-                                        <Tooltip content="Search and select specific announcement documents to include in the analysis.">
-                                            <Box cursor="help">
-                                                <MdInfoOutline size={12} color="fg.muted" />
-                                            </Box>
-                                        </Tooltip>
-                                    </Flex>
-                                    <HStack gap={2} mb={2}>
-                                        <Button
-                                            size="xs"
-                                            variant="outline"
-                                            onClick={() => loadAnnouncementsFromStockData(config.share, config.source)}
-                                            loading={announcementLoading}
-                                            loadingText="Loading..."
-                                        >
-                                            <MdOutlineStorage size={12} />
-                                            {stockDataLoaded ? "Reload Announcements" : "Load Announcements"}
-                                        </Button>
-                                        <Button
-                                            size="xs"
-                                            variant="ghost"
-                                            onClick={pullLatestData}
-                                            loading={dataPullStatus === "PULLING"}
-                                            loadingText="Pulling..."
-                                        >
-                                            <MdOutlineRefresh size={12} />
-                                            Pull Latest
-                                        </Button>
-                                    </HStack>
-                                    {announcementLoading ? (
-                                        <HStack gap={2} py={2}>
-                                            <Spinner size="xs" />
-                                            <Text fontSize="xs" color="fg.muted">Loading announcements...</Text>
-                                        </HStack>
-                                    ) : stockDataLoaded ? (
-                                        <>
-                                            <Input
-                                                placeholder="Search announcements (e.g., earnings, 10-K, 8-K)..."
-                                                value={announcementQuery}
-                                                onChange={(e) => setAnnouncementQuery(e.target.value)}
-                                                size="sm"
-                                                variant="subtle"
-                                                mb={2}
-                                            />
-                                            {filteredAnnouncements.length > 0 ? (
-                                                <Box
-                                                    maxH="240px"
-                                                    overflowY="auto"
-                                                    overflowX="hidden"
-                                                    border="1px solid"
-                                                    borderColor="border"
-                                                    rounded="sm"
-                                                >
-                                                    <DocumentList
-                                                        documents={filteredAnnouncements}
-                                                        allDocs={allAnnouncements}
-                                                        selectedDocuments={selectedDocuments}
-                                                        onToggle={toggleDocument}
-                                                    />
-                                                </Box>
-                                            ) : (
-                                                <Text fontSize="xs" color="fg.muted" py={1}>
-                                                    {announcementQuery.trim() ? "No matching announcements" : "No announcements found in stock data"}
-                                                </Text>
-                                            )}
-                                        </>
-                                    ) : (
-                                        <Text fontSize="xs" color="fg.muted" py={1}>
-                                            Click "Load Announcements" to fetch documents for this stock
-                                        </Text>
-                                    )}
-
-                                    {selectedDocuments.length > 0 && (
-                                        <Text fontSize="xs" color="blue.400" mt={1}>
-                                            {selectedDocuments.length} document{selectedDocuments.length > 1 ? "s" : ""} selected
-                                        </Text>
-                                    )}
-                                </Box>
-
-                                <Separator borderColor="border" />
-
-                                {/* 2. Web Search */}
-                                <Box>
-                                    <Flex align="center" gap={1} mb={2}>
-                                        <MdWeb size={14} color="fg.muted" />
-                                        <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">
-                                            Web Search
-                                        </Text>
-                                        <Tooltip content="Enable live web search for recent news and data about the company.">
-                                            <Box cursor="help">
-                                                <MdInfoOutline size={12} color="fg.muted" />
-                                            </Box>
-                                        </Tooltip>
-                                    </Flex>
-                                    <Flex
-                                        p={3}
-                                        border="1px solid"
-                                        borderColor="border"
-                                        rounded="sm"
-                                        align="center"
-                                        justify="space-between"
-                                        cursor="pointer"
-                                        onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-                                        _hover={{ bg: "bg.muted" }}
-                                    >
-                                        <Text fontSize="sm">Enable web search for recent data</Text>
-                                        <Box
-                                            w="36px"
-                                            h="20px"
-                                            rounded="full"
-                                            bg={webSearchEnabled ? "blue.500" : "gray.500"}
-                                            position="relative"
-                                            transition="background 0.2s"
-                                        >
-                                            <Box
-                                                w="16px"
-                                                h="16px"
-                                                rounded="full"
-                                                bg="white"
-                                                position="absolute"
-                                                top="2px"
-                                                transition="left 0.2s"
-                                                left={webSearchEnabled ? "18px" : "2px"}
-                                            />
-                                        </Box>
-                                    </Flex>
-                                    {!tavilyKeySet && (
-                                        <Flex
-                                            mt={2}
-                                            p={3}
-                                            bg="orange.50"
-                                            border="1px solid"
-                                            borderColor="orange.200"
-                                            rounded="sm"
-                                            gap={2}
-                                            align="center"
-                                            _dark={{ bg: "orange.900/20", borderColor: "orange.700" }}
-                                        >
-                                            <Box color="orange.500">
-                                                <MdWarning size={16} />
-                                            </Box>
-                                            <Text fontSize="xs" color="orange.700" _dark={{ color: "orange.300" }} flex={1}>
-                                                Tavily API key required for web search
-                                            </Text>
-                                            <Link to="/settings">
-                                                <Button size="xs" variant="outline" colorPalette="orange">
-                                                    Set Key
-                                                </Button>
-                                            </Link>
-                                        </Flex>
-                                    )}
-                                </Box>
-
-                                <Separator borderColor="border" />
-
-                                {/* 3. Web Sources */}
-                                <Box>
-                                    <Flex align="center" gap={1} mb={2}>
-                                        <MdWeb size={14} color="fg.muted" />
-                                        <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">
-                                            Web Data Sources
-                                        </Text>
-                                        <Tooltip content="Select specific websites to fetch stock data from.">
-                                            <Box cursor="help">
-                                                <MdInfoOutline size={12} color="fg.muted" />
-                                            </Box>
-                                        </Tooltip>
-                                    </Flex>
-                                    {availableWebSources.length > 0 ? (
-                                        <Box
-                                            maxH="180px"
-                                            overflowY="auto"
-                                            border="1px solid"
-                                            borderColor="border"
-                                            rounded="sm"
-                                            p={1}
-                                        >
-                                            <VStack gap={0} align="stretch">
-                                                {availableWebSources.map((ws: any) => (
-                                                    <Flex
-                                                        key={ws.id}
-                                                        p={2}
-                                                        _hover={{ bg: "bg.muted" }}
-                                                        rounded="sm"
-                                                        cursor="pointer"
-                                                        align="center"
-                                                        gap={2}
-                                                        onClick={() => {
-                                                            setSelectedWebSources(prev =>
-                                                                prev.includes(ws.id)
-                                                                    ? prev.filter(s => s !== ws.id)
-                                                                    : [...prev, ws.id]
-                                                            );
-                                                        }}
-                                                    >
-                                                        <Checkbox.Root
-                                                            checked={selectedWebSources.includes(ws.id)}
-                                                            onCheckedChange={() => {
-                                                                setSelectedWebSources(prev =>
-                                                                    prev.includes(ws.id)
-                                                                        ? prev.filter(s => s !== ws.id)
-                                                                        : [...prev, ws.id]
-                                                                );
-                                                            }}
-                                                        >
-                                                            <Checkbox.HiddenInput />
-                                                            <Checkbox.Control />
-                                                        </Checkbox.Root>
-                                                        <Box flex={1}>
-                                                            <Text fontSize="sm">{ws.name}</Text>
-                                                            {ws.type && (
-                                                                <Text fontSize="xs" color="fg.muted">{ws.type}</Text>
-                                                            )}
-                                                        </Box>
-                                                    </Flex>
-                                                ))}
-                                            </VStack>
-                                        </Box>
-                                    ) : (
-                                        <Text fontSize="xs" color="fg.muted" py={1}>
-                                            No web sources available
-                                        </Text>
-                                    )}
-                                    {selectedWebSources.length > 0 && (
-                                        <Text fontSize="xs" color="blue.400" mt={1}>
-                                            {selectedWebSources.length} source{selectedWebSources.length > 1 ? "s" : ""} selected
-                                        </Text>
-                                    )}
-                                </Box>
-                            </VStack>
-                        </Box>
-                    )}
-
-                    {/* Warning: No data source */}
-                    {isConfigComplete && config.share && !hasDataSource && (
-                        <Flex
-                            mt={4}
-                            p={4}
-                            bg="orange.50"
-                            border="1px solid"
-                            borderColor="orange.200"
-                            rounded="md"
-                            gap={3}
-                            align="start"
-                            _dark={{ bg: "orange.900/20", borderColor: "orange.700" }}
-                        >
-                            <Box color="orange.500" mt={0.5}>
-                                <MdWarning size={18} />
-                            </Box>
-                            <Box>
-                                <Text fontSize="sm" fontWeight="medium" color="orange.800" _dark={{ color: "orange.200" }}>
-                                    No data source selected
-                                </Text>
-                                <Text fontSize="xs" color="orange.700" _dark={{ color: "orange.300" }} mt={1}>
-                                    Select at least one: announcement documents, enable web search, or pick web data sources.
-                                    Without any data, the LLM will have nothing to analyze.
-                                </Text>
-                            </Box>
-                        </Flex>
-                    )}
                 </Box>
 
                 {/* Right: Analysis Status */}
                 <Box width={{ base: "full", md: "380px" }} flexShrink={0}>
                     <Box
-                        bg="bg.subtle"
-                        border="1px solid"
-                        borderColor="border"
-                        rounded="md"
+                        bg="var(--surface-panel)"
+                        border="1px solid var(--hairline)"
+                        borderRadius="2px"
                         p={6}
                     >
-                        <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={5}>
+                        <Text
+                            fontSize="10.5px"
+                            fontWeight={500}
+                            color="var(--ink-tertiary)"
+                            textTransform="uppercase"
+                            letterSpacing="0.06em"
+                            mb={5}
+                        >
                             Analysis Status
                         </Text>
 
@@ -1005,31 +701,33 @@ export default function Analysis() {
                             {/* Step 1: Data Check */}
                             <Box>
                                 <HStack gap={2} mb={2}>
-                                    {statusIcons(
-                                        dataPullStatus === "CHECKING" || dataPullStatus === "PULLING",
-                                        dataPullStatus === "AVAILABLE" || dataPullStatus === "PULLED",
-                                        dataPullStatus === "ERROR"
-                                    )}
-                                    <Text fontSize="sm" fontWeight="medium">Data Status Check</Text>
+                                    <StatusDot state={dataStatusState} />
+                                    <Text fontSize="13px" fontWeight={500} color="var(--ink-primary)">
+                                        Data Status Check
+                                    </Text>
                                 </HStack>
-                                <Box ml={6}>
+                                <Box ml={5}>
                                     {dataPullStatus === "IDLE" ? (
-                                        <Text fontSize="xs" color="fg.subtle">
+                                        <Text fontSize="12px" color="var(--ink-tertiary)">
                                             {config.share ? "Check data status before running" : "Select a company to check"}
                                         </Text>
                                     ) : dataPullStatus === "CHECKING" ? (
                                         <HStack gap={1}>
-                                            <Spinner size="xs" />
-                                            <Text fontSize="xs" color="fg.subtle">Checking last data pull...</Text>
+                                            <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />
+                                            <Text fontSize="12px" color="var(--ink-secondary)">
+                                                Checking last data pull…
+                                            </Text>
                                         </HStack>
                                     ) : dataPullStatus === "PULLING" ? (
                                         <HStack gap={1}>
-                                            <Spinner size="xs" />
-                                            <Text fontSize="xs" color="fg.subtle">Pulling latest data...</Text>
+                                            <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />
+                                            <Text fontSize="12px" color="var(--ink-secondary)">
+                                                Pulling latest data…
+                                            </Text>
                                         </HStack>
                                     ) : (
                                         <>
-                                            <Text fontSize="xs" color="fg.muted" mb={2}>
+                                            <Text fontSize="12px" color="var(--ink-tertiary)" mb={2}>
                                                 {lastPullDate
                                                     ? `Last pulled: ${formatDate(lastPullDate)}`
                                                     : "No data pulled yet for this stock"}
@@ -1037,17 +735,26 @@ export default function Analysis() {
                                             <HStack gap={2}>
                                                 <Button
                                                     size="xs"
-                                                    variant="outline"
+                                                    variant="ghost"
+                                                    color="var(--ink-secondary)"
+                                                    _hover={{ color: "var(--ink-primary)" }}
                                                     onClick={pullLatestData}
                                                     loading={dataPullStatus === "PULLING"}
-                                                    loadingText="Pulling..."
+                                                    loadingText="Pulling…"
+                                                    fontWeight={500}
                                                 >
-                                                    <MdOutlineRefresh size={12} />
+                                                    <MdOutlineRefresh size={12} style={{ marginRight: 4 }} />
                                                     Pull Latest
                                                 </Button>
                                                 <Link to={`/manage-data?symbol=${config.share}&source=${config.source}`} target="_blank">
-                                                    <Button size="xs" variant="ghost">
-                                                        <MdOutlineStorage size={12} />
+                                                    <Button
+                                                        size="xs"
+                                                        variant="ghost"
+                                                        color="var(--ink-secondary)"
+                                                        _hover={{ color: "var(--ink-primary)" }}
+                                                        fontWeight={500}
+                                                    >
+                                                        <MdOutlineStorage size={12} style={{ marginRight: 4 }} />
                                                         Check Data
                                                     </Button>
                                                 </Link>
@@ -1057,156 +764,136 @@ export default function Analysis() {
                                 </Box>
                             </Box>
 
-                            <Separator borderColor="border" />
-
-                            {/* Data Inputs Status */}
-                            {config.share && (
-                                <Box>
-                                    <HStack gap={2} mb={2}>
-                                        <MdInfoOutline size={16} color="fg.muted" />
-                                        <Text fontSize="sm" fontWeight="medium">LLM Data Sources</Text>
-                                    </HStack>
-                                    <Box ml={6}>
-                                        <VStack gap={1} align="stretch">
-                                            <HStack gap={2}>
-                                                <Box
-                                                    w="8px" h="8px" rounded="full"
-                                                    bg={selectedDocuments.length > 0 ? "green.400" : "gray.500"}
-                                                />
-                                                <Text fontSize="xs" color="fg.muted">
-                                                    Documents: {selectedDocuments.length > 0 ? `${selectedDocuments.length} selected` : "none"}
-                                                </Text>
-                                            </HStack>
-                                            <HStack gap={2}>
-                                                <Box
-                                                    w="8px" h="8px" rounded="full"
-                                                    bg={webSearchEnabled ? "green.400" : "gray.500"}
-                                                />
-                                                <Text fontSize="xs" color="fg.muted">
-                                                    Web Search: {webSearchEnabled ? "enabled" : "disabled"}
-                                                </Text>
-                                            </HStack>
-                                            <HStack gap={2}>
-                                                <Box
-                                                    w="8px" h="8px" rounded="full"
-                                                    bg={selectedWebSources.length > 0 ? "green.400" : "gray.500"}
-                                                />
-                                                <Text fontSize="xs" color="fg.muted">
-                                                    Web Sources: {selectedWebSources.length > 0 ? `${selectedWebSources.length} selected` : "none"}
-                                                </Text>
-                                            </HStack>
-                                        </VStack>
-                                    </Box>
-                                </Box>
-                            )}
-
-                            <Separator borderColor="border" />
+                            <Separator borderColor="var(--hairline)" />
 
                             {/* Step 2: Analysis */}
                             <Box>
                                 <HStack gap={2} mb={2}>
-                                    {statusIcons(
-                                        status === "PENDING",
-                                        status === "COMPLETED",
-                                        status === "ERROR"
-                                    )}
-                                    <Text fontSize="sm" fontWeight="medium">Analysis</Text>
+                                    <StatusDot state={analysisState} />
+                                    <Text fontSize="13px" fontWeight={500} color="var(--ink-primary)">
+                                        Analysis
+                                    </Text>
                                 </HStack>
-                                <Box ml={6}>
+                                <Box ml={5}>
                                     {!isConfigComplete ? (
-                                        <Text fontSize="xs" color="fg.subtle">
+                                        <Text fontSize="12px" color="var(--ink-tertiary)">
                                             Complete configuration to run analysis
-                                        </Text>
-                                    ) : !hasDataSource ? (
-                                        <Text fontSize="xs" color="fg.subtle">
-                                            Select at least one data source below
                                         </Text>
                                     ) : status === "PENDING" ? (
                                         <HStack gap={1}>
-                                            <Spinner size="xs" />
-                                            <Text fontSize="xs" color="fg.subtle">Running analysis...</Text>
+                                            <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />
+                                            <Text fontSize="12px" color="var(--ink-secondary)">
+                                                Running analysis…
+                                            </Text>
                                             {elapsedTime > 0 && (
-                                                <Text fontSize="xs" color="fg.muted" ml={1}>
+                                                <Text
+                                                    fontSize="12px"
+                                                    color="var(--ink-tertiary)"
+                                                    fontFamily="var(--font-tabular)"
+                                                    fontVariantNumeric="tabular-nums"
+                                                    ml={1}
+                                                >
                                                     ({elapsedTime >= 60 ? `${Math.floor(elapsedTime / 60)}m ${elapsedTime % 60}s` : `${elapsedTime}s`})
                                                 </Text>
                                             )}
                                         </HStack>
                                     ) : status === "COMPLETED" ? (
                                         <VStack gap={2} align="stretch">
-                                            <Text fontSize="xs" color="fg.muted">
+                                            <Text fontSize="12px" color="var(--ink-tertiary)">
                                                 {analysisDuration
                                                     ? `Completed in ${analysisDuration}`
                                                     : "Analysis complete"}
                                             </Text>
-                                        <HStack gap={2}>
-                                        <Link to={`/analysis-result/${correlationId}`}>
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                colorPalette="green"
-                                                rounded="sm"
-                                                fontSize="xs"
-                                            >
-                                                View Analysis Report
-                                            </Button>
-                                        </Link>
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            colorPalette="blue"
-                                            rounded="sm"
-                                            fontSize="xs"
-                                            onClick={() => {
-                                                setStatus("EMPTY");
-                                                setDataPullStatus("AVAILABLE");
-                                            }}
-                                        >
-                                            Run Again
-                                        </Button>
-                                        </HStack>
+                                            <HStack gap={2}>
+                                                <Link to={`/analysis-result/${correlationId}`}>
+                                                    <Button
+                                                        size="sm"
+                                                        bg="var(--accent-primary)"
+                                                        color="#fff"
+                                                        fontWeight={500}
+                                                        fontSize="13px"
+                                                        px={4}
+                                                        _hover={{ opacity: 0.9 }}
+                                                        borderRadius="3px"
+                                                    >
+                                                        View Report
+                                                    </Button>
+                                                </Link>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    color="var(--ink-secondary)"
+                                                    _hover={{ color: "var(--ink-primary)" }}
+                                                    fontWeight={500}
+                                                    fontSize="13px"
+                                                    onClick={() => {
+                                                        setStatus("EMPTY");
+                                                        setDataPullStatus("AVAILABLE");
+                                                    }}
+                                                >
+                                                    Run Again
+                                                </Button>
+                                            </HStack>
                                         </VStack>
                                     ) : status === "ERROR" ? (
                                         <VStack gap={2} align="stretch">
-                                            <Text fontSize="xs" color="red.400">Analysis encountered an error</Text>
+                                            <Text fontSize="12px" color="var(--signal-negative)">
+                                                Analysis encountered an error
+                                            </Text>
                                             <HStack gap={2}>
-                                            {correlationId && (
-                                                <Link to={`/analysis-result/${correlationId}`}>
-                                                    <Button size="sm" variant="outline" colorPalette="green" rounded="sm" fontSize="xs">View Report</Button>
-                                                </Link>
-                                            )}
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                colorPalette="red"
-                                                rounded="sm"
-                                                fontSize="xs"
-                                                onClick={() => {
-                                                    setStatus("EMPTY");
-                                                    setDataPullStatus("AVAILABLE");
-                                                }}
-                                            >
-                                                Try Again
-                                            </Button>
+                                                {correlationId && (
+                                                    <Link to={`/analysis-result/${correlationId}`}>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            color="var(--ink-secondary)"
+                                                            _hover={{ color: "var(--ink-primary)" }}
+                                                            fontWeight={500}
+                                                            fontSize="13px"
+                                                        >
+                                                            View Report
+                                                        </Button>
+                                                    </Link>
+                                                )}
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    color="var(--signal-negative)"
+                                                    borderColor="var(--signal-negative)"
+                                                    _hover={{ bg: "var(--signal-negative)", color: "#fff" }}
+                                                    fontWeight={500}
+                                                    fontSize="13px"
+                                                    borderRadius="3px"
+                                                    onClick={() => {
+                                                        setStatus("EMPTY");
+                                                        setDataPullStatus("AVAILABLE");
+                                                    }}
+                                                >
+                                                    Try Again
+                                                </Button>
                                             </HStack>
                                         </VStack>
                                     ) : status === "EMPTY" && id ? (
                                         <HStack gap={1}>
-                                            <Spinner size="xs" />
-                                            <Text fontSize="xs" color="fg.subtle">Resuming analysis...</Text>
+                                            <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />
+                                            <Text fontSize="12px" color="var(--ink-secondary)">
+                                                Resuming analysis…
+                                            </Text>
                                         </HStack>
                                     ) : (
                                         <Button
                                             size="sm"
-                                            variant="outline"
+                                            bg="var(--accent-primary)"
+                                            color="#fff"
+                                            fontWeight={500}
+                                            fontSize="13px"
+                                            px={5}
+                                            _hover={{ opacity: 0.9 }}
+                                            borderRadius="3px"
                                             onClick={runAnalysis}
                                             disabled={!canRunAnalysis}
                                             loading={status === "PENDING"}
-                                            loadingText="Running..."
-                                            rounded="sm"
-                                            fontSize="xs"
-                                            fontWeight="bold"
-                                            textTransform="uppercase"
-                                            letterSpacing="wider"
+                                            loadingText="Running…"
                                         >
                                             Start Analysis
                                         </Button>
@@ -1218,33 +905,27 @@ export default function Analysis() {
                 </Box>
             </Flex>
 
-            <Separator />
+            <Separator borderColor="var(--hairline)" />
 
             {loading ? (
                 <Flex justify="center" align="center" direction="column" gap={4} p={10}>
-                    <Spinner size="xl" borderWidth="4px" />
-                    <Text>Loading analysis data...</Text>
+                    <Spinner size="lg" borderWidth="2px" color="var(--ink-secondary)" />
+                    <Text fontSize="13px" color="var(--ink-secondary)">Loading analysis data…</Text>
                 </Flex>
             ) : status === "PENDING" ? (
                 <Flex justify="center" align="center" direction="column" gap={4} p={10}>
-                    <Spinner size="xl" borderWidth="4px" />
-                    <Text>Analysis in progress... This may take a few minutes.</Text>
+                    <Spinner size="lg" borderWidth="2px" color="var(--ink-secondary)" />
+                    <Text fontSize="13px" color="var(--ink-secondary)">
+                        Analysis in progress — this may take a few minutes.
+                    </Text>
                 </Flex>
             ) : status === "COMPLETED" && correlationId ? (
                 <Flex justify="center" align="center" direction="column" gap={4} p={10}>
-                    <Text color="fg.subtle">You can find all your previous analyses in the list view.</Text>
+                    <Text fontSize="13px" color="var(--ink-tertiary)">
+                        You can find all your previous analyses in the list view.
+                    </Text>
                 </Flex>
-            ) : !id && !config.share && (
-                <Flex justify={"center"} align={"center"} color={"grey"}>
-                    <Box as="ul" fontSize="sm" lineHeight="2">
-                        <Box as="li">Step 1: Select a market source (SEC or NSE).</Box>
-                        <Box as="li">Step 2: Search and select the target company.</Box>
-                        <Box as="li">Step 3: Choose an investor profile.</Box>
-                        <Box as="li">Step 4: Select data inputs (documents, web search, web sources).</Box>
-                        <Box as="li">Check data status, pull latest data if needed, then run the analysis.</Box>
-                    </Box>
-                </Flex>
-            )}
+            ) : !id && !config.share && <AnalysisGettingStarted />}
         </Flex>
     )
 }

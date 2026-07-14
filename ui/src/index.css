@@ -1,2 +1,71 @@
+:root {
+  /* Surfaces */
+  --surface-canvas: #FAFAF9;
+  --surface-panel: #FFFFFF;
+  --surface-recessed: #F4F4F3;
+  --hairline: #E4E4E1;
 
+  /* Ink */
+  --ink-primary: #16181B;
+  --ink-secondary: #6B7280;
+  --ink-tertiary: #9CA3AF;
 
+  /* Accent */
+  --accent-primary: #5B7FDE;
+
+  /* Signals */
+  --signal-positive: #4C8B6B;
+  --signal-caution: #B8935A;
+  --signal-negative: #B85C5C;
+
+  /* Typography */
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SF Mono', 'Menlo', monospace;
+  --font-tabular: 'IBM Plex Mono', 'Inter', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-canvas: #0B0D10;
+    --surface-panel: #14171B;
+    --surface-recessed: #0F1114;
+    --hairline: #262B31;
+
+    --ink-primary: #EDEDEC;
+    --ink-secondary: #9AA0A6;
+    --ink-tertiary: #5B6167;
+  }
+}
+
+/* Also handle Chakra dark mode class */
+html.dark {
+  --surface-canvas: #0B0D10;
+  --surface-panel: #14171B;
+  --surface-recessed: #0F1114;
+  --hairline: #262B31;
+
+  --ink-primary: #EDEDEC;
+  --ink-secondary: #9AA0A6;
+  --ink-tertiary: #5B6167;
+}
+
+/* Global focus ring */
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ink-tertiary);
+  border-radius: 2px;
+}
