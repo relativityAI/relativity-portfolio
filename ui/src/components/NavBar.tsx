@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Flex, Text } from "@chakra-ui/react"
 import { Link } from "react-router-dom";
 import { runHealthCheck } from "../utils"
-import { MdCheckCircle, MdError } from "react-icons/md";
+import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineStorage, MdOutlineSettings } from "react-icons/md";
 import { ColorModeButton } from "@/components/ui/color-mode";
 
 const VOYAGER_DOCS_URL = import.meta.env.VITE_VOYAGER_DOCS_URL || "http://localhost:8001";
@@ -50,19 +50,34 @@ export default function NavBar() {
                 
                 <Flex gap={6} align="center">
                     <Link to={"/"}>
-                        <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Dashboard</Text>
+                        <Flex gap={1.5} align="center">
+                            <MdAddCircleOutline size={16} color="var(--chakra-colors-fg-muted)" />
+                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>New Analysis</Text>
+                        </Flex>
                     </Link>
                     <Link to={"/profiles"}>
-                        <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Profiles</Text>
+                        <Flex gap={1.5} align="center">
+                            <MdOutlinePeople size={16} color="var(--chakra-colors-fg-muted)" />
+                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Profiles</Text>
+                        </Flex>
                     </Link>
                     <Link to={"/analysis-list"}>
-                        <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Analysis</Text>
+                        <Flex gap={1.5} align="center">
+                            <MdOutlineAssessment size={16} color="var(--chakra-colors-fg-muted)" />
+                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Analysis</Text>
+                        </Flex>
                     </Link>
                     <Link to={"/manage-data"}>
-                        <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Data</Text>
+                        <Flex gap={1.5} align="center">
+                            <MdOutlineStorage size={16} color="var(--chakra-colors-fg-muted)" />
+                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Data</Text>
+                        </Flex>
                     </Link>
                     <Link to={"/settings"}>
-                        <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Settings</Text>
+                        <Flex gap={1.5} align="center">
+                            <MdOutlineSettings size={16} color="var(--chakra-colors-fg-muted)" />
+                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Settings</Text>
+                        </Flex>
                     </Link>
                 </Flex>
             </Flex>

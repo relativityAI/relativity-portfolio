@@ -1,54 +1,34 @@
 import { useParams, Link } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import {
     Box,
     Flex,
     Text,
-    Badge,
-    SimpleGrid,
     Spinner,
     Container,
     Button,
     Table,
-    Progress,
-    Separator,
     HStack,
     VStack,
+    Tabs,
 } from "@chakra-ui/react";
 import { AnalysisService } from "@/db";
 import ReactMarkdown from "react-markdown";
-import {
-    MdArrowBack, MdAnalytics, MdHistory, MdOutlineCheckCircle,
-    MdOutlineStar, MdOutlineTimer, MdOutlineMemory,
-    MdOutlineFactCheck, MdOutlinePsychology, MdErrorOutline,
-    MdDownload, MdExpandMore, MdExpandLess
-} from "react-icons/md";
+import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
 
-function scoreColor(score: number): string {
-    if (score >= 70) return "green";
-    if (score >= 40) return "yellow";
-    return "red";
+const TABS = ["overview", "quantitative", "qualitative", "sources"] as const;
+type Tab = (typeof TABS)[number];
+
+function scoreSignal(score: number): "positive" | "caution" | "negative" {
+    if (score >= 70) return "positive";
+    if (score >= 40) return "caution";
+    return "negative";
 }
 
-function ScoreBadge({ score, size = "sm" }: { score: number; size?: string }) {
-    const color = scoreColor(score);
-    return (
-        <Badge
-            size={size}
-            variant="surface"
-            colorPalette={color}
-            bg="transparent"
-            border="1px solid"
-            borderColor={`${color}.800`}
-            color={`${color}.400`}
-            fontWeight="bold"
-            fontSize="sm"
-            px={2.5}
-            py={0.5}
-        >
-            {score.toFixed(1)}%
-        </Badge>
-    );
+function signalColor(signal: "positive" | "caution" | "negative"): string {
+    if (signal === "positive") return "var(--signal-positive)";
+    if (signal === "caution") return "var(--signal-caution)";
+    return "var(--signal-negative)";
 }
 
 function formatCurrency(val: number): string {
@@ -69,7 +49,7 @@ function formatDuration(sec: number): string {
 }
 
 function formatValue(val: any, type?: string): string {
-    if (val == null) return "-";
+    if (val == null) return "—";
     if (type === "currency" && typeof val === "number") return formatCurrency(val);
     if (typeof val === "number") {
         if (Number.isInteger(val)) return val.toLocaleString();
@@ -78,12 +58,48 @@ function formatValue(val: any, type?: string): string {
     return String(val);
 }
 
+const OP_SYMBOL: Record<string, string> = {
+    gt: ">", gte: "≥", lt: "<", lte: "≤", eq: "=", between: "between",
+};
+
+function generateVerdict(totalScore: number | null, quant: Record<string, any>, qual: Record<string, any>): string {
+    if (totalScore == null) return "Analysis completed. Review quantitative and qualitative sections for details.";
+    const quantEntries = Object.values(quant);
+    const passed = quantEntries.filter((m: any) => (m.score ?? 0) >= 0.7).length;
+    const failed = quantEntries.filter((m: any) => (m.score ?? 0) < 0.4).length;
+    const qualEntries = Object.values(qual);
+    const qualAvg = qualEntries.length > 0
+        ? qualEntries.reduce((s: number, p: any) => s + (p.score ?? 0), 0) / qualEntries.length
+        : 0;
+
+    let sentence = `Passes ${passed} of ${quantEntries.length} quantitative gates`;
+    if (failed > 0) {
+        const failedNames = quantEntries
+            .filter((m: any) => (m.score ?? 0) < 0.4)
+            .slice(0, 3)
+            .map((m: any) => m.metric_name)
+            .join(", ");
+        sentence += `; ${failed} underperforming${failedNames ? ` (${failedNames})` : ""}`;
+    }
+    sentence += ".";
+    if (qualEntries.length > 0) {
+        const qualLabel = qualAvg >= 0.7 ? "supportive" : qualAvg >= 0.4 ? "moderately supportive" : "mixed";
+        sentence += ` Qualitative narrative is ${qualLabel}.`;
+    }
+    return sentence;
+}
+
 export default function AnalysisResult() {
     const { id } = useParams();
     const [analysis, setAnalysis] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
+    const [activeTab, setActiveTab] = useState<Tab>("overview");
+    const [sortByScore, setSortByScore] = useState<"asc" | "desc" | null>(null);
+    const [activeSection, setActiveSection] = useState<string>("");
+
+    const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
     const fetchResult = async () => {
         if (!id) return;
@@ -110,23 +126,69 @@ export default function AnalysisResult() {
         fetchResult();
     }, [id]);
 
+    const handleTabChange = useCallback((details: { value: string }) => {
+        const tab = details.value as Tab;
+        setActiveTab(tab);
+        const el = sectionRefs.current[tab];
+        if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    }, []);
+
+    const registerSection = useCallback((key: string, el: HTMLElement | null) => {
+        sectionRefs.current[key] = el;
+    }, []);
+
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                const visible = entries.filter((e) => e.isIntersecting);
+                if (visible.length > 0) {
+                    const top = visible.reduce((a, b) =>
+                        a.boundingClientRect.top < b.boundingClientRect.top ? a : b
+                    );
+                    setActiveSection(top.target.getAttribute("data-section") || "");
+                }
+            },
+            { rootMargin: "-120px 0px -60% 0px", threshold: 0 }
+        );
+
+        Object.values(sectionRefs.current).forEach((el) => {
+            if (el) observer.observe(el);
+        });
+
+        return () => observer.disconnect();
+    }, [analysis]);
+
     if (loading && !analysis) {
         return (
-            <Flex justify="center" align="center" minH="60vh" direction="column" gap={4}>
-                <Spinner size="xl" borderWidth="4px" animationDuration="0.65s" color="blue.500" />
-                <Text fontSize="lg" fontWeight="medium" color="fg.muted">Fetching analysis results...</Text>
-            </Flex>
+            <Container maxW="960px" py={12}>
+                <Flex justify="center" align="center" minH="50vh" direction="column" gap={3}>
+                    <Spinner size="lg" borderWidth="2px" color="var(--ink-secondary)" />
+                    <Text fontSize="sm" color="var(--ink-secondary)">Fetching analysis results…</Text>
+                </Flex>
+            </Container>
         );
     }
 
     if (error) {
         return (
-            <Flex justify="center" align="center" minH="60vh" direction="column" gap={4}>
-                <Text color="red.500" fontSize="xl">{error}</Text>
-                <Link to="/analysis-list">
-                    <Button variant="ghost" color="fg.subtle"><MdArrowBack /> Back to List</Button>
-                </Link>
-            </Flex>
+            <Container maxW="960px" py={12}>
+                <Flex direction="column" align="center" minH="50vh" gap={4}>
+                    <Box
+                        borderLeft="3px solid var(--signal-negative)"
+                        pl={4}
+                        py={2}
+                    >
+                        <Text fontSize="sm" color="var(--ink-primary)">{error}</Text>
+                    </Box>
+                    <Link to="/analysis-list">
+                        <Button variant="ghost" size="sm" color="var(--ink-secondary)">
+                            <MdArrowBack style={{ marginRight: 6 }} /> Back to List
+                        </Button>
+                    </Link>
+                </Flex>
+            </Container>
         );
     }
 
@@ -136,15 +198,16 @@ export default function AnalysisResult() {
     const s = (analysis.status || "").toLowerCase();
     const isComplete = terminalStatuses.includes(s);
     const isError = s === "error" || s === "failed";
+    const isRunning = !isComplete && !isError;
 
-    const quantAnalysis = analysis.quantitative_analysis || {};
-    const qualAnalysis = analysis.qualitative_analysis || {};
+    const quantAnalysis: Record<string, any> = analysis.quantitative_analysis || {};
+    const qualAnalysis: Record<string, any> = analysis.qualitative_analysis || {};
     const toolCalls = analysis.qualitative_tool_calls || {};
-    const docs = analysis.documents || [];
-    const webSrc = analysis.web_sources || [];
+    const docs: any[] = analysis.documents || [];
+    const webSrc: string[] = analysis.web_sources || [];
 
     const toggleToolCalls = (param: string) => {
-        setExpandedTools(prev => ({ ...prev, [param]: !prev[param] }));
+        setExpandedTools((prev) => ({ ...prev, [param]: !prev[param] }));
     };
 
     const downloadResult = () => {
@@ -161,418 +224,1045 @@ export default function AnalysisResult() {
         URL.revokeObjectURL(url);
     };
 
+    const totalScore: number | null = analysis.total_score;
+    const quantScore: number | null = analysis.quantitative_score;
+    const qualScore: number | null = analysis.qualitative_score;
+
+    const verdictSentence = generateVerdict(totalScore, quantAnalysis, qualAnalysis);
+
+    const quantEntries = Object.entries(quantAnalysis).map(([key, data]: [string, any]) => ({
+        key,
+        ...data,
+        _score: data.score ?? 0,
+    }));
+
+    if (sortByScore) {
+        quantEntries.sort((a, b) =>
+            sortByScore === "asc" ? a._score - b._score : b._score - a._score
+        );
+    }
+
+    const metaLine = [
+        analysis.model,
+        analysis.source,
+        analysis.profile,
+        analysis.created_at ? new Date(analysis.created_at).toLocaleDateString() : null,
+        id ? `ID ${id.slice(0, 8)}` : null,
+    ]
+        .filter(Boolean)
+        .join("  ·  ");
+
     return (
-        <Box>
-            <Flex direction="column" gap={8}>
-                {/* Back Button + Download */}
-                <Flex justify="space-between" align="center">
+        <Box bg="var(--surface-canvas)" minH="100vh">
+            <Container maxW="960px" py={6}>
+                {/* Utility bar */}
+                <Flex justify="space-between" align="center" mb={6}>
                     <Link to="/analysis-list">
-                        <Button variant="ghost" size="xs" color="fg.subtle" _hover={{ color: "fg" }} pl={0}>
-                            <MdArrowBack /> Back to Analysis List
+                        <Button variant="ghost" size="sm" color="var(--ink-secondary)" px={1} _hover={{ color: "var(--ink-primary)" }}>
+                            <MdArrowBack style={{ marginRight: 4 }} /> Back
                         </Button>
                     </Link>
                     {isComplete && (
-                        <Button variant="outline" size="xs" onClick={downloadResult}>
-                            <MdDownload /> Download
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={downloadResult}
+                            color="var(--ink-secondary)"
+                            _hover={{ color: "var(--ink-primary)" }}
+                        >
+                            <MdDownload style={{ marginRight: 4 }} /> Export
                         </Button>
                     )}
                 </Flex>
 
-                {/* Header Card */}
-                <Box bg="bg.muted" border="1px solid" borderColor="border" rounded="md" p={6}>
-                    <Flex justify="space-between" align="flex-start" wrap="wrap" gap={4}>
-                        <VStack align="flex-start" gap={2}>
-                            <Flex align="center" gap={3}>
-                                <Text fontSize="3xl" fontWeight="bold" letterSpacing="tight">
-                                    {analysis.share_name || analysis.symbol}
-                                </Text>
-                                <Text as="span" fontSize="lg" color="fg.subtle" fontFamily="mono">
-                                    {analysis.symbol}
-                                </Text>
-                                <Badge
-                                    variant="surface"
-                                    colorPalette={analysis.source === "NSE" ? "orange" : "blue"}
-                                    size="xs"
-                                >
-                                    {analysis.source}
-                                </Badge>
-                            </Flex>
-                            <Flex align="center" gap={3} wrap="wrap">
-                                <Badge
-                                    colorPalette={isError ? "red" : isComplete ? "green" : "yellow"}
-                                    variant="surface"
-                                    size="sm"
-                                    px={2.5}
-                                >
-                                    {isError ? <MdErrorOutline style={{ display: "inline", marginRight: 4 }} /> : isComplete ? <MdOutlineCheckCircle style={{ display: "inline", marginRight: 4 }} /> : null}
-                                    {analysis.status?.toUpperCase()}
-                                </Badge>
-                                <Text color="fg.muted" fontSize="xs">
-                                    <MdHistory style={{ display: "inline", marginRight: 4 }} />
-                                    {analysis.created_at ? new Date(analysis.created_at).toLocaleString() : "N/A"}
-                                </Text>
-                                <Text color="fg.muted" fontSize="xs" fontFamily="mono">
-                                    ID: {id?.slice(0, 12)}...
-                                </Text>
-                            </Flex>
-                        </VStack>
-
-                        {isComplete && (
-                            <Box textAlign="right">
-                                <Text fontSize="2xs" fontWeight="bold" color="fg.muted" letterSpacing="widest" mb={1}>COMPATIBILITY</Text>
-                                {analysis.total_score != null ? (
-                                    <Text
-                                        fontSize="5xl"
-                                        fontWeight="black"
-                                        lineHeight="1"
-                                        color={`${scoreColor(analysis.total_score)}.400`}
-                                    >
-                                        {analysis.total_score.toFixed(1)}
-                                        <Text as="span" fontSize="2xl" fontWeight="normal" color="fg.muted">%</Text>
-                                    </Text>
-                                ) : (
-                                    <Text fontSize="2xl" fontWeight="bold" color="fg.muted">N/A</Text>
-                                )}
-                            </Box>
-                        )}
+                {/* Identity bar */}
+                <Box pb={3} mb={6} borderBottom="1px solid var(--hairline)">
+                    <Flex justify="space-between" align="baseline" wrap="wrap" gap={3}>
+                        <HStack gap={3} align="baseline">
+                            <Text
+                                fontSize="18px"
+                                fontWeight={600}
+                                color="var(--ink-primary)"
+                                lineHeight="short"
+                            >
+                                {analysis.share_name || analysis.symbol}
+                            </Text>
+                            <Text
+                                fontSize="14px"
+                                fontFamily="var(--font-mono)"
+                                color="var(--ink-tertiary)"
+                                fontWeight={400}
+                            >
+                                {analysis.symbol}
+                            </Text>
+                            <Text
+                                fontSize="11px"
+                                fontWeight={500}
+                                color="var(--ink-tertiary}"
+                                letterSpacing="0.05em"
+                                textTransform="uppercase"
+                            >
+                                {analysis.source}
+                            </Text>
+                        </HStack>
+                        <HStack gap={1.5} align="center">
+                            <Box
+                                w="6px"
+                                h="6px"
+                                borderRadius="50%"
+                                bg={
+                                    isError
+                                        ? "var(--signal-negative)"
+                                        : isComplete
+                                        ? "var(--signal-positive)"
+                                        : "var(--signal-caution)"
+                                }
+                            />
+                            <Text fontSize="12px" color="var(--ink-secondary)">
+                                {isError ? "Failed" : isComplete ? "Complete" : "Running"}
+                            </Text>
+                        </HStack>
                     </Flex>
+                    {metaLine && (
+                        <Text
+                            fontSize="11.5px"
+                            fontFamily="var(--font-mono)"
+                            color="var(--ink-tertiary)"
+                            mt={2}
+                        >
+                            {metaLine}
+                        </Text>
+                    )}
                 </Box>
 
                 {analysis.error && (
-                    <Box p={4} bg="red.50" border="1px solid" borderColor="red.200" rounded="md" _dark={{ bg: "red.900/20", borderColor: "red.700" }}>
-                        <Flex gap={2} align="start">
-                            <MdErrorOutline size={18} color="red.500" style={{ marginTop: 2 }} />
+                    <Box
+                        borderLeft="3px solid var(--signal-negative)"
+                        pl={4}
+                        py={3}
+                        mb={6}
+                        bg="var(--surface-panel)"
+                    >
+                        <Text fontSize="12px" fontWeight={500} color="var(--ink-primary)" mb={1}>
+                            Analysis Error
+                        </Text>
+                        <Text
+                            fontSize="12px"
+                            fontFamily="var(--font-mono)"
+                            color="var(--ink-secondary)"
+                            whiteSpace="pre-wrap"
+                            wordBreak="break-word"
+                        >
+                            {analysis.error}
+                        </Text>
+                    </Box>
+                )}
+
+                {/* Verdict band — the 3-second read */}
+                {isComplete && (
+                    <Box mb={6}>
+                        <Flex
+                            direction={{ base: "column", md: "row" }}
+                            align={{ base: "flex-start", md: "center" }}
+                            gap={{ base: 4, md: 6 }}
+                        >
+                            {/* Hero score */}
                             <Box>
-                                <Text fontSize="sm" fontWeight="bold" color="red.700" _dark={{ color: "red.300" }} mb={1}>Analysis Error</Text>
-                                <Text fontSize="xs" color="red.600" _dark={{ color: "red.300" }} whiteSpace="pre-wrap" fontFamily="mono">
-                                    {analysis.error}
+                                <Text
+                                    fontSize="10.5px"
+                                    fontWeight={500}
+                                    color="var(--ink-tertiary)"
+                                    letterSpacing="0.06em"
+                                    textTransform="uppercase"
+                                    mb={1}
+                                >
+                                    Fit Score
                                 </Text>
+                                {totalScore != null ? (
+                                    <HStack gap={2} align="baseline">
+                                        <Text
+                                            fontSize="40px"
+                                            fontWeight={600}
+                                            lineHeight="1"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                            color="var(--ink-primary)"
+                                        >
+                                            {totalScore.toFixed(1)}
+                                        </Text>
+                                        <Box
+                                            w="3px"
+                                            h="28px"
+                                            bg={signalColor(scoreSignal(totalScore))}
+                                            borderRadius="1px"
+                                        />
+                                    </HStack>
+                                ) : (
+                                    <Text fontSize="32px" fontWeight={600} color="var(--ink-tertiary)">
+                                        —
+                                    </Text>
+                                )}
+                            </Box>
+
+                            {/* Quant bar */}
+                            <Box flex={1} minW="120px">
+                                <Text
+                                    fontSize="10.5px"
+                                    fontWeight={500}
+                                    color="var(--ink-tertiary)"
+                                    letterSpacing="0.06em"
+                                    textTransform="uppercase"
+                                    mb={1}
+                                >
+                                    Quant
+                                </Text>
+                                {quantScore != null ? (
+                                    <HStack gap={2}>
+                                        <Box flex={1} h="4px" bg="var(--surface-recessed)" borderRadius="1px">
+                                            <Box
+                                                h="100%"
+                                                width={`${quantScore}%`}
+                                                bg={signalColor(scoreSignal(quantScore))}
+                                                borderRadius="1px"
+                                            />
+                                        </Box>
+                                        <Text
+                                            fontSize="13.5px"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                            color="var(--ink-primary)"
+                                            minW="44px"
+                                            textAlign="right"
+                                        >
+                                            {quantScore.toFixed(1)}
+                                        </Text>
+                                    </HStack>
+                                ) : (
+                                    <Text fontSize="13px" color="var(--ink-tertiary)">N/A</Text>
+                                )}
+                            </Box>
+
+                            {/* Qual bar */}
+                            <Box flex={1} minW="120px">
+                                <Text
+                                    fontSize="10.5px"
+                                    fontWeight={500}
+                                    color="var(--ink-tertiary)"
+                                    letterSpacing="0.06em"
+                                    textTransform="uppercase"
+                                    mb={1}
+                                >
+                                    Qual
+                                </Text>
+                                {qualScore != null ? (
+                                    <HStack gap={2}>
+                                        <Box flex={1} h="4px" bg="var(--surface-recessed)" borderRadius="1px">
+                                            <Box
+                                                h="100%"
+                                                width={`${qualScore}%`}
+                                                bg={signalColor(scoreSignal(qualScore))}
+                                                borderRadius="1px"
+                                            />
+                                        </Box>
+                                        <Text
+                                            fontSize="13.5px"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                            color="var(--ink-primary)"
+                                            minW="44px"
+                                            textAlign="right"
+                                        >
+                                            {qualScore.toFixed(1)}
+                                        </Text>
+                                    </HStack>
+                                ) : (
+                                    <Text fontSize="13px" color="var(--ink-tertiary)">N/A</Text>
+                                )}
                             </Box>
                         </Flex>
+
+                        {/* Verdict sentence */}
+                        <Text
+                            fontSize="13.5px"
+                            color="var(--ink-secondary)"
+                            mt={3}
+                            lineHeight="relaxed"
+                        >
+                            {verdictSentence}
+                        </Text>
                     </Box>
                 )}
 
-                {!isComplete ? (
-                    <Box p={10} textAlign="center" bg="bg.muted" rounded="md" border="1px dashed" borderColor="border">
-                        <Spinner size="lg" mb={4} color="blue.500" />
-                        <Text fontSize="lg" color="fg.muted">Analysis is currently in progress...</Text>
-                        <Text color="fg.muted" fontSize="sm">This page will automatically update when finished.</Text>
+                {/* Running state */}
+                {isRunning && (
+                    <Box mb={6}>
+                        <HStack gap={3} color="var(--ink-secondary)">
+                            <Spinner size="sm" borderWidth="2px" />
+                            <Text fontSize="13px">Analysis in progress — this page updates automatically.</Text>
+                        </HStack>
                     </Box>
-                ) : (
-                    <>
-                        {/* Metadata Row */}
-                        <SimpleGrid columns={{ base: 2, md: 3, lg: 5 }} gap={3}>
-                            {[
-                                { icon: MdOutlineMemory, label: "MODEL", value: analysis.model || "N/A" },
-                                { icon: MdOutlineTimer, label: "DURATION", value: formatDuration(analysis.duration) },
-                                { icon: MdOutlineTimer, label: "END TIME", value: analysis.end_time ? new Date(analysis.end_time * 1000).toLocaleTimeString() : "N/A" },
-                                { icon: MdOutlineFactCheck, label: "SOURCE", value: analysis.source || "N/A" },
-                                { icon: MdOutlineStar, label: "PROFILE", value: analysis.profile || "N/A" },
-                            ].map(({ icon: Icon, label, value }) => (
-                                <Box key={label} bg="bg.subtle" p={3} rounded="sm" border="1px solid" borderColor="border">
-                                    <HStack gap={1.5} mb={1}>
-                                        <Icon size={12} color="fg.muted" />
-                                        <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest">{label}</Text>
+                )}
+
+                {/* Section nav */}
+                {isComplete && (
+                    <Tabs.Root
+                        defaultValue="overview"
+                        onValueChange={handleTabChange}
+                        variant="line"
+                        size="sm"
+                    >
+                        <Tabs.List
+                            gap={0}
+                            borderBottom="1px solid var(--hairline)"
+                            mb={6}
+                            overflowX="auto"
+                            css={{ scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" } }}
+                        >
+                            {TABS.map((tab) => (
+                                <Tabs.Trigger
+                                    key={tab}
+                                    value={tab}
+                                    fontSize="13px"
+                                    fontWeight={activeTab === tab ? 600 : 400}
+                                    color={activeTab === tab ? "var(--ink-primary)" : "var(--ink-tertiary)"}
+                                    textTransform="capitalize"
+                                    px={4}
+                                    py={2.5}
+                                    _hover={{ color: "var(--ink-primary)" }}
+                                    _selected={{
+                                        color: "var(--ink-primary)",
+                                        fontWeight: 600,
+                                        borderBottom: "2px solid var(--accent-primary)",
+                                    }}
+                                    transition="none"
+                                >
+                                    {tab}
+                                </Tabs.Trigger>
+                            ))}
+                        </Tabs.List>
+
+                        {/* ── Overview ── */}
+                        <Tabs.Content value="overview">
+                            <Box ref={(el) => registerSection("overview", el)} data-section="overview">
+                                {/* Quantitative preview */}
+                                {quantEntries.length > 0 && (
+                                    <Box mb={8}>
+                                        <SectionHeader label="Quantitative" count={quantEntries.length} />
+                                        <Box mb={3}>
+                                            <Button
+                                                size="xs"
+                                                variant="ghost"
+                                                color="var(--ink-tertiary)"
+                                                onClick={() => {
+                                                    setActiveTab("quantitative");
+                                                    sectionRefs.current["quantitative"]?.scrollIntoView({ behavior: "smooth", block: "start" });
+                                                }}
+                                                px={1}
+                                                _hover={{ color: "var(--ink-primary)" }}
+                                            >
+                                                View full table →
+                                            </Button>
+                                        </Box>
+                                        <QuantTable
+                                            entries={quantEntries}
+                                            sortByScore={sortByScore}
+                                            setSortByScore={setSortByScore}
+                                            formatValue={formatValue}
+                                        />
+                                    </Box>
+                                )}
+
+                                {/* Qualitative preview */}
+                                {Object.keys(qualAnalysis).length > 0 && (
+                                    <Box mb={8}>
+                                        <SectionHeader label="Qualitative" count={Object.keys(qualAnalysis).length} />
+                                        <Box mb={3}>
+                                            <Button
+                                                size="xs"
+                                                variant="ghost"
+                                                color="var(--ink-tertiary)"
+                                                onClick={() => {
+                                                    setActiveTab("qualitative");
+                                                    sectionRefs.current["qualitative"]?.scrollIntoView({ behavior: "smooth", block: "start" });
+                                                }}
+                                                px={1}
+                                                _hover={{ color: "var(--ink-primary)" }}
+                                            >
+                                                View all parameters →
+                                            </Button>
+                                        </Box>
+                                        <QualPreviewCards
+                                            qualAnalysis={qualAnalysis}
+                                            toolCalls={toolCalls}
+                                            expandedTools={expandedTools}
+                                            toggleToolCalls={toggleToolCalls}
+                                        />
+                                    </Box>
+                                )}
+
+                                {/* Sources preview */}
+                                {(docs.length > 0 || webSrc.length > 0) && (
+                                    <Box>
+                                        <SectionHeader label="Sources" count={docs.length + webSrc.length} />
+                                        <SourcesStrip docs={docs} webSrc={webSrc} analysis={analysis} />
+                                    </Box>
+                                )}
+                            </Box>
+                        </Tabs.Content>
+
+                        {/* ── Quantitative ── */}
+                        <Tabs.Content value="quantitative">
+                            <Box
+                                ref={(el) => registerSection("quantitative", el)}
+                                data-section="quantitative"
+                            >
+                                <SectionHeader label="Quantitative" count={quantEntries.length} />
+                                {quantEntries.length > 0 ? (
+                                    <QuantTable
+                                        entries={quantEntries}
+                                        sortByScore={sortByScore}
+                                        setSortByScore={setSortByScore}
+                                        formatValue={formatValue}
+                                    />
+                                ) : (
+                                    <EmptyState message="No quantitative data available." />
+                                )}
+                            </Box>
+                        </Tabs.Content>
+
+                        {/* ── Qualitative ── */}
+                        <Tabs.Content value="qualitative">
+                            <Box
+                                ref={(el) => registerSection("qualitative", el)}
+                                data-section="qualitative"
+                            >
+                                <SectionHeader label="Qualitative" count={Object.keys(qualAnalysis).length} />
+                                {Object.keys(qualAnalysis).length > 0 ? (
+                                    <QualFullCards
+                                        qualAnalysis={qualAnalysis}
+                                        toolCalls={toolCalls}
+                                        expandedTools={expandedTools}
+                                        toggleToolCalls={toggleToolCalls}
+                                    />
+                                ) : (
+                                    <EmptyState message="No qualitative findings available." />
+                                )}
+                            </Box>
+                        </Tabs.Content>
+
+                        {/* ── Sources ── */}
+                        <Tabs.Content value="sources">
+                            <Box
+                                ref={(el) => registerSection("sources", el)}
+                                data-section="sources"
+                            >
+                                <SectionHeader label="Sources" count={docs.length + webSrc.length} />
+                                {docs.length > 0 || webSrc.length > 0 ? (
+                                    <SourcesDetail docs={docs} webSrc={webSrc} analysis={analysis} />
+                                ) : (
+                                    <EmptyState message="No source data recorded for this run." />
+                                )}
+                            </Box>
+                        </Tabs.Content>
+                    </Tabs.Root>
+                )}
+            </Container>
+        </Box>
+    );
+}
+
+/* ─── Sub-components ─── */
+
+function SectionHeader({ label, count }: { label: string; count: number }) {
+    return (
+        <Flex align="center" gap={2} mb={4}>
+            <Text
+                fontSize="13px"
+                fontWeight={600}
+                color="var(--ink-primary)"
+                letterSpacing="0.08em"
+                textTransform="uppercase"
+            >
+                {label}
+            </Text>
+            <Text
+                fontSize="11.5px"
+                fontFamily="var(--font-mono)"
+                color="var(--ink-tertiary)"
+            >
+                {count}
+            </Text>
+        </Flex>
+    );
+}
+
+function QuantTable({
+    entries,
+    sortByScore,
+    setSortByScore,
+    formatValue: fmt,
+}: {
+    entries: any[];
+    sortByScore: "asc" | "desc" | null;
+    setSortByScore: (v: "asc" | "desc" | null) => void;
+    formatValue: (val: any, type?: string) => string;
+}) {
+    const toggleSort = () => {
+        if (sortByScore === null) setSortByScore("asc");
+        else if (sortByScore === "asc") setSortByScore("desc");
+        else setSortByScore(null);
+    };
+
+    return (
+        <Box border="1px solid var(--hairline)" borderRadius="2px" overflow="hidden">
+            <Box overflowX="auto">
+                <Table.Root size="sm" variant="line" minWidth="700px">
+                    <Table.Header>
+                        <Table.Row bg="var(--surface-recessed)">
+                            <Table.ColumnHeader
+                                fontSize="11px"
+                                fontWeight={500}
+                                letterSpacing="0.06em"
+                                textTransform="uppercase"
+                                color="var(--ink-tertiary)"
+                                py={3}
+                                px={4}
+                            >
+                                Metric
+                            </Table.ColumnHeader>
+                            <Table.ColumnHeader
+                                fontSize="11px"
+                                fontWeight={500}
+                                letterSpacing="0.06em"
+                                textTransform="uppercase"
+                                color="var(--ink-tertiary)"
+                                py={3}
+                                px={4}
+                            >
+                                Criterion
+                            </Table.ColumnHeader>
+                            <Table.ColumnHeader
+                                fontSize="11px"
+                                fontWeight={500}
+                                letterSpacing="0.06em"
+                                textTransform="uppercase"
+                                color="var(--ink-tertiary)"
+                                py={3}
+                                px={4}
+                                textAlign="right"
+                            >
+                                Actual
+                            </Table.ColumnHeader>
+                            <Table.ColumnHeader
+                                fontSize="11px"
+                                fontWeight={500}
+                                letterSpacing="0.06em"
+                                textTransform="uppercase"
+                                color="var(--ink-tertiary)"
+                                py={3}
+                                px={4}
+                                textAlign="right"
+                            >
+                                Wgt
+                            </Table.ColumnHeader>
+                            <Table.ColumnHeader
+                                py={3}
+                                px={4}
+                                textAlign="right"
+                            >
+                                <Button
+                                    size="xs"
+                                    variant="ghost"
+                                    color="var(--ink-tertiary)"
+                                    onClick={toggleSort}
+                                    px={1}
+                                    h="auto"
+                                    fontSize="11px"
+                                    fontWeight={500}
+                                    letterSpacing="0.06em"
+                                    textTransform="uppercase"
+                                    _hover={{ color: "var(--ink-primary)" }}
+                                >
+                                    Score {sortByScore === "asc" ? "↑" : sortByScore === "desc" ? "↓" : ""}
+                                </Button>
+                            </Table.ColumnHeader>
+                        </Table.Row>
+                    </Table.Header>
+                    <Table.Body>
+                        {entries.map((m) => {
+                            const metricScore = (m._score ?? 0) * 100;
+                            const sig = scoreSignal(metricScore);
+                            const borderColor = signalColor(sig);
+                            return (
+                                <Table.Row
+                                    key={m.key}
+                                    borderLeft={`3px solid ${borderColor}`}
+                                    _hover={{ bg: "var(--surface-recessed)" }}
+                                    transition="background 80ms"
+                                >
+                                    <Table.Cell
+                                        fontSize="13.5px"
+                                        fontWeight={500}
+                                        color="var(--ink-primary)"
+                                        px={4}
+                                        py={3}
+                                    >
+                                        {m.metric_name || m.key}
+                                        <Text
+                                            as="span"
+                                            fontSize="11px"
+                                            fontFamily="var(--font-mono)"
+                                            color="var(--ink-tertiary)"
+                                            ml={2}
+                                        >
+                                            {m.key}
+                                        </Text>
+                                    </Table.Cell>
+                                    <Table.Cell
+                                        fontSize="13.5px"
+                                        fontFamily="var(--font-mono)"
+                                        color="var(--ink-secondary)"
+                                        px={4}
+                                        py={3}
+                                    >
+                                        {OP_SYMBOL[m.operator] || m.operator} {fmt(m.threshold, m.metric_type)}
+                                    </Table.Cell>
+                                    <Table.Cell
+                                        fontSize="13.5px"
+                                        fontFamily="var(--font-mono)"
+                                        fontVariantNumeric="tabular-nums"
+                                        fontWeight={500}
+                                        color="var(--ink-primary)"
+                                        textAlign="right"
+                                        px={4}
+                                        py={3}
+                                    >
+                                        {fmt(m.value, m.metric_type)}
+                                    </Table.Cell>
+                                    <Table.Cell
+                                        fontSize="13.5px"
+                                        fontFamily="var(--font-mono)"
+                                        fontVariantNumeric="tabular-nums"
+                                        color="var(--ink-secondary)"
+                                        textAlign="right"
+                                        px={4}
+                                        py={3}
+                                    >
+                                        {m.weightage ?? "—"}
+                                    </Table.Cell>
+                                    <Table.Cell
+                                        textAlign="right"
+                                        px={4}
+                                        py={3}
+                                    >
+                                        <Text
+                                            fontSize="13.5px"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                            fontWeight={500}
+                                            color={signalColor(sig)}
+                                        >
+                                            {metricScore.toFixed(1)}
+                                        </Text>
+                                    </Table.Cell>
+                                </Table.Row>
+                            );
+                        })}
+                    </Table.Body>
+                </Table.Root>
+            </Box>
+        </Box>
+    );
+}
+
+function QualPreviewCards({
+    qualAnalysis,
+    toolCalls,
+    expandedTools,
+    toggleToolCalls,
+}: {
+    qualAnalysis: Record<string, any>;
+    toolCalls: Record<string, any[]>;
+    expandedTools: Record<string, boolean>;
+    toggleToolCalls: (param: string) => void;
+}) {
+    const entries = Object.entries(qualAnalysis).slice(0, 3);
+    return (
+        <VStack gap={0} align="stretch">
+            {entries.map(([paramName, paramData]: [string, any]) => (
+                <QualCard
+                    key={paramName}
+                    paramName={paramName}
+                    paramData={paramData}
+                    toolCalls={toolCalls}
+                    expandedTools={expandedTools}
+                    toggleToolCalls={toggleToolCalls}
+                    compact
+                />
+            ))}
+            {Object.keys(qualAnalysis).length > 3 && (
+                <Text fontSize="12px" color="var(--ink-tertiary)" pt={1}>
+                    +{Object.keys(qualAnalysis).length - 3} more parameters
+                </Text>
+            )}
+        </VStack>
+    );
+}
+
+function QualFullCards({
+    qualAnalysis,
+    toolCalls,
+    expandedTools,
+    toggleToolCalls,
+}: {
+    qualAnalysis: Record<string, any>;
+    toolCalls: Record<string, any[]>;
+    expandedTools: Record<string, boolean>;
+    toggleToolCalls: (param: string) => void;
+}) {
+    return (
+        <VStack gap={0} align="stretch">
+            {Object.entries(qualAnalysis).map(([paramName, paramData]: [string, any]) => (
+                <QualCard
+                    key={paramName}
+                    paramName={paramName}
+                    paramData={paramData}
+                    toolCalls={toolCalls}
+                    expandedTools={expandedTools}
+                    toggleToolCalls={toggleToolCalls}
+                    compact={false}
+                />
+            ))}
+        </VStack>
+    );
+}
+
+function QualCard({
+    paramName,
+    paramData,
+    toolCalls,
+    expandedTools,
+    toggleToolCalls,
+    compact,
+}: {
+    paramName: string;
+    paramData: any;
+    toolCalls: Record<string, any[]>;
+    expandedTools: Record<string, boolean>;
+    toggleToolCalls: (param: string) => void;
+    compact: boolean;
+}) {
+    const paramScore = paramData.score ?? 0;
+    const sig = scoreSignal(paramScore);
+    const borderColor = signalColor(sig);
+
+    return (
+        <Box
+            borderLeft={`3px solid ${borderColor}`}
+            borderBottom="1px solid var(--hairline)"
+            py={4}
+            px={4}
+        >
+            <Flex justify="space-between" align="flex-start" gap={4}>
+                <Box flex={1} minW={0}>
+                    <Flex align="center" gap={2} mb={compact ? 1 : 2}>
+                        <Text
+                            fontSize="13.5px"
+                            fontWeight={500}
+                            color="var(--ink-primary)"
+                        >
+                            {paramName}
+                        </Text>
+                        <Text
+                            fontSize="11px"
+                            fontFamily="var(--font-mono)"
+                            color="var(--ink-tertiary)"
+                        >
+                            wgt {paramData.weightage ?? "—"}
+                        </Text>
+                    </Flex>
+
+                    {!compact && (
+                        <Box
+                            fontSize="13.5px"
+                            color="var(--ink-secondary)"
+                            lineHeight="relaxed"
+                            css={{
+                                "& h1, & h2, & h3, & h4": {
+                                    fontWeight: 600,
+                                    mt: 3,
+                                    mb: 1,
+                                    color: "var(--ink-primary)",
+                                },
+                                "& h1": { fontSize: "15px" },
+                                "& h2": { fontSize: "14px" },
+                                "& h3": { fontSize: "13.5px" },
+                                "& p": { mb: 2, "&:last-child": { mb: 0 } },
+                                "& ul, & ol": { pl: 5, mb: 2 },
+                                "& li": { mb: 0.5 },
+                                "& strong": { fontWeight: 600, color: "var(--ink-primary)" },
+                                "& code": {
+                                    bg: "var(--surface-recessed)",
+                                    px: 1,
+                                    py: 0.5,
+                                    borderRadius: "2px",
+                                    fontSize: "12px",
+                                    fontFamily: "var(--font-mono)",
+                                },
+                                "& pre": {
+                                    bg: "var(--surface-recessed)",
+                                    p: 3,
+                                    borderRadius: "2px",
+                                    overflow: "auto",
+                                    mb: 2,
+                                    fontSize: "12px",
+                                    fontFamily: "var(--font-mono)",
+                                },
+                                "& blockquote": {
+                                    borderLeft: "2px solid var(--hairline)",
+                                    pl: 3,
+                                    mb: 2,
+                                    color: "var(--ink-tertiary)",
+                                    fontStyle: "italic",
+                                },
+                                "& table": { borderCollapse: "collapse", mb: 2, width: "100%" },
+                                "& th, & td": {
+                                    border: "1px solid var(--hairline)",
+                                    px: 2,
+                                    py: 1,
+                                    textAlign: "left",
+                                    fontSize: "12px",
+                                },
+                                "& th": { fontWeight: 600, bg: "var(--surface-recessed)" },
+                                "& hr": { my: 3, borderColor: "var(--hairline)" },
+                                "& a": { color: "var(--accent-primary)", textDecoration: "underline" },
+                            }}
+                        >
+                            <ReactMarkdown>{paramData.analysis || "_No analysis available_"}</ReactMarkdown>
+                        </Box>
+                    )}
+                </Box>
+
+                <Text
+                    fontSize="13.5px"
+                    fontFamily="var(--font-tabular)"
+                    fontVariantNumeric="tabular-nums"
+                    fontWeight={500}
+                    color={signalColor(sig)}
+                    whiteSpace="nowrap"
+                    pt={compact ? 0 : 2}
+                >
+                    {paramScore.toFixed(1)}
+                </Text>
+            </Flex>
+
+            {/* Tool calls disclosure */}
+            {toolCalls[paramName]?.length > 0 && (
+                <Box mt={2}>
+                    <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => toggleToolCalls(paramName)}
+                        color="var(--ink-tertiary)"
+                        _hover={{ color: "var(--ink-primary)" }}
+                        gap={1}
+                        px={1}
+                        fontSize="12px"
+                    >
+                        {expandedTools[paramName] ? <MdExpandLess size={14} /> : <MdExpandMore size={14} />}
+                        {expandedTools[paramName] ? "Hide" : "Show"} tool calls ({toolCalls[paramName].length})
+                    </Button>
+                    {expandedTools[paramName] && (
+                        <VStack gap={0} mt={2} align="stretch">
+                            {toolCalls[paramName].map((call: any, i: number) => (
+                                <Box
+                                    key={i}
+                                    py={2}
+                                    px={3}
+                                    borderBottom="1px solid var(--hairline)"
+                                    fontSize="12px"
+                                >
+                                    <HStack gap={3} mb={call.args || call.result ? 1 : 0}>
+                                        <Text
+                                            fontFamily="var(--font-mono)"
+                                            color="var(--accent-primary)"
+                                            fontSize="12px"
+                                        >
+                                            {call.tool_name}
+                                        </Text>
+                                        <Text
+                                            fontFamily="var(--font-mono)"
+                                            color={call.status === "OK" ? "var(--signal-positive)" : "var(--signal-negative)"}
+                                            fontSize="12px"
+                                        >
+                                            {call.status === "OK" ? "✓" : "✗"} {call.status}
+                                        </Text>
+                                        {call.duration != null && (
+                                            <Text fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
+                                                {call.duration.toFixed(2)}s
+                                            </Text>
+                                        )}
+                                        {call.error && (
+                                            <Text fontFamily="var(--font-mono)" color="var(--signal-negative)">
+                                                {call.error}
+                                            </Text>
+                                        )}
                                     </HStack>
-                                    <Text fontWeight="semibold" fontSize="sm" color="fg.muted">{value}</Text>
+                                    {call.args && Object.keys(call.args).length > 0 && (
+                                        <Text
+                                            fontFamily="var(--font-mono)"
+                                            color="var(--ink-tertiary)"
+                                            fontSize="11px"
+                                            mb={1}
+                                            wordBreak="break-all"
+                                        >
+                                            {JSON.stringify(call.args)}
+                                        </Text>
+                                    )}
+                                    {call.result && (
+                                        <Box
+                                            as="pre"
+                                            maxH="100px"
+                                            overflow="auto"
+                                            bg="var(--surface-recessed)"
+                                            p={2}
+                                            borderRadius="2px"
+                                            fontSize="11px"
+                                            lineHeight="short"
+                                            fontFamily="var(--font-mono)"
+                                            color="var(--ink-tertiary)"
+                                            mt={1}
+                                            css={{
+                                                "&::-webkit-scrollbar": { height: "3px", width: "3px" },
+                                            }}
+                                        >
+                                            {call.result}
+                                        </Box>
+                                    )}
                                 </Box>
                             ))}
-                        </SimpleGrid>
-
-                        {/* Score Summary */}
-                        <SimpleGrid columns={{ base: 1, md: 3 }} gap={4}>
-                            <Box bg="bg.subtle" p={5} rounded="md" border="1px solid" borderColor="border">
-                                <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>METRIC MATCH</Text>
-                                {analysis.quantitative_score != null ? (
-                                    <>
-                                        <Text fontSize="3xl" fontWeight="black" color={`${scoreColor(analysis.quantitative_score)}.400`}>
-                                            {analysis.quantitative_score.toFixed(1)}%
-                                        </Text>
-                                        <Progress.Root
-                                            value={analysis.quantitative_score}
-                                            max={100}
-                                            size="xs"
-                                            mt={2}
-                                            colorPalette={scoreColor(analysis.quantitative_score)}
-                                        >
-                                            <Progress.Track bg="bg.emphasized">
-                                                <Progress.Range />
-                                            </Progress.Track>
-                                        </Progress.Root>
-                                    </>
-                                ) : (
-                                    <Text fontSize="2xl" fontWeight="bold" color="fg.muted">N/A</Text>
-                                )}
-                            </Box>
-                            <Box bg="bg.subtle" p={5} rounded="md" border="1px solid" borderColor="border">
-                                <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>CONTEXT MATCH</Text>
-                                {analysis.qualitative_score != null ? (
-                                    <>
-                                        <Text fontSize="3xl" fontWeight="black" color={`${scoreColor(analysis.qualitative_score)}.400`}>
-                                            {analysis.qualitative_score.toFixed(1)}%
-                                        </Text>
-                                        <Progress.Root
-                                            value={analysis.qualitative_score}
-                                            max={100}
-                                            size="xs"
-                                            mt={2}
-                                            colorPalette={scoreColor(analysis.qualitative_score)}
-                                        >
-                                            <Progress.Track bg="bg.emphasized">
-                                                <Progress.Range />
-                                            </Progress.Track>
-                                        </Progress.Root>
-                                    </>
-                                ) : (
-                                    <Text fontSize="2xl" fontWeight="bold" color="fg.muted">N/A</Text>
-                                )}
-                            </Box>
-                            <Box bg="bg.subtle" p={5} rounded="md" border="1px solid" borderColor="border">
-                                <Text color="fg.muted" fontSize="2xs" fontWeight="bold" letterSpacing="widest" mb={2}>TOTAL DURATION</Text>
-                                <Text fontSize="3xl" fontWeight="black" color="fg">
-                                    {formatDuration(analysis.duration)}
-                                </Text>
-                                <Progress.Root value={100} max={100} size="xs" mt={2} colorPalette="gray">
-                                    <Progress.Track bg="bg.emphasized">
-                                        <Progress.Range />
-                                    </Progress.Track>
-                                </Progress.Root>
-                                <Text fontSize="2xs" color="fg.muted" mt={1}>Total processing time</Text>
-                            </Box>
-                        </SimpleGrid>
-
-                        {(docs.length > 0 || webSrc.length > 0) && (
-                            <Flex gap={4} p={4} bg="bg.muted" border="1px solid" borderColor="border" rounded="md" wrap="wrap" align="center">
-                                {docs.length > 0 && (
-                                    <Box>
-                                        <Text fontSize="2xs" fontWeight="bold" color="fg.subtle" letterSpacing="widest" mb={1}>DOCUMENTS</Text>
-                                        <Text fontSize="xs" color="fg.muted">{docs.length} file{docs.length > 1 ? "s" : ""}</Text>
-                                    </Box>
-                                )}
-                                {webSrc.length > 0 && (
-                                    <Box>
-                                        <Text fontSize="2xs" fontWeight="bold" color="fg.subtle" letterSpacing="widest" mb={1}>WEB SOURCES</Text>
-                                        <Flex gap={1} wrap="wrap">
-                                            {webSrc.map((s: string) => (
-                                                <Badge key={s} variant="surface" size="xs" colorPalette="gray" color="fg.muted">{s}</Badge>
-                                            ))}
-                                        </Flex>
-                                    </Box>
-                                )}
-                                {analysis.web_search && (
-                                    <Box>
-                                        <Text fontSize="2xs" fontWeight="bold" color="fg.subtle" letterSpacing="widest" mb={1}>WEB SEARCH</Text>
-                                        <Text fontSize="xs" color="fg.muted">Enabled</Text>
-                                    </Box>
-                                )}
-                            </Flex>
-                        )}
-
-                        <Separator borderColor="border" />
-
-                        {/* I. Quantitative Analysis */}
-                        <Box>
-                            <HStack gap={2} mb={6}>
-                                <MdAnalytics size={18} color="fg.subtle" />
-                                <Text fontSize="sm" fontWeight="black" color="fg.subtle" letterSpacing="widest">I. QUANTITATIVE ANALYSIS</Text>
-                                <Badge variant="surface" size="xs" colorPalette="gray" color="fg.subtle">
-                                    {Object.keys(quantAnalysis).length} metrics
-                                </Badge>
-                            </HStack>
-
-                            {Object.keys(quantAnalysis).length > 0 ? (
-                                <Box border="1px solid" borderColor="border" rounded="md" overflow="hidden">
-                                    <Table.Root size="sm" variant="line">
-                                        <Table.Header bg="bg.muted">
-                                            <Table.Row>
-                                                <Table.ColumnHeader color="fg.muted" py={3.5} px={4}>Metric</Table.ColumnHeader>
-                                                <Table.ColumnHeader color="fg.muted" py={3.5} px={4}>Condition</Table.ColumnHeader>
-                                                <Table.ColumnHeader color="fg.muted" py={3.5} px={4} textAlign="right">Threshold</Table.ColumnHeader>
-                                                <Table.ColumnHeader color="fg.muted" py={3.5} px={4} textAlign="right">Actual</Table.ColumnHeader>
-                                                <Table.ColumnHeader color="fg.muted" py={3.5} px={4} textAlign="center">Wgt</Table.ColumnHeader>
-                                                <Table.ColumnHeader color="fg.muted" py={3.5} px={4} textAlign="right">Score</Table.ColumnHeader>
-                                            </Table.Row>
-                                        </Table.Header>
-                                        <Table.Body>
-                                            {Object.entries(quantAnalysis).map(([metricKey, metricData]: [string, any]) => {
-                                                const opSymbol: Record<string, string> = {
-                                                    gt: ">", gte: "≥", lt: "<", lte: "≤", eq: "=", between: "between",
-                                                };
-                                                return (
-                                                    <Table.Row key={metricKey} _hover={{ bg: "bg.muted/50" }}>
-                                                        <Table.Cell fontWeight="semibold" fontSize="sm" color="fg" px={4}>
-                                                            {metricData.metric_name || metricKey}
-                                                            <Text as="span" fontSize="2xs" color="fg.muted" ml={2} fontFamily="mono">{metricKey}</Text>
-                                                        </Table.Cell>
-                                                        <Table.Cell px={4}>
-                                                            <Badge variant="surface" size="xs" colorPalette="gray" color="fg.subtle" border="1px solid" borderColor="border">
-                                                                {opSymbol[metricData.operator] || metricData.operator}
-                                                            </Badge>
-                                                        </Table.Cell>
-                                                        <Table.Cell textAlign="right" fontSize="sm" color="fg.subtle" px={4} fontFamily="mono">
-                                                            {formatValue(metricData.threshold, metricData.metric_type)}
-                                                        </Table.Cell>
-                                                        <Table.Cell textAlign="right" fontWeight="bold" fontSize="sm" color="fg" px={4} fontFamily="mono">
-                                                            {formatValue(metricData.value, metricData.metric_type)}
-                                                        </Table.Cell>
-                                                        <Table.Cell textAlign="center" px={4}>
-                                                            <Badge variant="surface" size="xs" colorPalette="blue" color="blue.400" bg="transparent">
-                                                                {metricData.weightage ?? "-"}
-                                                            </Badge>
-                                                        </Table.Cell>
-                                                        <Table.Cell textAlign="right" px={4}>
-                                                            <ScoreBadge score={(metricData.score ?? 0) * 100} />
-                                                        </Table.Cell>
-                                                    </Table.Row>
-                                                );
-                                            })}
-                                        </Table.Body>
-                                    </Table.Root>
-                                </Box>
-                            ) : (
-                                <Flex direction="column" align="center" py={16} color="fg.muted" bg="bg.muted" rounded="md" border="1px dashed" borderColor="border">
-                                    <MdAnalytics size={40} />
-                                    <Text mt={4} fontSize="sm" color="fg.muted">No quantitative data available.</Text>
-                                </Flex>
-                            )}
-                        </Box>
-
-                        <Separator borderColor="border" />
-
-                        {/* II. Qualitative Analysis */}
-                        <Box>
-                            <HStack gap={2} mb={6}>
-                                <MdOutlinePsychology size={18} color="fg.subtle" />
-                                <Text fontSize="sm" fontWeight="black" color="fg.subtle" letterSpacing="widest">II. QUALITATIVE ANALYSIS</Text>
-                                <Badge variant="surface" size="xs" colorPalette="gray" color="fg.subtle">
-                                    {Object.keys(qualAnalysis).length} parameters
-                                </Badge>
-                            </HStack>
-
-                            {Object.keys(qualAnalysis).length > 0 ? (
-                                <VStack gap={3} align="stretch">
-                                    {Object.entries(qualAnalysis).map(([paramName, paramData]: [string, any]) => (
-                                        <Box
-                                            key={paramName}
-                                            p={5}
-                                            bg="bg.muted"
-                                            rounded="md"
-                                            border="1px solid"
-                                            borderColor="border"
-                                            _hover={{ borderColor: "border.emphasized" }}
-                                            transition="all 0.15s"
-                                        >
-                                            <Flex justify="space-between" align="flex-start" wrap="wrap" gap={3}>
-                                                <Box flex={1}>
-                                                    <Flex align="center" gap={2} mb={2}>
-                                                        <Text fontWeight="bold" fontSize="sm" color="fg">{paramName}</Text>
-                                                        <Badge variant="surface" size="xs" colorPalette="blue" color="blue.400" bg="transparent">
-                                                            wgt {paramData.weightage ?? "-"}
-                                                        </Badge>
-                                                    </Flex>
-                                                    <Box fontSize="sm" color="fg.subtle" lineHeight="relaxed" css={{
-                                                            "& h1, & h2, & h3, & h4": { fontWeight: "bold", mt: 3, mb: 1, color: "var(--chakra-colors-fg)" },
-                                                            "& h1": { fontSize: "xl" },
-                                                            "& h2": { fontSize: "lg" },
-                                                            "& h3": { fontSize: "md" },
-                                                            "& p": { mb: 2, "&:last-child": { mb: 0 } },
-                                                            "& ul, & ol": { pl: 5, mb: 2 },
-                                                            "& li": { mb: 0.5 },
-                                                            "& strong": { fontWeight: "bold", color: "var(--chakra-colors-fg)" },
-                                                            "& code": { bg: "var(--chakra-colors-bg-emphasized)", px: 1, py: 0.5, rounded: "sm", fontSize: "xs" },
-                                                            "& pre": { bg: "var(--chakra-colors-bg-emphasized)", p: 3, rounded: "md", overflow: "auto", mb: 2, fontSize: "xs" },
-                                                            "& blockquote": { borderLeft: "3px solid", borderColor: "var(--chakra-colors-border)", pl: 3, mb: 2, color: "fg.muted", fontStyle: "italic" },
-                                                            "& table": { borderCollapse: "collapse", mb: 2, width: "full" },
-                                                            "& th, & td": { border: "1px solid", borderColor: "var(--chakra-colors-border)", px: 2, py: 1, textAlign: "left" },
-                                                            "& th": { fontWeight: "bold", bg: "var(--chakra-colors-bg-emphasized)" },
-                                                            "& hr": { my: 3, borderColor: "var(--chakra-colors-border)" },
-                                                            "& a": { color: "blue.400", textDecoration: "underline" },
-                                                        }}>
-                                                        <ReactMarkdown>{paramData.analysis || "_No analysis available_"}</ReactMarkdown>
-                                                    </Box>
-                                                </Box>
-                                                <ScoreBadge score={paramData.score ?? 0} size="md" />
-                                            </Flex>
-                                            {toolCalls[paramName]?.length > 0 && (
-                                                <Box mt={3} borderTop="1px solid" borderColor="border" pt={3}>
-                                                    <Button
-                                                        size="xs"
-                                                        variant="ghost"
-                                                        onClick={() => toggleToolCalls(paramName)}
-                                                        color="fg.muted"
-                                                        _hover={{ color: "fg" }}
-                                                        gap={1}
-                                                        px={1}
-                                                    >
-                                                        {expandedTools[paramName] ? <MdExpandLess /> : <MdExpandMore />}
-                                                        Tool Calls ({toolCalls[paramName].length})
-                                                    </Button>
-                                                    {expandedTools[paramName] && (
-                                                        <VStack gap={2} mt={2} align="stretch">
-                                                            {toolCalls[paramName].map((call: any, i: number) => (
-                                                                <Box
-                                                                    key={i}
-                                                                    p={2}
-                                                                    bg="bg.subtle"
-                                                                    rounded="sm"
-                                                                    fontSize="xs"
-                                                                    border="1px solid"
-                                                                    borderColor="border"
-                                                                >
-                                                                    <HStack gap={2} mb={1}>
-                                                                        <Badge size="xs" variant="surface" colorPalette="blue" color="blue.400" bg="transparent" fontFamily="mono">
-                                                                            {call.tool_name}
-                                                                        </Badge>
-                                                                        <Badge size="xs" variant="solid" colorPalette={call.status === "OK" ? "green" : "red"}>
-                                                                            {call.status}
-                                                                        </Badge>
-                                                                        {call.duration != null && (
-                                                                            <Text fontSize="2xs" color="fg.muted">{call.duration.toFixed(2)}s</Text>
-                                                                        )}
-                                                                        {call.error && (
-                                                                            <Text fontSize="2xs" color="red.400" fontFamily="mono">{call.error}</Text>
-                                                                        )}
-                                                                    </HStack>
-                                                                    {call.args && Object.keys(call.args).length > 0 && (
-                                                                        <Text fontSize="2xs" color="fg.muted" fontFamily="mono" mb={1} wordBreak="break-all">
-                                                                            {JSON.stringify(call.args)}
-                                                                        </Text>
-                                                                    )}
-                                                                    {call.result && (
-                                                                        <Box
-                                                                            as="pre"
-                                                                            maxH="120px"
-                                                                            overflow="auto"
-                                                                            bg="bg.emphasized"
-                                                                            p={1.5}
-                                                                            rounded="sm"
-                                                                            fontSize="2xs"
-                                                                            lineHeight="short"
-                                                                            color="fg.muted"
-                                                                            css={{ "&::-webkit-scrollbar": { height: "4px", width: "4px" } }}
-                                                                        >
-                                                                            {call.result}
-                                                                        </Box>
-                                                                    )}
-                                                                </Box>
-                                                            ))}
-                                                        </VStack>
-                                                    )}
-                                                </Box>
-                                            )}
-                                        </Box>
-                                    ))}
-                                </VStack>
-                            ) : (
-                                <Flex direction="column" align="center" py={16} color="fg.muted" bg="bg.muted" rounded="md" border="1px dashed" borderColor="border">
-                                    <MdOutlineStar size={40} />
-                                    <Text mt={4} fontSize="sm" color="fg.muted">No qualitative findings available.</Text>
-                                </Flex>
-                            )}
-                        </Box>
-                    </>
-                )}
-            </Flex>
+                        </VStack>
+                    )}
+                </Box>
+            )}
         </Box>
+    );
+}
+
+function SourcesStrip({
+    docs,
+    webSrc,
+    analysis,
+}: {
+    docs: any[];
+    webSrc: string[];
+    analysis: any;
+}) {
+    return (
+        <Flex gap={4} align="center" wrap="wrap" fontSize="12px" color="var(--ink-secondary)">
+            {docs.length > 0 && (
+                <Text>
+                    <span style={{ fontWeight: 500 }}>{docs.length}</span> document{docs.length > 1 ? "s" : ""}
+                </Text>
+            )}
+            {webSrc.length > 0 && (
+                <Text>
+                    <span style={{ fontWeight: 500 }}>{webSrc.length}</span> web source{webSrc.length > 1 ? "s" : ""}
+                </Text>
+            )}
+            {analysis.web_search && (
+                <Text color="var(--ink-tertiary)">Web search enabled</Text>
+            )}
+        </Flex>
+    );
+}
+
+function SourcesDetail({
+    docs,
+    webSrc,
+    analysis,
+}: {
+    docs: any[];
+    webSrc: string[];
+    analysis: any;
+}) {
+    return (
+        <VStack gap={0} align="stretch">
+            {docs.length > 0 && (
+                <Box borderBottom="1px solid var(--hairline)" py={3}>
+                    <Text
+                        fontSize="10.5px"
+                        fontWeight={500}
+                        color="var(--ink-tertiary)"
+                        letterSpacing="0.06em"
+                        textTransform="uppercase"
+                        mb={2}
+                    >
+                        Documents
+                    </Text>
+                    <VStack gap={1} align="stretch">
+                        {docs.map((doc: any, i: number) => (
+                            <Text key={i} fontSize="13px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
+                                {typeof doc === "string" ? doc : doc.name || doc.title || JSON.stringify(doc)}
+                            </Text>
+                        ))}
+                    </VStack>
+                </Box>
+            )}
+            {webSrc.length > 0 && (
+                <Box borderBottom="1px solid var(--hairline)" py={3}>
+                    <Text
+                        fontSize="10.5px"
+                        fontWeight={500}
+                        color="var(--ink-tertiary)"
+                        letterSpacing="0.06em"
+                        textTransform="uppercase"
+                        mb={2}
+                    >
+                        Web Sources
+                    </Text>
+                    <VStack gap={1} align="stretch">
+                        {webSrc.map((src: string) => (
+                            <Text key={src} fontSize="13px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
+                                {src}
+                            </Text>
+                        ))}
+                    </VStack>
+                </Box>
+            )}
+            <Box py={3}>
+                <Text
+                    fontSize="10.5px"
+                    fontWeight={500}
+                    color="var(--ink-tertiary)"
+                    letterSpacing="0.06em"
+                    textTransform="uppercase"
+                    mb={2}
+                >
+                    Run Details
+                </Text>
+                <VStack gap={1} align="stretch" fontSize="13px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
+                    {analysis.model && <Text>Model: {analysis.model}</Text>}
+                    {analysis.source && <Text>Source: {analysis.source}</Text>}
+                    {analysis.profile && <Text>Profile: {analysis.profile}</Text>}
+                    {analysis.duration != null && <Text>Duration: {formatDuration(analysis.duration)}</Text>}
+                    {analysis.end_time && <Text>Ended: {new Date(analysis.end_time * 1000).toLocaleString()}</Text>}
+                    {analysis.created_at && <Text>Created: {new Date(analysis.created_at).toLocaleString()}</Text>}
+                </VStack>
+            </Box>
+        </VStack>
+    );
+}
+
+function EmptyState({ message }: { message: string }) {
+    return (
+        <Flex
+            py={16}
+            justify="center"
+            color="var(--ink-tertiary)"
+            fontSize="13px"
+        >
+            {message}
+        </Flex>
     );
 }

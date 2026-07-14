@@ -10,8 +10,9 @@ const system = createSystem(defaultConfig, {
   theme: {
     tokens: {
       fonts: {
-        heading: { value: "Inter, sans-serif" },
-        body: { value: "Inter, sans-serif" },
+        heading: { value: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" },
+        body: { value: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" },
+        mono: { value: "'IBM Plex Mono', 'SF Mono', monospace" },
       },
     },
   },

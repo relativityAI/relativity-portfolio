@@ -1,15 +1,11 @@
 import SearchBar from "@/components/SearchBar";
 import {
-    Badge, Button, Flex, Text, Spinner, Box, Select, Checkbox,
+    Button, Flex, Text, Spinner, Box, Select, Checkbox,
     createListCollection, Portal, HStack, VStack, Input, Table,
-    Separator, SimpleGrid, Kbd
+    Separator, Kbd
 } from "@chakra-ui/react";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import {
-    MdOutlineRefresh, MdOutlineStorage, MdKeyboardArrowDown,
-    MdCheckCircle, MdErrorOutline, MdHistory, MdOutlineCloudDone,
-    MdCalendarToday, MdAssessment, MdDownload
-} from "react-icons/md";
+import { MdKeyboardArrowDown, MdDownload } from "react-icons/md";
 import { useSearchParams } from "react-router-dom";
 import { VoyagerService, NEBULA_BASE } from "@/db";
 
@@ -105,6 +101,7 @@ function FinancialsTable({ records }: { records: any[] }) {
                                 bg="bg.muted"
                                 zIndex={col === "tag" ? 1 : undefined}
                                 minW={col === "tag" ? "180px" : "110px"}
+                                fontVariantNumeric="tabular-nums"
                             >
                                 {col === "tag" ? "Metric" : col}
                             </Table.ColumnHeader>
@@ -137,7 +134,7 @@ function FinancialsTable({ records }: { records: any[] }) {
                                     {row.tag}
                                 </Table.Cell>
                                 {dates.map(d => (
-                                    <Table.Cell key={d} fontSize="10px" color="fg.muted" minW="110px">
+                                    <Table.Cell key={d} fontSize="10px" color="fg.muted" minW="110px" fontVariantNumeric="tabular-nums">
                                         {row.values[d] ?? "-"}
                                     </Table.Cell>
                                 ))}
@@ -217,11 +214,11 @@ function DataTableSection({ title, records, symbol, source }: { title: string; r
                 >
                     <HStack gap={2}>
                         <Text fontSize="sm" fontWeight="semibold">{title}</Text>
-                        <Badge size="xs" variant="surface" colorPalette="gray" color="fg.muted">{records.length}</Badge>
+                        <Text fontSize="xs" color="fg.muted" fontFamily="mono">{records.length}</Text>
                         {search && (
-                            <Badge size="xs" variant="surface" colorPalette="blue" color="blue.300">
+                            <Text fontSize="xs" color="fg.muted" fontFamily="mono">
                                 {filtered.length} matched
-                            </Badge>
+                            </Text>
                         )}
                     </HStack>
                     <Box transform={expanded ? "rotate(180deg)" : ""} transition="transform 0.2s">
@@ -250,7 +247,7 @@ function DataTableSection({ title, records, symbol, source }: { title: string; r
                                 <Table.Header>
                                     <Table.Row>
                                         {columns.map(col => (
-                                            <Table.ColumnHeader key={col} color="fg.subtle" fontSize="10px" py={2} whiteSpace="nowrap">
+                                            <Table.ColumnHeader key={col} color="fg.subtle" fontSize="10px" py={2} whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
                                                 {col}
                                             </Table.ColumnHeader>
                                         ))}
@@ -267,7 +264,7 @@ function DataTableSection({ title, records, symbol, source }: { title: string; r
                                         displayed.map((record, i) => (
                                             <Table.Row key={i} _hover={{ bg: "bg.muted" }}>
                                                 {columns.map(col => (
-                                                    <Table.Cell key={col} fontSize="10px" color="fg.muted" maxW="220px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                                                    <Table.Cell key={col} fontSize="10px" color="fg.muted" maxW="220px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" fontVariantNumeric="tabular-nums">
                                                         {formatCell(record[col])}
                                                     </Table.Cell>
                                                 ))}
@@ -538,7 +535,7 @@ export default function ManageData() {
     return (
         <Flex direction={"column"} gap={6} py={4}>
             <Flex justify={"space-between"} align="center">
-                <Text textStyle={"3xl"} fontWeight="bold" letterSpacing="tight">
+                <Text fontSize="22px" fontWeight="semibold" letterSpacing="tight">
                     Stock Data Manager
                 </Text>
             </Flex>
@@ -547,7 +544,7 @@ export default function ManageData() {
             <Box bg="bg.subtle" border="1px solid" borderColor="border" rounded="md" p={6}>
                 <Flex direction={{ base: "column", md: "row" }} gap={4} align={{ md: "end" }}>
                     <Box width={{ base: "full", md: "240px" }} flexShrink={0}>
-                        <Text mb={2} fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Source</Text>
+                        <Text mb={2} fontSize="10.5px" fontWeight="medium" color="fg.subtle" letterSpacing="wider" textTransform="uppercase">Source</Text>
                         <Select.Root
                             collection={sourceOptions}
                             value={[source]}
@@ -591,7 +588,7 @@ export default function ManageData() {
                     </Box>
 
                     <Box flex="1">
-                        <Text mb={2} fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">Search Stock</Text>
+                        <Text mb={2} fontSize="10.5px" fontWeight="medium" color="fg.subtle" letterSpacing="wider" textTransform="uppercase">Search Stock</Text>
                         <SearchBar
                             url={`${NEBULA_BASE}/search-stocks`}
                             mainKey={sourceKeys.mainKey}
@@ -609,16 +606,12 @@ export default function ManageData() {
             {symbol && (
                 <Box bg="bg.subtle" border="1px solid" borderColor="border" rounded="md" p={6}>
                     <Flex direction={{ base: "column", md: "row" }} justify="space-between" align={{ md: "center" }} gap={4}>
-                        <HStack gap={3}>
-                            <Box bg="bg.muted" px={3} py={1.5} rounded="sm">
-                                <Text fontSize="lg" fontWeight="bold" fontFamily="mono">{symbol}</Text>
-                            </Box>
+                        <HStack gap={2}>
+                            <Text fontSize="lg" fontWeight="semibold" fontFamily="mono">{symbol}</Text>
                             {name && <Text fontSize="sm" color="fg.muted">{name}</Text>}
-                            <Badge variant="surface" colorPalette={source === "SEC" ? "blue" : "orange"} size="sm">
-                                {source}
-                            </Badge>
+                            <Text fontSize="xs" color="fg.subtle" fontFamily="mono">{source}</Text>
                             {pullComplete && !pulling && (
-                                <MdCheckCircle size={18} color="var(--chakra-colors-green-400)" />
+                                <Box boxSize="6px" bg="var(--signal-positive, #4C8B6B)" rounded="full" />
                             )}
                         </HStack>
                         <HStack gap={2}>
@@ -630,31 +623,27 @@ export default function ManageData() {
                                 loadingText="Pulling..."
                                 disabled={statusLoading}
                             >
-                                <MdOutlineRefresh size={14} />
                                 Pull Latest Data
                             </Button>
                             <Button
                                 size="sm"
-                                variant="outline"
+                                variant="solid"
                                 colorPalette="blue"
                                 onClick={fetchData}
                                 loading={dataLoading}
                                 loadingText="Loading..."
                                 disabled={statusLoading}
                             >
-                                <MdOutlineStorage size={14} />
                                 Load Data
                             </Button>
                             <Button
                                 size="sm"
                                 variant="outline"
-                                colorPalette="purple"
                                 onClick={fetchRatios}
                                 loading={ratiosLoading}
                                 loadingText="Calculating..."
                                 disabled={statusLoading}
                             >
-                                <MdAssessment size={14} />
                                 Calculate Ratios
                             </Button>
                         </HStack>
@@ -665,57 +654,47 @@ export default function ManageData() {
                     {statusLoading ? (
                         <Flex justify="center" py={6}>
                             <HStack gap={2}>
-                                <Spinner size="sm" />
+                                <Spinner size="sm" color="fg.subtle" borderWidth="2px" />
                                 <Text fontSize="sm" color="fg.subtle">Checking data status...</Text>
                             </HStack>
                         </Flex>
                     ) : statusNotFound ? (
-                        <Flex direction="column" align="center" gap={2} py={6}>
-                            <MdErrorOutline size={24} color="fg.muted" />
+                        <Flex direction="column" gap={1} py={6} pl={4} borderLeft="2px solid" borderColor="var(--accent-primary, #5B7FDE)">
                             <Text fontSize="sm" color="fg.subtle">No data found for <Kbd>{symbol}</Kbd> on {source}</Text>
                             <Text fontSize="xs" color="fg.muted">Use "Pull Latest Data" to fetch it for the first time</Text>
                         </Flex>
                     ) : status ? (
                         <VStack gap={4} align="stretch">
-                            <SimpleGrid columns={{ base: 1, sm: 2, md: 4 }} gap={4}>
-                                <Box bg="bg.muted" p={3} rounded="sm">
-                                    <HStack gap={2} mb={1}>
-                                        <MdHistory size={14} color="fg.subtle" />
-                                        <Text fontSize="xs" color="fg.subtle">Last Pull</Text>
-                                    </HStack>
-                                    <Text fontSize="sm" fontWeight="medium">{formatDate(status.last_pull)}</Text>
-                                </Box>
-                                <Box bg="bg.muted" p={3} rounded="sm">
-                                    <HStack gap={2} mb={1}>
-                                        <MdOutlineRefresh size={14} color="fg.subtle" />
-                                        <Text fontSize="xs" color="fg.subtle">Total Pulls</Text>
-                                    </HStack>
-                                    <Text fontSize="sm" fontWeight="medium">{status.total_pulls ?? "-"}</Text>
-                                </Box>
-                                <Box bg="bg.muted" p={3} rounded="sm">
-                                    <HStack gap={2} mb={1}>
-                                        <MdCalendarToday size={14} color="fg.subtle" />
-                                        <Text fontSize="xs" color="fg.subtle">Created</Text>
-                                    </HStack>
-                                    <Text fontSize="sm" fontWeight="medium">{formatDate(status.created_at)}</Text>
-                                </Box>
-                                <Box bg="bg.muted" p={3} rounded="sm">
-                                    <HStack gap={2} mb={1}>
-                                        <MdOutlineCloudDone size={14} color="fg.subtle" />
-                                        <Text fontSize="xs" color="fg.subtle">Updated</Text>
-                                    </HStack>
-                                    <Text fontSize="sm" fontWeight="medium">{formatDate(status.updated_at)}</Text>
-                                </Box>
-                            </SimpleGrid>
+                            <Flex gap={4} flexWrap="wrap" fontSize="xs" color="fg.subtle">
+                                <HStack gap={1.5}>
+                                    <Text fontWeight="medium">Last Pull</Text>
+                                    <Text fontFamily="mono" color="fg.muted">{formatDate(status.last_pull)}</Text>
+                                </HStack>
+                                <Box as="span" color="fg.muted">·</Box>
+                                <HStack gap={1.5}>
+                                    <Text fontWeight="medium">Total Pulls</Text>
+                                    <Text fontFamily="mono" color="fg.muted">{status.total_pulls ?? "-"}</Text>
+                                </HStack>
+                                <Box as="span" color="fg.muted">·</Box>
+                                <HStack gap={1.5}>
+                                    <Text fontWeight="medium">Created</Text>
+                                    <Text fontFamily="mono" color="fg.muted">{formatDate(status.created_at)}</Text>
+                                </HStack>
+                                <Box as="span" color="fg.muted">·</Box>
+                                <HStack gap={1.5}>
+                                    <Text fontWeight="medium">Updated</Text>
+                                    <Text fontFamily="mono" color="fg.muted">{formatDate(status.updated_at)}</Text>
+                                </HStack>
+                            </Flex>
 
                             {status.record_counts && (
                                 <Box>
-                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Record Counts</Text>
+                                    <Text fontSize="10.5px" fontWeight="medium" color="fg.subtle" letterSpacing="wider" textTransform="uppercase" mb={2}>Record Counts</Text>
                                     <Flex gap={2} flexWrap="wrap">
                                         {Object.entries(status.record_counts).map(([key, count]: any) => (
-                                            <Badge key={key} variant="surface" colorPalette="gray" color="fg.muted" bg="bg.muted" px={2} py={1} rounded="sm" fontSize="xs">
+                                            <Text key={key} fontSize="xs" color="fg.muted" fontFamily="mono">
                                                 {key}: {count}
-                                            </Badge>
+                                            </Text>
                                         ))}
                                     </Flex>
                                 </Box>
@@ -723,16 +702,16 @@ export default function ManageData() {
 
                             {statusAvailableMetrics && Object.keys(statusAvailableMetrics).length > 0 && (
                                 <Box>
-                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Available Metrics</Text>
+                                    <Text fontSize="10.5px" fontWeight="medium" color="fg.subtle" letterSpacing="wider" textTransform="uppercase" mb={2}>Available Metrics</Text>
                                     <VStack gap={2} align="stretch">
                                         {Object.entries(statusAvailableMetrics).map(([col, metrics]: [string, any]) => (
                                             <Box key={col}>
                                                 <Text fontSize="xs" color="fg.muted" mb={1}>{col}: {(metrics as string[]).length} metrics</Text>
                                                 <Flex gap={1} flexWrap="wrap">
                                                     {(metrics as string[]).slice(0, 15).map((m: string) => (
-                                                        <Badge key={m} variant="surface" colorPalette="gray" bg="bg.muted" px={1.5} py={0.5} rounded="sm" fontSize="xs">
+                                                        <Text key={m} fontSize="xs" color="fg.muted" fontFamily="mono">
                                                             {m}
-                                                        </Badge>
+                                                        </Text>
                                                     ))}
                                                     {(metrics as string[]).length > 15 && (
                                                         <Text fontSize="xs" color="fg.muted">+{(metrics as string[]).length - 15} more</Text>
@@ -746,12 +725,12 @@ export default function ManageData() {
 
                             {statusMetricsCatalog && statusMetricsCatalog.length > 0 && (
                                 <Box>
-                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Metrics Catalog</Text>
+                                    <Text fontSize="10.5px" fontWeight="medium" color="fg.subtle" letterSpacing="wider" textTransform="uppercase" mb={2}>Metrics Catalog</Text>
                                     <Flex gap={1.5} flexWrap="wrap">
                                         {statusMetricsCatalog.map((m: any) => (
-                                            <Badge key={m.id} variant="surface" colorPalette="blue" bg="bg.muted" px={1.5} py={0.5} rounded="sm" fontSize="xs">
+                                            <Text key={m.id} fontSize="xs" color="fg.muted" fontFamily="mono">
                                                 {m.name} <Text as="span" color="fg.muted">({m.category ?? m.type})</Text>
-                                            </Badge>
+                                            </Text>
                                         ))}
                                     </Flex>
                                 </Box>
@@ -759,7 +738,7 @@ export default function ManageData() {
 
                             {collectionOptions.length > 0 && (
                                 <Box>
-                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Collections to Load</Text>
+                                    <Text fontSize="10.5px" fontWeight="medium" color="fg.subtle" letterSpacing="wider" textTransform="uppercase" mb={2}>Collections to Load</Text>
                                     <Flex gap={3} flexWrap="wrap">
                                         {collectionOptions.map(col => (
                                             <Checkbox.Root
@@ -785,7 +764,7 @@ export default function ManageData() {
 
                             {allMetricTags.length > 0 && (
                                 <Box>
-                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Metric Filters (optional)</Text>
+                                    <Text fontSize="10.5px" fontWeight="medium" color="fg.subtle" letterSpacing="wider" textTransform="uppercase" mb={2}>Metric Filters (optional)</Text>
                                     <Flex gap={3} flexWrap="wrap" mb={3}>
                                         {allMetricTags.map(tag => (
                                             <Checkbox.Root
@@ -824,7 +803,7 @@ export default function ManageData() {
 
                             {status.previous_pulls && status.previous_pulls.length > 0 && (
                                 <Box>
-                                    <Text fontSize="xs" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest" mb={2}>Previous Pulls</Text>
+                                    <Text fontSize="10.5px" fontWeight="medium" color="fg.subtle" letterSpacing="wider" textTransform="uppercase" mb={2}>Previous Pulls</Text>
                                     <Flex gap={1.5} flexWrap="wrap">
                                         {status.previous_pulls.map((date: string, i: number) => (
                                             <Text key={i} fontSize="xs" color="fg.muted" fontFamily="mono">
@@ -847,14 +826,14 @@ export default function ManageData() {
             {dataLoading ? (
                 <Flex justify="center" py={10}>
                     <HStack gap={3}>
-                        <Spinner size="lg" borderWidth="3px" />
-                        <Text color="fg.subtle">Loading stock data...</Text>
+                        <Spinner size="lg" borderWidth="2px" color="fg.subtle" />
+                        <Text color="fg.subtle" fontSize="sm">Loading stock data...</Text>
                     </HStack>
                 </Flex>
             ) : stockData ? (
                 <Box>
                     <Flex justify="space-between" align="center" mb={4}>
-                        <Text fontSize="sm" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">
+                        <Text fontSize="10.5px" fontWeight="medium" color="fg.subtle" letterSpacing="wider" textTransform="uppercase">
                             Stock Data · {stockData.total_records ?? 0} total records
                             {!hasData && " · no categories loaded"}
                         </Text>
@@ -877,17 +856,17 @@ export default function ManageData() {
             {ratiosLoading ? (
                 <Flex justify="center" py={10}>
                     <HStack gap={3}>
-                        <Spinner size="lg" borderWidth="3px" />
-                        <Text color="fg.subtle">Calculating financial ratios...</Text>
+                        <Spinner size="lg" borderWidth="2px" color="fg.subtle" />
+                        <Text color="fg.subtle" fontSize="sm">Calculating financial ratios...</Text>
                     </HStack>
                 </Flex>
             ) : ratiosData ? (
                 <Box>
                     <Flex justify="space-between" align="center" mb={4}>
-                        <Text fontSize="sm" fontWeight="bold" color="fg.subtle" textTransform="uppercase" letterSpacing="widest">
+                        <Text fontSize="10.5px" fontWeight="medium" color="fg.subtle" letterSpacing="wider" textTransform="uppercase">
                             Financial Ratios · {ratiosData.symbol} · {ratiosData.consolidated ?? "Consolidated"}
                         </Text>
-                        <Badge variant="surface" colorPalette="purple" size="sm">{ratiosData.records?.length ?? 0} periods</Badge>
+                        <Text fontSize="xs" color="fg.muted" fontFamily="mono">{ratiosData.records?.length ?? 0} periods</Text>
                     </Flex>
                     {ratioCategories.length > 0 ? (
                         <VStack gap={3} align="stretch">

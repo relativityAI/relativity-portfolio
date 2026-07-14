@@ -1,7 +1,6 @@
 // import './App.css'
 
 import { useEffect } from "react";
-import Dashboard from "./pages/Dashboard"
 import Profile from "./pages/Profile";
 import {
   Routes,
@@ -27,12 +26,11 @@ function App() {
   
   useEffect(() => {
     const getTitle = (path: string) => {
-      if (path === "/") return "Dashboard";
+      if (path === "/" || path === "/analysis") return "New Analysis";
       if (path === "/profiles") return "Profiles";
       if (path.startsWith("/profile/")) return "Profile Detail";
       if (path === "/analysis-list") return "Analysis List";
       if (path.startsWith("/analysis-result/")) return "Analysis Result";
-      if (path === "/analysis") return "New Analysis";
       if (path === "/manage-data") return "Manage Data";
       if (path === "/settings") return "Settings";
       return "Relativity AI";
@@ -49,7 +47,7 @@ function App() {
 
       <Container paddingX={16} marginY={5}>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<Analysis />} />
           <Route
             path="/profile"
             element={<Navigate to="/profiles" replace />}
