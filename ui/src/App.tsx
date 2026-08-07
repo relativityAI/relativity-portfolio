@@ -10,12 +10,11 @@ import {
 } from 'react-router';
 
 import { Provider } from "@/components/ui/provider"
-import { Container } from "@chakra-ui/react";
+import { Box } from "@chakra-ui/react";
 import ProfilesList from "./pages/ProfilesList";
 import AnalysisList from "./pages/AnalysisList";
 import Analysis from "./pages/Analysis";
 import AnalysisResult from "./pages/AnalysisResult";
-import ManageData from "./pages/ManageData";
 import Settings from "./pages/Settings";
 import NavBar from "./components/NavBar";
 
@@ -31,7 +30,6 @@ function App() {
       if (path.startsWith("/profile/")) return "Profile Detail";
       if (path === "/analysis-list") return "Analysis List";
       if (path.startsWith("/analysis-result/")) return "Analysis Result";
-      if (path === "/manage-data") return "Manage Data";
       if (path === "/settings") return "Settings";
       return "Relativity AI";
     };
@@ -45,7 +43,7 @@ function App() {
       {/* Navbar */}
       <NavBar />
 
-      <Container paddingX={16} marginY={5}>
+      <Box w="100%" paddingX={16} marginY={5}>
         <Routes>
           <Route path="/" element={<Analysis />} />
           <Route
@@ -63,14 +61,9 @@ function App() {
             path="/analysis-result"
             element={<Navigate to="/analysis-list" replace />}
           />
-          <Route path="/manage-data" element={<ManageData />} />
           <Route path="/settings" element={<Settings />} />
-          <Route
-            path="/check-data"
-            element={<Navigate to="/manage-data" replace />}
-          />
         </Routes>
-      </Container>
+      </Box>
     </Provider>
   )
 }

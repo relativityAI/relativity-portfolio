@@ -3,6 +3,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+api/node_modules/
 
 
 # stuff
@@ -175,3 +176,7 @@ poetry.toml
 pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python
+
+### Node (api) ###
+api/dist/
+api/.env

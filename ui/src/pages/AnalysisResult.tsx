@@ -58,6 +58,16 @@ function formatValue(val: any, type?: string): string {
     return String(val);
 }
 
+function formatToolOutput(val: any): string {
+    if (val == null) return "";
+    if (typeof val === "string") return val;
+    try {
+        return JSON.stringify(val, null, 2);
+    } catch {
+        return String(val);
+    }
+}
+
 const OP_SYMBOL: Record<string, string> = {
     gt: ">", gte: "≥", lt: "<", lte: "≤", eq: "=", between: "between",
 };
@@ -254,7 +264,7 @@ export default function AnalysisResult() {
 
     return (
         <Box bg="var(--surface-canvas)" minH="100vh">
-            <Container maxW="960px" py={6}>
+            <Container maxW="100%" py={6}>
                 {/* Utility bar */}
                 <Flex justify="space-between" align="center" mb={6}>
                     <Link to="/analysis-list">
@@ -1088,16 +1098,18 @@ function QualCard({
                                             color="var(--accent-primary)"
                                             fontSize="12px"
                                         >
-                                            {call.tool_name}
+                                            {call.tool_name || "tool"}
                                         </Text>
-                                        <Text
-                                            fontFamily="var(--font-mono)"
-                                            color={call.status === "OK" ? "var(--signal-positive)" : "var(--signal-negative)"}
-                                            fontSize="12px"
-                                        >
-                                            {call.status === "OK" ? "✓" : "✗"} {call.status}
-                                        </Text>
-                                        {call.duration != null && (
+                                        {call.status && (
+                                            <Text
+                                                fontFamily="var(--font-mono)"
+                                                color={call.status === "OK" ? "var(--signal-positive)" : "var(--signal-negative)"}
+                                                fontSize="12px"
+                                            >
+                                                {call.status === "OK" ? "✓" : "✗"} {call.status}
+                                            </Text>
+                                        )}
+                                        {typeof call.duration === "number" && (
                                             <Text fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
                                                 {call.duration.toFixed(2)}s
                                             </Text>
@@ -1108,7 +1120,7 @@ function QualCard({
                                             </Text>
                                         )}
                                     </HStack>
-                                    {call.args && Object.keys(call.args).length > 0 && (
+                                    {call.args != null && Object.keys(call.args).length > 0 && (
                                         <Text
                                             fontFamily="var(--font-mono)"
                                             color="var(--ink-tertiary)"
@@ -1116,10 +1128,10 @@ function QualCard({
                                             mb={1}
                                             wordBreak="break-all"
                                         >
-                                            {JSON.stringify(call.args)}
+                                            {formatToolOutput(call.args)}
                                         </Text>
                                     )}
-                                    {call.result && (
+                                    {call.result != null && (
                                         <Box
                                             as="pre"
                                             maxH="100px"
@@ -1136,7 +1148,7 @@ function QualCard({
                                                 "&::-webkit-scrollbar": { height: "3px", width: "3px" },
                                             }}
                                         >
-                                            {call.result}
+                                            {formatToolOutput(call.result)}
                                         </Box>
                                     )}
                                 </Box>

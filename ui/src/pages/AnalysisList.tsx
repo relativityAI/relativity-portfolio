@@ -1,4 +1,4 @@
-import { Text, Flex, Button, Table, Box, HStack, Spinner } from "@chakra-ui/react";
+import { Text, Flex, Button, Table, Box, HStack, Spinner, Dialog } from "@chakra-ui/react";
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MdArrowUpward, MdArrowDownward } from "react-icons/md";
@@ -50,6 +50,7 @@ export default function AnalysisList() {
     const [sortKey, setSortKey] = useState<SortKey | null>(null);
     const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
     const [stats, setStats] = useState({ profiles: 0, analysis: 0 });
+    const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
     const fetchUniqueAnalysis = async () => {
         try {
@@ -83,6 +84,7 @@ export default function AnalysisList() {
     const handleDelete = async (id: string) => {
         try {
             await AnalysisService.deleteAnalysis(id);
+            setDeleteTarget(null);
             fetchUniqueAnalysis();
         } catch (error) {
             console.error("Delete analysis error:", error);
@@ -866,7 +868,7 @@ export default function AnalysisList() {
                                                                     variant="ghost"
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
-                                                                        handleDelete(id);
+                                                                        setDeleteTarget(id);
                                                                     }}
                                                                     color="var(--ink-tertiary)"
                                                                     _hover={{
@@ -912,6 +914,48 @@ export default function AnalysisList() {
                     </Box>
                 </Flex>
             </Flex>
+
+            {/* Delete confirmation */}
+            <Dialog.Root
+                open={deleteTarget !== null}
+                onOpenChange={(e) => {
+                    if (!e.open) setDeleteTarget(null);
+                }}
+                role="alertdialog"
+            >
+                <Dialog.Backdrop />
+                <Dialog.Positioner>
+                    <Dialog.Content>
+                        <Dialog.Header>
+                            <Dialog.Title fontSize="16px">Delete analysis?</Dialog.Title>
+                        </Dialog.Header>
+                        <Dialog.Body>
+                            <Text fontSize="13.5px" color="var(--ink-secondary)">
+                                This will permanently remove this analysis result. This action cannot be undone.
+                            </Text>
+                        </Dialog.Body>
+                        <Dialog.Footer>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                mr={3}
+                                onClick={() => setDeleteTarget(null)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                size="sm"
+                                bg="var(--signal-negative)"
+                                color="#fff"
+                                _hover={{ opacity: 0.9 }}
+                                onClick={() => deleteTarget && handleDelete(deleteTarget)}
+                            >
+                                Delete
+                            </Button>
+                        </Dialog.Footer>
+                    </Dialog.Content>
+                </Dialog.Positioner>
+            </Dialog.Root>
         </Box>
     );
 }
