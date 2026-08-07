@@ -49,6 +49,12 @@ html.dark {
   --ink-tertiary: #5B6167;
 }
 
+/* Base canvas */
+html,
+body {
+  background: var(--surface-canvas);
+}
+
 /* Global focus ring */
 :focus-visible {
   outline: 2px solid var(--accent-primary);

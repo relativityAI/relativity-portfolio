@@ -10,14 +10,16 @@ Relativity AI Portfolio turns an investing style into something called an *inves
 
 The name *Relativity* draws inspiration from Einsteins Theory of Relativity. A good investment to one person may be a bad one to another. It is all relative. Relativity AI Portfolio respects that truth — it does not pick stocks for you. It learns how you pick them, then works within those lines.
 
+## Architecture
+
+- **UI** (`ui/`) — React (Vite + Chakra) frontend on port 5173.
+- **API** (`api/`) — in-repo Express + Vercel AI SDK backend on port 8080. Owns profiles, runs analyses (quantitative scoring + LLM-driven qualitative agent tool-loop), and exposes the curated model list and metric catalog.
+- **[Voyager](https://github.com/relativityAI/voyager)** — external data service (port 8001) that the API calls directly. The agent never sees the data-pull endpoint; data is pulled automatically when an analysis runs.
+- **MongoDB** — persistence for profiles and analysis runs (port 27017).
+
+The UI talks only to `/api` (proxied to 8080). LLM API keys are held in the browser and forwarded to the API as headers; the Voyager endpoint is configurable per user (see Settings) and forwarded the same way.
+
 ## Install
-
-### Dependencies
-
-These services are pulled automatically by Docker Compose:
-
-- [Voyager](https://github.com/relativityAI/voyager) — data ingestion
-- [Nebula](https://github.com/relativityAI/nebula) — analysis and computation
 
 ### Setup
 
@@ -29,17 +31,33 @@ docker compose up -d
 
 Add `--build` to rebuild images after pulling changes.
 
-This starts the UI (port 5173), Voyager (8001), Nebula (8002), MongoDB (27017), and Mongo Express (8081).
+This starts the UI (5173), the API (8080), Voyager (8001), MongoDB (27017), and Mongo Express (8081).
+
+### Local development
+
+Run Voyager and MongoDB (e.g. `docker compose up -d voyager mongo`), then:
+
+```bash
+# API (port 8080)
+cd api
+cp .env.example .env   # optional
+npm install
+npm run dev
+
+# UI (port 5173)
+cd ui
+npm install
+npm run dev
+```
 
 ## Usage
 
 Open [http://localhost:5173](http://localhost:5173).
 
-- **Profiles** — Define investor profiles with qualitative and quantitative criteria.
-- **Analysis** — Run AI-driven analysis on stocks and view results.
-- **Research** — Search and screen equities using exchange data.
-- **Portfolios** — Track and snapshot portfolio positions.
-- **Data Sources** — Manage integrated data sources.
+- **New Analysis** — Pick a source (SEC/NSE), search a company, choose an investor profile and a model, then run. Data is fetched automatically.
+- **Profiles** — Define investor profiles with qualitative and quantitative criteria (operators, thresholds, weightage).
+- **Analysis** — Browse previous runs and open full reports.
+- **Settings** — Store LLM provider API keys (sent to the backend as headers, never persisted server-side) and configure the Voyager API endpoint.
 
 ## Contributing
 

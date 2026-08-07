@@ -3,19 +3,24 @@ import {
     Flex, Text, Box, Button, Input, VStack, HStack, Field,
     createListCollection, Select, Portal
 } from "@chakra-ui/react";
-import { MdCheck, MdClose, MdVisibility, MdVisibilityOff, MdWeb } from "react-icons/md";
+import { MdCheck, MdClose, MdVisibility, MdVisibilityOff, MdWeb, MdSave, MdLink } from "react-icons/md";
 import { toaster } from "@/components/ui/toaster";
 
 const STORAGE_KEYS = {
     llm_provider: "llm_provider",
     llm_api_key: "llm_api_key",
+    voyager_url: "voyager_url",
 };
+
+const DEFAULT_VOYAGER_URL = "http://localhost:8001";
 
 const providerOptions = createListCollection({
     items: [
         { label: "OpenAI", value: "openai" },
         { label: "Gemini", value: "gemini" },
         { label: "Cerebras", value: "cerebras" },
+        { label: "Groq", value: "groq" },
+        { label: "Anthropic", value: "anthropic" },
     ],
     itemToString: (item: any) => item.label,
     itemToValue: (item: any) => item.value,
@@ -35,6 +40,8 @@ export default function Settings() {
     const [tavilyKey, setTavilyKey] = useState("");
     const [showTavily, setShowTavily] = useState(false);
 
+    const [voyagerUrl, setVoyagerUrl] = useState(DEFAULT_VOYAGER_URL);
+
     useEffect(() => {
         const provider = localStorage.getItem(STORAGE_KEYS.llm_provider) || "openai";
         const key = localStorage.getItem(STORAGE_KEYS.llm_api_key) || "";
@@ -50,6 +57,8 @@ export default function Settings() {
 
         const savedTavily = localStorage.getItem("tavily_key") || "";
         setTavilyKey(savedTavily);
+
+        setVoyagerUrl(localStorage.getItem(STORAGE_KEYS.voyager_url) || DEFAULT_VOYAGER_URL);
     }, []);
 
     const handleSave = () => {
@@ -81,6 +90,21 @@ export default function Settings() {
         const { tavily, ...rest } = savedKeys;
         setSavedKeys(rest);
         toaster.create({ title: "Tavily API key removed", type: "info" });
+    };
+
+    const handleSaveVoyager = () => {
+        if (!voyagerUrl.trim()) {
+            toaster.create({ title: "Voyager API URL is empty", type: "error" });
+            return;
+        }
+        localStorage.setItem(STORAGE_KEYS.voyager_url, voyagerUrl.trim());
+        toaster.create({ title: "Voyager API endpoint saved", type: "success" });
+    };
+
+    const handleResetVoyager = () => {
+        localStorage.removeItem(STORAGE_KEYS.voyager_url);
+        setVoyagerUrl(DEFAULT_VOYAGER_URL);
+        toaster.create({ title: "Voyager API endpoint reset", type: "info" });
     };
 
     const handleClear = () => {
@@ -133,7 +157,7 @@ export default function Settings() {
                             mt={1}
                             mb={5}
                         >
-                            Keys are stored in your browser and sent to Nebula as headers. Never stored on any server.
+                            Keys are stored in your browser and sent to the analysis backend as headers. Never stored on any server.
                         </Text>
 
                         {/* Group: Model Provider */}
@@ -333,6 +357,82 @@ export default function Settings() {
                                     >
                                         <MdClose size={14} style={{ marginRight: 4 }} />
                                         Remove
+                                    </Button>
+                                )}
+                            </HStack>
+                        </VStack>
+
+                        {/* Divider */}
+                        <Box borderTop="1px solid var(--hairline)" mt={6} />
+
+                        {/* Group: Voyager API */}
+                        <Text
+                            fontSize="10.5px"
+                            fontWeight={500}
+                            color="var(--ink-tertiary)"
+                            textTransform="uppercase"
+                            letterSpacing="0.06em"
+                            mt={5}
+                            mb={3}
+                        >
+                            Voyager API
+                        </Text>
+
+                        <VStack gap={4} align="stretch">
+                            <Field.Root>
+                                <Field.Label
+                                    fontSize="13px"
+                                    fontWeight={500}
+                                    color="var(--ink-primary)"
+                                >
+                                    <HStack gap={1}>
+                                        <MdLink size={14} color="var(--ink-tertiary)" />
+                                        <Text>Endpoint</Text>
+                                    </HStack>
+                                </Field.Label>
+                                <HStack gap={2}>
+                                    <Input
+                                        placeholder={DEFAULT_VOYAGER_URL}
+                                        value={voyagerUrl}
+                                        onChange={(e) => setVoyagerUrl(e.target.value)}
+                                        flex={1}
+                                        fontFamily="var(--font-mono)"
+                                        fontSize="13px"
+                                        borderColor="var(--hairline)"
+                                        borderRadius="2px"
+                                        _focus={{ borderColor: "var(--accent-primary)" }}
+                                    />
+                                </HStack>
+                            </Field.Root>
+                            <HStack gap={2}>
+                                <Button
+                                    size="sm"
+                                    bg="var(--accent-primary)"
+                                    color="#fff"
+                                    fontWeight={500}
+                                    fontSize="13px"
+                                    px={4}
+                                    _hover={{ opacity: 0.9 }}
+                                    borderRadius="3px"
+                                    onClick={handleSaveVoyager}
+                                >
+                                    <MdSave size={14} style={{ marginRight: 4 }} />
+                                    Save
+                                </Button>
+                                {voyagerUrl !== DEFAULT_VOYAGER_URL && (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        color="var(--signal-negative)"
+                                        borderColor="var(--signal-negative)"
+                                        _hover={{ bg: "var(--signal-negative)", color: "#fff" }}
+                                        fontWeight={500}
+                                        fontSize="13px"
+                                        borderRadius="3px"
+                                        onClick={handleResetVoyager}
+                                    >
+                                        <MdClose size={14} style={{ marginRight: 4 }} />
+                                        Reset
                                     </Button>
                                 )}
                             </HStack>

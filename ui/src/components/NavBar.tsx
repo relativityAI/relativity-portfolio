@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { Flex, Text } from "@chakra-ui/react"
 import { Link } from "react-router-dom";
 import { runHealthCheck } from "../utils"
-import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineStorage, MdOutlineSettings } from "react-icons/md";
+import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings } from "react-icons/md";
+import { LuWebhook, LuDatabase, LuSatellite } from "react-icons/lu";
 import { ColorModeButton } from "@/components/ui/color-mode";
 
 const VOYAGER_DOCS_URL = import.meta.env.VITE_VOYAGER_DOCS_URL || "http://localhost:8001";
-const NEBULA_DOCS_URL = import.meta.env.VITE_NEBULA_DOCS_URL || "http://localhost:8002";
 
 export default function NavBar() {
 
@@ -14,14 +14,12 @@ export default function NavBar() {
         api: 0,
         db: 0,
         voyagerApi: 0,
-        nebulaApi: 0,
     })
 
     const [endpoints, setEndpoints] = useState({
         api: "",
         db: "",
-        voyagerApi: "",
-        nebulaApi: ""
+        voyagerApi: ""
     })
 
     useEffect(() => {
@@ -67,12 +65,6 @@ export default function NavBar() {
                             <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Analysis</Text>
                         </Flex>
                     </Link>
-                    <Link to={"/manage-data"}>
-                        <Flex gap={1.5} align="center">
-                            <MdOutlineStorage size={16} color="var(--chakra-colors-fg-muted)" />
-                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Data</Text>
-                        </Flex>
-                    </Link>
                     <Link to={"/settings"}>
                         <Flex gap={1.5} align="center">
                             <MdOutlineSettings size={16} color="var(--chakra-colors-fg-muted)" />
@@ -86,6 +78,22 @@ export default function NavBar() {
                 <ColorModeButton />
                 <Flex gap={4} align={"center"}>
                     <Flex gap={1} align={"center"}>
+                        <LuWebhook size={12} color="var(--chakra-colors-fg-muted)" />
+                        <Text 
+                            textStyle={"xs"} 
+                            fontWeight={"bold"} 
+                            color={systemStatus.api ? "fg.subtle" : "red.500"} 
+                            cursor={"pointer"}
+                            _hover={{ color: "blue.500" }}
+                            onClick={() => window.open(endpoints.api, "_blank")}
+                        >
+                            API
+                        </Text>
+                        {systemStatus.api ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                    </Flex>
+
+                    <Flex gap={1} align={"center"}>
+                        <LuDatabase size={12} color="var(--chakra-colors-fg-muted)" />
                         <Text 
                             textStyle={"xs"} 
                             fontWeight={"bold"} 
@@ -100,6 +108,7 @@ export default function NavBar() {
                     </Flex>
 
                     <Flex gap={1} align={"center"}>
+                        <LuSatellite size={12} color="var(--chakra-colors-fg-muted)" />
                         <Text 
                             textStyle={"xs"} 
                             fontWeight={"bold"} 
@@ -111,20 +120,6 @@ export default function NavBar() {
                             VOYAGER
                         </Text>
                         {systemStatus.voyagerApi ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
-                    </Flex>
-
-                    <Flex gap={1} align={"center"}>
-                        <Text 
-                            textStyle={"xs"} 
-                            fontWeight={"bold"} 
-                            color={systemStatus.nebulaApi ? "gray.500" : "red.500"} 
-                            cursor={"pointer"}
-                            _hover={{ color: "blue.500" }}
-                            onClick={() => window.open(NEBULA_DOCS_URL + "/docs", "_blank")}
-                        >
-                            NEBULA
-                        </Text>
-                        {systemStatus.nebulaApi ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
                     </Flex>
                 </Flex>
             </Flex>

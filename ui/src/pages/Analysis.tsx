@@ -4,18 +4,14 @@ import {
     createListCollection, Portal, HStack, VStack
 } from "@chakra-ui/react";
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
-import {
-    MdInfoOutline, MdOutlineRefresh,
-    MdOutlineStorage
-} from "react-icons/md";
+import { MdInfoOutline, MdCheck, MdClose } from "react-icons/md";
 import { Link, useParams } from "react-router-dom";
-import { AnalysisService, ProfileService, VoyagerService, NEBULA_BASE } from "@/db";
+import { AnalysisService, ProfileService, API_BASE } from "@/db";
 import { Tooltip } from "@/components/ui/tooltip";
 
 const MAX_POLL_RETRIES = 600;
 
 type StatusType = "EMPTY" | "PENDING" | "COMPLETED" | "ERROR";
-type DataPullStatus = "IDLE" | "CHECKING" | "AVAILABLE" | "PULLING" | "PULLED" | "ERROR";
 
 function useDebounce<T>(value: T, delay: number): T {
     const [debounced, setDebounced] = useState(value);
@@ -50,6 +46,155 @@ function StatusDot({ state }: { state: "idle" | "active" | "done" | "error" }) {
             border={state === "done" ? "none" : "1px solid var(--hairline)"}
             flexShrink={0}
         />
+    );
+}
+
+type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+
+interface RunStep {
+    key: string;
+    label: string;
+    status: StepStatus;
+    started_at: string | null;
+    finished_at: string | null;
+    duration_ms: number | null;
+    detail?: string;
+}
+
+function formatSeconds(s: number): string {
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    return `${m}m ${s % 60}s`;
+}
+
+function formatMs(ms: number | null | undefined): string {
+    if (ms == null) return "";
+    return formatSeconds(Math.round(ms / 1000));
+}
+
+function StepIcon({ status }: { status: StepStatus }) {
+    if (status === "running") {
+        return <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />;
+    }
+    if (status === "completed") {
+        return (
+            <Flex
+                w="16px"
+                h="16px"
+                borderRadius="50%"
+                align="center"
+                justify="center"
+                bg="var(--signal-positive)"
+                flexShrink={0}
+            >
+                <MdCheck size={11} color="#fff" />
+            </Flex>
+        );
+    }
+    if (status === "failed") {
+        return (
+            <Flex
+                w="16px"
+                h="16px"
+                borderRadius="50%"
+                align="center"
+                justify="center"
+                bg="var(--signal-negative)"
+                flexShrink={0}
+            >
+                <MdClose size={11} color="#fff" />
+            </Flex>
+        );
+    }
+    return (
+        <Flex
+            w="16px"
+            h="16px"
+            borderRadius="50%"
+            align="center"
+            justify="center"
+            border={status === "skipped" ? "1px solid var(--hairline)" : "2px solid var(--hairline)"}
+            flexShrink={0}
+            opacity={status === "pending" ? 1 : 0.6}
+        >
+            {status === "skipped" && <Box w="6px" h="1.5px" bg="var(--ink-tertiary)" />}
+        </Flex>
+    );
+}
+
+function StepRow({ step, now }: { step: RunStep; now: number }) {
+    const elapsedMs =
+        step.status === "running" && step.started_at
+            ? now - +new Date(step.started_at)
+            : step.duration_ms;
+    const timeLabel =
+        step.status === "running" || step.status === "completed" || step.status === "failed"
+            ? formatMs(elapsedMs)
+            : "";
+
+    const labelColor =
+        step.status === "running"
+            ? "var(--ink-primary)"
+            : step.status === "completed" || step.status === "skipped"
+                ? "var(--ink-secondary)"
+                : step.status === "failed"
+                    ? "var(--signal-negative)"
+                    : "var(--ink-tertiary)";
+
+    return (
+        <Flex gap={2.5} align="flex-start">
+            <Box mt="1px">
+                <StepIcon status={step.status} />
+            </Box>
+            <Flex direction="column" gap={0.5} flex={1} minW={0}>
+                <HStack gap={2} justify="space-between" align="baseline">
+                    <Text fontSize="12.5px" fontWeight={500} color={labelColor} lineHeight="short">
+                        {step.label}
+                    </Text>
+                    {timeLabel && (
+                        <Text
+                            fontSize="11px"
+                            fontFamily="var(--font-tabular)"
+                            fontVariantNumeric="tabular-nums"
+                            color={step.status === "running" ? "var(--ink-secondary)" : "var(--ink-tertiary)"}
+                            whiteSpace="nowrap"
+                        >
+                            {step.status === "running" ? `${timeLabel} …` : timeLabel}
+                        </Text>
+                    )}
+                </HStack>
+                {step.detail && (
+                    <Text fontSize="11.5px" color="var(--ink-tertiary)" lineHeight="short">
+                        {step.detail}
+                    </Text>
+                )}
+                {step.status === "pending" && !step.detail && (
+                    <Text fontSize="11.5px" color="var(--ink-tertiary)" lineHeight="short">
+                        Queued
+                    </Text>
+                )}
+            </Flex>
+        </Flex>
+    );
+}
+
+function AnalysisSteps({ steps, now }: { steps: RunStep[]; now: number }) {
+    if (!steps || steps.length === 0) {
+        return (
+            <HStack gap={1.5}>
+                <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />
+                <Text fontSize="12px" color="var(--ink-secondary)">
+                    Running analysis…
+                </Text>
+            </HStack>
+        );
+    }
+    return (
+        <VStack gap={3.5} align="stretch">
+            {steps.map((s) => (
+                <StepRow key={s.key} step={s} now={now} />
+            ))}
+        </VStack>
     );
 }
 
@@ -113,7 +258,7 @@ function AnalysisGettingStarted() {
         { num: "01", title: "Select a market source", desc: "Choose between SEC (US Market) or NSE (Indian Market)." },
         { num: "02", title: "Search and select a company", desc: "Find and pick the target company for analysis." },
         { num: "03", title: "Choose an investor profile", desc: "Pick a predefined portfolio strategy to guide the LLM." },
-        { num: "04", title: "Configure data inputs & run", desc: "Select documents, enable web search, pick web sources, then check data status and run the analysis." },
+        { num: "04", title: "Pick a model & run", desc: "Choose the LLM that runs the analysis, then start the run. Data is fetched automatically." },
     ];
     return (
         <Flex direction={{ base: "column", sm: "row" }} gap={4} wrap="wrap">
@@ -157,10 +302,9 @@ export default function Analysis() {
     const [correlationId, setCorrelationId] = useState<string>(id || "");
     const [status, setStatus] = useState<StatusType>("EMPTY");
     const [loading, setLoading] = useState(false);
-    const [dataPullStatus, setDataPullStatus] = useState<DataPullStatus>("IDLE");
-    const [lastPullDate, setLastPullDate] = useState<string | null>(null);
     const [analysisDuration, setAnalysisDuration] = useState<string>("");
     const [elapsedTime, setElapsedTime] = useState(0);
+    const [steps, setSteps] = useState<RunStep[]>([]);
 
     useEffect(() => {
         if (status === "PENDING") {
@@ -260,12 +404,7 @@ export default function Analysis() {
             [field]: value || "",
             shareName: field === 'share' && item ? item[nameField] : prev.shareName
         }));
-        if (field === 'share' && value) {
-            setDataPullStatus("CHECKING");
-            setLastPullDate(null);
-            checkLastDataPull(config.source, value);
-        }
-    }, [sourceKeys, config.source]);
+    }, [sourceKeys]);
 
     const handleSourceChange = useCallback((value: string) => {
         setConfig(prev => ({
@@ -274,39 +413,7 @@ export default function Analysis() {
             share: "",
             shareName: "",
         }));
-        setDataPullStatus("IDLE");
-        setLastPullDate(null);
     }, []);
-
-    const checkLastDataPull = useCallback((source?: string, symbol?: string) => {
-        const src = source || config.source;
-        const sym = symbol || config.share;
-        if (!src || !sym || id) return;
-        setDataPullStatus("CHECKING");
-        VoyagerService.getStockDataStatus(sym, src).then(result => {
-            if (result && result.last_pull) {
-                setLastPullDate(result.last_pull);
-            } else {
-                setLastPullDate(null);
-            }
-            setDataPullStatus("AVAILABLE");
-        }).catch(() => {
-            setLastPullDate(null);
-            setDataPullStatus("AVAILABLE");
-        });
-    }, [config.source, config.share, id]);
-
-    const pullLatestData = useCallback(async () => {
-        if (!config.source || !config.share) return;
-        setDataPullStatus("PULLING");
-        try {
-            await VoyagerService.pullStockData(config.share, config.source);
-            setLastPullDate(new Date().toISOString());
-            setDataPullStatus("PULLED");
-        } catch {
-            setDataPullStatus("AVAILABLE");
-        }
-    }, [config.source, config.share]);
 
     const fetchAvailableProfiles = useCallback(async () => {
         try {
@@ -325,19 +432,6 @@ export default function Analysis() {
         if (!config.source || !config.share || !config.profile) return;
 
         try {
-            setDataPullStatus("CHECKING");
-            const dataStatus = await VoyagerService.getStockDataStatus(config.share, config.source);
-
-            if (dataStatus && dataStatus.last_pull) {
-                setLastPullDate(dataStatus.last_pull);
-                setDataPullStatus("AVAILABLE");
-            } else {
-                setDataPullStatus("PULLING");
-                await VoyagerService.pullStockData(config.share, config.source);
-                setLastPullDate(new Date().toISOString());
-                setDataPullStatus("PULLED");
-            }
-
             const result = await AnalysisService.runAnalysis({
                 share_name: config.shareName || config.share,
                 symbol: config.share,
@@ -346,12 +440,12 @@ export default function Analysis() {
             });
 
             if (result && (result.corr_id || result.analysis_id)) {
+                setSteps([]);
                 setCorrelationId(result.corr_id || result.analysis_id);
                 setStatus("PENDING");
             }
         } catch (error) {
             console.error("Run analysis error:", error);
-            setDataPullStatus("ERROR");
             setStatus("ERROR");
         }
     };
@@ -373,18 +467,18 @@ export default function Analysis() {
 
                 setCorrelationId(analysisId);
 
+                if (Array.isArray(data.steps)) setSteps(data.steps);
+
                 const s = (data.status || "").toLowerCase();
                 if (s === "complete" || s === "completed" || s === "error" || s === "failed" || s === "success") {
                     const isComplete = s === "complete" || s === "completed" || s === "success";
                     setStatus(isComplete ? "COMPLETED" : "ERROR");
-                    setDataPullStatus("AVAILABLE");
                     if (data.duration != null) {
                         const d = data.duration;
                         setAnalysisDuration(d >= 60 ? `${Math.floor(d / 60)}m ${Math.floor(d % 60)}s` : `${d.toFixed(1)}s`);
                     }
                 } else {
                     setStatus("PENDING");
-                    setDataPullStatus("AVAILABLE");
                 }
 
                 if (data.model) setSelectedModel(data.model);
@@ -413,11 +507,11 @@ export default function Analysis() {
                 try {
                     const data = await AnalysisService.readAnalysis(correlationId);
                     if (data) {
+                        if (Array.isArray(data.steps)) setSteps(data.steps);
                         const s = (data.status || "").toLowerCase();
                         if (s === "complete" || s === "completed" || s === "error" || s === "failed" || s === "success") {
                             const isComplete = s === "complete" || s === "completed" || s === "success";
                             setStatus(isComplete ? "COMPLETED" : "ERROR");
-                            setDataPullStatus("AVAILABLE");
                             if (data.duration != null) {
                                 const d = data.duration;
                                 setAnalysisDuration(d >= 60 ? `${Math.floor(d / 60)}m ${Math.floor(d % 60)}s` : `${d.toFixed(1)}s`);
@@ -433,7 +527,6 @@ export default function Analysis() {
                 if (pollRetriesRef.current >= MAX_POLL_RETRIES) {
                     clearInterval(interval);
                     setStatus("ERROR");
-                    setDataPullStatus("AVAILABLE");
                 }
             }, 2000);
             return () => {
@@ -443,33 +536,9 @@ export default function Analysis() {
         }
     }, [status, correlationId]);
 
-    const formatDate = (dateStr: string) => {
-        try {
-            const d = new Date(dateStr);
-            return d.toLocaleDateString('en-GB', {
-                day: 'numeric', month: 'short', year: 'numeric',
-                hour: '2-digit', minute: '2-digit'
-            });
-        } catch {
-            return dateStr;
-        }
-    };
-
     const searchParams = useMemo(() => ({ source: config.source }), [config.source]);
     const isConfigComplete = config.share !== "" && config.profile !== "";
-    const canRunAnalysis = isConfigComplete && (dataPullStatus === "AVAILABLE" || dataPullStatus === "PULLED");
-
-    const dataStatusState: "idle" | "active" | "done" | "error" =
-        dataPullStatus === "ERROR" ? "error"
-        : dataPullStatus === "CHECKING" || dataPullStatus === "PULLING" ? "active"
-        : dataPullStatus === "AVAILABLE" || dataPullStatus === "PULLED" ? "done"
-        : "idle";
-
-    const analysisState: "idle" | "active" | "done" | "error" =
-        status === "ERROR" ? "error"
-        : status === "PENDING" ? "active"
-        : status === "COMPLETED" ? "done"
-        : "idle";
+    const canRunAnalysis = isConfigComplete;
 
     return (
         <Flex direction="column" gap={8} py={4} bg="var(--surface-canvas)" minH="100vh" px={6}>
@@ -483,7 +552,7 @@ export default function Analysis() {
 
             <Flex direction={{ base: "column", md: "row" }} gap={8} align="start" mb={4}>
                 {/* Left: Configuration */}
-                <Box flex="1" width="full" minW={0} overflow="hidden">
+                <Box flex="1" width="full" minW={0}>
                     <Box
                         bg="var(--surface-panel)"
                         border="1px solid var(--hairline)"
@@ -552,7 +621,7 @@ export default function Analysis() {
                                     Target Company
                                 </Text>
                                 <SearchBar
-                                    url={`${NEBULA_BASE}/search-stocks`}
+                                    url={`${API_BASE}/stocks/search`}
                                     mainKey={sourceKeys.mainKey}
                                     secondaryKey={sourceKeys.secondaryKey}
                                     onChange={handleConfigChange}
@@ -698,208 +767,169 @@ export default function Analysis() {
                         </Text>
 
                         <VStack gap={5} align="stretch">
-                            {/* Step 1: Data Check */}
-                            <Box>
-                                <HStack gap={2} mb={2}>
-                                    <StatusDot state={dataStatusState} />
-                                    <Text fontSize="13px" fontWeight={500} color="var(--ink-primary)">
-                                        Data Status Check
+                            {/* Overall run state */}
+                            {status === "PENDING" ? (
+                                <HStack gap={2}>
+                                    <Spinner size="sm" borderWidth="2px" color="var(--accent-primary)" />
+                                    <Text fontSize="13px" fontWeight={600} color="var(--ink-primary)">
+                                        Analysis in progress
                                     </Text>
-                                </HStack>
-                                <Box ml={5}>
-                                    {dataPullStatus === "IDLE" ? (
-                                        <Text fontSize="12px" color="var(--ink-tertiary)">
-                                            {config.share ? "Check data status before running" : "Select a company to check"}
+                                    {elapsedTime > 0 && (
+                                        <Text
+                                            fontSize="12px"
+                                            color="var(--ink-tertiary)"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                        >
+                                            {formatSeconds(elapsedTime)}
                                         </Text>
-                                    ) : dataPullStatus === "CHECKING" ? (
-                                        <HStack gap={1}>
-                                            <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />
-                                            <Text fontSize="12px" color="var(--ink-secondary)">
-                                                Checking last data pull…
-                                            </Text>
-                                        </HStack>
-                                    ) : dataPullStatus === "PULLING" ? (
-                                        <HStack gap={1}>
-                                            <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />
-                                            <Text fontSize="12px" color="var(--ink-secondary)">
-                                                Pulling latest data…
-                                            </Text>
-                                        </HStack>
-                                    ) : (
-                                        <>
-                                            <Text fontSize="12px" color="var(--ink-tertiary)" mb={2}>
-                                                {lastPullDate
-                                                    ? `Last pulled: ${formatDate(lastPullDate)}`
-                                                    : "No data pulled yet for this stock"}
-                                            </Text>
-                                            <HStack gap={2}>
-                                                <Button
-                                                    size="xs"
-                                                    variant="ghost"
-                                                    color="var(--ink-secondary)"
-                                                    _hover={{ color: "var(--ink-primary)" }}
-                                                    onClick={pullLatestData}
-                                                    loading={dataPullStatus === "PULLING"}
-                                                    loadingText="Pulling…"
-                                                    fontWeight={500}
-                                                >
-                                                    <MdOutlineRefresh size={12} style={{ marginRight: 4 }} />
-                                                    Pull Latest
-                                                </Button>
-                                                <Link to={`/manage-data?symbol=${config.share}&source=${config.source}`} target="_blank">
-                                                    <Button
-                                                        size="xs"
-                                                        variant="ghost"
-                                                        color="var(--ink-secondary)"
-                                                        _hover={{ color: "var(--ink-primary)" }}
-                                                        fontWeight={500}
-                                                    >
-                                                        <MdOutlineStorage size={12} style={{ marginRight: 4 }} />
-                                                        Check Data
-                                                    </Button>
-                                                </Link>
-                                            </HStack>
-                                        </>
                                     )}
-                                </Box>
-                            </Box>
-
-                            <Separator borderColor="var(--hairline)" />
-
-                            {/* Step 2: Analysis */}
-                            <Box>
-                                <HStack gap={2} mb={2}>
-                                    <StatusDot state={analysisState} />
-                                    <Text fontSize="13px" fontWeight={500} color="var(--ink-primary)">
-                                        Analysis
+                                </HStack>
+                            ) : status === "COMPLETED" ? (
+                                <HStack gap={2}>
+                                    <MdCheck size={15} color="var(--signal-positive)" />
+                                    <Text fontSize="13px" fontWeight={600} color="var(--ink-primary)">
+                                        Analysis complete
+                                    </Text>
+                                    {analysisDuration && (
+                                        <Text
+                                            fontSize="12px"
+                                            color="var(--ink-tertiary)"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                        >
+                                            {analysisDuration}
+                                        </Text>
+                                    )}
+                                </HStack>
+                            ) : status === "ERROR" ? (
+                                <HStack gap={2}>
+                                    <MdClose size={15} color="var(--signal-negative)" />
+                                    <Text fontSize="13px" fontWeight={600} color="var(--signal-negative)">
+                                        Analysis failed
                                     </Text>
                                 </HStack>
-                                <Box ml={5}>
-                                    {!isConfigComplete ? (
+                            ) : status === "EMPTY" && id ? (
+                                <HStack gap={2}>
+                                    <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />
+                                    <Text fontSize="12px" color="var(--ink-secondary)">
+                                        Resuming analysis…
+                                    </Text>
+                                </HStack>
+                            ) : null}
+
+                            {/* Step checklist */}
+                            {status !== "EMPTY" && steps.length > 0 && (
+                                <Box
+                                    borderTop="1px solid var(--hairline)"
+                                    borderBottom="1px solid var(--hairline)"
+                                    py={4}
+                                >
+                                    <AnalysisSteps steps={steps} now={Date.now()} />
+                                </Box>
+                            )}
+
+                            {/* Idle: start button */}
+                            {status === "EMPTY" && !id && (
+                                <>
+                                    {!isConfigComplete && (
                                         <Text fontSize="12px" color="var(--ink-tertiary)">
                                             Complete configuration to run analysis
                                         </Text>
-                                    ) : status === "PENDING" ? (
-                                        <HStack gap={1}>
-                                            <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />
-                                            <Text fontSize="12px" color="var(--ink-secondary)">
-                                                Running analysis…
-                                            </Text>
-                                            {elapsedTime > 0 && (
-                                                <Text
-                                                    fontSize="12px"
-                                                    color="var(--ink-tertiary)"
-                                                    fontFamily="var(--font-tabular)"
-                                                    fontVariantNumeric="tabular-nums"
-                                                    ml={1}
-                                                >
-                                                    ({elapsedTime >= 60 ? `${Math.floor(elapsedTime / 60)}m ${elapsedTime % 60}s` : `${elapsedTime}s`})
-                                                </Text>
-                                            )}
-                                        </HStack>
-                                    ) : status === "COMPLETED" ? (
-                                        <VStack gap={2} align="stretch">
-                                            <Text fontSize="12px" color="var(--ink-tertiary)">
-                                                {analysisDuration
-                                                    ? `Completed in ${analysisDuration}`
-                                                    : "Analysis complete"}
-                                            </Text>
-                                            <HStack gap={2}>
-                                                <Link to={`/analysis-result/${correlationId}`}>
-                                                    <Button
-                                                        size="sm"
-                                                        bg="var(--accent-primary)"
-                                                        color="#fff"
-                                                        fontWeight={500}
-                                                        fontSize="13px"
-                                                        px={4}
-                                                        _hover={{ opacity: 0.9 }}
-                                                        borderRadius="3px"
-                                                    >
-                                                        View Report
-                                                    </Button>
-                                                </Link>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    color="var(--ink-secondary)"
-                                                    _hover={{ color: "var(--ink-primary)" }}
-                                                    fontWeight={500}
-                                                    fontSize="13px"
-                                                    onClick={() => {
-                                                        setStatus("EMPTY");
-                                                        setDataPullStatus("AVAILABLE");
-                                                    }}
-                                                >
-                                                    Run Again
-                                                </Button>
-                                            </HStack>
-                                        </VStack>
-                                    ) : status === "ERROR" ? (
-                                        <VStack gap={2} align="stretch">
-                                            <Text fontSize="12px" color="var(--signal-negative)">
-                                                Analysis encountered an error
-                                            </Text>
-                                            <HStack gap={2}>
-                                                {correlationId && (
-                                                    <Link to={`/analysis-result/${correlationId}`}>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="ghost"
-                                                            color="var(--ink-secondary)"
-                                                            _hover={{ color: "var(--ink-primary)" }}
-                                                            fontWeight={500}
-                                                            fontSize="13px"
-                                                        >
-                                                            View Report
-                                                        </Button>
-                                                    </Link>
-                                                )}
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    color="var(--signal-negative)"
-                                                    borderColor="var(--signal-negative)"
-                                                    _hover={{ bg: "var(--signal-negative)", color: "#fff" }}
-                                                    fontWeight={500}
-                                                    fontSize="13px"
-                                                    borderRadius="3px"
-                                                    onClick={() => {
-                                                        setStatus("EMPTY");
-                                                        setDataPullStatus("AVAILABLE");
-                                                    }}
-                                                >
-                                                    Try Again
-                                                </Button>
-                                            </HStack>
-                                        </VStack>
-                                    ) : status === "EMPTY" && id ? (
-                                        <HStack gap={1}>
-                                            <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />
-                                            <Text fontSize="12px" color="var(--ink-secondary)">
-                                                Resuming analysis…
-                                            </Text>
-                                        </HStack>
-                                    ) : (
+                                    )}
+                                    <Button
+                                        size="sm"
+                                        bg="var(--accent-primary)"
+                                        color="#fff"
+                                        fontWeight={500}
+                                        fontSize="13px"
+                                        px={5}
+                                        _hover={{ opacity: 0.9 }}
+                                        borderRadius="3px"
+                                        onClick={runAnalysis}
+                                        disabled={!canRunAnalysis}
+                                        loading={status === "PENDING"}
+                                        loadingText="Running…"
+                                    >
+                                        Start Analysis
+                                    </Button>
+                                </>
+                            )}
+
+                            {/* Completed actions */}
+                            {status === "COMPLETED" && correlationId && (
+                                <HStack gap={2}>
+                                    <Link to={`/analysis-result/${correlationId}`}>
                                         <Button
                                             size="sm"
                                             bg="var(--accent-primary)"
                                             color="#fff"
                                             fontWeight={500}
                                             fontSize="13px"
-                                            px={5}
+                                            px={4}
                                             _hover={{ opacity: 0.9 }}
                                             borderRadius="3px"
-                                            onClick={runAnalysis}
-                                            disabled={!canRunAnalysis}
-                                            loading={status === "PENDING"}
-                                            loadingText="Running…"
                                         >
-                                            Start Analysis
+                                            View Report
                                         </Button>
-                                    )}
-                                </Box>
-                            </Box>
+                                    </Link>
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        color="var(--ink-secondary)"
+                                        _hover={{ color: "var(--ink-primary)" }}
+                                        fontWeight={500}
+                                        fontSize="13px"
+                                        onClick={() => {
+                                            setStatus("EMPTY");
+                                            setSteps([]);
+                                        }}
+                                    >
+                                        Run Again
+                                    </Button>
+                                </HStack>
+                            )}
+
+                            {/* Error actions */}
+                            {status === "ERROR" && (
+                                <VStack gap={2} align="stretch">
+                                    <Text fontSize="12px" color="var(--signal-negative)">
+                                        Analysis encountered an error.
+                                    </Text>
+                                    <HStack gap={2}>
+                                        {correlationId && (
+                                            <Link to={`/analysis-result/${correlationId}`}>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    color="var(--ink-secondary)"
+                                                    _hover={{ color: "var(--ink-primary)" }}
+                                                    fontWeight={500}
+                                                    fontSize="13px"
+                                                >
+                                                    View Report
+                                                </Button>
+                                            </Link>
+                                        )}
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            color="var(--signal-negative)"
+                                            borderColor="var(--signal-negative)"
+                                            _hover={{ bg: "var(--signal-negative)", color: "#fff" }}
+                                            fontWeight={500}
+                                            fontSize="13px"
+                                            borderRadius="3px"
+                                            onClick={() => {
+                                                setStatus("EMPTY");
+                                                setSteps([]);
+                                            }}
+                                        >
+                                            Try Again
+                                        </Button>
+                                    </HStack>
+                                </VStack>
+                            )}
                         </VStack>
                     </Box>
                 </Box>
@@ -911,13 +941,6 @@ export default function Analysis() {
                 <Flex justify="center" align="center" direction="column" gap={4} p={10}>
                     <Spinner size="lg" borderWidth="2px" color="var(--ink-secondary)" />
                     <Text fontSize="13px" color="var(--ink-secondary)">Loading analysis data…</Text>
-                </Flex>
-            ) : status === "PENDING" ? (
-                <Flex justify="center" align="center" direction="column" gap={4} p={10}>
-                    <Spinner size="lg" borderWidth="2px" color="var(--ink-secondary)" />
-                    <Text fontSize="13px" color="var(--ink-secondary)">
-                        Analysis in progress — this may take a few minutes.
-                    </Text>
                 </Flex>
             ) : status === "COMPLETED" && correlationId ? (
                 <Flex justify="center" align="center" direction="column" gap={4} p={10}>

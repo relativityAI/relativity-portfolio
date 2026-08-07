@@ -13,16 +13,6 @@ export default defineConfig({
         host: true,  
         port: 5173,
         proxy: {
-            "/voyager-api": {
-                target: process.env.VITE_VOYAGER_API_URL || "http://localhost:8001",
-                changeOrigin: true,
-                rewrite: (path) => path.replace(/^\/voyager-api/, "")
-            },
-            "/nebula-api": {
-                target: process.env.VITE_NEBULA_API_URL || "http://localhost:8002",
-                changeOrigin: true,
-                rewrite: (path) => path.replace(/^\/nebula-api/, "")
-            },
             "/api": {
                 target: process.env.VITE_API_URL || "http://localhost:8080",
                 changeOrigin: true,
