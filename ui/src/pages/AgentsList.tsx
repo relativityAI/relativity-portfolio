@@ -9,9 +9,9 @@ import {
 } from "@chakra-ui/react"
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ProfileService } from "@/db";
+import { AgentService } from "@/db";
 
-interface Profile {
+interface Agent {
     _id: string;
     id?: string;
     name: string;
@@ -23,27 +23,27 @@ interface Profile {
     };
 }
 
-export default function ProfilesList() {
+export default function AgentsList() {
     const navigate = useNavigate();
 
-    const [uniqueProfiles, setUniqueProfiles] = useState<Profile[]>([]);
+    const [uniqueAgents, setUniqueAgents] = useState<Agent[]>([]);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(false);
 
-    const fetchUniqueProfiles = async () => {
+    const fetchUniqueAgents = async () => {
         try {
             setLoading(true);
-            const data = await ProfileService.listProfiles();
+            const data = await AgentService.listAgents();
             if (Array.isArray(data)) {
-                setUniqueProfiles(data);
+                setUniqueAgents(data);
                 setFetchError(false);
             } else {
-                setUniqueProfiles([]);
+                setUniqueAgents([]);
                 setFetchError(true);
             }
         } catch (error) {
-            console.error("Error fetching profiles:", error);
-            setUniqueProfiles([]);
+            console.error("Error fetching agents:", error);
+            setUniqueAgents([]);
             setFetchError(true);
         } finally {
             setLoading(false);
@@ -51,23 +51,23 @@ export default function ProfilesList() {
     };
 
     const handleCreate = () => {
-        navigate("/profile/new");
+        navigate("/agent/new");
     };
 
     const onRowClick = (id: string) => {
-        navigate("/profile/" + id);
+        navigate("/agent/" + id);
     };
 
     const handleDelete = async (e: React.MouseEvent, id: string, name: string) => {
         e.stopPropagation();
         if (confirm(`Delete "${name || id}"?`)) {
-            await ProfileService.deleteProfile(id);
-            fetchUniqueProfiles();
+            await AgentService.deleteAgent(id);
+            fetchUniqueAgents();
         }
     };
 
     useEffect(() => {
-        fetchUniqueProfiles();
+        fetchUniqueAgents();
     }, []);
 
     const colSpan = 4;
@@ -78,7 +78,7 @@ export default function ProfilesList() {
                 {/* Page header */}
                 <Flex justify="space-between" align="center">
                     <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
-                        Portfolio Profiles
+                        Agents
                     </Text>
                     <Button
                         size="sm"
@@ -92,7 +92,7 @@ export default function ProfilesList() {
                         _hover={{ opacity: 0.9 }}
                         borderRadius="3px"
                     >
-                        + Create Profile
+                        + Create Agent
                     </Button>
                 </Flex>
 
@@ -149,7 +149,7 @@ export default function ProfilesList() {
                                         <Table.Cell colSpan={colSpan} py={12}>
                                             <Flex justify="center" gap={3} color="var(--ink-secondary)">
                                                 <Spinner size="sm" borderWidth="2px" />
-                                                <Text fontSize="13px">Loading profiles…</Text>
+                                                <Text fontSize="13px">Loading agents…</Text>
                                             </Flex>
                                         </Table.Cell>
                                     </Table.Row>
@@ -159,16 +159,16 @@ export default function ProfilesList() {
                                             <Flex justify="center">
                                                 <Box borderLeft="3px solid var(--signal-negative)" pl={3}>
                                                     <Text fontSize="13px" color="var(--ink-primary)">
-                                                        Failed to fetch profiles.
+                                                        Failed to fetch agents.
                                                     </Text>
                                                     <Text fontSize="12px" color="var(--ink-secondary)" mt={1}>
-                                                        Profile API may be unavailable.
+                                                        Agent API may be unavailable.
                                                     </Text>
                                                 </Box>
                                             </Flex>
                                         </Table.Cell>
                                     </Table.Row>
-                                ) : uniqueProfiles.length === 0 ? (
+                                ) : uniqueAgents.length === 0 ? (
                                     <Table.Row>
                                         <Table.Cell
                                             colSpan={colSpan}
@@ -177,11 +177,11 @@ export default function ProfilesList() {
                                             py={12}
                                             fontSize="13px"
                                         >
-                                            No profiles found.
+                                            No agents found.
                                         </Table.Cell>
                                     </Table.Row>
                                 ) : (
-                                    uniqueProfiles.map((item) => {
+                                    uniqueAgents.map((item) => {
                                         const qualCount =
                                             item.asset_evaluation?.qualitative?.length || 0;
                                         const quantCount =

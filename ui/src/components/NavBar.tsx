@@ -53,10 +53,10 @@ export default function NavBar() {
                             <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>New Analysis</Text>
                         </Flex>
                     </Link>
-                    <Link to={"/profiles"}>
+                    <Link to={"/agents"}>
                         <Flex gap={1.5} align="center">
                             <MdOutlinePeople size={16} color="var(--chakra-colors-fg-muted)" />
-                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Profiles</Text>
+                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Agents</Text>
                         </Flex>
                     </Link>
                     <Link to={"/analysis-list"}>

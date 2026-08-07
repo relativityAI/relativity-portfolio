@@ -27,38 +27,38 @@ axios.interceptors.request.use((config) => {
 });
 
 /**
- * Global Profile Service - delegates to the backend API
+ * Global Agent Service - delegates to the backend API
  */
-export const ProfileService = {
-    async listProfiles() {
-        const response = await axios.get(`${API_BASE}/profiles`);
+export const AgentService = {
+    async listAgents() {
+        const response = await axios.get(`${API_BASE}/agents`);
         return response.data;
     },
 
-    async readProfile(id: string) {
-        const response = await axios.get(`${API_BASE}/profiles/${encodeURIComponent(id)}`);
+    async readAgent(id: string) {
+        const response = await axios.get(`${API_BASE}/agents/${encodeURIComponent(id)}`);
         return response.data;
     },
 
-    async createProfile(name?: string) {
-        const response = await axios.post(`${API_BASE}/profiles`, { name });
+    async createAgent(name?: string) {
+        const response = await axios.post(`${API_BASE}/agents`, { name });
         return response.data;
     },
 
-    async updateProfile(profile: any) {
-        const id = profile?._id ?? profile?.id;
-        if (!id) throw new Error("Profile id required for update");
-        const response = await axios.put(`${API_BASE}/profiles/${encodeURIComponent(id)}`, profile);
+    async updateAgent(agent: any) {
+        const id = agent?._id ?? agent?.id;
+        if (!id) throw new Error("Agent id required for update");
+        const response = await axios.put(`${API_BASE}/agents/${encodeURIComponent(id)}`, agent);
         return response.data;
     },
 
-    async deleteProfile(id: string) {
-        const response = await axios.delete(`${API_BASE}/profiles/${encodeURIComponent(id)}`);
+    async deleteAgent(id: string) {
+        const response = await axios.delete(`${API_BASE}/agents/${encodeURIComponent(id)}`);
         return response.data;
     },
 
-    async searchProfiles(query: string) {
-        const response = await axios.get(`${API_BASE}/profiles/search`, {
+    async searchAgents(query: string) {
+        const response = await axios.get(`${API_BASE}/agents/search`, {
             params: { query }
         });
         return response.data;
@@ -88,8 +88,9 @@ export const AnalysisService = {
     async runAnalysis(config: {
         share_name: string;
         symbol: string;
-        profile_name: string;
+        agent_name: string;
         model?: string;
+        source?: string;
         documents?: string[];
         web_search?: boolean;
         web_sources?: string[];

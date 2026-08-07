@@ -6,8 +6,10 @@ import {
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
 import { MdInfoOutline, MdCheck, MdClose } from "react-icons/md";
 import { Link, useParams } from "react-router-dom";
-import { AnalysisService, ProfileService, API_BASE } from "@/db";
+import { AnalysisService, AgentService, API_BASE } from "@/db";
 import { Tooltip } from "@/components/ui/tooltip";
+import { formatSeconds } from "@/utils";
+import { RunSteps, type RunStep } from "./shared/RunStatus";
 
 const MAX_POLL_RETRIES = 600;
 
@@ -49,155 +51,6 @@ function StatusDot({ state }: { state: "idle" | "active" | "done" | "error" }) {
     );
 }
 
-type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
-
-interface RunStep {
-    key: string;
-    label: string;
-    status: StepStatus;
-    started_at: string | null;
-    finished_at: string | null;
-    duration_ms: number | null;
-    detail?: string;
-}
-
-function formatSeconds(s: number): string {
-    if (s < 60) return `${s}s`;
-    const m = Math.floor(s / 60);
-    return `${m}m ${s % 60}s`;
-}
-
-function formatMs(ms: number | null | undefined): string {
-    if (ms == null) return "";
-    return formatSeconds(Math.round(ms / 1000));
-}
-
-function StepIcon({ status }: { status: StepStatus }) {
-    if (status === "running") {
-        return <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />;
-    }
-    if (status === "completed") {
-        return (
-            <Flex
-                w="16px"
-                h="16px"
-                borderRadius="50%"
-                align="center"
-                justify="center"
-                bg="var(--signal-positive)"
-                flexShrink={0}
-            >
-                <MdCheck size={11} color="#fff" />
-            </Flex>
-        );
-    }
-    if (status === "failed") {
-        return (
-            <Flex
-                w="16px"
-                h="16px"
-                borderRadius="50%"
-                align="center"
-                justify="center"
-                bg="var(--signal-negative)"
-                flexShrink={0}
-            >
-                <MdClose size={11} color="#fff" />
-            </Flex>
-        );
-    }
-    return (
-        <Flex
-            w="16px"
-            h="16px"
-            borderRadius="50%"
-            align="center"
-            justify="center"
-            border={status === "skipped" ? "1px solid var(--hairline)" : "2px solid var(--hairline)"}
-            flexShrink={0}
-            opacity={status === "pending" ? 1 : 0.6}
-        >
-            {status === "skipped" && <Box w="6px" h="1.5px" bg="var(--ink-tertiary)" />}
-        </Flex>
-    );
-}
-
-function StepRow({ step, now }: { step: RunStep; now: number }) {
-    const elapsedMs =
-        step.status === "running" && step.started_at
-            ? now - +new Date(step.started_at)
-            : step.duration_ms;
-    const timeLabel =
-        step.status === "running" || step.status === "completed" || step.status === "failed"
-            ? formatMs(elapsedMs)
-            : "";
-
-    const labelColor =
-        step.status === "running"
-            ? "var(--ink-primary)"
-            : step.status === "completed" || step.status === "skipped"
-                ? "var(--ink-secondary)"
-                : step.status === "failed"
-                    ? "var(--signal-negative)"
-                    : "var(--ink-tertiary)";
-
-    return (
-        <Flex gap={2.5} align="flex-start">
-            <Box mt="1px">
-                <StepIcon status={step.status} />
-            </Box>
-            <Flex direction="column" gap={0.5} flex={1} minW={0}>
-                <HStack gap={2} justify="space-between" align="baseline">
-                    <Text fontSize="12.5px" fontWeight={500} color={labelColor} lineHeight="short">
-                        {step.label}
-                    </Text>
-                    {timeLabel && (
-                        <Text
-                            fontSize="11px"
-                            fontFamily="var(--font-tabular)"
-                            fontVariantNumeric="tabular-nums"
-                            color={step.status === "running" ? "var(--ink-secondary)" : "var(--ink-tertiary)"}
-                            whiteSpace="nowrap"
-                        >
-                            {step.status === "running" ? `${timeLabel} …` : timeLabel}
-                        </Text>
-                    )}
-                </HStack>
-                {step.detail && (
-                    <Text fontSize="11.5px" color="var(--ink-tertiary)" lineHeight="short">
-                        {step.detail}
-                    </Text>
-                )}
-                {step.status === "pending" && !step.detail && (
-                    <Text fontSize="11.5px" color="var(--ink-tertiary)" lineHeight="short">
-                        Queued
-                    </Text>
-                )}
-            </Flex>
-        </Flex>
-    );
-}
-
-function AnalysisSteps({ steps, now }: { steps: RunStep[]; now: number }) {
-    if (!steps || steps.length === 0) {
-        return (
-            <HStack gap={1.5}>
-                <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />
-                <Text fontSize="12px" color="var(--ink-secondary)">
-                    Running analysis…
-                </Text>
-            </HStack>
-        );
-    }
-    return (
-        <VStack gap={3.5} align="stretch">
-            {steps.map((s) => (
-                <StepRow key={s.key} step={s} now={now} />
-            ))}
-        </VStack>
-    );
-}
-
 function AnalysisHero() {
     return (
         <Flex direction="column" gap={1}>
@@ -220,15 +73,15 @@ function AnalysisHero() {
     );
 }
 
-function AnalysisStepper({ sourceComplete, companyComplete, profileComplete }: {
+function AnalysisStepper({ sourceComplete, companyComplete, agentComplete }: {
     sourceComplete: boolean;
     companyComplete: boolean;
-    profileComplete: boolean;
+    agentComplete: boolean;
 }) {
     const steps = [
         { label: "Source", done: sourceComplete },
         { label: "Company", done: companyComplete },
-        { label: "Profile", done: profileComplete },
+        { label: "Agent", done: agentComplete },
     ];
     return (
         <Flex align="center" gap={0}>
@@ -257,7 +110,7 @@ function AnalysisGettingStarted() {
     const cards = [
         { num: "01", title: "Select a market source", desc: "Choose between SEC (US Market) or NSE (Indian Market)." },
         { num: "02", title: "Search and select a company", desc: "Find and pick the target company for analysis." },
-        { num: "03", title: "Choose an investor profile", desc: "Pick a predefined portfolio strategy to guide the LLM." },
+        { num: "03", title: "Choose an agent", desc: "Pick an agent to guide the LLM." },
         { num: "04", title: "Pick a model & run", desc: "Choose the LLM that runs the analysis, then start the run. Data is fetched automatically." },
     ];
     return (
@@ -295,10 +148,106 @@ function AnalysisGettingStarted() {
     );
 }
 
+interface RunningAnalysis {
+    analysis_id?: string;
+    _id?: string;
+    id?: string;
+    symbol?: string;
+    share_name?: string;
+    agent_name?: string;
+    agent?: string;
+    status?: string;
+}
+
+function RunningNow() {
+    const [running, setRunning] = useState<RunningAnalysis[]>([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const load = async () => {
+            try {
+                const data = await AnalysisService.listAnalyses();
+                if (cancelled) return;
+                const active = Array.isArray(data)
+                    ? data.filter((a: RunningAnalysis) => {
+                        const s = (a.status || "").toLowerCase();
+                        return s === "pending" || s === "running" || s === "processing";
+                    })
+                    : [];
+                setRunning(active);
+            } catch {
+                // ignore transient errors
+            }
+        };
+        const interval = setInterval(load, 5000);
+        load();
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+    }, []);
+
+    if (running.length === 0) return null;
+
+    return (
+        <Box
+            bg="var(--surface-panel)"
+            border="1px solid var(--hairline)"
+            borderRadius="2px"
+            p={5}
+            mt={4}
+        >
+            <Text
+                fontSize="10.5px"
+                fontWeight={500}
+                color="var(--ink-tertiary)"
+                textTransform="uppercase"
+                letterSpacing="0.06em"
+                mb={3}
+            >
+                Running Now
+            </Text>
+            <Flex direction="column" gap={1.5}>
+                {running.map((a) => {
+                    const rid = a.analysis_id || a._id || a.id;
+                    return (
+                        <Link key={rid} to={`/analysis-result/${rid}`}>
+                            <HStack
+                                gap={2}
+                                p={2}
+                                borderRadius="2px"
+                                _hover={{ bg: "var(--surface-recessed)" }}
+                                transition="background 80ms"
+                            >
+                                <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" flexShrink={0} />
+                                <Flex direction="column" minW={0} flex={1}>
+                                    <Text fontSize="12.5px" fontWeight={500} color="var(--ink-primary)" lineHeight="short">
+                                        {a.share_name || a.symbol}
+                                    </Text>
+                                    <Text
+                                        fontSize="11px"
+                                        fontFamily="var(--font-mono)"
+                                        color="var(--ink-tertiary)"
+                                        whiteSpace="nowrap"
+                                        overflow="hidden"
+                                        textOverflow="ellipsis"
+                                    >
+                                        {a.agent_name || a.agent}
+                                    </Text>
+                                </Flex>
+                            </HStack>
+                        </Link>
+                    );
+                })}
+            </Flex>
+        </Box>
+    );
+}
+
 export default function Analysis() {
     const { id } = useParams();
 
-    const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
+    const [availableAgents, setAvailableAgents] = useState<any[]>([]);
     const [correlationId, setCorrelationId] = useState<string>(id || "");
     const [status, setStatus] = useState<StatusType>("EMPTY");
     const [loading, setLoading] = useState(false);
@@ -321,7 +270,7 @@ export default function Analysis() {
         source: "NSE",
         share: "",
         shareName: "",
-        profile: "",
+        agent: "",
     });
 
     const [availableSources, setAvailableSources] = useState<any[]>([]);
@@ -347,14 +296,14 @@ export default function Analysis() {
         });
     }, [availableSources]);
 
-    const profileOptions = useMemo(() => {
-        const items = availableProfiles.map((p: any) => ({ label: p.name, value: p.name }));
+    const agentOptions = useMemo(() => {
+        const items = availableAgents.map((p: any) => ({ label: p.name, value: p.name }));
         return createListCollection({
             items,
             itemToString: (item: any) => item.label,
             itemToValue: (item: any) => item.value,
         });
-    }, [availableProfiles]);
+    }, [availableAgents]);
 
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [selectedModel, setSelectedModel] = useState("gemini/gemini-flash-lite-latest");
@@ -415,28 +364,29 @@ export default function Analysis() {
         }));
     }, []);
 
-    const fetchAvailableProfiles = useCallback(async () => {
+    const fetchAvailableAgents = useCallback(async () => {
         try {
-            const data = await ProfileService.listProfiles();
+            const data = await AgentService.listAgents();
             if (Array.isArray(data)) {
-                setAvailableProfiles(data);
+                setAvailableAgents(data);
             } else {
-                setAvailableProfiles([]);
+                setAvailableAgents([]);
             }
         } catch {
-            setAvailableProfiles([]);
+            setAvailableAgents([]);
         }
     }, []);
 
     const runAnalysis = async () => {
-        if (!config.source || !config.share || !config.profile) return;
+        if (!config.source || !config.share || !config.agent) return;
 
         try {
             const result = await AnalysisService.runAnalysis({
                 share_name: config.shareName || config.share,
                 symbol: config.share,
-                profile_name: config.profile,
+                agent_name: config.agent,
                 model: selectedModel || undefined,
+                source: config.source,
             });
 
             if (result && (result.corr_id || result.analysis_id)) {
@@ -461,7 +411,7 @@ export default function Analysis() {
                     ...prev,
                     share: data.symbol || data.share || prev.share,
                     shareName: data.share_name || prev.shareName,
-                    profile: data.profile_name || data.profile || prev.profile,
+                    agent: data.agent_name || data.agent || prev.agent,
                     source: exchangeSrc,
                 }));
 
@@ -492,12 +442,12 @@ export default function Analysis() {
 
     useEffect(() => {
         fetchAvailableSources();
-        fetchAvailableProfiles();
+        fetchAvailableAgents();
         fetchModels();
         if (id) {
             fetchAnalysisData(id);
         }
-    }, [id, fetchAvailableSources, fetchAvailableProfiles, fetchModels, fetchAnalysisData]);
+    }, [id, fetchAvailableSources, fetchAvailableAgents, fetchModels, fetchAnalysisData]);
 
     const pollRetriesRef = useRef(0);
     useEffect(() => {
@@ -537,7 +487,7 @@ export default function Analysis() {
     }, [status, correlationId]);
 
     const searchParams = useMemo(() => ({ source: config.source }), [config.source]);
-    const isConfigComplete = config.share !== "" && config.profile !== "";
+    const isConfigComplete = config.share !== "" && config.agent !== "";
     const canRunAnalysis = isConfigComplete;
 
     return (
@@ -547,7 +497,7 @@ export default function Analysis() {
             <AnalysisStepper
                 sourceComplete={!!config.source}
                 companyComplete={!!config.share}
-                profileComplete={!!config.profile}
+                agentComplete={!!config.agent}
             />
 
             <Flex direction={{ base: "column", md: "row" }} gap={8} align="start" mb={4}>
@@ -640,20 +590,20 @@ export default function Analysis() {
                                     textTransform="uppercase"
                                     letterSpacing="0.06em"
                                 >
-                                    Portfolio Profile
+                                    Agent
                                 </Text>
                                 <Box width="full">
                                     <Select.Root
-                                        collection={profileOptions}
-                                        value={config.profile ? [config.profile] : []}
+                                        collection={agentOptions}
+                                        value={config.agent ? [config.agent] : []}
                                         onValueChange={(e) => {
-                                            setConfig({ ...config, profile: e.value[0] });
+                                            setConfig({ ...config, agent: e.value[0] });
                                         }}
                                     >
                                         <Select.HiddenSelect />
                                         <Select.Control>
                                             <Select.Trigger borderColor="var(--hairline)">
-                                                <Select.ValueText placeholder="Select Portfolio Strategy" />
+                                                <Select.ValueText placeholder="Select Agent" />
                                             </Select.Trigger>
                                             <Select.IndicatorGroup>
                                                 <Select.Indicator />
@@ -662,7 +612,7 @@ export default function Analysis() {
                                         <Portal>
                                             <Select.Positioner>
                                                 <Select.Content>
-                                                    {profileOptions.items.map((item: any) => (
+                                                    {agentOptions.items.map((item: any) => (
                                                         <Select.Item item={item} key={item.value}>
                                                             {item.label}
                                                             <Select.ItemIndicator />
@@ -825,7 +775,7 @@ export default function Analysis() {
                                     borderBottom="1px solid var(--hairline)"
                                     py={4}
                                 >
-                                    <AnalysisSteps steps={steps} now={Date.now()} />
+                                    <RunSteps steps={steps} now={Date.now()} />
                                 </Box>
                             )}
 
@@ -932,6 +882,8 @@ export default function Analysis() {
                             )}
                         </VStack>
                     </Box>
+
+                    <RunningNow />
                 </Box>
             </Flex>
 

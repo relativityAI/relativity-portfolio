@@ -2,9 +2,9 @@ import { Text, Flex, Button, Table, Box, HStack, Spinner, Dialog } from "@chakra
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MdArrowUpward, MdArrowDownward } from "react-icons/md";
-import { AnalysisService, ProfileService } from "@/db";
+import { AnalysisService, AgentService } from "@/db";
 
-type SortKey = "share" | "created_at" | "score" | "status" | "profile" | "duration";
+type SortKey = "share" | "created_at" | "score" | "status" | "agent" | "duration";
 
 function scoreSignal(score: number): "positive" | "caution" | "negative" {
     if (score >= 70) return "positive";
@@ -49,7 +49,7 @@ export default function AnalysisList() {
     const [loading, setLoading] = useState(false);
     const [sortKey, setSortKey] = useState<SortKey | null>(null);
     const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-    const [stats, setStats] = useState({ profiles: 0, analysis: 0 });
+    const [stats, setStats] = useState({ agents: 0, analysis: 0 });
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
     const fetchUniqueAnalysis = async () => {
@@ -74,9 +74,9 @@ export default function AnalysisList() {
 
     useEffect(() => {
         fetchUniqueAnalysis();
-        ProfileService.listProfiles()
-            .then((profiles) => {
-                setStats((prev) => ({ ...prev, profiles: profiles.length || 0 }));
+        AgentService.listAgents()
+            .then((agents) => {
+                setStats((prev) => ({ ...prev, agents: agents.length || 0 }));
             })
             .catch(() => {});
     }, []);
@@ -117,9 +117,9 @@ export default function AnalysisList() {
                     aVal = a.total_score ?? -1;
                     bVal = b.total_score ?? -1;
                     break;
-                case "profile":
-                    aVal = (a.profile_name || a.profile || "").toLowerCase();
-                    bVal = (b.profile_name || b.profile || "").toLowerCase();
+                case "agent":
+                    aVal = (a.agent_name || a.agent || "").toLowerCase();
+                    bVal = (b.agent_name || b.agent || "").toLowerCase();
                     break;
                 case "duration":
                     aVal = a.duration ?? -1;
@@ -181,17 +181,17 @@ export default function AnalysisList() {
             .slice(0, 5);
     }, [completed]);
 
-    const topProfiles = useMemo(() => {
-        const profileMap = new Map<string, { profile: string; scores: number[] }>();
+    const topAgents = useMemo(() => {
+        const agentMap = new Map<string, { agent: string; scores: number[] }>();
         completed.forEach((a) => {
-            const prof = a.profile || a.profile_name || "";
-            if (!prof) return;
-            if (!profileMap.has(prof)) profileMap.set(prof, { profile: prof, scores: [] });
-            profileMap.get(prof)!.scores.push(a.total_score);
+            const agentName = a.agent || a.agent_name || "";
+            if (!agentName) return;
+            if (!agentMap.has(agentName)) agentMap.set(agentName, { agent: agentName, scores: [] });
+            agentMap.get(agentName)!.scores.push(a.total_score);
         });
-        return Array.from(profileMap.values())
+        return Array.from(agentMap.values())
             .map((e) => ({
-                profile: e.profile,
+                agent: e.agent,
                 count: e.scores.length,
                 avgScore: e.scores.reduce((a: number, b: number) => a + b, 0) / e.scores.length,
             }))
@@ -258,7 +258,7 @@ export default function AnalysisList() {
                             <Flex direction="column" gap={3}>
                                 <Flex justify="space-between" align="baseline">
                                     <Text fontSize="13px" color="var(--ink-secondary)">
-                                        Profiles
+                                        Agents
                                     </Text>
                                     <Text
                                         fontSize="24px"
@@ -268,7 +268,7 @@ export default function AnalysisList() {
                                         color="var(--ink-primary)"
                                         lineHeight="1"
                                     >
-                                        {stats.profiles}
+                                        {stats.agents}
                                     </Text>
                                 </Flex>
                                 <Flex justify="space-between" align="baseline">
@@ -408,7 +408,7 @@ export default function AnalysisList() {
 
                         <Box mx={4} borderTop="1px solid var(--hairline)" />
 
-                        {/* Top Profiles */}
+                        {/* Top Agents */}
                         <Box px={4} py={3}>
                             <Text
                                 fontSize="10.5px"
@@ -418,9 +418,9 @@ export default function AnalysisList() {
                                 textTransform="uppercase"
                                 mb={2}
                             >
-                                Top Profiles
+                                Top Agents
                             </Text>
-                            {topProfiles.length === 0 ? (
+                            {topAgents.length === 0 ? (
                                 <Text fontSize="12px" color="var(--ink-tertiary)">
                                     No completed analyses
                                 </Text>
@@ -443,7 +443,7 @@ export default function AnalysisList() {
                                                     color="var(--ink-tertiary)"
                                                     px={1}
                                                 >
-                                                    Profile
+                                                    Agent
                                                 </Table.ColumnHeader>
                                                 <Table.ColumnHeader
                                                     fontSize="10px"
@@ -466,10 +466,10 @@ export default function AnalysisList() {
                                             </Table.Row>
                                         </Table.Header>
                                         <Table.Body>
-                                            {topProfiles.map((p, i) => {
+                                            {topAgents.map((p, i) => {
                                                 const sig = scoreSignal(p.avgScore);
                                                 return (
-                                                    <Table.Row key={p.profile}>
+                                                    <Table.Row key={p.agent}>
                                                         <Table.Cell
                                                             px={1}
                                                             fontSize="11px"
@@ -488,7 +488,7 @@ export default function AnalysisList() {
                                                             textOverflow="ellipsis"
                                                             whiteSpace="nowrap"
                                                         >
-                                                            {p.profile}
+                                                            {p.agent}
                                                         </Table.Cell>
                                                         <Table.Cell
                                                             px={1}
@@ -572,12 +572,12 @@ export default function AnalysisList() {
                                                     py={3}
                                                     px={4}
                                                     cursor="pointer"
-                                                    onClick={() => toggleSort("profile")}
+                                                    onClick={() => toggleSort("agent")}
                                                     userSelect="none"
                                                 >
                                                     <HStack gap={1}>
-                                                        <span>Profile</span>
-                                                        <SortIcon column="profile" />
+                                                        <span>Agent</span>
+                                                        <SortIcon column="agent" />
                                                     </HStack>
                                                 </Table.ColumnHeader>
                                                 <Table.ColumnHeader
@@ -749,7 +749,7 @@ export default function AnalysisList() {
                                                                 </Flex>
                                                             </Table.Cell>
 
-                                                            {/* Profile */}
+                                                            {/* Agent */}
                                                             <Table.Cell
                                                                 fontSize="13px"
                                                                 color="var(--ink-secondary)"
@@ -760,8 +760,8 @@ export default function AnalysisList() {
                                                                 px={4}
                                                                 py={3}
                                                             >
-                                                                {item.profile_name ||
-                                                                    item.profile ||
+                                                                {item.agent_name ||
+                                                                    item.agent ||
                                                                     "—"}
                                                             </Table.Cell>
 

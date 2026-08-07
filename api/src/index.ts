@@ -9,25 +9,108 @@ import { getSources, searchStocks } from "./discovery.js";
 import { getMetricsCatalog } from "./metrics.js";
 import { createRun, RunRequest } from "./run.js";
 import type { LlmKeys } from "./agent.js";
+import { log, paint } from "./logger.js";
+
+const METHOD_COLORS: Record<string, string> = {
+  GET: "1;32",
+  POST: "1;33",
+  PUT: "1;34",
+  PATCH: "1;35",
+  DELETE: "1;31",
+  OPTIONS: "1;36",
+};
+
+function methodColor(method: string): string {
+  return METHOD_COLORS[method] || "37";
+}
+
+function statusColor(code: number): string {
+  if (code >= 500) return "1;31";
+  if (code >= 400) return "1;33";
+  if (code >= 300) return "36";
+  return "1;32";
+}
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
+// ---- request context: id + response-body capture (for error logging) ----
+app.use((req, res, next) => {
+  (req as any)._reqId = randomUUID().slice(0, 8);
+  res.setHeader("X-Rel-Request-Id", (req as any)._reqId);
+
+  const json = res.json.bind(res);
+  (res as any).json = (body: unknown) => {
+    (res as any)._jsonBody = body;
+    return json(body);
+  };
+  next();
+});
+
+// ---- access log: every call, every detail ----
 app.use((req, res, next) => {
   const t = Date.now();
   res.on("finish", () => {
-    console.log(`[api] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${Date.now() - t}ms)`);
+    const reqId = (req as any)._reqId || "-";
+    const ms = Date.now() - t;
+    const bytes = Number(res.getHeader("content-length") || 0);
+    const keys = Object.entries(extractKeys(req))
+      .filter(([, v]) => v)
+      .map(([k]) => k)
+      .join(",");
+    const voyager = (req.headers["x-voyager-url"] as string)?.trim() ? "custom" : "default";
+
+    const parts = [
+      paint(req.method, methodColor(req.method)),
+      req.originalUrl,
+      "->",
+      paint(String(res.statusCode), statusColor(res.statusCode)),
+      paint(`(${ms}ms, ${bytes ? (bytes / 1024).toFixed(1) + "KB" : "no body"})`, ms >= 1000 ? "1;33" : "2"),
+      paint(`ip=${req.ip || "-"}`, "2"),
+      paint(`keys=${keys || "none"}`, "2"),
+      paint(`voyager=${voyager}`, "2"),
+    ];
+
+    if (req.method === "POST" && req.path === "/analysis") {
+      const b = req.body || {};
+      parts.push(
+        paint(
+          `body=${JSON.stringify({
+            symbol: b.symbol,
+            share_name: b.share_name,
+            agent_name: b.agent_name,
+            model: b.model,
+            web_search: !!b.web_search,
+            documents: (b.documents || []).length,
+            web_sources: (b.web_sources || []).length,
+          })}`,
+          "36",
+        ),
+      );
+    }
+
+    const msg = parts.join(" ");
+
+    if (res.statusCode >= 400) {
+      const resp = (res as any)._jsonBody;
+      const errStr = resp ? JSON.stringify(resp) : "";
+      log.error(`[http:${reqId}]`, `${msg}${errStr ? ` ${paint(`resp=${errStr.slice(0, 500)}`, "1;35")}` : ""}`);
+    } else {
+      log.info(`[http:${reqId}]`, msg);
+    }
   });
   next();
 });
 
 // ---- simple per-IP rate limiter (agent runs are token-heavy) ----
+// Only POST /analysis creates a token-heavy run; reads/polls must not be
+// throttled or the UI's status polling exhausts the budget immediately.
 const WINDOW_MS = 60_000;
 const hits = new Map<string, number[]>();
 app.use((req, _res, next) => {
   if (req.method === "OPTIONS") return next();
-  if (!req.path.startsWith("/analysis")) return next();
+  if (req.method !== "POST" || req.path !== "/analysis") return next();
   const ip = req.ip || "unknown";
   const now = Date.now();
   const arr = (hits.get(ip) || []).filter((t) => now - t < WINDOW_MS);
@@ -90,10 +173,10 @@ app.get("/health/voyager", async (req, res) => {
   }
 });
 
-// ---- profiles ----
-app.get("/profiles", async (_req, res) => {
+// ---- agents ----
+app.get("/agents", async (_req, res) => {
   try {
-    const docs = await db().collection("profiles").find().toArray();
+    const docs = await db().collection("agents").find().toArray();
     docs.sort((a, b) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
     res.json(docs.map(toPlain));
   } catch (e: any) {
@@ -101,11 +184,11 @@ app.get("/profiles", async (_req, res) => {
   }
 });
 
-app.get("/profiles/search", async (req, res) => {
+app.get("/agents/search", async (req, res) => {
   try {
     const q = String(req.query.query || "");
     const docs = await db()
-      .collection("profiles")
+      .collection("agents")
       .find({ name: { $regex: q, $options: "i" } })
       .limit(25)
       .toArray();
@@ -115,7 +198,7 @@ app.get("/profiles/search", async (req, res) => {
   }
 });
 
-app.post("/profiles", async (req, res) => {
+app.post("/agents", async (req, res) => {
   try {
     const doc = {
       _id: undefined as any,
@@ -129,29 +212,29 @@ app.post("/profiles", async (req, res) => {
     };
     const id = doc._id ?? randomUUID();
     doc._id = id;
-    await db().collection("profiles").insertOne(doc);
+    await db().collection("agents").insertOne(doc);
     res.status(201).json(toPlain(doc));
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
 });
 
-app.get("/profiles/:id", async (req, res) => {
+app.get("/agents/:id", async (req, res) => {
   try {
-    const doc = await db().collection("profiles").findOne(idFilter(req.params.id));
-    if (!doc) return res.status(404).json({ error: "Profile not found" });
+    const doc = await db().collection("agents").findOne(idFilter(req.params.id));
+    if (!doc) return res.status(404).json({ error: "Agent not found" });
     res.json(toPlain(doc));
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
 });
 
-app.put("/profiles/:id", async (req, res) => {
+app.put("/agents/:id", async (req, res) => {
   try {
     const id = req.params.id;
     const filter = idFilter(id);
-    const existing = await db().collection("profiles").findOne(filter);
-    if (!existing) return res.status(404).json({ error: "Profile not found" });
+    const existing = await db().collection("agents").findOne(filter);
+    if (!existing) return res.status(404).json({ error: "Agent not found" });
     const { _id, id: _id2, created_at, ...rest } = req.body || {};
     const doc = {
       ...existing,
@@ -160,16 +243,16 @@ app.put("/profiles/:id", async (req, res) => {
       created_at: existing.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-    await db().collection("profiles").replaceOne(filter as any, doc);
+    await db().collection("agents").replaceOne(filter as any, doc);
     res.json(toPlain(doc));
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
 });
 
-app.delete("/profiles/:id", async (req, res) => {
+app.delete("/agents/:id", async (req, res) => {
   try {
-    await db().collection("profiles").deleteOne(idFilter(req.params.id));
+    await db().collection("agents").deleteOne(idFilter(req.params.id));
     res.json({ deleted: true });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
@@ -180,19 +263,21 @@ app.delete("/profiles/:id", async (req, res) => {
 app.post("/analysis", async (req, res) => {
   try {
     const body = req.body || {};
-    if (!body.symbol || !body.profile_name) {
-      return res.status(400).json({ error: "symbol and profile_name are required" });
+    if (!body.symbol || !body.agent_name) {
+      return res.status(400).json({ error: "symbol and agent_name are required" });
     }
     const runReq: RunRequest = {
       symbol: String(body.symbol),
       share_name: body.share_name ? String(body.share_name) : undefined,
-      profile_name: String(body.profile_name),
+      agent_name: String(body.agent_name),
       model: body.model ? String(body.model) : undefined,
+      source: body.source ? String(body.source) : undefined,
       documents: Array.isArray(body.documents) ? body.documents : undefined,
       web_search: !!body.web_search,
       web_sources: Array.isArray(body.web_sources) ? body.web_sources : undefined,
       voyagerUrl: voyagerUrl(req),
       keys: extractKeys(req),
+      reqId: (req as any)._reqId,
     };
     const result = await createRun(runReq);
     res.status(202).json(result);
@@ -211,8 +296,8 @@ app.get("/analysis", async (_req, res) => {
         analysis_id: 1,
         symbol: 1,
         share_name: 1,
-        profile_name: 1,
-        profile: 1,
+        agent_name: 1,
+        agent: 1,
         status: 1,
         total_score: 1,
         quantitative_score: 1,
@@ -272,12 +357,16 @@ app.get("/metrics", (req, res) => {
 });
 
 const server = app.listen(config.port, async () => {
-  console.log(`[api] listening on :${config.port}`);
+  log.info("[api]", `listening on :${config.port}`);
+  log.info(
+    "[api]",
+    `config: mongo=${config.mongodbUrl} db=${config.mongodbDb} voyager=${config.voyagerUrl} rateLimit=${config.rateLimitPerMin}/min logLevel=${process.env.LOG_LEVEL || "info"}`,
+  );
   try {
     await connectDb();
-    console.log("[api] mongodb connected");
+    log.info("[api]", "mongodb connected");
   } catch (e) {
-    console.warn("[api] mongodb NOT connected:", (e as Error).message);
+    log.warn("[api]", "mongodb NOT connected:", (e as Error).message);
   }
 });
 

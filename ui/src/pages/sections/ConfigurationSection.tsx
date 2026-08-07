@@ -66,7 +66,7 @@ export default function ConfigurationSection({ data, onChange }: ConfigurationSe
     <>
       <SectionHeader
         title="Configuration"
-        description="Sets the boundaries of the investing world this profile is allowed to operate in."
+        description="Sets the boundaries of the investing world this agent is allowed to operate in."
         sequenceNumber={1}
       />
 

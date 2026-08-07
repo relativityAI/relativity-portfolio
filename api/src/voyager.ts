@@ -50,33 +50,3 @@ export function toCountrySource(source: string): { country: string; source: stri
   if (source === "NSE") return { country: "in", source: "nse" };
   return { country: "in", source: source.toLowerCase() };
 }
-
-export async function ensureDataPulled(
-  voyager: VoyagerClient,
-  symbol: string,
-  country: string,
-  source: string,
-): Promise<{ available: boolean; last_pull?: string }> {
-  try {
-    const status = await voyager.get("/pull", { symbol, country, source });
-    if (status?.available) return status;
-  } catch {
-    // not pulled yet
-  }
-  try {
-    await voyager.post("/pull", { symbol, country, source });
-  } catch {
-    // pull already running or failed; fall through to polling
-  }
-  const deadline = Date.now() + 5 * 60_000;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 15_000));
-    try {
-      const status = await voyager.get("/pull", { symbol, country, source });
-      if (status?.available) return status;
-    } catch {
-      // still not available
-    }
-  }
-  return { available: false };
-}

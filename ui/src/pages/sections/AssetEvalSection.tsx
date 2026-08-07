@@ -1,7 +1,7 @@
 import { Flex, Text, Select, createListCollection, Portal, Box, Button } from "@chakra-ui/react"
 import { useState } from "react"
-import ProfileDataQualitative from "../ProfileQualitative"
-import ProfileQuantitative from "../ProfileQuantitative"
+import AgentDataQualitative from "../AgentQualitative"
+import AgentQuantitative from "../AgentQuantitative"
 import SectionBlock from "../shared/SectionBlock"
 import SectionHeader from "../shared/SectionHeader"
 
@@ -77,7 +77,7 @@ export default function AssetEvalSection({
                 title="Qualitative"
                 description="Text-based judgment calls on a company's quality that can't be reduced to a number."
             >
-                <ProfileDataQualitative
+                <AgentDataQualitative
                     name={name}
                     data={qualitative}
                     id={id}
@@ -183,7 +183,7 @@ export default function AssetEvalSection({
                 title="Quantitative"
                 description="Metric-driven quantitative criteria."
             >
-                <ProfileQuantitative
+                <AgentQuantitative
                     name={name}
                     data={quantitative}
                     id={id}

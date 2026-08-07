@@ -1,21 +1,24 @@
 import { db, newId } from "./db.js";
 import { config } from "./config.js";
 import { getModelIds } from "./models.js";
-import { VoyagerClient, ensureDataPulled, toCountrySource } from "./voyager.js";
+import { VoyagerClient, toCountrySource } from "./voyager.js";
 import { runQuantitative } from "./quant.js";
 import { runQualitativeAll } from "./agent.js";
 import type { LlmKeys } from "./agent.js";
+import { log } from "./logger.js";
 
 export interface RunRequest {
   symbol: string;
   share_name?: string;
-  profile_name: string;
+  agent_name: string;
   model?: string;
+  source?: string;
   documents?: string[];
   web_search?: boolean;
   web_sources?: string[];
   voyagerUrl: string;
   keys: LlmKeys;
+  reqId?: string;
 }
 
 const DEFAULT_MODEL = "gemini/gemini-flash-lite-latest";
@@ -33,8 +36,7 @@ export interface RunStep {
 }
 
 const STEP_DEFS: { key: string; label: string }[] = [
-  { key: "profile", label: "Load portfolio profile" },
-  { key: "data_pull", label: "Pull financial data" },
+  { key: "agent", label: "Load agent configuration" },
   { key: "quantitative", label: "Quantitative scoring" },
   { key: "qualitative", label: "Qualitative scoring" },
   { key: "finalize", label: "Finalize report" },
@@ -86,7 +88,7 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
     status: "PENDING",
     symbol: req.symbol,
     share_name: req.share_name || req.symbol,
-    profile_name: req.profile_name,
+    agent_name: req.agent_name,
     model: req.model || getModelIds()[0] || DEFAULT_MODEL,
     documents: req.documents || [],
     web_search: req.web_search ?? false,
@@ -105,7 +107,7 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
   };
   await db().collection("analysis_runs").insertOne(run as any);
   executeRun(runId, req).catch((e) => {
-    console.error("[run] background execution failed:", e);
+    log.error(`[run ${runId}]`, "background execution failed:", e);
   });
   return { analysis_id: runId };
 }
@@ -125,14 +127,16 @@ async function markFailed(runId: string, err: unknown, started?: number): Promis
       error: msg,
       duration: started ? (Date.now() - started) / 1000 : null,
     });
+    log.error(`[run ${runId}]`, `marked FAILED: ${msg}`);
   } catch (e) {
-    console.error("[run] failed to persist failure:", e);
+    log.error(`[run ${runId}]`, "failed to persist failure:", e);
   }
 }
 
 async function executeRun(runId: string, req: RunRequest): Promise<void> {
   const started = Date.now();
   const steps: RunStep[] = initialSteps();
+  const runTag = `[run ${runId}] reqId=${req.reqId || "-"}`;
 
   // Serialize every write to the run doc so out-of-order steps snapshots
   // (e.g. fire-and-forget progress updates) can't clobber newer ones.
@@ -141,7 +145,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     const next = queue
       .then(fn, fn)
       .catch((e) => {
-        console.error(`[run ${runId}] failed to persist progress:`, e);
+        log.error(`[run ${runId}]`, "failed to persist progress:", e);
       });
     queue = next;
     return next;
@@ -157,44 +161,29 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
   };
 
   try {
-    // ---- profile ----
-    await begin("profile");
-    const profile = await db()
-      .collection("profiles")
-      .findOne({ $or: [{ name: req.profile_name }, { _id: req.profile_name }] } as any);
-    if (!profile) {
-      await end("profile", "failed", "Profile not found");
-      throw new Error(`Profile not found: ${req.profile_name}`);
+    // ---- agent ----
+    await begin("agent");
+    const agent = await db()
+      .collection("agents")
+      .findOne({ $or: [{ name: req.agent_name }, { _id: req.agent_name }] } as any);
+    if (!agent) {
+      await end("agent", "failed", "Agent not found");
+      throw new Error(`Agent not found: ${req.agent_name}`);
     }
-    await end("profile", "completed");
+    await end("agent", "completed");
 
-    const source = profile.source || "NSE";
+    const source = req.source || agent.source || "NSE";
     const cs = toCountrySource(source);
     await write(() => updateRun(runId, { status: "RUNNING", source }));
-    console.log(`[run ${runId}] start ${req.symbol} | profile="${profile.name}" | model=${req.model || DEFAULT_MODEL} | source=${source}`);
+    log.info(runTag, `start symbol=${req.symbol} agent="${agent.name}" model=${req.model || DEFAULT_MODEL} source=${source}`);
 
     const voyager = new VoyagerClient(req.voyagerUrl || config.voyagerUrl);
 
-    // ---- data pull ----
-    await begin("data_pull");
-    let pullInfo = { available: false };
-    try {
-      pullInfo = await ensureDataPulled(voyager, req.symbol, cs.country, cs.source);
-      await end(
-        "data_pull",
-        "completed",
-        pullInfo.available ? "Data ready" : "No stored data, continuing with live data",
-      );
-    } catch (e) {
-      await end("data_pull", "failed", (e as Error).message);
-    }
-    console.log(`[run ${runId}] data pulled available=${pullInfo.available}`);
-
     // ---- quantitative ----
     await begin("quantitative");
-    const quant = await runQuantitative(voyager, profile, req.symbol, cs.country, cs.source);
+    const quant = await runQuantitative(voyager, agent, req.symbol, cs.country, cs.source);
     await end("quantitative", "completed");
-    console.log(`[run ${runId}] quant done score=${quant.quantitative_score}`);
+    log.info(runTag, `quant done score=${quant.quantitative_score}`);
 
     const toolCtx = {
       voyager,
@@ -207,14 +196,14 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
 
     // ---- qualitative ----
     const qualParams = [
-      ...(profile?.asset_evaluation?.qualitative || []),
-      ...(profile?.macro_evaluation?.qualitative || []),
+      ...(agent?.asset_evaluation?.qualitative || []),
+      ...(agent?.macro_evaluation?.qualitative || []),
     ];
     await begin("qualitative");
     let qual: {
       qualitative_analysis: Record<string, unknown>;
       qualitative_tool_calls: Record<string, unknown[]>;
-      qualitative_score: number | null;
+      qualitative_score: number;
     } | null = null;
     if (qualParams.length === 0) {
       await end("qualitative", "skipped", "No qualitative parameters");
@@ -223,7 +212,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
         req.model || DEFAULT_MODEL,
         req.keys,
         toolCtx,
-        profile,
+        agent,
         req.documents || [],
         req.web_search ?? false,
         req.web_sources || [],
@@ -236,17 +225,18 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
         },
       );
       await end("qualitative", "completed");
-      console.log(`[run ${runId}] qual done score=${qual.qualitative_score}`);
+      log.info(runTag, `qual done score=${qual.qualitative_score}`);
     }
 
     // ---- finalize ----
     await begin("finalize");
     const quantScore = quant.quantitative_score;
-    const qualScore = qual?.qualitative_score ?? null;
-    let total: number | null = null;
-    if (quantScore != null && qualScore != null) total = (quantScore + qualScore) / 2;
-    else if (quantScore != null) total = quantScore;
-    else if (qualScore != null) total = qualScore;
+    const qualScore = qual?.qualitative_score ?? 0;
+    let total = 0;
+    if (quantScore > 0 && qualScore > 0) total = (quantScore + qualScore) / 2;
+    else if (quantScore > 0) total = quantScore;
+    else if (qualScore > 0) total = qualScore;
+    total = Math.round(total * 100) / 100;
 
     await write(() =>
       updateRun(runId, {
@@ -258,15 +248,14 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
         quantitative_score: quantScore,
         qualitative_score: qualScore,
         total_score: total,
-        data_pulled: pullInfo.available,
         steps: finishStep(steps, "finalize", "completed"),
       }),
     );
-    console.log(`[run ${runId}] COMPLETED total=${total} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
+    log.info(runTag, `COMPLETED total=${total} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
   } catch (e) {
     steps.splice(0, steps.length, ...failRunningStep(steps));
     await write(() => updateRun(runId, { steps })).catch(() => {});
-    console.error("[run] execution failed:", e);
+    log.error(runTag, "execution failed:", e);
     await markFailed(runId, e, started);
   }
 }

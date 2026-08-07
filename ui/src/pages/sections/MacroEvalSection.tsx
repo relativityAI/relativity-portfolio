@@ -1,5 +1,5 @@
-import ProfileDataQualitative from "../ProfileQualitative"
-import ProfileQuantitative from "../ProfileQuantitative"
+import AgentDataQualitative from "../AgentQualitative"
+import AgentQuantitative from "../AgentQuantitative"
 import SectionBlock from "../shared/SectionBlock"
 import SectionHeader from "../shared/SectionHeader"
 
@@ -37,7 +37,7 @@ export default function MacroEvalSection({
                 title="Qualitative"
                 description="Text-based judgment calls on macro conditions and their implications."
             >
-                <ProfileDataQualitative
+                <AgentDataQualitative
                     name={name}
                     data={qualitative}
                     id={id}
@@ -52,7 +52,7 @@ export default function MacroEvalSection({
                 title="Quantitative"
                 description="Metric-driven quantitative criteria at the macro level."
             >
-                <ProfileQuantitative
+                <AgentQuantitative
                     name={name}
                     data={quantitative}
                     id={id}

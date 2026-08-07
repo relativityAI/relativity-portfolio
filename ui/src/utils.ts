@@ -1,5 +1,11 @@
 import axios from "axios";
 
+export function formatSeconds(s: number): string {
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    return `${m}m ${s % 60}s`;
+}
+
 export const runHealthCheck = async () => {
     const data = {
         api: 0,
