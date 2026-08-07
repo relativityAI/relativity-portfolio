@@ -23,7 +23,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: "persona",
-    label: "Investor Persona",
+    label: "Agent Persona",
     sequenceNumber: 2,
     subsections: [
       { id: "philosophy_and_mindset", label: "Philosophy & Mindset" },
@@ -75,7 +75,7 @@ function CompletionDot({ filled }: { filled: boolean }) {
   )
 }
 
-interface ProfileSidebarNavProps {
+interface AgentSidebarNavProps {
   visibleSection: string;
   visibleSubsection: string | null;
   onScrollTo: (section: string, subsection?: string | null) => void;
@@ -84,7 +84,7 @@ interface ProfileSidebarNavProps {
   isMobile?: boolean;
 }
 
-export function DesktopSidebar({ visibleSection, visibleSubsection, onScrollTo, sectionCompletion, subsectionCompletion }: ProfileSidebarNavProps) {
+export function DesktopSidebar({ visibleSection, visibleSubsection, onScrollTo, sectionCompletion, subsectionCompletion }: AgentSidebarNavProps) {
   return (
     <Flex
       direction="column"
@@ -227,7 +227,7 @@ function NavRow({ label, sequenceNumber, isActive, onClick, rightElement, pl, fo
   )
 }
 
-export function MobilePills({ visibleSection, visibleSubsection, onScrollTo }: ProfileSidebarNavProps) {
+export function MobilePills({ visibleSection, visibleSubsection, onScrollTo }: AgentSidebarNavProps) {
   return (
     <Flex direction="column" gap={2} overflow="hidden">
       <Flex gap={1} overflowX="auto" flexWrap="nowrap" pb={2} css={{ scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" } }}>

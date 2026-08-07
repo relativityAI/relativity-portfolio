@@ -5,7 +5,7 @@ import {
 } from "@chakra-ui/react"
 import CriteriaBuilder from "./shared/CriteriaBuilder"
 
-interface ProfileQuantitativeProps {
+interface AgentQuantitativeProps {
     data: any[];
     onUpdate: (data: any[]) => void;
     id: string;
@@ -14,7 +14,7 @@ interface ProfileQuantitativeProps {
     source: string;
 }
 
-export default function ProfileQuantitative(props: ProfileQuantitativeProps) {
+export default function AgentQuantitative(props: AgentQuantitativeProps) {
     const [criteria, setCriteria] = useState<any[]>(props.data || []);
 
     useEffect(() => {

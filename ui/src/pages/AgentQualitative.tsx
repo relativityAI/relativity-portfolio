@@ -1,6 +1,6 @@
 import ListEditor from "./shared/ListEditor"
 
-interface ProfileDataQualitativeProps {
+interface AgentDataQualitativeProps {
     data: any[];
     onUpdate: (data: any[]) => void;
     id: string;
@@ -8,7 +8,7 @@ interface ProfileDataQualitativeProps {
     metrics?: any;
 }
 
-export default function ProfileDataQualitative(props: ProfileDataQualitativeProps) {
+export default function AgentDataQualitative(props: AgentDataQualitativeProps) {
     const items = (props.data || []).map((p: any) => ({
         id: p.id || String(Math.random()),
         label: p.parameter,

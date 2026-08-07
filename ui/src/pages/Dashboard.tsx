@@ -11,7 +11,7 @@ import {
 } from "@chakra-ui/react"
 import RelCard from "@/components/RelCard"
 import { useState, useEffect, useMemo } from "react"
-import { ProfileService, AnalysisService } from "@/db"
+import { AgentService, AnalysisService } from "@/db"
 
 import { FaFilePen, FaBrain } from "react-icons/fa6";
 import { MdAnalytics, MdTrendingUp } from "react-icons/md";
@@ -24,19 +24,19 @@ function scoreColor(score: number): string {
 
 export default function Dashboard() {
     const logoSize = 60;
-    const [stats, setStats] = useState({ profiles: 0, analysis: 0 });
+    const [stats, setStats] = useState({ agents: 0, analysis: 0 });
     const [analyses, setAnalyses] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const [profiles, analyses] = await Promise.all([
-                    ProfileService.listProfiles(),
+                const [agents, analyses] = await Promise.all([
+                    AgentService.listAgents(),
                     AnalysisService.listAnalyses(),
                 ]);
                 setStats({
-                    profiles: profiles.length || 0,
+                    agents: agents.length || 0,
                     analysis: analyses.length || 0,
                 });
                 setAnalyses(Array.isArray(analyses) ? analyses : []);
@@ -81,19 +81,19 @@ export default function Dashboard() {
             .slice(0, 5);
     }, [completed]);
 
-    const topProfiles = useMemo(() => {
-        const profileMap = new Map<string, { profile: string; scores: number[] }>();
+    const topAgents = useMemo(() => {
+        const agentMap = new Map<string, { agent: string; scores: number[] }>();
 
         completed.forEach(a => {
-            const prof = a.profile || a.profile_name || "";
-            if (!prof) return;
-            if (!profileMap.has(prof)) profileMap.set(prof, { profile: prof, scores: [] });
-            profileMap.get(prof)!.scores.push(a.total_score);
+            const agentName = a.agent || a.agent_name || "";
+            if (!agentName) return;
+            if (!agentMap.has(agentName)) agentMap.set(agentName, { agent: agentName, scores: [] });
+            agentMap.get(agentName)!.scores.push(a.total_score);
         });
 
-        return Array.from(profileMap.values())
+        return Array.from(agentMap.values())
             .map(e => ({
-                profile: e.profile,
+                agent: e.agent,
                 count: e.scores.length,
                 avgScore: e.scores.reduce((a: number, b: number) => a + b, 0) / e.scores.length,
             }))
@@ -111,8 +111,8 @@ export default function Dashboard() {
                         <Text fontWeight="bold" mb={3} color="fg.subtle" fontSize="xs" textTransform="uppercase" letterSpacing="widest">Overview</Text>
                         <Flex direction="column" gap={4}>
                             <Stat.Root>
-                                <Stat.Label color="fg.muted">Total Profiles</Stat.Label>
-                                <Stat.ValueText fontSize="3xl" fontWeight="bold" mt={0}>{stats.profiles}</Stat.ValueText>
+                                <Stat.Label color="fg.muted">Total Agents</Stat.Label>
+                                <Stat.ValueText fontSize="3xl" fontWeight="bold" mt={0}>{stats.agents}</Stat.ValueText>
                             </Stat.Root>
                             <Stat.Root>
                                 <Stat.Label color="fg.muted">Total Analyses</Stat.Label>
@@ -170,24 +170,24 @@ export default function Dashboard() {
                                         </Table.Body>
                                     </Table.Root>
                                 )}
-                                <Text fontSize="xs" fontWeight="bold" color="fg.subtle" mt={2} mb={1}>Top Profiles</Text>
-                                {topProfiles.length === 0 ? (
+                                <Text fontSize="xs" fontWeight="bold" color="fg.subtle" mt={2} mb={1}>Top Agents</Text>
+                                {topAgents.length === 0 ? (
                                     <Text p={2} fontSize="xs" color="fg.muted">No data</Text>
                                 ) : (
                                     <Table.Root size="xs" variant="line">
                                         <Table.Header>
                                             <Table.Row>
                                                 <Table.ColumnHeader color="fg.muted" px={1}>#</Table.ColumnHeader>
-                                                <Table.ColumnHeader color="fg.muted" px={1}>Profile</Table.ColumnHeader>
+                                                <Table.ColumnHeader color="fg.muted" px={1}>Agent</Table.ColumnHeader>
                                                 <Table.ColumnHeader color="fg.muted" px={1} textAlign="center">Runs</Table.ColumnHeader>
                                                 <Table.ColumnHeader color="fg.muted" px={1} textAlign="right">Match</Table.ColumnHeader>
                                             </Table.Row>
                                         </Table.Header>
                                         <Table.Body>
-                                            {topProfiles.map((p, i) => (
-                                                <Table.Row key={p.profile}>
+                                            {topAgents.map((p, i) => (
+                                                <Table.Row key={p.agent}>
                                                     <Table.Cell px={1} color="fg.muted" fontSize="10px">{i + 1}</Table.Cell>
-                                                    <Table.Cell px={1} fontWeight="medium" fontSize="sm" maxW="130px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">{p.profile}</Table.Cell>
+                                                    <Table.Cell px={1} fontWeight="medium" fontSize="sm" maxW="130px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">{p.agent}</Table.Cell>
                                                     <Table.Cell px={1} textAlign="center">
                                                         <Badge variant="surface" colorPalette="gray" color="fg.muted" size="xs">{p.count}</Badge>
                                                     </Table.Cell>
@@ -208,16 +208,16 @@ export default function Dashboard() {
 
                 <SimpleGrid columns={2} gap={2} flex={1}>
                     <RelCard
-                        title="Portfolio Profiles"
-                        to="/profiles"
-                        description="View or create a new portfolio profile"
+                        title="Agents"
+                        to="/agents"
+                        description="View, create, or configure an agent"
                         button="View / Create"
                         icon={<FaFilePen size={logoSize} />}
                     />
                     <RelCard
                         title="Run Analysis"
                         to="/analysis-list"
-                        description="Analyze shares on existing profiles"
+                        description="Analyze shares using existing agents"
                         button="Analyse"
                         icon={<FaBrain size={logoSize} />}
                     />

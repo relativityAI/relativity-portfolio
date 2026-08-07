@@ -4,7 +4,7 @@ Every investor has a style. We capture it.
 
 AI powered stock market research.
 
-Relativity AI Portfolio turns an investing style into something called an *investor profile* — a set of rules and guidelines that dictate how a stock should be evaluated. Once the profile is set, the system delegates the research to AI and algorithms. No more endless screen time. No more scattered data. The portfolio does the digging. You do the deciding.
+Relativity AI Portfolio turns an investing style into something called an *investor agent* — a set of rules and guidelines that dictate how a stock should be evaluated. Once the agent is configured, the system delegates the research to AI and algorithms. No more endless screen time. No more scattered data. The portfolio does the digging. You do the deciding.
 
 ## Background
 
@@ -13,9 +13,9 @@ The name *Relativity* draws inspiration from Einsteins Theory of Relativity. A g
 ## Architecture
 
 - **UI** (`ui/`) — React (Vite + Chakra) frontend on port 5173.
-- **API** (`api/`) — in-repo Express + Vercel AI SDK backend on port 8080. Owns profiles, runs analyses (quantitative scoring + LLM-driven qualitative agent tool-loop), and exposes the curated model list and metric catalog.
+- **API** (`api/`) — in-repo Express + Vercel AI SDK backend on port 8080. Owns agents, runs analyses (quantitative scoring + LLM-driven qualitative agent tool-loop), and exposes the curated model list and metric catalog.
 - **[Voyager](https://github.com/relativityAI/voyager)** — external data service (port 8001) that the API calls directly. The agent never sees the data-pull endpoint; data is pulled automatically when an analysis runs.
-- **MongoDB** — persistence for profiles and analysis runs (port 27017).
+- **MongoDB** — persistence for agents and analysis runs (port 27017).
 
 The UI talks only to `/api` (proxied to 8080). LLM API keys are held in the browser and forwarded to the API as headers; the Voyager endpoint is configurable per user (see Settings) and forwarded the same way.
 
@@ -54,8 +54,8 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
-- **New Analysis** — Pick a source (SEC/NSE), search a company, choose an investor profile and a model, then run. Data is fetched automatically.
-- **Profiles** — Define investor profiles with qualitative and quantitative criteria (operators, thresholds, weightage).
+- **New Analysis** — Pick a source (SEC/NSE), search a company, choose an agent and a model, then run. Data is fetched automatically.
+- **Agents** — Create and configure agents with qualitative and quantitative criteria (operators, thresholds, weightage).
 - **Analysis** — Browse previous runs and open full reports.
 - **Settings** — Store LLM provider API keys (sent to the backend as headers, never persisted server-side) and configure the Voyager API endpoint.
 

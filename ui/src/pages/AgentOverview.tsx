@@ -8,19 +8,19 @@ interface OverviewSection {
   hasContent: boolean;
 }
 
-interface ProfileOverviewProps {
-  profileName: string;
+interface AgentOverviewProps {
+  agentName: string;
   isDirty: boolean;
   sections: OverviewSection[];
   onNavigate: (section: string) => void;
 }
 
-export default function ProfileOverview({ profileName, isDirty, sections, onNavigate }: ProfileOverviewProps) {
+export default function AgentOverview({ agentName, isDirty, sections, onNavigate }: AgentOverviewProps) {
   return (
     <Flex direction="column" gap={6}>
       <Flex direction="column" gap={1}>
         <Text fontSize="md" fontWeight={600} color="var(--ink-primary)">
-          {profileName || "Untitled Profile"}
+          {agentName || "Untitled Agent"}
         </Text>
         <Text fontSize="12px" color="var(--ink-tertiary)">
           {isDirty ? "Unsaved changes" : "All changes saved"}

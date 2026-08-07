@@ -5,6 +5,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { config } from "./config.js";
 import { buildTools, extractToolCalls, ToolContext } from "./tools.js";
+import { log } from "./logger.js";
 
 export interface LlmKeys {
   openai?: string;
@@ -57,16 +58,24 @@ function buildModel(modelId: string, keys: LlmKeys) {
   }
 }
 
-const SYSTEM_PROMPT = `You are a strict, evidence-based checklist auditor. Your job is to score a single qualitative investment question for a stock.
+const SYSTEM_PROMPT = `You are a strict, evidence-based checklist auditor. Your job is to score a single qualitative investment requirement for a stock.
 
 Rules:
 - Gather evidence using the available tools before concluding. Never rely on memory or assumptions.
 - Relevant tools include: financial metrics, financial statements, announcements, shareholdings, company documents (transcripts, presentations, PDFs), and optionally live web search.
-- If data is missing or unavailable, say so explicitly and score conservatively.
-- Be objective. Follow the checklist given in the user message, one item at a time.
+- Decompose the requirement into the smallest number of distinct, checkable criteria — one per distinct investor requirement in the guidelines.
+- Grade each criterion against gathered evidence only, using this fixed rubric:
+  - Yes: fully met -> 1 credit
+  - Partial: partially met -> 0.5 credit
+  - No: not met -> 0 credit
+  - Insufficient Data: cannot be assessed -> excluded from scoring (counts neither for nor against)
+- Score objectively: no praise, no criticism, no holistic judgment. Only "does the evidence match the checklist".
+- Prefer primary and newer sources. Treat conflicting sources as Insufficient Data.
+- If data is missing or unavailable, mark the affected criterion as Insufficient Data and say so explicitly.
+- FINAL_SCORE = (credits earned / number of assessable criteria) * 100, an integer between 0 and 100. If no criterion is assessable, FINAL_SCORE = 0.
 - Your response must be markdown with these sections in order:
   SCORE JUSTIFICATION
-  CHECKLIST (each item with PASS / PARTIAL / FAIL)
+  CHECKLIST (each item with YES / PARTIAL / NO / INSUFFICIENT DATA)
   RISKS
   CONCLUSION
   FINAL_SCORE: <integer between 0 and 100>
@@ -122,13 +131,27 @@ export async function runQualitative(
     });
 
     const text = result.text || "";
-    const score = parseFinalScore(text);
+    const { score, found } = parseFinalScoreResult(text);
+    const calls = extractToolCalls(result.steps as any);
+
+    const steps = result.steps || [];
+    const lastStep = steps[steps.length - 1] as any;
+    const maxTurnsReached =
+      steps.length >= config.maxToolSteps && !!lastStep && lastStep.finishReason === "tool-calls";
+    const error = found ? undefined : maxTurnsReached ? "Max tool-call turns reached" : "FINAL_SCORE not found";
+
+    log.info(
+      "[agent]",
+      `${modelId} "${parameter.parameter}" -> score=${score} toolCalls=${calls.length} steps=${steps.length} in ${((Date.now() - started) / 1000).toFixed(1)}s`,
+    );
     return {
       score,
       analysis: text,
-      toolCalls: extractToolCalls(result.steps as any),
+      toolCalls: calls,
+      error,
     };
   } catch (e: any) {
+    log.error("[agent]", `${modelId} "${parameter.parameter}" failed:`, e?.message || e);
     return {
       score: 50,
       analysis: "",
@@ -138,17 +161,21 @@ export async function runQualitative(
   } finally {
     const elapsed = Date.now() - started;
     if (elapsed > 90_000) {
-      console.warn(`[agent] ${modelId} took ${(elapsed / 1000).toFixed(1)}s`);
+      log.warn(`[agent] ${modelId} took ${(elapsed / 1000).toFixed(1)}s`);
     }
   }
 }
 
-export function parseFinalScore(text: string): number {
+export function parseFinalScoreResult(text: string): { score: number; found: boolean } {
   const m = text.match(/FINAL_SCORE\s*[:：]\s*(\d{1,3})/i);
-  if (!m) return 50;
+  if (!m) return { score: 50, found: false };
   const n = Number(m[1]);
-  if (!Number.isFinite(n)) return 50;
-  return Math.max(0, Math.min(100, n));
+  if (!Number.isFinite(n)) return { score: 50, found: false };
+  return { score: Math.max(0, Math.min(100, n)), found: true };
+}
+
+export function parseFinalScore(text: string): number {
+  return parseFinalScoreResult(text).score;
 }
 
 export interface QualParamEntry {
@@ -156,13 +183,14 @@ export interface QualParamEntry {
   weightage: number;
   analysis: string;
   error?: string;
+  section?: string;
 }
 
 export async function runQualitativeAll(
   modelId: string,
   keys: LlmKeys,
   toolCtx: ToolContext,
-  profile: any,
+  agent: any,
   documents: string[],
   webSearch: boolean,
   webSources: string[],
@@ -170,11 +198,17 @@ export async function runQualitativeAll(
 ): Promise<{
   qualitative_analysis: Record<string, QualParamEntry>;
   qualitative_tool_calls: Record<string, Record<string, unknown>[]>;
-  qualitative_score: number | null;
+  qualitative_score: number;
 }> {
   const params = [
-    ...(profile?.asset_evaluation?.qualitative || []),
-    ...(profile?.macro_evaluation?.qualitative || []),
+    ...(agent?.asset_evaluation?.qualitative || []).map((p: any) => ({
+      ...p,
+      section: "asset_evaluation",
+    })),
+    ...(agent?.macro_evaluation?.qualitative || []).map((p: any) => ({
+      ...p,
+      section: "macro_evaluation",
+    })),
   ];
 
   const qualitative_analysis: Record<string, QualParamEntry> = {};
@@ -198,6 +232,7 @@ export async function runQualitativeAll(
       weightage: typeof p.weightage === "number" ? p.weightage : 5,
       analysis: res.analysis,
       error: res.error,
+      section: p.section,
     };
     qualitative_tool_calls[label] = res.toolCalls;
     done += 1;
@@ -205,11 +240,11 @@ export async function runQualitativeAll(
   }
 
   const entries = Object.values(qualitative_analysis);
+  const weightSum = entries.reduce((s, e) => s + e.weightage, 0);
   const qualitative_score =
-    entries.length > 0
-      ? entries.reduce((s, e) => s + e.score * e.weightage, 0) /
-        entries.reduce((s, e) => s + e.weightage, 0)
-      : null;
+    weightSum > 0
+      ? Math.round((entries.reduce((s, e) => s + e.score * e.weightage, 0) / weightSum) * 100) / 100
+      : 0;
 
   return { qualitative_analysis, qualitative_tool_calls, qualitative_score };
 }

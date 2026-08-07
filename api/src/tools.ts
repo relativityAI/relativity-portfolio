@@ -222,32 +222,6 @@ export function buildTools(ctx: ToolContext) {
       },
     }),
 
-    get_pull_status: tool({
-      description: "Check whether financial data has already been pulled for a symbol. Read-only.",
-      inputSchema: z.object({
-        symbol: z.string().optional(),
-        country: z.enum(["in", "us"]).optional(),
-        source: z.enum(["nse", "sec"]).optional(),
-      }),
-      execute: async (args) => {
-        try {
-          const status = await voyager.get("/pull", {
-            symbol: args.symbol || symbol,
-            country: args.country || country,
-            source: args.source || source,
-          });
-          return {
-            available: !!status?.available,
-            last_pull: status?.last_pull || null,
-            total_records: status?.total_records || null,
-            record_counts: status?.record_counts || null,
-          };
-        } catch {
-          return { available: false, message: "No data has been pulled for this symbol." };
-        }
-      },
-    }),
-
     search_company_documents: tool({
       description:
         "Search a company's filings and announcements by keyword (e.g. 'dividend', 'buyback', 'transcript', 'audit'). Returns matching announcements with dates, categories, and attachment URLs.",

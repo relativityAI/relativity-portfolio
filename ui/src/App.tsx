@@ -1,7 +1,7 @@
 // import './App.css'
 
 import { useEffect } from "react";
-import Profile from "./pages/Profile";
+import Agent from "./pages/Agent";
 import {
   Routes,
   Route,
@@ -11,7 +11,7 @@ import {
 
 import { Provider } from "@/components/ui/provider"
 import { Box } from "@chakra-ui/react";
-import ProfilesList from "./pages/ProfilesList";
+import AgentsList from "./pages/AgentsList";
 import AnalysisList from "./pages/AnalysisList";
 import Analysis from "./pages/Analysis";
 import AnalysisResult from "./pages/AnalysisResult";
@@ -26,8 +26,8 @@ function App() {
   useEffect(() => {
     const getTitle = (path: string) => {
       if (path === "/" || path === "/analysis") return "New Analysis";
-      if (path === "/profiles") return "Profiles";
-      if (path.startsWith("/profile/")) return "Profile Detail";
+      if (path === "/agents") return "Agents";
+      if (path.startsWith("/agent/")) return "Agent Detail";
       if (path === "/analysis-list") return "Analysis List";
       if (path.startsWith("/analysis-result/")) return "Analysis Result";
       if (path === "/settings") return "Settings";
@@ -47,12 +47,12 @@ function App() {
         <Routes>
           <Route path="/" element={<Analysis />} />
           <Route
-            path="/profile"
-            element={<Navigate to="/profiles" replace />}
+            path="/agent"
+            element={<Navigate to="/agents" replace />}
           />
-          <Route path="/profile/new" element={<Profile />} />
-          <Route path="/profile/:id" element={<Profile />} />
-          <Route path="/profiles" element={<ProfilesList />} />
+          <Route path="/agent/new" element={<Agent />} />
+          <Route path="/agent/:id" element={<Agent />} />
+          <Route path="/agents" element={<AgentsList />} />
           <Route path="/analysis-list" element={<AnalysisList />} />
           <Route path="/analysis" element={<Analysis />} />
           <Route path="/analysis/:id" element={<Analysis />} />

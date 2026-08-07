@@ -13,6 +13,8 @@ import {
     Tabs,
 } from "@chakra-ui/react";
 import { AnalysisService } from "@/db";
+import { formatSeconds } from "@/utils";
+import { RunSteps } from "./shared/RunStatus";
 import ReactMarkdown from "react-markdown";
 import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
 
@@ -108,8 +110,25 @@ export default function AnalysisResult() {
     const [activeTab, setActiveTab] = useState<Tab>("overview");
     const [sortByScore, setSortByScore] = useState<"asc" | "desc" | null>(null);
     const [activeSection, setActiveSection] = useState<string>("");
+    const [elapsed, setElapsed] = useState(0);
 
     const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
+
+    const statusKey = (analysis?.status || "").toLowerCase();
+    const isRunning = !!analysis && !["complete", "completed", "success", "error", "failed"].includes(statusKey);
+
+    useEffect(() => {
+        if (!isRunning) {
+            setElapsed(0);
+            return;
+        }
+        setElapsed(0);
+        const start = Date.now();
+        const interval = setInterval(() => {
+            setElapsed(Math.floor((Date.now() - start) / 1000));
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [isRunning]);
 
     const fetchResult = async () => {
         if (!id) return;
@@ -208,7 +227,6 @@ export default function AnalysisResult() {
     const s = (analysis.status || "").toLowerCase();
     const isComplete = terminalStatuses.includes(s);
     const isError = s === "error" || s === "failed";
-    const isRunning = !isComplete && !isError;
 
     const quantAnalysis: Record<string, any> = analysis.quantitative_analysis || {};
     const qualAnalysis: Record<string, any> = analysis.qualitative_analysis || {};
@@ -255,7 +273,7 @@ export default function AnalysisResult() {
     const metaLine = [
         analysis.model,
         analysis.source,
-        analysis.profile,
+        analysis.agent_name,
         analysis.created_at ? new Date(analysis.created_at).toLocaleDateString() : null,
         id ? `ID ${id.slice(0, 8)}` : null,
     ]
@@ -506,10 +524,42 @@ export default function AnalysisResult() {
                 {/* Running state */}
                 {isRunning && (
                     <Box mb={6}>
-                        <HStack gap={3} color="var(--ink-secondary)">
-                            <Spinner size="sm" borderWidth="2px" />
-                            <Text fontSize="13px">Analysis in progress — this page updates automatically.</Text>
-                        </HStack>
+                        <Flex justify="space-between" align="center" mb={3}>
+                            <HStack gap={3} color="var(--ink-secondary)">
+                                <Spinner size="sm" borderWidth="2px" />
+                                <Text fontSize="13px">Analysis in progress — this page updates automatically.</Text>
+                            </HStack>
+                            {elapsed > 0 && (
+                                <Text
+                                    fontSize="12px"
+                                    color="var(--ink-tertiary)"
+                                    fontFamily="var(--font-tabular)"
+                                    fontVariantNumeric="tabular-nums"
+                                    whiteSpace="nowrap"
+                                >
+                                    {formatSeconds(elapsed)}
+                                </Text>
+                            )}
+                        </Flex>
+
+                        <Box
+                            border="1px solid var(--hairline)"
+                            borderRadius="2px"
+                            bg="var(--surface-panel)"
+                            p={5}
+                        >
+                            <Text
+                                fontSize="10.5px"
+                                fontWeight={500}
+                                color="var(--ink-tertiary)"
+                                letterSpacing="0.06em"
+                                textTransform="uppercase"
+                                mb={4}
+                            >
+                                Steps
+                            </Text>
+                            <RunSteps steps={analysis.steps || []} now={Date.now()} />
+                        </Box>
                     </Box>
                 )}
 
@@ -1256,7 +1306,7 @@ function SourcesDetail({
                 <VStack gap={1} align="stretch" fontSize="13px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
                     {analysis.model && <Text>Model: {analysis.model}</Text>}
                     {analysis.source && <Text>Source: {analysis.source}</Text>}
-                    {analysis.profile && <Text>Profile: {analysis.profile}</Text>}
+                    {analysis.agent_name && <Text>Agent: {analysis.agent_name}</Text>}
                     {analysis.duration != null && <Text>Duration: {formatDuration(analysis.duration)}</Text>}
                     {analysis.end_time && <Text>Ended: {new Date(analysis.end_time * 1000).toLocaleString()}</Text>}
                     {analysis.created_at && <Text>Created: {new Date(analysis.created_at).toLocaleString()}</Text>}

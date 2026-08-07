@@ -5,10 +5,10 @@ import { MdOutlineFileDownload, MdOutlineFileUpload, MdSave, MdDeleteForever } f
 
 import { useParams, useNavigate } from "react-router-dom"
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
-import { ProfileService, VoyagerService } from "@/db"
+import { AgentService, VoyagerService } from "@/db"
 
-import { DesktopSidebar, MobilePills } from "./ProfileSidebarNav"
-import ProfileOverview from "./ProfileOverview"
+import { DesktopSidebar, MobilePills } from "./AgentSidebarNav"
+import AgentOverview from "./AgentOverview"
 import SectionBlock from "./shared/SectionBlock"
 import PersonaSection from "./sections/PersonaSection"
 import ConfigurationSection from "./sections/ConfigurationSection"
@@ -16,7 +16,7 @@ import AssetEvalSection from "./sections/AssetEvalSection"
 import MacroEvalSection from "./sections/MacroEvalSection"
 
 
-const DEFAULT_PROFILE = {
+const DEFAULT_AGENT = {
     name: "",
     id: "",
     _id: "",
@@ -52,17 +52,17 @@ function getFirstSubsection(section: string): string | null {
     return subs ? subs[0] : null
 }
 
-function computeSubsectionCompletion(profile: any): Record<string, boolean> {
-    const c = profile.configuration || {}
-    const ae = profile.asset_evaluation || {}
-    const me = profile.macro_evaluation || {}
+function computeSubsectionCompletion(agent: any): Record<string, boolean> {
+    const c = agent.configuration || {}
+    const ae = agent.asset_evaluation || {}
+    const me = agent.macro_evaluation || {}
 
     return {
         "configuration/market_options": c.market_options?.length > 0,
         "configuration/asset_class": c.asset_class?.length > 0,
         "configuration/universe_cap": c.universe_cap?.length > 0,
         "configuration/universe_sector": c.universe_sector?.length > 0,
-        "persona/philosophy_and_mindset": !!profile.persona?.philosophy_and_mindset,
+        "persona/philosophy_and_mindset": !!agent.persona?.philosophy_and_mindset,
         "asset_evaluation/qualitative": ae.qualitative?.length > 0,
         "asset_evaluation/quantitative": ae.quantitative?.length > 0,
         "macro_evaluation/qualitative": me.qualitative?.length > 0,
@@ -70,25 +70,25 @@ function computeSubsectionCompletion(profile: any): Record<string, boolean> {
     }
 }
 
-function computeSectionCompletion(profile: any): Record<string, boolean> {
+function computeSectionCompletion(agent: any): Record<string, boolean> {
     return {
         overview: true,
         configuration: !!(
-            profile.configuration?.market_options?.length ||
-            profile.configuration?.asset_class?.length ||
-            profile.configuration?.universe_cap?.length ||
-            profile.configuration?.universe_sector?.length
+            agent.configuration?.market_options?.length ||
+            agent.configuration?.asset_class?.length ||
+            agent.configuration?.universe_cap?.length ||
+            agent.configuration?.universe_sector?.length
         ),
-        persona: !!(profile.persona?.philosophy_and_mindset),
-        asset_evaluation: !!((profile.asset_evaluation?.qualitative?.length > 0) || (profile.asset_evaluation?.quantitative?.length > 0)),
-        macro_evaluation: !!((profile.macro_evaluation?.qualitative?.length > 0) || (profile.macro_evaluation?.quantitative?.length > 0)),
+        persona: !!(agent.persona?.philosophy_and_mindset),
+        asset_evaluation: !!((agent.asset_evaluation?.qualitative?.length > 0) || (agent.asset_evaluation?.quantitative?.length > 0)),
+        macro_evaluation: !!((agent.macro_evaluation?.qualitative?.length > 0) || (agent.macro_evaluation?.quantitative?.length > 0)),
     }
 }
 
-function computeOverviewSections(profile: any): { id: string; label: string; summary: string; hasContent: boolean }[] {
-    const c = profile.configuration || {}
-    const ae = profile.asset_evaluation || {}
-    const me = profile.macro_evaluation || {}
+function computeOverviewSections(agent: any): { id: string; label: string; summary: string; hasContent: boolean }[] {
+    const c = agent.configuration || {}
+    const ae = agent.asset_evaluation || {}
+    const me = agent.macro_evaluation || {}
 
     return [
         {
@@ -104,9 +104,9 @@ function computeOverviewSections(profile: any): { id: string; label: string; sum
         },
         {
             id: "persona",
-            label: "Investor Persona",
-            summary: profile.persona?.philosophy_and_mindset ? "Philosophy & mindset written" : "No content yet",
-            hasContent: !!profile.persona?.philosophy_and_mindset,
+            label: "Agent Persona",
+            summary: agent.persona?.philosophy_and_mindset ? "Philosophy & mindset written" : "No content yet",
+            hasContent: !!agent.persona?.philosophy_and_mindset,
         },
         {
             id: "asset_evaluation",
@@ -129,7 +129,7 @@ function computeOverviewSections(profile: any): { id: string; label: string; sum
     ]
 }
 
-export default function Profile() {
+export default function Agent() {
     const urlParams = useParams()
     const navigate = useNavigate()
     const [loading, setLoading] = useState(true)
@@ -138,7 +138,7 @@ export default function Profile() {
     const [isDirty, setIsDirty] = useState(false)
     const [availableMetrics, setAvailableMetrics] = useState<any>(null)
     const [metricsSource, setMetricsSource] = useState<string>("NSE")
-    const [profile, setProfile] = useState<any>({ ...DEFAULT_PROFILE })
+    const [agent, setAgent] = useState<any>({ ...DEFAULT_AGENT })
     const [visibleSection, setVisibleSection] = useState<string>("overview")
     const [visibleSubsection, setVisibleSubsection] = useState<string | null>(null)
     const [isMobile, setIsMobile] = useState(false)
@@ -152,23 +152,23 @@ export default function Profile() {
         return () => window.removeEventListener("resize", check)
     }, [])
 
-    const sectionCompletion = useMemo(() => computeSectionCompletion(profile), [profile])
-    const subsectionCompletion = useMemo(() => computeSubsectionCompletion(profile), [profile])
-    const overviewSections = useMemo(() => computeOverviewSections(profile), [profile])
+    const sectionCompletion = useMemo(() => computeSectionCompletion(agent), [agent])
+    const subsectionCompletion = useMemo(() => computeSubsectionCompletion(agent), [agent])
+    const overviewSections = useMemo(() => computeOverviewSections(agent), [agent])
 
-    const fetchProfile = async () => {
+    const fetchAgent = async () => {
         try {
             if (urlParams.id && !isNew) {
-                const data = await ProfileService.readProfile(urlParams.id)
+                const data = await AgentService.readAgent(urlParams.id)
                 if (data) {
-                    setProfile({
+                    setAgent({
                         name: data.name || "",
                         id: data.id || data._id || "",
                         _id: data._id || data.id || "",
                         created_at: data.created_at || "",
                         source: data.source || "",
-                        persona: data.persona ?? DEFAULT_PROFILE.persona,
-                        configuration: data.configuration ?? DEFAULT_PROFILE.configuration,
+                        persona: data.persona ?? DEFAULT_AGENT.persona,
+                        configuration: data.configuration ?? DEFAULT_AGENT.configuration,
                         asset_evaluation: {
                             qualitative: data.asset_evaluation?.qualitative ?? data.qualitative ?? [],
                             quantitative: data.asset_evaluation?.quantitative ?? [],
@@ -182,7 +182,7 @@ export default function Profile() {
                     setIsDirty(false)
                 }
             } else {
-                setProfile({ ...DEFAULT_PROFILE })
+                setAgent({ ...DEFAULT_AGENT })
                 setIsDirty(true)
                 setTimeout(() => handleScrollTo("persona", "philosophy_and_mindset"), 100)
             }
@@ -207,7 +207,7 @@ export default function Profile() {
     }
 
     useEffect(() => {
-        fetchProfile()
+        fetchAgent()
     }, [urlParams.id])
 
     useEffect(() => {
@@ -239,7 +239,7 @@ export default function Profile() {
 
         elements.forEach((el) => observer.observe(el))
         return () => observer.disconnect()
-    }, [loading, profile])
+    }, [loading, agent])
 
     const handleScrollTo = useCallback((section: string, subsection?: string | null) => {
         const selector = subsection
@@ -260,40 +260,40 @@ export default function Profile() {
         })) ?? []
 
     const handleSave = async () => {
-        if (!profile.name?.trim()) {
-            alert("Please enter a profile name before saving.")
+        if (!agent.name?.trim()) {
+            alert("Please enter an agent name before saving.")
             return
         }
         try {
             setSaving(true)
-            let profileId = profile.id || profile._id
-            if (!profileId) {
-                const created = await ProfileService.createProfile()
-                profileId = created.id || created._id
+            let agentId = agent.id || agent._id
+            if (!agentId) {
+                const created = await AgentService.createAgent()
+                agentId = created.id || created._id
             }
             const stripIds = (items: any[]) => items?.map(({ id, ...rest }: any) => rest) ?? []
             const dataToSave = {
-                _id: profileId,
-                name: profile.name,
-                source: profile.source,
-                persona: profile.persona,
-                configuration: profile.configuration,
+                _id: agentId,
+                name: agent.name,
+                source: agent.source,
+                persona: agent.persona,
+                configuration: agent.configuration,
                 asset_evaluation: {
-                    qualitative: stripIds(profile.asset_evaluation?.qualitative),
-                    quantitative: normalizeMetrics(profile.asset_evaluation?.quantitative),
+                    qualitative: stripIds(agent.asset_evaluation?.qualitative),
+                    quantitative: normalizeMetrics(agent.asset_evaluation?.quantitative),
                 },
                 macro_evaluation: {
-                    qualitative: stripIds(profile.macro_evaluation?.qualitative),
-                    quantitative: normalizeMetrics(profile.macro_evaluation?.quantitative),
+                    qualitative: stripIds(agent.macro_evaluation?.qualitative),
+                    quantitative: normalizeMetrics(agent.macro_evaluation?.quantitative),
                 },
             }
-            await ProfileService.updateProfile(dataToSave)
-            const savedData = await ProfileService.readProfile(profileId)
+            await AgentService.updateAgent(dataToSave)
+            const savedData = await AgentService.readAgent(agentId)
             if (savedData) {
-                setProfile((prev: any) => ({
+                setAgent((prev: any) => ({
                     ...prev,
-                    id: savedData.id || savedData._id || profileId,
-                    _id: savedData._id || savedData.id || profileId,
+                    id: savedData.id || savedData._id || agentId,
+                    _id: savedData._id || savedData.id || agentId,
                     name: savedData.name || prev.name,
                     source: savedData.source || prev.source,
                     created_at: savedData.created_at || prev.created_at,
@@ -302,7 +302,7 @@ export default function Profile() {
             setSaved(true)
             setIsDirty(false)
             if (isNew) {
-                navigate("/profile/" + profileId, { replace: true })
+                navigate("/agent/" + agentId, { replace: true })
             }
             setTimeout(() => setSaved(false), 3000)
         } catch (error) {
@@ -313,10 +313,10 @@ export default function Profile() {
     }
 
     const handleDelete = async () => {
-        if (confirm(`Are you sure you want to delete the profile "${profile.name}"?`)) {
+        if (confirm(`Are you sure you want to delete the agent "${agent.name}"?`)) {
             try {
-                await ProfileService.deleteProfile(profile.id || profile._id)
-                navigate("/profiles")
+                await AgentService.deleteAgent(agent.id || agent._id)
+                navigate("/agents")
             } catch (error) {
                 console.error("Delete Error:", error)
             }
@@ -324,17 +324,17 @@ export default function Profile() {
     }
 
     const handleExport = async () => {
-        const profileId = profile.id || profile._id
-        if (!profileId) return
+        const agentId = agent.id || agent._id
+        if (!agentId) return
         try {
-            const data = await ProfileService.readProfile(profileId)
+            const data = await AgentService.readAgent(agentId)
             if (!data) return
             const json = JSON.stringify(data, null, "  ")
             const blob = new Blob([json], { type: "application/json" })
             const url = URL.createObjectURL(blob)
             const a = document.createElement("a")
             a.href = url
-            a.download = (data.name || "profile").replace(/\s+/g, "_") + "_" + new Date().toISOString().split("T")[0].replace(/-/g, "_") + ".json"
+            a.download = (data.name || "agent").replace(/\s+/g, "_") + "_" + new Date().toISOString().split("T")[0].replace(/-/g, "_") + ".json"
             a.click()
             URL.revokeObjectURL(url)
         } catch (error) {
@@ -358,7 +358,7 @@ export default function Profile() {
                     data.macro_evaluation.quantitative = normalizeMetrics(data.macro_evaluation.quantitative)
                 }
                 if (data.asset_evaluation || data.macro_evaluation) {
-                    setProfile((prev: any) => ({
+                    setAgent((prev: any) => ({
                         ...prev,
                         ...data,
                         _id: prev._id,
@@ -377,13 +377,13 @@ export default function Profile() {
     }
 
     const handleSourceChange = (newSource: string) => {
-        setProfile((prev: any) => ({ ...prev, source: newSource }))
+        setAgent((prev: any) => ({ ...prev, source: newSource }))
         setMetricsSource(newSource)
         if (!loading) setIsDirty(true)
     }
 
-    const updateProfile = (updates: any) => {
-        setProfile((prev: any) => ({ ...prev, ...updates }))
+    const updateAgent = (updates: any) => {
+        setAgent((prev: any) => ({ ...prev, ...updates }))
         if (!loading) setIsDirty(true)
     }
 
@@ -395,8 +395,8 @@ export default function Profile() {
     const renderedSections = (
         <>
             <SectionBlock sectionId="overview" title="Overview" description="">
-                <ProfileOverview
-                    profileName={profile.name}
+                <AgentOverview
+                    agentName={agent.name}
                     isDirty={isDirty}
                     sections={overviewSections}
                     onNavigate={overviewNavigate}
@@ -404,36 +404,36 @@ export default function Profile() {
             </SectionBlock>
 
             <ConfigurationSection
-                data={profile.configuration}
-                onChange={(v) => updateProfile({ configuration: v })}
+                data={agent.configuration}
+                onChange={(v) => updateAgent({ configuration: v })}
             />
 
             <PersonaSection
-                data={profile.persona}
-                onChange={(v) => updateProfile({ persona: v })}
+                data={agent.persona}
+                onChange={(v) => updateAgent({ persona: v })}
             />
 
             <AssetEvalSection
-                qualitative={profile.asset_evaluation?.qualitative || []}
-                onQualitativeUpdate={(v) => updateProfile({ asset_evaluation: { ...profile.asset_evaluation, qualitative: v } })}
-                quantitative={profile.asset_evaluation?.quantitative || []}
-                onQuantitativeUpdate={(v) => updateProfile({ asset_evaluation: { ...profile.asset_evaluation, quantitative: v } })}
-                id={profile._id || profile.id}
-                name={profile.name}
+                qualitative={agent.asset_evaluation?.qualitative || []}
+                onQualitativeUpdate={(v) => updateAgent({ asset_evaluation: { ...agent.asset_evaluation, qualitative: v } })}
+                quantitative={agent.asset_evaluation?.quantitative || []}
+                onQuantitativeUpdate={(v) => updateAgent({ asset_evaluation: { ...agent.asset_evaluation, quantitative: v } })}
+                id={agent._id || agent.id}
+                name={agent.name}
                 metrics={availableMetrics}
-                source={profile.source}
+                source={agent.source}
                 onSourceChange={handleSourceChange}
             />
 
             <MacroEvalSection
-                qualitative={profile.macro_evaluation?.qualitative || []}
-                onQualitativeUpdate={(v) => updateProfile({ macro_evaluation: { ...profile.macro_evaluation, qualitative: v } })}
-                quantitative={profile.macro_evaluation?.quantitative || []}
-                onQuantitativeUpdate={(v) => updateProfile({ macro_evaluation: { ...profile.macro_evaluation, quantitative: v } })}
-                id={profile._id || profile.id}
-                name={profile.name}
+                qualitative={agent.macro_evaluation?.qualitative || []}
+                onQualitativeUpdate={(v) => updateAgent({ macro_evaluation: { ...agent.macro_evaluation, qualitative: v } })}
+                quantitative={agent.macro_evaluation?.quantitative || []}
+                onQuantitativeUpdate={(v) => updateAgent({ macro_evaluation: { ...agent.macro_evaluation, quantitative: v } })}
+                id={agent._id || agent.id}
+                name={agent.name}
                 metrics={availableMetrics}
-                source={profile.source}
+                source={agent.source}
             />
         </>
     )
@@ -445,9 +445,9 @@ export default function Profile() {
     )
 
     const metaLine = !isNew ? [
-        profile._id || profile.id ? `ID ${(profile._id || profile.id).slice(0, 10)}` : null,
-        profile.created_at ? new Date(profile.created_at).toLocaleDateString() : null,
-        profile.source || null,
+        agent._id || agent.id ? `ID ${(agent._id || agent.id).slice(0, 10)}` : null,
+        agent.created_at ? new Date(agent.created_at).toLocaleDateString() : null,
+        agent.source || null,
     ].filter(Boolean).join("  ·  ") : null
 
     return (
@@ -470,9 +470,9 @@ export default function Profile() {
                             variant="plain"
                             fontWeight={600}
                             fontSize="18px"
-                            value={profile.name}
-                            onChange={(e) => updateProfile({ name: e.target.value })}
-                            placeholder="Profile name"
+                            value={agent.name}
+                            onChange={(e) => updateAgent({ name: e.target.value })}
+                            placeholder="Agent name"
                             bg="transparent"
                             border="none"
                             borderBottom="1px solid var(--hairline)"
