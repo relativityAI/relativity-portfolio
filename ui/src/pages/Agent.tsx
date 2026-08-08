@@ -464,8 +464,13 @@ export default function Agent() {
                 direction="column"
                 gap={3}
             >
-                <Flex justify="space-between" align="start">
-                    <Flex direction="column" gap={1} flex={1} maxW="400px">
+                <Flex
+                    justify="space-between"
+                    align="start"
+                    direction={{ base: "column", md: "row" }}
+                    gap={{ base: 4, md: 0 }}
+                >
+                    <Flex direction="column" gap={1} flex={1} maxW="400px" w={{ base: "full", md: "auto" }}>
                         <Input
                             variant="plain"
                             fontWeight={600}
@@ -488,6 +493,7 @@ export default function Agent() {
                                 fontFamily="var(--font-mono)"
                                 color="var(--ink-tertiary)"
                                 mt={1}
+                                overflowWrap={{ base: "anywhere", md: "normal" }}
                             >
                                 {metaLine}
                             </Text>
@@ -503,8 +509,8 @@ export default function Agent() {
                         )}
                     </Flex>
 
-                    <Flex direction="column" align="flex-end" gap={2} pt={4}>
-                        <Flex gap={2}>
+                    <Flex direction="column" align={{ base: "flex-start", md: "flex-end" }} gap={2} pt={4}>
+                        <Flex gap={2} flexWrap={{ base: "wrap", md: "nowrap" }}>
                             {!isNew && (
                                 <Button
                                     variant="ghost"
@@ -513,6 +519,7 @@ export default function Agent() {
                                     _hover={{ color: "var(--signal-negative)", bg: "transparent" }}
                                     onClick={handleDelete}
                                     fontWeight={500}
+                                    minH={{ base: "44px", md: "auto" }}
                                 >
                                     <MdDeleteForever size={16} style={{ marginRight: 4 }} />
                                     Delete
@@ -534,6 +541,7 @@ export default function Agent() {
                                     _hover={{ color: "var(--ink-primary)", bg: "transparent" }}
                                     onClick={handleExport}
                                     fontWeight={500}
+                                    minH={{ base: "44px", md: "auto" }}
                                 >
                                     <MdOutlineFileDownload size={16} style={{ marginRight: 4 }} />
                                     Export
@@ -546,6 +554,7 @@ export default function Agent() {
                                 _hover={{ color: "var(--ink-primary)", bg: "transparent" }}
                                 onClick={() => fileInputRef.current?.click()}
                                 fontWeight={500}
+                                minH={{ base: "44px", md: "auto" }}
                             >
                                 <MdOutlineFileUpload size={16} style={{ marginRight: 4 }} />
                                 Import
@@ -562,6 +571,7 @@ export default function Agent() {
                                 borderRadius="3px"
                                 loading={saving}
                                 onClick={handleSave}
+                                minH={{ base: "44px", md: "auto" }}
                             >
                                 <MdSave size={14} style={{ marginRight: 4 }} />
                                 {isNew ? "Create" : "Save"}

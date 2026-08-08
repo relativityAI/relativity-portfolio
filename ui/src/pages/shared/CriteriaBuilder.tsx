@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, type ReactNode } from "react"
 import {
   Flex,
   Button,
@@ -92,6 +92,21 @@ function SelectInput({ value, options, onChange, placeholder, width }: {
         </Select.Positioner>
       </Portal>
     </Select.Root>
+  )
+}
+
+function MobileFieldLabel({ children }: { children: ReactNode }) {
+  return (
+    <Text
+      display={{ base: "block", md: "none" }}
+      fontSize="10px"
+      fontWeight={500}
+      color="var(--ink-tertiary)"
+      textTransform="uppercase"
+      letterSpacing="0.06em"
+    >
+      {children}
+    </Text>
   )
 }
 
@@ -221,6 +236,7 @@ export default function CriteriaBuilder({
         fontWeight="bold"
         color="fg.muted"
         letterSpacing="widest"
+        display={{ base: "none", md: "flex" }}
       >
         <Box flex={1.5}>CATEGORY</Box>
         <Box flex={2}>METRIC</Box>
@@ -255,10 +271,11 @@ export default function CriteriaBuilder({
           return (
             <Flex
               key={index}
-              gap={1.5}
+              gap={{ base: 2, md: 1.5 }}
                px={2}
-               py={1}
-               align="center"
+               py={{ base: 3, md: 1 }}
+               align={{ base: "stretch", md: "center" }}
+               direction={{ base: "column", md: "row" }}
               border="1px solid"
               borderColor="border"
               borderTop="none"
@@ -267,7 +284,8 @@ export default function CriteriaBuilder({
               _hover={{ bg: "bg.muted/50" }}
               transition="background 0.15s"
             >
-              <Box flex={1.5}>
+              <Box flex={{ base: "none", md: 1.5 }}>
+                <MobileFieldLabel>Category</MobileFieldLabel>
                 <SelectInput
                   value={criterion.category}
                   options={categories}
@@ -275,7 +293,8 @@ export default function CriteriaBuilder({
                   placeholder="Category"
                 />
               </Box>
-              <Box flex={2}>
+              <Box flex={{ base: "none", md: 2 }}>
+                <MobileFieldLabel>Metric</MobileFieldLabel>
                 <SelectInput
                   value={criterion.metric}
                   options={availableMetrics}
@@ -284,16 +303,18 @@ export default function CriteriaBuilder({
                 />
               </Box>
               {showWeight && (
-                <Box width="44px" flexShrink={0} textAlign="center">
-                  <Flex align="center" justify="center" gap={0}>
+                <Box width={{ base: "full", md: "44px" }} flexShrink={0} textAlign={{ base: "left", md: "center" }}>
+                  <MobileFieldLabel>Weight</MobileFieldLabel>
+                  <Flex align="center" justify={{ base: "flex-start", md: "center" }} gap={0}>
                     <IconButton
                       size="xs"
                       variant="ghost"
                       color="fg.muted"
                       _hover={{ color: "fg" }}
                       onClick={() => handleChange(index, "weightage", Math.max(1, (criterion.weightage ?? 5) - 1))}
-                      minW="14px"
                       h="22px"
+                      minW={{ base: "44px", md: "14px" }}
+                      minH={{ base: "44px", md: "22px" }}
                       p={0}
                     >
                       <MdRemove size={10} />
@@ -307,8 +328,9 @@ export default function CriteriaBuilder({
                       color="fg.muted"
                       _hover={{ color: "fg" }}
                       onClick={() => handleChange(index, "weightage", Math.min(10, (criterion.weightage ?? 5) + 1))}
-                      minW="14px"
                       h="22px"
+                      minW={{ base: "44px", md: "14px" }}
+                      minH={{ base: "44px", md: "22px" }}
                       p={0}
                     >
                       <MdAdd size={10} />
@@ -316,14 +338,16 @@ export default function CriteriaBuilder({
                   </Flex>
                 </Box>
               )}
-              <Box flex={1}>
+              <Box flex={{ base: "none", md: 1 }}>
+                <MobileFieldLabel>Operator</MobileFieldLabel>
                 <SelectInput
                   value={criterion.operator}
                   options={operators}
                   onChange={(v) => handleChange(index, "operator", v)}
                 />
               </Box>
-              <Box flex={isBetween ? 1 : 1.5}>
+              <Box flex={{ base: "none", md: isBetween ? 1 : 1.5 }}>
+                <MobileFieldLabel>{isBetween ? "Value (Low)" : "Value"}</MobileFieldLabel>
                 <Input
                   variant="subtle"
                   size="xs"
@@ -344,7 +368,8 @@ export default function CriteriaBuilder({
                   />
                 </Box>
                 {isBetween && (
-                <Box flex={1}>
+                <Box flex={{ base: "none", md: 1 }}>
+                  <MobileFieldLabel>Value (High)</MobileFieldLabel>
                   <Input
                     variant="subtle"
                     size="xs"
@@ -365,15 +390,16 @@ export default function CriteriaBuilder({
                   />
                 </Box>
               )}
-              <Box width="32px" flexShrink={0}>
+              <Box width={{ base: "full", md: "32px" }} flexShrink={0} display="flex" justify={{ base: "flex-end", md: "flex-start" }}>
                 <Button
                   size="xs"
                   variant="ghost"
                   color="fg.muted"
                   _hover={{ color: "red.500", bg: "transparent" }}
                   onClick={deleteCriterion(index)}
-                  minW="auto"
                   h="auto"
+                  minW={{ base: "44px", md: "auto" }}
+                  minH={{ base: "44px", md: "auto" }}
                   p={1}
                 >
                   <MdDeleteForever size={16} />

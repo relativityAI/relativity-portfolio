@@ -286,7 +286,8 @@ export default function AgentsList() {
                                                             bg: "transparent",
                                                         }}
                                                         px={1}
-                                                        minW="auto"
+                                                        minW={{ base: "44px", md: "auto" }}
+                                                        minH={{ base: "44px", md: "auto" }}
                                                         onClick={(e) =>
                                                             handleDelete(
                                                                 e,

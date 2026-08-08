@@ -913,13 +913,15 @@ export default function AnalysisList() {
                                                                         bg: "transparent",
                                                                     }}
                                                                     px={1}
-                                                                    minW="auto"
                                                                     h="auto"
-                                                                    opacity={0.4}
-                                                                    _groupHover={{ opacity: 1 }}
+                                                                    minW={{ base: "44px", md: "auto" }}
+                                                                    minH={{ base: "44px", md: "auto" }}
+                                                                    opacity={{ base: 1, md: 0.4 }}
                                                                     css={{
-                                                                        "tr:hover &": {
-                                                                            opacity: 1,
+                                                                        "@media (min-width: 768px)": {
+                                                                            "tr:hover &": {
+                                                                                opacity: 1,
+                                                                            },
                                                                         },
                                                                     }}
                                                                 >
@@ -959,6 +961,7 @@ export default function AnalysisList() {
                     if (!e.open) setDeleteTarget(null);
                 }}
                 role="alertdialog"
+                size={{ base: "full", md: "md" }}
             >
                 <Dialog.Backdrop />
                 <Dialog.Positioner>

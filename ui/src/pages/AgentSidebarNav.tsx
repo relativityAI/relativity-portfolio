@@ -313,6 +313,9 @@ function Pill({ label, sequenceNumber, isActive, onClick, size }: {
       fontSize={size || "sm"}
       fontWeight={isActive ? 500 : 400}
       transition="background 80ms"
+      minH="44px"
+      display="flex"
+      alignItems="center"
     >
       {sequenceNumber != null && (
         <Text
