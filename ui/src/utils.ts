@@ -1,4 +1,5 @@
 import axios from "axios";
+import { API_BASE } from "./db";
 
 export function formatSeconds(s: number): string {
     if (s < 60) return `${s}s`;
@@ -13,10 +14,10 @@ export const runHealthCheck = async () => {
         voyagerApi: 0,
     };
 
-    let endpoints = {
-        api: `/api/health`,
-        db: `/api/health`,
-        voyagerApi: `/api/health/voyager`,
+    const endpoints = {
+        api: `${API_BASE}/health`,
+        db: `${API_BASE}/health`,
+        voyagerApi: `${API_BASE}/health/voyager`,
     };
 
     try {

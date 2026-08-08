@@ -3,7 +3,7 @@ import axios from "axios";
 // All data services go through the in-repo backend (Vite proxy /api -> :8080).
 // The backend reads LLM keys and the Voyager API key from these headers,
 // keeping secrets in the browser only.
-export const API_BASE = "/api";
+export const API_BASE = import.meta.env.VITE_RELATIVITY_API || "/api";
 
 const LLM_KEY_HEADERS: Record<string, string> = {
     openai_key: "X-LLM-OpenAI-Key",

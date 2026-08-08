@@ -33,6 +33,7 @@ function statusColor(code: number): string {
 }
 
 const app = express();
+app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
