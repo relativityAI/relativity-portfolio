@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, type ReactNode } from "react"
 import {
   Flex,
   Textarea,
@@ -31,15 +31,16 @@ interface ListEditorProps {
 
 function WeightStepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
-    <Flex align="center" justify="center" gap={0}>
+    <Flex align="center" justify={{ base: "flex-start", md: "center" }} gap={0}>
       <IconButton
         size="xs"
         variant="ghost"
         color="fg.muted"
         _hover={{ color: "fg" }}
         onClick={() => onChange(Math.max(1, value - 1))}
-        minW="14px"
         h="22px"
+        minW={{ base: "44px", md: "14px" }}
+        minH={{ base: "44px", md: "22px" }}
         p={0}
       >
         <MdRemove size={10} />
@@ -53,13 +54,29 @@ function WeightStepper({ value, onChange }: { value: number; onChange: (v: numbe
         color="fg.muted"
         _hover={{ color: "fg" }}
         onClick={() => onChange(Math.min(10, value + 1))}
-        minW="14px"
         h="22px"
+        minW={{ base: "44px", md: "14px" }}
+        minH={{ base: "44px", md: "22px" }}
         p={0}
       >
         <MdAdd size={10} />
       </IconButton>
     </Flex>
+  )
+}
+
+function MobileFieldLabel({ children }: { children: ReactNode }) {
+  return (
+    <Text
+      display={{ base: "block", md: "none" }}
+      fontSize="10px"
+      fontWeight={500}
+      color="var(--ink-tertiary)"
+      textTransform="uppercase"
+      letterSpacing="0.06em"
+    >
+      {children}
+    </Text>
   )
 }
 
@@ -134,6 +151,7 @@ export default function ListEditor(props: ListEditorProps) {
             fontWeight="bold"
             color="fg.muted"
             letterSpacing="widest"
+            display={{ base: "none", md: "flex" }}
           >
             {props.showLabel !== false && <Box flex={1.5}>LABEL</Box>}
             {props.showWeight && <Box width="52px" textAlign="center" flexShrink={0}>WGT</Box>}
@@ -146,10 +164,11 @@ export default function ListEditor(props: ListEditorProps) {
             return (
               <Flex
                 key={item.id || index}
-                gap={3}
+                gap={{ base: 2, md: 3 }}
                 px={3}
-                py={2.5}
-                align="flex-start"
+                py={{ base: 3, md: 2.5 }}
+                align={{ base: "stretch", md: "flex-start" }}
+                direction={{ base: "column", md: "row" }}
                 border="1px solid"
                 borderColor="border"
                 borderTop="none"
@@ -159,7 +178,8 @@ export default function ListEditor(props: ListEditorProps) {
                 transition="background 0.15s"
               >
                 {props.showLabel !== false && (
-                  <Box flex={1.5}>
+                  <Box flex={{ base: "none", md: 1.5 }}>
+                    <MobileFieldLabel>Label</MobileFieldLabel>
                     <Input
                       variant="subtle"
                       size="xs"
@@ -179,14 +199,16 @@ export default function ListEditor(props: ListEditorProps) {
                   </Box>
                 )}
                 {props.showWeight && (
-                  <Box width="52px" flexShrink={0} textAlign="center">
+                  <Box width={{ base: "full", md: "52px" }} flexShrink={0} textAlign={{ base: "left", md: "center" }}>
+                    <MobileFieldLabel>Weight</MobileFieldLabel>
                     <WeightStepper
                       value={item.weightage ?? 5}
                       onChange={(v) => handleChange(index, "weightage", v)}
                     />
                   </Box>
                 )}
-                <Box flex={3}>
+                <Box flex={{ base: "none", md: 3 }}>
+                  <MobileFieldLabel>Details</MobileFieldLabel>
                   <Textarea
                     autoresize
                     variant="subtle"
@@ -208,15 +230,16 @@ export default function ListEditor(props: ListEditorProps) {
                     lineHeight="short"
                   />
                 </Box>
-                <Box width="32px" flexShrink={0}>
+                <Box width={{ base: "full", md: "32px" }} flexShrink={0} display="flex" justify={{ base: "flex-end", md: "flex-start" }}>
                   <Button
                     size="xs"
                     variant="ghost"
                     color="fg.muted"
                     _hover={{ color: "red.500", bg: "transparent" }}
                     onClick={deleteItem(index)}
-                    minW="auto"
                     h="auto"
+                    minW={{ base: "44px", md: "auto" }}
+                    minH={{ base: "44px", md: "auto" }}
                     p={1}
                   >
                     <MdDeleteForever size={16} />

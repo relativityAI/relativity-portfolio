@@ -362,6 +362,7 @@ export default function AnalysisResult() {
                             fontFamily="var(--font-mono)"
                             color="var(--ink-tertiary)"
                             mt={2}
+                            overflowWrap={{ base: "anywhere", md: "normal" }}
                         >
                             {metaLine}
                         </Text>
@@ -610,6 +611,7 @@ export default function AnalysisResult() {
                                     textTransform="capitalize"
                                     px={4}
                                     py={2.5}
+                                    minH={{ base: "44px", md: "auto" }}
                                     _hover={{ color: "var(--ink-primary)" }}
                                     _selected={{
                                         color: "var(--ink-primary)",
@@ -673,12 +675,7 @@ export default function AnalysisResult() {
                                                 View all parameters →
                                             </Button>
                                         </Box>
-                                        <QualPreviewCards
-                                            qualAnalysis={qualAnalysis}
-                                            toolCalls={toolCalls}
-                                            expandedTools={expandedTools}
-                                            toggleToolCalls={toggleToolCalls}
-                                        />
+                                        <QualTable entries={Object.entries(qualAnalysis)} />
                                     </Box>
                                 )}
 
@@ -981,37 +978,109 @@ function QuantTable({
     );
 }
 
-function QualPreviewCards({
-    qualAnalysis,
-    toolCalls,
-    expandedTools,
-    toggleToolCalls,
-}: {
-    qualAnalysis: Record<string, any>;
-    toolCalls: Record<string, any[]>;
-    expandedTools: Record<string, boolean>;
-    toggleToolCalls: (param: string) => void;
-}) {
-    const entries = Object.entries(qualAnalysis).slice(0, 3);
+function QualTable({ entries }: { entries: [string, any][] }) {
     return (
-        <VStack gap={0} align="stretch">
-            {entries.map(([paramName, paramData]: [string, any]) => (
-                <QualCard
-                    key={paramName}
-                    paramName={paramName}
-                    paramData={paramData}
-                    toolCalls={toolCalls}
-                    expandedTools={expandedTools}
-                    toggleToolCalls={toggleToolCalls}
-                    compact
-                />
-            ))}
-            {Object.keys(qualAnalysis).length > 3 && (
-                <Text fontSize="12px" color="var(--ink-tertiary)" pt={1}>
-                    +{Object.keys(qualAnalysis).length - 3} more parameters
-                </Text>
-            )}
-        </VStack>
+        <Box border="1px solid var(--hairline)" borderRadius="2px" overflow="hidden">
+            <Box overflowX="auto">
+                <Table.Root size="sm" variant="line" minWidth="600px">
+                    <Table.Header>
+                        <Table.Row bg="var(--surface-recessed)">
+                            <Table.ColumnHeader
+                                fontSize="11px"
+                                fontWeight={500}
+                                letterSpacing="0.06em"
+                                textTransform="uppercase"
+                                color="var(--ink-tertiary)"
+                                py={3}
+                                px={4}
+                            >
+                                Parameter
+                            </Table.ColumnHeader>
+                            <Table.ColumnHeader
+                                fontSize="11px"
+                                fontWeight={500}
+                                letterSpacing="0.06em"
+                                textTransform="uppercase"
+                                color="var(--ink-tertiary)"
+                                py={3}
+                                px={4}
+                                textAlign="right"
+                            >
+                                Wgt
+                            </Table.ColumnHeader>
+                            <Table.ColumnHeader
+                                fontSize="11px"
+                                fontWeight={500}
+                                letterSpacing="0.06em"
+                                textTransform="uppercase"
+                                color="var(--ink-tertiary)"
+                                py={3}
+                                px={4}
+                                textAlign="right"
+                            >
+                                Score
+                            </Table.ColumnHeader>
+                        </Table.Row>
+                    </Table.Header>
+                    <Table.Body>
+                        {entries.map(([paramName, d]) => {
+                            const score = typeof d?.score === "number" ? d.score : 0;
+                            const sig = scoreSignal(score);
+                            return (
+                                <Table.Row
+                                    key={paramName}
+                                    borderLeft={`3px solid ${signalColor(sig)}`}
+                                    _hover={{ bg: "var(--surface-recessed)" }}
+                                    transition="background 80ms"
+                                >
+                                    <Table.Cell
+                                        fontSize="13.5px"
+                                        fontWeight={500}
+                                        color="var(--ink-primary)"
+                                        px={4}
+                                        py={3}
+                                    >
+                                        {paramName}
+                                        {d?.error && (
+                                            <Text
+                                                as="span"
+                                                fontSize="11px"
+                                                color="var(--signal-negative)"
+                                                ml={2}
+                                            >
+                                                error
+                                            </Text>
+                                        )}
+                                    </Table.Cell>
+                                    <Table.Cell
+                                        fontSize="13.5px"
+                                        fontFamily="var(--font-mono)"
+                                        fontVariantNumeric="tabular-nums"
+                                        color="var(--ink-secondary)"
+                                        textAlign="right"
+                                        px={4}
+                                        py={3}
+                                    >
+                                        {d?.weightage ?? "—"}
+                                    </Table.Cell>
+                                    <Table.Cell textAlign="right" px={4} py={3}>
+                                        <Text
+                                            fontSize="13.5px"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                            fontWeight={500}
+                                            color={signalColor(sig)}
+                                        >
+                                            {score.toFixed(1)}
+                                        </Text>
+                                    </Table.Cell>
+                                </Table.Row>
+                            );
+                        })}
+                    </Table.Body>
+                </Table.Root>
+            </Box>
+        </Box>
     );
 }
 

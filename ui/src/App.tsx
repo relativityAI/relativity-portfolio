@@ -43,7 +43,7 @@ function App() {
       {/* Navbar */}
       <NavBar />
 
-      <Box w="100%" paddingX={16} marginY={5}>
+      <Box w="100%" paddingX={{ base: 4, md: 16 }} marginY={5}>
         <Routes>
           <Route path="/" element={<Analysis />} />
           <Route

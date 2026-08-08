@@ -75,3 +75,12 @@ body {
   background: var(--ink-tertiary);
   border-radius: 2px;
 }
+
+/* Mobile tap targets — below the md (768px) breakpoint only.
+   Desktop (md+) is untouched. */
+@media (max-width: 767.98px) {
+  html .chakra-button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

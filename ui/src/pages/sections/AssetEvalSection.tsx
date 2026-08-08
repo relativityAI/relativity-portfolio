@@ -87,7 +87,7 @@ export default function AssetEvalSection({
             </SectionBlock>
 
             <Flex direction="column" gap={4} py={4}>
-                <Flex align="center" gap={3}>
+                <Flex gap={3} direction={{ base: "column", md: "row" }} align={{ base: "flex-start", md: "center" }}>
                     <Text
                         fontSize="10.5px"
                         fontWeight={500}
@@ -98,7 +98,7 @@ export default function AssetEvalSection({
                     >
                         Data Source
                     </Text>
-                    <Box width="220px">
+                    <Box width={{ base: "full", md: "220px" }}>
                         <Select.Root
                             collection={SOURCE_OPTIONS}
                             value={source ? [source] : []}
