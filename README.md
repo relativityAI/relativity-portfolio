@@ -14,10 +14,10 @@ The name *Relativity* draws inspiration from Einsteins Theory of Relativity. A g
 
 - **UI** (`ui/`) — React (Vite + Chakra) frontend on port 5173.
 - **API** (`api/`) — in-repo Express + Vercel AI SDK backend on port 8080. Owns agents, runs analyses (quantitative scoring + LLM-driven qualitative agent tool-loop), and exposes the curated model list and metric catalog.
-- **[Voyager](https://github.com/relativityAI/voyager)** — external data service (port 8001) that the API calls directly. The agent never sees the data-pull endpoint; data is pulled automatically when an analysis runs.
-- **MongoDB** — persistence for agents and analysis runs (port 27017).
+- **[Voyager](https://github.com/relativityAI/voyager)** — hosted data service (`https://voyager-1hpq.onrender.com`) that the API calls directly. The agent never sees the data endpoint. Access is read-only: the app checks availability/freshness via a GET and never submits data pulls (no POST /pull).
+- **MongoDB** — persistence for agents and analysis runs. Uses the local docker Mongo by default, or a MongoDB Atlas connection string.
 
-The UI talks only to `/api` (proxied to 8080). LLM API keys are held in the browser and forwarded to the API as headers; the Voyager endpoint is configurable per user (see Settings) and forwarded the same way.
+The UI talks only to `/api` (proxied to 8080). LLM and Voyager API keys are held in the browser and forwarded to the API as headers — never persisted server-side. The API forwards your Voyager key to the hosted service as `X-API-Key`.
 
 ## Install
 
@@ -31,11 +31,19 @@ docker compose up -d
 
 Add `--build` to rebuild images after pulling changes.
 
-This starts the UI (5173), the API (8080), Voyager (8001), MongoDB (27017), and Mongo Express (8081).
+This starts the UI (5173), the API (8080), MongoDB (27017), and Mongo Express (8081). The API targets the hosted Voyager service by default — no local Voyager is required. (A local `voyager` service is still defined in the compose file for self-hosting, but the API's `VOYAGER_URL` defaults to the hosted endpoint.)
+
+For MongoDB Atlas, set the connection string before starting:
+
+```bash
+export MONGODB_URL='mongodb+srv://<user>:<password>@<cluster>.mongodb.net/'
+export MONGODB_DB_NAME='relativity'
+docker compose up -d
+```
 
 ### Local development
 
-Run Voyager and MongoDB (e.g. `docker compose up -d voyager mongo`), then:
+Run MongoDB (e.g. `docker compose up -d mongo`), then:
 
 ```bash
 # API (port 8080)
@@ -57,7 +65,7 @@ Open [http://localhost:5173](http://localhost:5173).
 - **New Analysis** — Pick a source (SEC/NSE), search a company, choose an agent and a model, then run. Data is fetched automatically.
 - **Agents** — Create and configure agents with qualitative and quantitative criteria (operators, thresholds, weightage).
 - **Analysis** — Browse previous runs and open full reports.
-- **Settings** — Store LLM provider API keys (sent to the backend as headers, never persisted server-side) and configure the Voyager API endpoint.
+- **Settings** — Store LLM provider API keys (sent to the backend as headers, never persisted server-side) and your Voyager API key. The Voyager endpoint is server-configured (`VOYAGER_URL`); the API reads it through the hosted service and only ever uses read-only endpoints.
 
 ## Contributing
 

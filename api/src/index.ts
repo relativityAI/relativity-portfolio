@@ -8,6 +8,7 @@ import { getModelIds } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
 import { getMetricsCatalog } from "./metrics.js";
 import { createRun, RunRequest } from "./run.js";
+import { VoyagerClient, toCountrySource } from "./voyager.js";
 import type { LlmKeys } from "./agent.js";
 import { log, paint } from "./logger.js";
 
@@ -59,7 +60,7 @@ app.use((req, res, next) => {
       .filter(([, v]) => v)
       .map(([k]) => k)
       .join(",");
-    const voyager = (req.headers["x-voyager-url"] as string)?.trim() ? "custom" : "default";
+    const voyager = (req.headers["x-voyager-key"] as string)?.trim() ? "user" : config.voyagerApiKey ? "default" : "none";
 
     const parts = [
       paint(req.method, methodColor(req.method)),
@@ -135,10 +136,10 @@ function extractKeys(req: express.Request): LlmKeys {
   };
 }
 
-function voyagerUrl(req: express.Request): string {
-  const header = req.headers["x-voyager-url"];
+function voyagerKey(req: express.Request): string {
+  const header = req.headers["x-voyager-key"];
   if (typeof header === "string" && header.trim()) return header.trim();
-  return config.voyagerUrl;
+  return config.voyagerApiKey;
 }
 
 // Match a doc by string id, ObjectId-hex id, or legacy analysis_id.
@@ -161,15 +162,16 @@ app.get("/health", async (_req, res) => {
 });
 
 app.get("/health/voyager", async (req, res) => {
-  const base = voyagerUrl(req).replace(/\/+$/, "");
+  const base = config.voyagerUrl.replace(/\/+$/, "");
+  const keyed = !!voyagerKey(req);
   try {
-    const r = await fetch(`${base}/list`, {
+    const r = await fetch(`${base}/healthz`, {
       signal: AbortSignal.timeout(5000),
       headers: { accept: "application/json" },
     });
-    res.json({ ok: r.ok });
+    res.json({ ok: r.ok, base, keyed });
   } catch {
-    res.json({ ok: false });
+    res.json({ ok: false, base, keyed });
   }
 });
 
@@ -275,7 +277,7 @@ app.post("/analysis", async (req, res) => {
       documents: Array.isArray(body.documents) ? body.documents : undefined,
       web_search: !!body.web_search,
       web_sources: Array.isArray(body.web_sources) ? body.web_sources : undefined,
-      voyagerUrl: voyagerUrl(req),
+      voyagerApiKey: voyagerKey(req),
       keys: extractKeys(req),
       reqId: (req as any)._reqId,
     };
@@ -314,6 +316,40 @@ app.get("/analysis", async (_req, res) => {
     res.json(docs.map(toPlain));
   } catch (e: any) {
     res.status(503).json({ error: e.message });
+  }
+});
+
+// Read-only Voyager pull status / data availability for a stock. Never
+// triggers a pull. Always 200 — degrade per-widget rather than hard-fail.
+app.get("/analysis/data-status", async (req, res) => {
+  const symbol = String(req.query.symbol || "");
+  const source = String(req.query.source || "NSE");
+  if (!symbol) return res.status(400).json({ error: "symbol is required" });
+  const key = voyagerKey(req);
+  if (!key) {
+    return res.json({
+      symbol,
+      available: false,
+      keyed: false,
+      error: "No Voyager API key configured. Add your Voyager API key in Settings.",
+    });
+  }
+  const cs = toCountrySource(source);
+  const voyager = new VoyagerClient(config.voyagerUrl, key, config.voyagerRpm);
+  try {
+    const data = await voyager.getPullStatus(symbol, cs.country, cs.source);
+    res.json({ ...data, symbol, keyed: true });
+  } catch (e: any) {
+    const status = e?.status;
+    const message =
+      status === 401
+        ? "Voyager API key is invalid or expired."
+        : status === 403
+          ? "Insufficient permission: the Voyager key needs the data:read scope."
+          : status === 429
+            ? "Rate limit exceeded for the Voyager API key."
+            : `Voyager data check failed: ${e?.message || String(e)}`;
+    res.status(200).json({ symbol, available: false, keyed: true, error: message });
   }
 });
 
@@ -360,7 +396,7 @@ const server = app.listen(config.port, async () => {
   log.info("[api]", `listening on :${config.port}`);
   log.info(
     "[api]",
-    `config: mongo=${config.mongodbUrl} db=${config.mongodbDb} voyager=${config.voyagerUrl} rateLimit=${config.rateLimitPerMin}/min logLevel=${process.env.LOG_LEVEL || "info"}`,
+    `config: mongo=${config.mongodbUrl} db=${config.mongodbDb} voyager=${config.voyagerUrl} voyagerKey=${config.voyagerApiKey ? "set" : "unset"} rateLimit=${config.rateLimitPerMin}/min logLevel=${process.env.LOG_LEVEL || "info"}`,
   );
   try {
     await connectDb();

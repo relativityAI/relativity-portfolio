@@ -21,11 +21,13 @@ export interface QuantEntry {
   threshold: any;
   metric_type: string;
   section: string;
+  price_unavailable?: boolean;
 }
 
 export interface QuantResult {
   quantitative_analysis: Record<string, QuantEntry>;
   quantitative_score: number;
+  price_data?: "live" | "unavailable" | "unknown";
 }
 
 const EPS = 1e-9;
@@ -127,56 +129,27 @@ function _findMetric(metrics: Record<string, any>, name: string, category?: stri
   return undefined;
 }
 
-// Flatten the /equity/data/ratios payload into a single dict: current_price,
-// all non-null valuation values, and the first records[0] entry (nested dicts
-// collapsed, `date` key skipped).
-function flattenRatios(data: any): Record<string, any> {
-  const out: Record<string, any> = {};
-  if (!data || typeof data !== "object") return out;
+// Price-derived categories from the metric catalog (metrics.ts). When Voyager
+// reports price_data="unavailable" these fields are omitted, so criteria in
+// these categories are surfaced as N/A rather than scored as a hard failure.
+const PRICE_DERIVED_CATEGORIES = new Set(["market", "valuation"]);
 
-  if (data.current_price !== undefined && data.current_price !== null) {
-    out.current_price = data.current_price;
-  }
-
-  const valuation = data.valuation;
-  if (valuation && typeof valuation === "object" && !Array.isArray(valuation)) {
-    for (const [k, v] of Object.entries(valuation)) {
-      if (v !== undefined && v !== null) out[k] = v;
-    }
-  }
-
-  const records = Array.isArray(data.records) ? data.records : [];
-  const first = records[0];
-  if (first && typeof first === "object") {
-    for (const [k, v] of Object.entries(first)) {
-      if (k === "date") continue;
-      if (v === undefined || v === null) continue;
-      if (v && typeof v === "object" && !Array.isArray(v)) {
-        for (const [k2, v2] of Object.entries(v)) {
-          if (v2 !== undefined && v2 !== null) out[k2] = v2;
-        }
-      } else {
-        out[k] = v;
-      }
-    }
-  }
-
-  return out;
+function isPriceDerived(category?: string): boolean {
+  if (!category) return false;
+  return PRICE_DERIVED_CATEGORIES.has(category.toLowerCase().replace(/[^a-z0-9]/g, ""));
 }
 
+// Fetch the /financial-metrics snapshot. This is the single metrics source —
+// the legacy /equity/data/* snapshot endpoints do not exist in the deployed
+// Voyager API. Returns the raw payload plus the price_data marker.
 async function fetchMetrics(
   voyager: VoyagerClient,
   symbol: string,
   country: string,
   source: string,
-): Promise<Record<string, any>> {
-  try {
-    const data = await voyager.get("/equity/data/ratios", { symbol, country, source });
-    const out = flattenRatios(data);
-    if (Object.keys(out).length > 0) return out;
-  } catch {
-    // fall through to the alternate metrics endpoints
-  }
+): Promise<{ metrics: Record<string, any>; price_data: "live" | "unavailable" | "unknown" }> {
+  let metrics: Record<string, any> = {};
+  let price_data: "live" | "unavailable" | "unknown" = "unknown";
   try {
     const data = await voyager.get("/financial-metrics", {
       symbol,
@@ -185,25 +158,19 @@ async function fetchMetrics(
       consolidated: true,
       filing_type: "ttm",
     });
-    if (data && typeof data === "object" && Object.keys(data).length > 3) return data;
-  } catch {
-    // fall through to the alternate metrics endpoint
-  }
-  try {
-    const data = await voyager.get("/equity/data/metrics", { symbol, country, source });
-    const out: Record<string, any> = {};
-    const nested = (data?.data && typeof data.data === "object") ? data.data : data;
-    for (const rows of Object.values(nested ?? {})) {
-      if (!Array.isArray(rows)) continue;
-      for (const row of rows) {
-        if (row && typeof row === "object") Object.assign(out, row);
-      }
+    if (data && typeof data === "object" && Object.keys(data).length > 0) {
+      metrics = data;
+      price_data =
+        data.price_data === "live"
+          ? "live"
+          : data.price_data === "unavailable"
+            ? "unavailable"
+            : "unknown";
     }
-    if (Object.keys(out).length > 0) return out;
   } catch {
-    // neither endpoint available
+    // no metrics available; callers score missing data as 0
   }
-  return {};
+  return { metrics, price_data };
 }
 
 // Triangular soft-boundary decay. Spread = max(|threshold|, 1) * 0.5:
@@ -291,7 +258,12 @@ function _evaluateText(operator: string, value: any, threshold: any): number {
   }
 }
 
-function evaluateMetric(metrics: Record<string, any>, criterion: Criterion, section: string): QuantEntry {
+function evaluateMetric(
+  metrics: Record<string, any>,
+  criterion: Criterion,
+  section: string,
+  price_data?: "live" | "unavailable" | "unknown",
+): QuantEntry {
   const key = criterion.metric || criterion.metric_name || "";
   const metric_name = criterion.metric_name || key;
   const metric_type = criterion.metric_type || "number";
@@ -299,6 +271,11 @@ function evaluateMetric(metrics: Record<string, any>, criterion: Criterion, sect
   const operator = criterion.operator || "gt";
   const threshold = criterion.value;
   const value = _findMetric(metrics, key, criterion.category);
+
+  const priceUnavailable =
+    price_data === "unavailable" &&
+    value === undefined &&
+    isPriceDerived(criterion.category);
 
   const base: QuantEntry = {
     value: value ?? null,
@@ -310,6 +287,7 @@ function evaluateMetric(metrics: Record<string, any>, criterion: Criterion, sect
     threshold: threshold ?? null,
     metric_type,
     section,
+    price_unavailable: priceUnavailable || undefined,
   };
 
   // Missing data → score 0 (the criterion still contributes its weight).
@@ -351,7 +329,7 @@ export async function runQuantitative(
   country: string,
   source: string,
 ): Promise<QuantResult> {
-  const metrics = await fetchMetrics(voyager, symbol, country, source);
+  const { metrics, price_data } = await fetchMetrics(voyager, symbol, country, source);
 
   const criteria: Criterion[] = [
     ...(agent?.asset_evaluation?.quantitative || []),
@@ -369,7 +347,7 @@ export async function runQuantitative(
 
   for (const { section, criteria } of sections) {
     criteria.forEach((c, idx) => {
-      const entry = evaluateMetric(metrics, c, section);
+      const entry = evaluateMetric(metrics, c, section, price_data);
       const metric = c.metric || c.metric_name || `criterion_${idx}`;
       entries[`${section}:${metric}`] = entry;
       weighted += entry.score * entry.weightage;
@@ -380,5 +358,5 @@ export async function runQuantitative(
   const quantitative_score =
     weightSum > 0 ? Math.round((weighted / weightSum) * 10000) / 100 : 0;
 
-  return { quantitative_analysis: entries, quantitative_score };
+  return { quantitative_analysis: entries, quantitative_score, price_data };
 }

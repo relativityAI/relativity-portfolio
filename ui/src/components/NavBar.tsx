@@ -6,7 +6,7 @@ import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineA
 import { LuWebhook, LuDatabase, LuSatellite } from "react-icons/lu";
 import { ColorModeButton } from "@/components/ui/color-mode";
 
-const VOYAGER_DOCS_URL = import.meta.env.VITE_VOYAGER_DOCS_URL || "http://localhost:8001";
+const VOYAGER_DOCS_URL = import.meta.env.VITE_VOYAGER_DOCS_URL || "https://voyager-1hpq.onrender.com";
 
 export default function NavBar() {
 

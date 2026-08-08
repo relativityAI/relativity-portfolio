@@ -51,7 +51,7 @@ export function buildTools(ctx: ToolContext) {
   return {
     get_financial_metrics: tool({
       description:
-        "Fetch a single-period financial metrics snapshot (ratios, margins, growth, valuation, per-share figures) for a company. Use filing_type=ttm for trailing-twelve-months figures, quarterly/annual for point-in-time statements.",
+        "Fetch a single-period financial metrics snapshot (ratios, margins, growth, valuation, per-share figures) for a company. Use filing_type=ttm for trailing-twelve-months figures, quarterly/annual for point-in-time statements. Note: if the response has price_data=\"unavailable\", price-derived fields (current_price, market cap, PE/PB/PS, EV, technicals) are omitted and only filings-based ratios are present.",
       inputSchema: z.object({
         symbol: z.string().describe("Stock symbol, e.g. RELIANCE or NVDA."),
         country: z.enum(["in", "us"]).optional().describe("Defaults to the analyzed company's country."),
