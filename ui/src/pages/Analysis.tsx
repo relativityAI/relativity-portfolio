@@ -6,7 +6,7 @@ import {
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
 import { MdInfoOutline, MdCheck, MdClose } from "react-icons/md";
 import { Link, useParams } from "react-router-dom";
-import { AnalysisService, AgentService, API_BASE } from "@/db";
+import { AnalysisService, AgentService, DataService, API_BASE } from "@/db";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatSeconds } from "@/utils";
 import { RunSteps, type RunStep } from "./shared/RunStatus";
@@ -244,6 +244,62 @@ function RunningNow() {
     );
 }
 
+function DataAvailabilityTag({ loading, data, symbol }: { loading: boolean; data: any; symbol: string }) {
+    let ok = false;
+    let label = "";
+    let detail = "";
+
+    if (loading) {
+        return (
+            <HStack gap={1.5} px={2} py={1} borderRadius="999px" bg="var(--surface-recessed)">
+                <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />
+                <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
+                    checking…
+                </Text>
+            </HStack>
+        );
+    }
+
+    if (!data) {
+        label = "availability unknown";
+        detail = "Could not determine data availability.";
+    } else if (data.keyed === false) {
+        label = "no Voyager key";
+        detail = "No Voyager API key configured — add one in Settings to fetch market data.";
+    } else if (data.error) {
+        label = "data not available";
+        detail = String(data.error);
+    } else if (data.available) {
+        ok = true;
+        label = "data available";
+        detail = data.last_pulled
+            ? `Data pulled for ${symbol} · last pulled ${new Date(data.last_pulled).toLocaleString()}`
+            : `Data available for ${symbol}`;
+    } else {
+        label = "no data pulled";
+        detail = `No data pulled yet for ${symbol} — the analysis may return empty metrics.`;
+    }
+
+    return (
+        <Tooltip content={detail}>
+            <HStack
+                gap={1.5}
+                px={2}
+                py={1}
+                borderRadius="999px"
+                bg={ok ? "var(--signal-positive)" : "var(--signal-negative)"}
+                color="#fff"
+                cursor="help"
+            >
+                {ok ? <MdCheck size={11} /> : <MdClose size={11} />}
+                <Text fontSize="11px" fontFamily="var(--font-mono)" fontWeight={500}>
+                    {label}
+                </Text>
+            </HStack>
+        </Tooltip>
+    );
+}
+
 export default function Analysis() {
     const { id } = useParams();
 
@@ -254,6 +310,9 @@ export default function Analysis() {
     const [analysisDuration, setAnalysisDuration] = useState<string>("");
     const [elapsedTime, setElapsedTime] = useState(0);
     const [steps, setSteps] = useState<RunStep[]>([]);
+
+    const [dataStatus, setDataStatus] = useState<any>(null);
+    const [dataStatusLoading, setDataStatusLoading] = useState(false);
 
     useEffect(() => {
         if (status === "PENDING") {
@@ -486,6 +545,28 @@ export default function Analysis() {
         }
     }, [status, correlationId]);
 
+    useEffect(() => {
+        if (!config.share || status !== "EMPTY" || id) {
+            setDataStatus(null);
+            return;
+        }
+        let cancelled = false;
+        setDataStatusLoading(true);
+        DataService.getDataStatus(config.share, config.source)
+            .then((d) => {
+                if (!cancelled) setDataStatus(d);
+            })
+            .catch(() => {
+                if (!cancelled) setDataStatus({ available: false, error: "Availability check failed." });
+            })
+            .finally(() => {
+                if (!cancelled) setDataStatusLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [config.share, config.source, status, id]);
+
     const searchParams = useMemo(() => ({ source: config.source }), [config.source]);
     const isConfigComplete = config.share !== "" && config.agent !== "";
     const canRunAnalysis = isConfigComplete;
@@ -560,16 +641,24 @@ export default function Analysis() {
                             </Flex>
 
                             <Flex direction="column" align="start">
-                                <Text
-                                    mb={2}
-                                    fontSize="10.5px"
-                                    fontWeight={500}
-                                    color="var(--ink-tertiary)"
-                                    textTransform="uppercase"
-                                    letterSpacing="0.06em"
-                                >
-                                    Target Company
-                                </Text>
+                                <Flex justify="space-between" align="center" w="full" mb={2}>
+                                    <Text
+                                        fontSize="10.5px"
+                                        fontWeight={500}
+                                        color="var(--ink-tertiary)"
+                                        textTransform="uppercase"
+                                        letterSpacing="0.06em"
+                                    >
+                                        Target Company
+                                    </Text>
+                                    {config.share && status === "EMPTY" && !id && (
+                                        <DataAvailabilityTag
+                                            loading={dataStatusLoading}
+                                            data={dataStatus}
+                                            symbol={config.share}
+                                        />
+                                    )}
+                                </Flex>
                                 <SearchBar
                                     url={`${API_BASE}/stocks/search`}
                                     mainKey={sourceKeys.mainKey}
@@ -695,6 +784,7 @@ export default function Analysis() {
                             </Flex>
                         </Flex>
                     </Box>
+
                 </Box>
 
                 {/* Right: Analysis Status */}

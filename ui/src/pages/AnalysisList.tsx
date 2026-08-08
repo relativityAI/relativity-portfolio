@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { MdArrowUpward, MdArrowDownward } from "react-icons/md";
 import { AnalysisService, AgentService } from "@/db";
 
-type SortKey = "share" | "created_at" | "score" | "status" | "agent" | "duration";
+type SortKey = "share" | "created_at" | "score" | "status" | "agent" | "model" | "duration";
 
 function scoreSignal(score: number): "positive" | "caution" | "negative" {
     if (score >= 70) return "positive";
@@ -121,6 +121,10 @@ export default function AnalysisList() {
                     aVal = (a.agent_name || a.agent || "").toLowerCase();
                     bVal = (b.agent_name || b.agent || "").toLowerCase();
                     break;
+                case "model":
+                    aVal = (a.model || "").toLowerCase();
+                    bVal = (b.model || "").toLowerCase();
+                    break;
                 case "duration":
                     aVal = a.duration ?? -1;
                     bVal = b.duration ?? -1;
@@ -203,7 +207,7 @@ export default function AnalysisList() {
         setStats((prev) => ({ ...prev, analysis: uniqueAnalysis.length }));
     }, [uniqueAnalysis]);
 
-    const colSpan = 7;
+    const colSpan = 8;
 
     const onRowClick = (id: string) => {
         window.open("/analysis-result/" + id, "_blank");
@@ -211,7 +215,7 @@ export default function AnalysisList() {
 
     return (
         <Box bg="var(--surface-canvas)" minH="100vh">
-            <Flex direction="column" gap={6} maxW="1200px" mx="auto" px={6} py={6}>
+            <Flex direction="column" gap={6} maxW="1600px" mx="auto" px={6} py={6}>
                 {/* Page header */}
                 <Flex justify="space-between" align="center">
                     <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
@@ -543,7 +547,7 @@ export default function AnalysisList() {
                                 bg="var(--surface-panel)"
                             >
                                 <Box overflowX="auto">
-                                    <Table.Root size="sm" variant="line" minWidth="750px">
+                                    <Table.Root size="sm" variant="line" minWidth="1000px">
                                         <Table.Header>
                                             <Table.Row bg="var(--surface-recessed)">
                                                 <Table.ColumnHeader
@@ -578,6 +582,23 @@ export default function AnalysisList() {
                                                     <HStack gap={1}>
                                                         <span>Agent</span>
                                                         <SortIcon column="agent" />
+                                                    </HStack>
+                                                </Table.ColumnHeader>
+                                                <Table.ColumnHeader
+                                                    fontSize="10.5px"
+                                                    fontWeight={500}
+                                                    letterSpacing="0.06em"
+                                                    textTransform="uppercase"
+                                                    color="var(--ink-tertiary)"
+                                                    py={3}
+                                                    px={4}
+                                                    cursor="pointer"
+                                                    onClick={() => toggleSort("model")}
+                                                    userSelect="none"
+                                                >
+                                                    <HStack gap={1}>
+                                                        <span>Model</span>
+                                                        <SortIcon column="model" />
                                                     </HStack>
                                                 </Table.ColumnHeader>
                                                 <Table.ColumnHeader
@@ -763,6 +784,22 @@ export default function AnalysisList() {
                                                                 {item.agent_name ||
                                                                     item.agent ||
                                                                     "—"}
+                                                            </Table.Cell>
+
+                                                            {/* Model */}
+                                                            <Table.Cell
+                                                                fontSize="13px"
+                                                                fontFamily="var(--font-mono)"
+                                                                color="var(--ink-secondary)"
+                                                                maxW="200px"
+                                                                overflow="hidden"
+                                                                textOverflow="ellipsis"
+                                                                whiteSpace="nowrap"
+                                                                px={4}
+                                                                py={3}
+                                                                title={item.model || undefined}
+                                                            >
+                                                                {item.model || "—"}
                                                             </Table.Cell>
 
                                                             {/* Match — tabular-nums + signal dot */}

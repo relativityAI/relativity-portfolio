@@ -18,7 +18,7 @@ import { RunSteps } from "./shared/RunStatus";
 import ReactMarkdown from "react-markdown";
 import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
 
-const TABS = ["overview", "quantitative", "qualitative", "sources"] as const;
+const TABS = ["overview", "quantitative", "qualitative", "data", "sources"] as const;
 type Tab = (typeof TABS)[number];
 
 function scoreSignal(score: number): "positive" | "caution" | "negative" {
@@ -77,8 +77,10 @@ const OP_SYMBOL: Record<string, string> = {
 function generateVerdict(totalScore: number | null, quant: Record<string, any>, qual: Record<string, any>): string {
     if (totalScore == null) return "Analysis completed. Review quantitative and qualitative sections for details.";
     const quantEntries = Object.values(quant);
-    const passed = quantEntries.filter((m: any) => (m.score ?? 0) >= 0.7).length;
-    const failed = quantEntries.filter((m: any) => (m.score ?? 0) < 0.4).length;
+    const live = quantEntries.filter((m: any) => !m.price_unavailable);
+    const passed = live.filter((m: any) => (m.score ?? 0) >= 0.7).length;
+    const failed = live.filter((m: any) => (m.score ?? 0) < 0.4).length;
+    const unavailable = quantEntries.length - live.length;
     const qualEntries = Object.values(qual);
     const qualAvg = qualEntries.length > 0
         ? qualEntries.reduce((s: number, p: any) => s + (p.score ?? 0), 0) / qualEntries.length
@@ -86,7 +88,7 @@ function generateVerdict(totalScore: number | null, quant: Record<string, any>, 
 
     let sentence = `Passes ${passed} of ${quantEntries.length} quantitative gates`;
     if (failed > 0) {
-        const failedNames = quantEntries
+        const failedNames = live
             .filter((m: any) => (m.score ?? 0) < 0.4)
             .slice(0, 3)
             .map((m: any) => m.metric_name)
@@ -94,6 +96,9 @@ function generateVerdict(totalScore: number | null, quant: Record<string, any>, 
         sentence += `; ${failed} underperforming${failedNames ? ` (${failedNames})` : ""}`;
     }
     sentence += ".";
+    if (unavailable > 0) {
+        sentence += ` ${unavailable} price-dependent ${unavailable === 1 ? "criterion" : "criteria"} not scored (live price unavailable).`;
+    }
     if (qualEntries.length > 0) {
         const qualLabel = qualAvg >= 0.7 ? "supportive" : qualAvg >= 0.4 ? "moderately supportive" : "mixed";
         sentence += ` Qualitative narrative is ${qualLabel}.`;
@@ -362,6 +367,23 @@ export default function AnalysisResult() {
                         </Text>
                     )}
                 </Box>
+
+                {analysis.price_data === "unavailable" && (
+                    <Box
+                        borderLeft="3px solid var(--signal-caution)"
+                        pl={4}
+                        py={3}
+                        mb={6}
+                        bg="var(--surface-panel)"
+                    >
+                        <Text fontSize="12px" fontWeight={500} color="var(--ink-primary)" mb={1}>
+                            Live price data unavailable
+                        </Text>
+                        <Text fontSize="12px" color="var(--ink-secondary)">
+                            No live price feed for this instrument — valuation and technical criteria are shown as N/A.
+                        </Text>
+                    </Box>
+                )}
 
                 {analysis.error && (
                     <Box
@@ -710,6 +732,20 @@ export default function AnalysisResult() {
                             </Box>
                         </Tabs.Content>
 
+                        {/* ── Data ── */}
+                        <Tabs.Content value="data">
+                            <Box
+                                ref={(el) => registerSection("data", el)}
+                                data-section="data"
+                            >
+                                <SectionHeader label="Data" count={1} />
+                                <DataStatus
+                                    dataAvailability={analysis.data_availability}
+                                    priceData={analysis.price_data}
+                                />
+                            </Box>
+                        </Tabs.Content>
+
                         {/* ── Sources ── */}
                         <Tabs.Content value="sources">
                             <Box
@@ -850,9 +886,10 @@ function QuantTable({
                     </Table.Header>
                     <Table.Body>
                         {entries.map((m) => {
+                            const isNA = !!m.price_unavailable;
                             const metricScore = (m._score ?? 0) * 100;
-                            const sig = scoreSignal(metricScore);
-                            const borderColor = signalColor(sig);
+                            const sig = isNA ? null : scoreSignal(metricScore);
+                            const borderColor = sig ? signalColor(sig) : "var(--hairline)";
                             return (
                                 <Table.Row
                                     key={m.key}
@@ -892,12 +929,12 @@ function QuantTable({
                                         fontFamily="var(--font-mono)"
                                         fontVariantNumeric="tabular-nums"
                                         fontWeight={500}
-                                        color="var(--ink-primary)"
+                                        color={isNA ? "var(--ink-tertiary)" : "var(--ink-primary)"}
                                         textAlign="right"
                                         px={4}
                                         py={3}
                                     >
-                                        {fmt(m.value, m.metric_type)}
+                                        {isNA ? "N/A" : fmt(m.value, m.metric_type)}
                                     </Table.Cell>
                                     <Table.Cell
                                         fontSize="13.5px"
@@ -915,15 +952,24 @@ function QuantTable({
                                         px={4}
                                         py={3}
                                     >
-                                        <Text
-                                            fontSize="13.5px"
-                                            fontFamily="var(--font-tabular)"
-                                            fontVariantNumeric="tabular-nums"
-                                            fontWeight={500}
-                                            color={signalColor(sig)}
-                                        >
-                                            {metricScore.toFixed(1)}
-                                        </Text>
+                                        {isNA ? (
+                                            <Text
+                                                fontSize="13.5px"
+                                                color="var(--ink-tertiary)"
+                                            >
+                                                N/A
+                                            </Text>
+                                        ) : (
+                                            <Text
+                                                fontSize="13.5px"
+                                                fontFamily="var(--font-tabular)"
+                                                fontVariantNumeric="tabular-nums"
+                                                fontWeight={500}
+                                                color={signalColor(sig)}
+                                            >
+                                                {metricScore.toFixed(1)}
+                                            </Text>
+                                        )}
                                     </Table.Cell>
                                 </Table.Row>
                             );
@@ -1326,5 +1372,151 @@ function EmptyState({ message }: { message: string }) {
         >
             {message}
         </Flex>
+    );
+}
+
+function DataStatus({
+    dataAvailability,
+    priceData,
+}: {
+    dataAvailability: any;
+    priceData: string | null;
+}) {
+    if (!dataAvailability || Object.keys(dataAvailability).length === 0) {
+        return <EmptyState message="No data availability recorded for this run." />;
+    }
+
+    if (dataAvailability.error) {
+        return (
+            <Box
+                borderLeft="3px solid var(--signal-caution)"
+                pl={4}
+                py={2}
+                fontSize="12.5px"
+                color="var(--ink-secondary)"
+            >
+                {dataAvailability.error}
+            </Box>
+        );
+    }
+
+    const collections = dataAvailability.collections || {};
+    const collEntries = Object.entries(collections);
+    const totalRecords = collEntries.reduce(
+        (n: number, [, c]: [string, any]) => n + (c?.records ?? 0),
+        0,
+    );
+    const pulled = dataAvailability.available === true;
+    const partial =
+        !pulled && totalRecords > 0;
+    const never = totalRecords === 0;
+
+    const priceLabel =
+        priceData === "live"
+            ? "Live"
+            : priceData === "unavailable"
+              ? "Unavailable"
+              : priceData === "unknown"
+                ? "Unknown"
+                : "Not recorded";
+
+    return (
+        <Box border="1px solid var(--hairline)" borderRadius="2px" overflow="hidden">
+            <Flex
+                justify="space-between"
+                align="center"
+                gap={4}
+                wrap="wrap"
+                p={4}
+                borderBottom="1px solid var(--hairline)"
+                bg="var(--surface-recessed)"
+            >
+                <HStack gap={3}>
+                    <Text
+                        fontSize="13px"
+                        fontWeight={600}
+                        color="var(--ink-primary)"
+                        fontFamily="var(--font-mono)"
+                    >
+                        {dataAvailability.symbol || "symbol"}
+                    </Text>
+                    <Text
+                        fontSize="11px"
+                        fontWeight={500}
+                        letterSpacing="0.06em"
+                        textTransform="uppercase"
+                        color={
+                            pulled
+                                ? "var(--signal-positive)"
+                                : partial
+                                  ? "var(--signal-caution)"
+                                  : "var(--ink-tertiary)"
+                        }
+                    >
+                        {pulled ? "Available" : partial ? "Partial" : never ? "Never pulled" : "Unknown"}
+                    </Text>
+                </HStack>
+                <Text
+                    fontSize="12px"
+                    color="var(--ink-tertiary)"
+                    fontFamily="var(--font-mono)"
+                >
+                    Price data: {priceLabel}
+                </Text>
+            </Flex>
+
+            <VStack gap={0} align="stretch">
+                {collEntries.length > 0 && (
+                    <Flex gap={2} wrap="wrap" p={4} borderBottom="1px solid var(--hairline)">
+                        {collEntries.map(([name, c]: [string, any]) => (
+                            <Box
+                                key={name}
+                                fontSize="11px"
+                                fontFamily="var(--font-mono)"
+                                color={
+                                    (c?.records ?? 0) > 0
+                                        ? "var(--ink-secondary)"
+                                        : "var(--ink-tertiary)"
+                                }
+                                px={2}
+                                py={0.5}
+                                bg="var(--surface-recessed)"
+                                borderRadius="2px"
+                            >
+                                {name}: {c?.records ?? 0}
+                                {c?.last_pulled ? (
+                                    <Text
+                                        as="span"
+                                        ml={1.5}
+                                        color="var(--ink-tertiary)"
+                                    >
+                                        · {new Date(c.last_pulled).toLocaleDateString()}
+                                    </Text>
+                                ) : null}
+                            </Box>
+                        ))}
+                    </Flex>
+                )}
+                <Flex
+                    justify="space-between"
+                    align="center"
+                    gap={4}
+                    wrap="wrap"
+                    p={4}
+                    fontSize="12px"
+                >
+                    <Text color="var(--ink-secondary)">
+                        {totalRecords > 0
+                            ? `${totalRecords} record${totalRecords > 1 ? "s" : ""} across ${collEntries.length} collection${collEntries.length > 1 ? "s" : ""}`
+                            : "No data has been pulled for this instrument yet."}
+                    </Text>
+                    <Text color="var(--ink-tertiary)" fontFamily="var(--font-mono)">
+                        {dataAvailability.last_pulled
+                            ? `Last pulled ${new Date(dataAvailability.last_pulled).toLocaleString()}`
+                            : "Never pulled"}
+                    </Text>
+                </Flex>
+            </VStack>
+        </Box>
     );
 }

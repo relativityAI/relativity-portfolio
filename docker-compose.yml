@@ -18,9 +18,10 @@ services:
       - "8080:8080"
     environment:
       PORT: 8080
-      MONGODB_URL: mongodb://root:example@mongo:27017/
-      MONGODB_DB_NAME: relativity
-      VOYAGER_URL: http://voyager:8001
+      MONGODB_URL: ${MONGODB_URL:-mongodb://root:example@mongo:27017/}
+      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-relativity}
+      VOYAGER_URL: https://voyager-1hpq.onrender.com
+      VOYAGER_API_KEY: ${VOYAGER_API_KEY:-}
 
   ##########################################################
 

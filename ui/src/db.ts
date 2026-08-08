@@ -1,9 +1,9 @@
 import axios from "axios";
 
 // All data services go through the in-repo backend (Vite proxy /api -> :8080).
-// The backend reads LLM keys and the Voyager URL from these headers, keeping
-// secrets in the browser only.
-export const API_BASE = "/api";
+// The backend reads LLM keys and the Voyager API key from these headers,
+// keeping secrets in the browser only.
+export const API_BASE = import.meta.env.VITE_RELATIVITY_API || "/api";
 
 const LLM_KEY_HEADERS: Record<string, string> = {
     openai_key: "X-LLM-OpenAI-Key",
@@ -12,6 +12,7 @@ const LLM_KEY_HEADERS: Record<string, string> = {
     cerebras_key: "X-LLM-Cerebras-Key",
     groq_key: "X-LLM-Groq-Key",
     tavily_key: "X-LLM-Tavily-Key",
+    voyager_api_key: "X-Voyager-Key",
 };
 
 axios.interceptors.request.use((config) => {
@@ -19,10 +20,6 @@ axios.interceptors.request.use((config) => {
         const v = localStorage.getItem(storeKey);
         if (v) config.headers[header] = v;
     }
-
-    const voyagerUrl = localStorage.getItem("voyager_url");
-    if (voyagerUrl) config.headers["X-Voyager-URL"] = voyagerUrl;
-
     return config;
 });
 
@@ -115,6 +112,20 @@ export const VoyagerService = {
         const response = await axios.get(`${API_BASE}/metrics`, {
             params: { source }
         });
+        return response.data;
+    }
+};
+
+export const DataService = {
+    async getDataStatus(symbol: string, source: string) {
+        const response = await axios.get(`${API_BASE}/analysis/data-status`, {
+            params: { symbol, source }
+        });
+        return response.data;
+    },
+
+    async getVoyagerHealth() {
+        const response = await axios.get(`${API_BASE}/health/voyager`);
         return response.data;
     }
 };

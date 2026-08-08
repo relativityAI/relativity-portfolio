@@ -4,7 +4,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 api/node_modules/
-
+api/.env
+ui/.env
 
 # stuff
 archives

@@ -1,7 +1,7 @@
 import { db, newId } from "./db.js";
 import { config } from "./config.js";
 import { getModelIds } from "./models.js";
-import { VoyagerClient, toCountrySource } from "./voyager.js";
+import { VoyagerClient, toCountrySource, type PullStatus } from "./voyager.js";
 import { runQuantitative } from "./quant.js";
 import { runQualitativeAll } from "./agent.js";
 import type { LlmKeys } from "./agent.js";
@@ -16,7 +16,7 @@ export interface RunRequest {
   documents?: string[];
   web_search?: boolean;
   web_sources?: string[];
-  voyagerUrl: string;
+  voyagerApiKey?: string;
   keys: LlmKeys;
   reqId?: string;
 }
@@ -37,6 +37,7 @@ export interface RunStep {
 
 const STEP_DEFS: { key: string; label: string }[] = [
   { key: "agent", label: "Load agent configuration" },
+  { key: "data", label: "Check data availability" },
   { key: "quantitative", label: "Quantitative scoring" },
   { key: "qualitative", label: "Qualitative scoring" },
   { key: "finalize", label: "Finalize report" },
@@ -98,6 +99,8 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
     duration: null,
     error: null,
     steps: initialSteps(),
+    data_availability: null,
+    price_data: null,
     quantitative_analysis: {},
     qualitative_analysis: {},
     qualitative_tool_calls: {},
@@ -177,13 +180,41 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     await write(() => updateRun(runId, { status: "RUNNING", source }));
     log.info(runTag, `start symbol=${req.symbol} agent="${agent.name}" model=${req.model || DEFAULT_MODEL} source=${source}`);
 
-    const voyager = new VoyagerClient(req.voyagerUrl || config.voyagerUrl);
+    const voyagerApiKey = req.voyagerApiKey || config.voyagerApiKey;
+    if (!voyagerApiKey) {
+      const msg =
+        "No Voyager API key configured. Add your Voyager API key in Settings before running an analysis.";
+      await end("agent", "completed");
+      await write(() => updateRun(runId, { status: "FAILED", error: msg }));
+      log.error(runTag, msg);
+      return;
+    }
+    const voyager = new VoyagerClient(config.voyagerUrl, voyagerApiKey, config.voyagerRpm);
+
+    // ---- data availability ----
+    await begin("data");
+    let dataAvailability: PullStatus | null = null;
+    try {
+      dataAvailability = await voyager.getPullStatus(req.symbol, cs.country, cs.source);
+      await write(() => updateRun(runId, { data_availability: dataAvailability }));
+      await end("data", "completed");
+      const total = Object.values(dataAvailability?.collections ?? {}).reduce(
+        (n, c) => n + (c?.records || 0),
+        0,
+      );
+      log.info(runTag, `data availability records=${total} last_pulled=${dataAvailability?.last_pulled || "never"}`);
+    } catch (e: any) {
+      const detail = e?.message || String(e);
+      await write(() => updateRun(runId, { data_availability: { error: detail } }));
+      await end("data", "completed", detail);
+      log.warn(runTag, `data availability check failed (continuing): ${detail}`);
+    }
 
     // ---- quantitative ----
     await begin("quantitative");
     const quant = await runQuantitative(voyager, agent, req.symbol, cs.country, cs.source);
     await end("quantitative", "completed");
-    log.info(runTag, `quant done score=${quant.quantitative_score}`);
+    log.info(runTag, `quant done score=${quant.quantitative_score} price_data=${quant.price_data}`);
 
     const toolCtx = {
       voyager,
@@ -248,6 +279,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
         quantitative_score: quantScore,
         qualitative_score: qualScore,
         total_score: total,
+        price_data: quant.price_data || null,
         steps: finishStep(steps, "finalize", "completed"),
       }),
     );
