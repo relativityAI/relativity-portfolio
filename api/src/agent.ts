@@ -13,6 +13,7 @@ export interface LlmKeys {
   anthropic?: string;
   cerebras?: string;
   groq?: string;
+  openrouter?: string;
   tavily?: string;
 }
 
@@ -47,6 +48,12 @@ function buildModel(modelId: string, keys: LlmKeys) {
         name: "groq",
         apiKey: keys.groq || process.env.GROQ_API_KEY,
         baseURL: "https://api.groq.com/openai/v1",
+      })(name);
+    case "openrouter":
+      return createOpenAICompatible({
+        name: "openrouter",
+        apiKey: keys.openrouter || process.env.OPENROUTER_API_KEY,
+        baseURL: "https://openrouter.ai/api/v1",
       })(name);
     case "ollama":
       return createOpenAICompatible({
