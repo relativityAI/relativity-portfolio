@@ -19,6 +19,7 @@ const providerOptions = createListCollection({
         { label: "Gemini", value: "gemini" },
         { label: "Cerebras", value: "cerebras" },
         { label: "Groq", value: "groq" },
+        { label: "OpenRouter", value: "openrouter" },
         { label: "Anthropic", value: "anthropic" },
     ],
     itemToString: (item: any) => item.label,

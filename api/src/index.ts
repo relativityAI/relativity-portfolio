@@ -133,6 +133,7 @@ function extractKeys(req: express.Request): LlmKeys {
     anthropic: (h["x-llm-anthropic-key"] as string) || undefined,
     cerebras: (h["x-llm-cerebras-key"] as string) || undefined,
     groq: (h["x-llm-groq-key"] as string) || undefined,
+    openrouter: (h["x-llm-openrouter-key"] as string) || undefined,
     tavily: (h["x-llm-tavily-key"] as string) || undefined,
   };
 }

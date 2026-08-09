@@ -11,6 +11,7 @@ const LLM_KEY_HEADERS: Record<string, string> = {
     anthropic_key: "X-LLM-Anthropic-Key",
     cerebras_key: "X-LLM-Cerebras-Key",
     groq_key: "X-LLM-Groq-Key",
+    openrouter_key: "X-LLM-OpenRouter-Key",
     tavily_key: "X-LLM-Tavily-Key",
     voyager_api_key: "X-Voyager-Key",
 };
