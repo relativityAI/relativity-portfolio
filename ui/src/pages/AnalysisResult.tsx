@@ -1045,10 +1045,18 @@ function QualTable({ entries }: { entries: [string, any][] }) {
                                             <Text
                                                 as="span"
                                                 fontSize="11px"
+                                                fontFamily="var(--font-mono)"
                                                 color="var(--signal-negative)"
                                                 ml={2}
+                                                maxW="220px"
+                                                overflow="hidden"
+                                                textOverflow="ellipsis"
+                                                whiteSpace="nowrap"
+                                                display="inline-block"
+                                                verticalAlign="middle"
+                                                title={String(d.error)}
                                             >
-                                                error
+                                                error: {String(d.error)}
                                             </Text>
                                         )}
                                     </Table.Cell>
@@ -1156,6 +1164,23 @@ function QualCard({
                             wgt {paramData.weightage ?? "—"}
                         </Text>
                     </Flex>
+
+                    {paramData.error && (
+                        <Box
+                            borderLeft="2px solid var(--signal-negative)"
+                            bg="color-mix(in srgb, var(--signal-negative) 8%, transparent)"
+                            px={3}
+                            py={2}
+                            mb={2}
+                            borderRadius="2px"
+                            fontSize="12px"
+                            fontFamily="var(--font-mono)"
+                            color="var(--signal-negative)"
+                            wordBreak="break-word"
+                        >
+                            {String(paramData.error)}
+                        </Box>
+                    )}
 
                     {!compact && (
                         <Box

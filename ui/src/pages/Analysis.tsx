@@ -107,43 +107,57 @@ function AnalysisStepper({ sourceComplete, companyComplete, agentComplete }: {
 }
 
 function AnalysisGettingStarted() {
-    const cards = [
+    const steps = [
         { num: "01", title: "Select a market source", desc: "Choose between SEC (US Market) or NSE (Indian Market)." },
         { num: "02", title: "Search and select a company", desc: "Find and pick the target company for analysis." },
         { num: "03", title: "Choose an agent", desc: "Pick an agent to guide the LLM." },
         { num: "04", title: "Pick a model & run", desc: "Choose the LLM that runs the analysis, then start the run. Data is fetched automatically." },
     ];
     return (
-        <Flex direction={{ base: "column", sm: "row" }} gap={4} wrap="wrap">
-            {cards.map(card => (
-                <Flex
-                    key={card.num}
-                    direction="column"
-                    gap={2}
-                    p={5}
-                    bg="var(--surface-panel)"
-                    border="1px solid var(--hairline)"
-                    borderRadius="2px"
-                    flex="1"
-                    minW="180px"
-                >
-                    <Text
-                        fontSize="11px"
-                        fontWeight={500}
-                        color="var(--ink-tertiary)"
-                        fontFamily="var(--font-mono)"
-                        letterSpacing="0.06em"
-                    >
-                        {card.num}
-                    </Text>
-                    <Text fontSize="13px" fontWeight={500} color="var(--ink-primary)">
-                        {card.title}
-                    </Text>
-                    <Text fontSize="12px" color="var(--ink-secondary)" lineHeight="relaxed">
-                        {card.desc}
-                    </Text>
-                </Flex>
-            ))}
+        <Flex direction="column" gap={2} align="start">
+            <Text
+                fontSize="10.5px"
+                fontWeight={500}
+                color="var(--ink-tertiary)"
+                letterSpacing="0.06em"
+                textTransform="uppercase"
+            >
+                How it works
+            </Text>
+            <Flex align="center" gap={1.5} wrap="wrap">
+                {steps.map((s, i) => (
+                    <Fragment key={s.num}>
+                        <Flex
+                            align="center"
+                            gap={1.5}
+                            px={2.5}
+                            py={1}
+                            bg="var(--surface-recessed)"
+                            border="1px solid var(--hairline)"
+                            borderRadius="2px"
+                            cursor="help"
+                            title={`${s.num} · ${s.title} — ${s.desc}`}
+                        >
+                            <Text
+                                fontSize="10.5px"
+                                fontFamily="var(--font-mono)"
+                                fontWeight={500}
+                                color="var(--accent-primary)"
+                            >
+                                {s.num}
+                            </Text>
+                            <Text fontSize="12px" fontWeight={500} color="var(--ink-secondary)">
+                                {s.title}
+                            </Text>
+                        </Flex>
+                        {i < steps.length - 1 && (
+                            <Text fontSize="12px" color="var(--ink-tertiary)" flexShrink={0}>
+                                →
+                            </Text>
+                        )}
+                    </Fragment>
+                ))}
+            </Flex>
         </Flex>
     );
 }

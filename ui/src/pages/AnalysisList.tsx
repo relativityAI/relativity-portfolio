@@ -2,7 +2,7 @@ import { Text, Flex, Button, Table, Box, HStack, Spinner, Dialog } from "@chakra
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MdArrowUpward, MdArrowDownward } from "react-icons/md";
-import { AnalysisService, AgentService } from "@/db";
+import { AnalysisService } from "@/db";
 
 type SortKey = "share" | "created_at" | "score" | "status" | "agent" | "model" | "duration";
 
@@ -41,6 +41,76 @@ function timeAgo(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString();
 }
 
+function SectionLabel({ children }: { children: React.ReactNode }) {
+    return (
+        <Text
+            fontSize="10.5px"
+            fontWeight={500}
+            color="var(--ink-tertiary)"
+            letterSpacing="0.06em"
+            textTransform="uppercase"
+            mb={3}
+        >
+            {children}
+        </Text>
+    );
+}
+
+function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
+    const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+    return (
+        <Box
+            flex={1}
+            h="6px"
+            bg="var(--surface-recessed)"
+            borderRadius="2px"
+            overflow="hidden"
+            minW={0}
+        >
+            <Box h="full" bg={color} width={`${pct}%`} transition="width 200ms" />
+        </Box>
+    );
+}
+
+function Sparkline({ values, height = 40 }: { values: number[]; height?: number }) {
+    if (values.length < 2) {
+        return (
+            <Text fontSize="11px" color="var(--ink-tertiary)">
+                Not enough completed runs yet
+            </Text>
+        );
+    }
+    const W = 100;
+    const pts = values.map((v, i) => {
+        const x = (i / (values.length - 1)) * W;
+        const y = height - ((Math.max(0, Math.min(100, v)) / 100) * height);
+        return [x, y] as const;
+    });
+    const line = pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
+    const area = `0,${height} ${line} ${W},${height}`;
+    return (
+        <Box width="full">
+            <svg
+                width="100%"
+                height={height}
+                viewBox={`0 0 ${W} ${height}`}
+                preserveAspectRatio="none"
+                style={{ display: "block" }}
+            >
+                <polyline
+                    points={line}
+                    fill="none"
+                    stroke="var(--accent-primary)"
+                    strokeWidth="1.5"
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                />
+                <polygon points={area} fill="var(--accent-primary)" opacity="0.08" />
+            </svg>
+        </Box>
+    );
+}
+
 export default function AnalysisList() {
     const navigate = useNavigate();
 
@@ -49,7 +119,6 @@ export default function AnalysisList() {
     const [loading, setLoading] = useState(false);
     const [sortKey, setSortKey] = useState<SortKey | null>(null);
     const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-    const [stats, setStats] = useState({ agents: 0, analysis: 0 });
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
     const fetchUniqueAnalysis = async () => {
@@ -74,11 +143,6 @@ export default function AnalysisList() {
 
     useEffect(() => {
         fetchUniqueAnalysis();
-        AgentService.listAgents()
-            .then((agents) => {
-                setStats((prev) => ({ ...prev, agents: agents.length || 0 }));
-            })
-            .catch(() => {});
     }, []);
 
     const handleDelete = async (id: string) => {
@@ -160,52 +224,61 @@ export default function AnalysisList() {
         );
     }, [uniqueAnalysis]);
 
-    const topShares = useMemo(() => {
-        const shareMap = new Map<
-            string,
-            { symbol: string; name: string; scores: number[]; count: number }
-        >();
-        completed.forEach((a) => {
-            const sym = a.symbol || a.share || "";
-            const name = a.share_name || sym;
-            if (!sym) return;
-            if (!shareMap.has(sym)) shareMap.set(sym, { symbol: sym, name, scores: [], count: 0 });
-            const entry = shareMap.get(sym)!;
-            entry.scores.push(a.total_score);
-            entry.count++;
-        });
-        return Array.from(shareMap.values())
-            .map((e) => ({
-                symbol: e.symbol,
-                name: e.name,
-                count: e.count,
-                avgScore: e.scores.reduce((a: number, b: number) => a + b, 0) / e.scores.length,
-            }))
-            .sort((a, b) => b.count - a.count || b.avgScore - a.avgScore)
-            .slice(0, 5);
-    }, [completed]);
-
-    const topAgents = useMemo(() => {
-        const agentMap = new Map<string, { agent: string; scores: number[] }>();
-        completed.forEach((a) => {
-            const agentName = a.agent || a.agent_name || "";
-            if (!agentName) return;
-            if (!agentMap.has(agentName)) agentMap.set(agentName, { agent: agentName, scores: [] });
-            agentMap.get(agentName)!.scores.push(a.total_score);
-        });
-        return Array.from(agentMap.values())
-            .map((e) => ({
-                agent: e.agent,
-                count: e.scores.length,
-                avgScore: e.scores.reduce((a: number, b: number) => a + b, 0) / e.scores.length,
-            }))
-            .sort((a, b) => b.avgScore - a.avgScore || b.count - a.count)
-            .slice(0, 5);
-    }, [completed]);
-
-    useEffect(() => {
-        setStats((prev) => ({ ...prev, analysis: uniqueAnalysis.length }));
+    const failed = useMemo(() => {
+        const f = (a: any) => (a.status || "").toLowerCase();
+        return uniqueAnalysis.filter((a) => f(a) === "failed" || f(a) === "error");
     }, [uniqueAnalysis]);
+
+    const total = uniqueAnalysis.length;
+    const successRate = total > 0 ? completed.length / total : 0;
+
+    const avgScore = useMemo(() => {
+        const vals = completed.map((a) => a.total_score).filter((v) => typeof v === "number");
+        return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+    }, [completed]);
+
+    const scoreBands = useMemo(() => {
+        const bands = [
+            { key: "low", label: "0–39", color: "var(--signal-negative)", count: 0 },
+            { key: "mid", label: "40–69", color: "var(--signal-caution)", count: 0 },
+            { key: "high", label: "70–100", color: "var(--signal-positive)", count: 0 },
+        ];
+        completed.forEach((a) => {
+            const s = a.total_score;
+            if (s < 40) bands[0].count++;
+            else if (s < 70) bands[1].count++;
+            else bands[2].count++;
+        });
+        return bands;
+    }, [completed]);
+
+    const quantAvg = useMemo(() => {
+        const vals = completed.map((a) => a.quantitative_score).filter((v) => typeof v === "number");
+        return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+    }, [completed]);
+
+    const qualAvg = useMemo(() => {
+        const vals = completed.map((a) => a.qualitative_score).filter((v) => typeof v === "number");
+        return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+    }, [completed]);
+
+    const modelUsage = useMemo(() => {
+        const map = new Map<string, number>();
+        uniqueAnalysis.forEach((a) => {
+            const m = a.model || "unknown";
+            map.set(m, (map.get(m) || 0) + 1);
+        });
+        return Array.from(map.entries())
+            .map(([model, count]) => ({ model, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
+    }, [uniqueAnalysis]);
+
+    const trend = useMemo(() => {
+        return [...completed]
+            .sort((a, b) => +new Date(a.created_at ?? 0) - +new Date(b.created_at ?? 0))
+            .slice(-15);
+    }, [completed]);
 
     const colSpan = 8;
 
@@ -241,28 +314,19 @@ export default function AnalysisList() {
                     {/* Sidebar — single flattened panel */}
                     <Flex
                         direction="column"
-                        w={{ base: "full", lg: "260px" }}
+                        w={{ base: "full", lg: "280px" }}
                         flexShrink={0}
                         border="1px solid var(--hairline)"
                         borderRadius="2px"
                         bg="var(--surface-panel)"
                     >
-                        {/* Overview stats */}
+                        {/* Run health */}
                         <Box px={4} py={3}>
-                            <Text
-                                fontSize="10.5px"
-                                fontWeight={500}
-                                color="var(--ink-tertiary)"
-                                letterSpacing="0.06em"
-                                textTransform="uppercase"
-                                mb={3}
-                            >
-                                Overview
-                            </Text>
+                            <SectionLabel>Run Health</SectionLabel>
                             <Flex direction="column" gap={3}>
                                 <Flex justify="space-between" align="baseline">
                                     <Text fontSize="13px" color="var(--ink-secondary)">
-                                        Agents
+                                        Completed
                                     </Text>
                                     <Text
                                         fontSize="24px"
@@ -272,262 +336,202 @@ export default function AnalysisList() {
                                         color="var(--ink-primary)"
                                         lineHeight="1"
                                     >
-                                        {stats.agents}
+                                        {completed.length}
                                     </Text>
                                 </Flex>
                                 <Flex justify="space-between" align="baseline">
                                     <Text fontSize="13px" color="var(--ink-secondary)">
-                                        Analyses
+                                        Failed
                                     </Text>
                                     <Text
                                         fontSize="24px"
                                         fontWeight={600}
                                         fontFamily="var(--font-tabular)"
                                         fontVariantNumeric="tabular-nums"
-                                        color="var(--ink-primary)"
+                                        color={failed.length > 0 ? "var(--signal-negative)" : "var(--ink-primary)"}
                                         lineHeight="1"
                                     >
-                                        {stats.analysis}
+                                        {failed.length}
                                     </Text>
                                 </Flex>
+                                {total > 0 && (
+                                    <Flex align="center" gap={2}>
+                                        <MiniBar value={completed.length} max={total} color="var(--signal-positive)" />
+                                        <Text
+                                            fontSize="12px"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                            color="var(--ink-secondary)"
+                                            flexShrink={0}
+                                        >
+                                            {Math.round(successRate * 100)}%
+                                        </Text>
+                                    </Flex>
+                                )}
+                                {avgScore != null && (
+                                    <Text fontSize="11px" color="var(--ink-tertiary)">
+                                        Avg match{" "}
+                                        <Text
+                                            as="span"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                            color="var(--ink-primary)"
+                                            fontWeight={500}
+                                        >
+                                            {avgScore.toFixed(1)}
+                                        </Text>
+                                    </Text>
+                                )}
                             </Flex>
                         </Box>
 
                         <Box mx={4} borderTop="1px solid var(--hairline)" />
 
-                        {/* Top Shares */}
+                        {/* Score distribution */}
                         <Box px={4} py={3}>
-                            <Text
-                                fontSize="10.5px"
-                                fontWeight={500}
-                                color="var(--ink-tertiary}"
-                                letterSpacing="0.06em"
-                                textTransform="uppercase"
-                                mb={2}
-                            >
-                                Top Shares
-                            </Text>
-                            {topShares.length === 0 ? (
+                            <SectionLabel>Score Distribution</SectionLabel>
+                            {completed.length === 0 ? (
                                 <Text fontSize="12px" color="var(--ink-tertiary)">
-                                    No completed analyses
+                                    No completed runs yet
                                 </Text>
                             ) : (
-                                <Box>
-                                    <Table.Root size="xs" variant="line" minWidth="auto">
-                                        <Table.Header>
-                                            <Table.Row>
-                                                <Table.ColumnHeader
-                                                    fontSize="10px"
+                                <Flex direction="column" gap={2.5}>
+                                    {scoreBands.map((b) => (
+                                        <Flex direction="column" gap={1} key={b.key}>
+                                            <Flex justify="space-between" align="baseline">
+                                                <Text fontSize="11px" color="var(--ink-secondary)">
+                                                    {b.label}
+                                                </Text>
+                                                <Text
+                                                    fontSize="12px"
+                                                    fontFamily="var(--font-tabular)"
+                                                    fontVariantNumeric="tabular-nums"
+                                                    color="var(--ink-primary)"
                                                     fontWeight={500}
-                                                    color="var(--ink-tertiary)"
-                                                    px={1}
                                                 >
-                                                    #
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10px"
-                                                    fontWeight={500}
-                                                    color="var(--ink-tertiary)"
-                                                    px={1}
-                                                >
-                                                    Symbol
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10px"
-                                                    fontWeight={500}
-                                                    color="var(--ink-tertiary)"
-                                                    px={1}
-                                                    textAlign="center"
-                                                >
-                                                    Runs
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10px"
-                                                    fontWeight={500}
-                                                    color="var(--ink-tertiary)"
-                                                    px={1}
-                                                    textAlign="right"
-                                                >
-                                                    Match
-                                                </Table.ColumnHeader>
-                                            </Table.Row>
-                                        </Table.Header>
-                                        <Table.Body>
-                                            {topShares.map((sh, i) => {
-                                                const sig = scoreSignal(sh.avgScore);
-                                                return (
-                                                    <Table.Row key={sh.symbol}>
-                                                        <Table.Cell
-                                                            px={1}
-                                                            fontSize="11px"
-                                                            fontFamily="var(--font-mono)"
-                                                            color="var(--ink-tertiary)"
-                                                        >
-                                                            {i + 1}
-                                                        </Table.Cell>
-                                                        <Table.Cell
-                                                            px={1}
-                                                            fontSize="12px"
-                                                            fontWeight={500}
-                                                            color="var(--ink-primary)"
-                                                        >
-                                                            {sh.symbol}
-                                                        </Table.Cell>
-                                                        <Table.Cell
-                                                            px={1}
-                                                            textAlign="center"
-                                                            fontSize="12px"
-                                                            fontFamily="var(--font-tabular)"
-                                                            fontVariantNumeric="tabular-nums"
-                                                            color="var(--ink-secondary)"
-                                                        >
-                                                            {sh.count}
-                                                        </Table.Cell>
-                                                        <Table.Cell px={1} textAlign="right">
-                                                            <HStack gap={1} justify="flex-end">
-                                                                <Box
-                                                                    w="5px"
-                                                                    h="5px"
-                                                                    borderRadius="50%"
-                                                                    bg={signalColor(sig)}
-                                                                />
-                                                                <Text
-                                                                    fontSize="12px"
-                                                                    fontFamily="var(--font-tabular)"
-                                                                    fontVariantNumeric="tabular-nums"
-                                                                    color="var(--ink-primary)"
-                                                                >
-                                                                    {sh.avgScore.toFixed(0)}
-                                                                </Text>
-                                                            </HStack>
-                                                        </Table.Cell>
-                                                    </Table.Row>
-                                                );
-                                            })}
-                                        </Table.Body>
-                                    </Table.Root>
-                                </Box>
+                                                    {b.count}
+                                                </Text>
+                                            </Flex>
+                                            <MiniBar value={b.count} max={completed.length} color={b.color} />
+                                        </Flex>
+                                    ))}
+                                </Flex>
                             )}
                         </Box>
 
                         <Box mx={4} borderTop="1px solid var(--hairline)" />
 
-                        {/* Top Agents */}
+                        {/* Quant vs Qual */}
                         <Box px={4} py={3}>
-                            <Text
-                                fontSize="10.5px"
-                                fontWeight={500}
-                                color="var(--ink-tertiary)"
-                                letterSpacing="0.06em"
-                                textTransform="uppercase"
-                                mb={2}
-                            >
-                                Top Agents
-                            </Text>
-                            {topAgents.length === 0 ? (
+                            <SectionLabel>Quant vs Qual</SectionLabel>
+                            {completed.length === 0 ? (
                                 <Text fontSize="12px" color="var(--ink-tertiary)">
-                                    No completed analyses
+                                    No completed runs yet
                                 </Text>
                             ) : (
-                                <Box>
-                                    <Table.Root size="xs" variant="line" minWidth="auto">
-                                        <Table.Header>
-                                            <Table.Row>
-                                                <Table.ColumnHeader
-                                                    fontSize="10px"
-                                                    fontWeight={500}
-                                                    color="var(--ink-tertiary)"
-                                                    px={1}
+                                <Flex direction="column" gap={2.5}>
+                                    <Flex direction="column" gap={1}>
+                                        <Flex justify="space-between" align="baseline">
+                                            <Text fontSize="11px" color="var(--ink-secondary)">
+                                                Quantitative
+                                            </Text>
+                                            <Text
+                                                fontSize="12px"
+                                                fontFamily="var(--font-tabular)"
+                                                fontVariantNumeric="tabular-nums"
+                                                color="var(--ink-primary)"
+                                                fontWeight={500}
+                                            >
+                                                {quantAvg != null ? quantAvg.toFixed(1) : "—"}
+                                            </Text>
+                                        </Flex>
+                                        <MiniBar value={quantAvg ?? 0} max={100} color="var(--accent-primary)" />
+                                    </Flex>
+                                    <Flex direction="column" gap={1}>
+                                        <Flex justify="space-between" align="baseline">
+                                            <Text fontSize="11px" color="var(--ink-secondary)">
+                                                Qualitative
+                                            </Text>
+                                            <Text
+                                                fontSize="12px"
+                                                fontFamily="var(--font-tabular)"
+                                                fontVariantNumeric="tabular-nums"
+                                                color="var(--ink-primary)"
+                                                fontWeight={500}
+                                            >
+                                                {qualAvg != null ? qualAvg.toFixed(1) : "—"}
+                                            </Text>
+                                        </Flex>
+                                        <MiniBar value={qualAvg ?? 0} max={100} color="var(--signal-positive)" />
+                                    </Flex>
+                                </Flex>
+                            )}
+                        </Box>
+
+                        <Box mx={4} borderTop="1px solid var(--hairline)" />
+
+                        {/* Recent trend */}
+                        <Box px={4} py={3}>
+                            <SectionLabel>Recent Trend</SectionLabel>
+                            <Sparkline values={trend.map((a) => a.total_score)} />
+                            {trend.length > 0 && (
+                                <Text fontSize="11px" color="var(--ink-tertiary)" mt={2}>
+                                    Last{" "}
+                                    <Text
+                                        as="span"
+                                        fontFamily="var(--font-tabular)"
+                                        fontVariantNumeric="tabular-nums"
+                                        color="var(--ink-primary)"
+                                        fontWeight={500}
+                                    >
+                                        {trend.length}
+                                    </Text>{" "}
+                                    completed runs · oldest → newest
+                                </Text>
+                            )}
+                        </Box>
+
+                        <Box mx={4} borderTop="1px solid var(--hairline)" />
+
+                        {/* Model usage */}
+                        <Box px={4} py={3}>
+                            <SectionLabel>Model Usage</SectionLabel>
+                            {modelUsage.length === 0 ? (
+                                <Text fontSize="12px" color="var(--ink-tertiary)">
+                                    No runs yet
+                                </Text>
+                            ) : (
+                                <Flex direction="column" gap={2.5}>
+                                    {modelUsage.map((m) => (
+                                        <Flex direction="column" gap={1} key={m.model}>
+                                            <Flex justify="space-between" gap={2} align="baseline">
+                                                <Text
+                                                    fontSize="11px"
+                                                    fontFamily="var(--font-mono)"
+                                                    color="var(--ink-secondary)"
+                                                    maxW="150px"
+                                                    overflow="hidden"
+                                                    textOverflow="ellipsis"
+                                                    whiteSpace="nowrap"
+                                                    title={m.model}
                                                 >
-                                                    #
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10px"
+                                                    {m.model}
+                                                </Text>
+                                                <Text
+                                                    fontSize="12px"
+                                                    fontFamily="var(--font-tabular)"
+                                                    fontVariantNumeric="tabular-nums"
+                                                    color="var(--ink-primary)"
                                                     fontWeight={500}
-                                                    color="var(--ink-tertiary)"
-                                                    px={1}
+                                                    flexShrink={0}
                                                 >
-                                                    Agent
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10px"
-                                                    fontWeight={500}
-                                                    color="var(--ink-tertiary)"
-                                                    px={1}
-                                                    textAlign="center"
-                                                >
-                                                    Runs
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10px"
-                                                    fontWeight={500}
-                                                    color="var(--ink-tertiary)"
-                                                    px={1}
-                                                    textAlign="right"
-                                                >
-                                                    Match
-                                                </Table.ColumnHeader>
-                                            </Table.Row>
-                                        </Table.Header>
-                                        <Table.Body>
-                                            {topAgents.map((p, i) => {
-                                                const sig = scoreSignal(p.avgScore);
-                                                return (
-                                                    <Table.Row key={p.agent}>
-                                                        <Table.Cell
-                                                            px={1}
-                                                            fontSize="11px"
-                                                            fontFamily="var(--font-mono)"
-                                                            color="var(--ink-tertiary)"
-                                                        >
-                                                            {i + 1}
-                                                        </Table.Cell>
-                                                        <Table.Cell
-                                                            px={1}
-                                                            fontSize="12px"
-                                                            fontWeight={500}
-                                                            color="var(--ink-primary)"
-                                                            maxW="120px"
-                                                            overflow="hidden"
-                                                            textOverflow="ellipsis"
-                                                            whiteSpace="nowrap"
-                                                        >
-                                                            {p.agent}
-                                                        </Table.Cell>
-                                                        <Table.Cell
-                                                            px={1}
-                                                            textAlign="center"
-                                                            fontSize="12px"
-                                                            fontFamily="var(--font-tabular)"
-                                                            fontVariantNumeric="tabular-nums"
-                                                            color="var(--ink-secondary)"
-                                                        >
-                                                            {p.count}
-                                                        </Table.Cell>
-                                                        <Table.Cell px={1} textAlign="right">
-                                                            <HStack gap={1} justify="flex-end">
-                                                                <Box
-                                                                    w="5px"
-                                                                    h="5px"
-                                                                    borderRadius="50%"
-                                                                    bg={signalColor(sig)}
-                                                                />
-                                                                <Text
-                                                                    fontSize="12px"
-                                                                    fontFamily="var(--font-tabular)"
-                                                                    fontVariantNumeric="tabular-nums"
-                                                                    color="var(--ink-primary)"
-                                                                >
-                                                                    {p.avgScore.toFixed(0)}
-                                                                </Text>
-                                                            </HStack>
-                                                        </Table.Cell>
-                                                    </Table.Row>
-                                                );
-                                            })}
-                                        </Table.Body>
-                                    </Table.Root>
-                                </Box>
+                                                    {m.count}
+                                                </Text>
+                                            </Flex>
+                                            <MiniBar value={m.count} max={modelUsage[0].count} color="var(--ink-secondary)" />
+                                        </Flex>
+                                    ))}
+                                </Flex>
                             )}
                         </Box>
                     </Flex>
