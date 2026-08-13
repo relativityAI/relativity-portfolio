@@ -236,6 +236,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
       qualitative_tool_calls: Record<string, unknown[]>;
       qualitative_score: number;
     } | null = null;
+    let qualErrors: string[] = [];
     if (qualParams.length === 0) {
       await end("qualitative", "skipped", "No qualitative parameters");
     } else {
@@ -255,7 +256,16 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
           }
         },
       );
-      await end("qualitative", "completed");
+      qualErrors = Object.entries(qual.qualitative_analysis)
+        .filter(([, e]) => !!(e as any)?.error)
+        .map(([label, e]) => `${label}: ${(e as any).error}`);
+      await end(
+        "qualitative",
+        qualErrors.length ? "failed" : "completed",
+        qualErrors.length
+          ? `${qualErrors.length} qualitative parameter${qualErrors.length > 1 ? "s" : ""} failed`
+          : undefined,
+      );
       log.info(runTag, `qual done score=${qual.qualitative_score}`);
     }
 
@@ -269,9 +279,15 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     else if (qualScore > 0) total = qualScore;
     total = Math.round(total * 100) / 100;
 
+    const qualErrorSummary = qualErrors.length
+      ? `Qualitative scoring failed — ${qualErrors.join("; ")}`
+      : null;
+    const finalStatus = qualErrorSummary ? "FAILED" : "COMPLETED";
+
     await write(() =>
       updateRun(runId, {
-        status: "COMPLETED",
+        status: finalStatus,
+        error: qualErrorSummary,
         duration: (Date.now() - started) / 1000,
         quantitative_analysis: quant.quantitative_analysis,
         qualitative_analysis: qual?.qualitative_analysis || {},
@@ -283,7 +299,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
         steps: finishStep(steps, "finalize", "completed"),
       }),
     );
-    log.info(runTag, `COMPLETED total=${total} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
+    log.info(runTag, `${finalStatus} total=${total} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
   } catch (e) {
     steps.splice(0, steps.length, ...failRunningStep(steps));
     await write(() => updateRun(runId, { steps })).catch(() => {});

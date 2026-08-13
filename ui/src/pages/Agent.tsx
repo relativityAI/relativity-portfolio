@@ -1,7 +1,7 @@
 import {
     Text, Flex, Button, Spinner, Input, Box,
 } from "@chakra-ui/react"
-import { MdOutlineFileDownload, MdOutlineFileUpload, MdSave, MdDeleteForever } from "react-icons/md"
+import { MdOutlineFileDownload, MdOutlineFileUpload, MdSave, MdDeleteForever, MdWarningAmber } from "react-icons/md"
 
 import { useParams, useNavigate } from "react-router-dom"
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
@@ -26,10 +26,8 @@ const DEFAULT_AGENT = {
         philosophy_and_mindset: "",
     },
     configuration: {
-        market_options: [],
         asset_class: [],
         universe_cap: [],
-        universe_sector: [],
     },
     asset_evaluation: {
         qualitative: [],
@@ -43,7 +41,7 @@ const DEFAULT_AGENT = {
 
 function getFirstSubsection(section: string): string | null {
     const map: Record<string, string[]> = {
-        configuration: ["market_options", "asset_class", "universe_cap", "universe_sector"],
+        configuration: ["asset_class", "universe_cap"],
         persona: ["philosophy_and_mindset"],
         asset_evaluation: ["qualitative", "quantitative"],
         macro_evaluation: ["qualitative", "quantitative"],
@@ -58,10 +56,8 @@ function computeSubsectionCompletion(agent: any): Record<string, boolean> {
     const me = agent.macro_evaluation || {}
 
     return {
-        "configuration/market_options": c.market_options?.length > 0,
         "configuration/asset_class": c.asset_class?.length > 0,
         "configuration/universe_cap": c.universe_cap?.length > 0,
-        "configuration/universe_sector": c.universe_sector?.length > 0,
         "persona/philosophy_and_mindset": !!agent.persona?.philosophy_and_mindset,
         "asset_evaluation/qualitative": ae.qualitative?.length > 0,
         "asset_evaluation/quantitative": ae.quantitative?.length > 0,
@@ -74,10 +70,8 @@ function computeSectionCompletion(agent: any): Record<string, boolean> {
     return {
         overview: true,
         configuration: !!(
-            agent.configuration?.market_options?.length ||
             agent.configuration?.asset_class?.length ||
-            agent.configuration?.universe_cap?.length ||
-            agent.configuration?.universe_sector?.length
+            agent.configuration?.universe_cap?.length
         ),
         persona: !!(agent.persona?.philosophy_and_mindset),
         asset_evaluation: !!((agent.asset_evaluation?.qualitative?.length > 0) || (agent.asset_evaluation?.quantitative?.length > 0)),
@@ -95,12 +89,10 @@ function computeOverviewSections(agent: any): { id: string; label: string; summa
             id: "configuration",
             label: "Configuration",
             summary: [
-                c.market_options?.length ? `${c.market_options.length} markets` : "",
                 c.asset_class?.length ? `${c.asset_class.length} asset classes` : "",
                 c.universe_cap?.length ? `${c.universe_cap.length} cap sizes` : "",
-                c.universe_sector?.length ? `${c.universe_sector.length} sectors` : "",
             ].filter(Boolean).join(" · ") || "Not configured",
-            hasContent: !!(c.market_options?.length || c.asset_class?.length || c.universe_cap?.length || c.universe_sector?.length),
+            hasContent: !!(c.asset_class?.length || c.universe_cap?.length),
         },
         {
             id: "persona",
@@ -376,12 +368,6 @@ export default function Agent() {
         e.target.value = ""
     }
 
-    const handleSourceChange = (newSource: string) => {
-        setAgent((prev: any) => ({ ...prev, source: newSource }))
-        setMetricsSource(newSource)
-        if (!loading) setIsDirty(true)
-    }
-
     const updateAgent = (updates: any) => {
         setAgent((prev: any) => ({ ...prev, ...updates }))
         if (!loading) setIsDirty(true)
@@ -422,7 +408,6 @@ export default function Agent() {
                 name={agent.name}
                 metrics={availableMetrics}
                 source={agent.source}
-                onSourceChange={handleSourceChange}
             />
 
             <MacroEvalSection
@@ -499,9 +484,12 @@ export default function Agent() {
                             </Text>
                         )}
                         {isDirty ? (
-                            <Text fontSize="12px" color="var(--ink-tertiary)" mt={1}>
-                                Unsaved changes
-                            </Text>
+                            <Flex align="center" gap={1.5} mt={1}>
+                                <MdWarningAmber size={14} color="var(--signal-caution)" />
+                                <Text fontSize="12px" color="var(--signal-caution)" fontWeight={500}>
+                                    Unsaved changes
+                                </Text>
+                            </Flex>
                         ) : (
                             <Text fontSize="12px" color="var(--ink-tertiary)" mt={1}>
                                 All changes saved

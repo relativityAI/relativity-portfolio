@@ -13,12 +13,8 @@ const NAV_ITEMS: NavItem[] = [
     label: "Configuration",
     sequenceNumber: 1,
     subsections: [
-      { id: "market_options", label: "Market Options" },
       { id: "asset_class", label: "Asset Class" },
-      { id: "asset_universe", label: "Asset Universe", children: [
-        { id: "universe_cap", label: "Capitalization" },
-        { id: "universe_sector", label: "Sector / Industry" },
-      ]},
+      { id: "universe_cap", label: "Capitalization" },
     ],
   },
   {

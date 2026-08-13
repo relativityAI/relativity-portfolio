@@ -12,6 +12,7 @@ export const runHealthCheck = async () => {
         api: 0,
         db: 0,
         voyagerApi: 0,
+        voyagerKeyed: false,
     };
 
     const endpoints = {
@@ -33,9 +34,11 @@ export const runHealthCheck = async () => {
     try {
         const voyager = await axios.get(endpoints.voyagerApi, { timeout: 5000 });
         data.voyagerApi = voyager.data?.ok ? 1 : 0;
+        data.voyagerKeyed = !!voyager.data?.keyed;
     } catch (error) {
         console.error(`Health check failed for voyagerApi:`, error);
         data.voyagerApi = 0;
+        data.voyagerKeyed = false;
     }
 
     return { data, endpoints };
