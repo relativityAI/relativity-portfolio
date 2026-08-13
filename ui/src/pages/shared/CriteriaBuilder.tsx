@@ -72,7 +72,7 @@ function SelectInput({ value, options, onChange, placeholder, width }: {
     >
       <Select.HiddenSelect />
       <Select.Control>
-        <Select.Trigger borderColor="border.emphasized" bg="bg.subtle" color="fg" fontSize="sm" px={2} minH="36px">
+        <Select.Trigger borderColor="var(--hairline)" bg="bg.subtle" color="fg" fontSize="sm" px={2} minH="36px">
           <Select.ValueText placeholder={placeholder || "Select..."} />
         </Select.Trigger>
         <Select.IndicatorGroup>
@@ -358,7 +358,7 @@ export default function CriteriaBuilder({
                   onChange={(e) => handleChange(index, "value", iType === "number" ? (e.target.value ? Number(e.target.value) : null) : e.target.value)}
                   bg="bg.subtle"
                   border="1px solid"
-                  borderColor="border.emphasized"
+                  borderColor="var(--hairline)"
                   _focus={{ borderColor: "fg.muted" }}
                   color="fg"
                     rounded="sm"
@@ -380,7 +380,7 @@ export default function CriteriaBuilder({
                     onChange={(e) => handleChange(index, "value_upper", iType === "number" ? (e.target.value ? Number(e.target.value) : null) : e.target.value)}
                     bg="bg.subtle"
                     border="1px solid"
-                    borderColor="border.emphasized"
+                    borderColor="var(--hairline)"
                     _focus={{ borderColor: "fg.muted" }}
                     color="fg"
                     rounded="sm"

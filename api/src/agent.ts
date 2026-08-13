@@ -65,7 +65,7 @@ function buildModel(modelId: string, keys: LlmKeys) {
   }
 }
 
-const SYSTEM_PROMPT = `You are a strict, evidence-based checklist auditor. Your job is to score a single qualitative investment requirement for a stock.
+const SYSTEM_PROMPT = `You are a strict, evidence-based checklist auditor. Your job is to score a single qualitative investment requirement for a company (asset evaluation) or for the broader market (macro evaluation).
 
 Rules:
 - Gather evidence using the available tools before concluding. Never rely on memory or assumptions.
@@ -99,7 +99,7 @@ export async function runQualitative(
   modelId: string,
   keys: LlmKeys,
   toolCtx: ToolContext,
-  parameter: { parameter: string; content?: string; weightage?: number },
+  parameter: { parameter: string; content?: string; weightage?: number; section?: string },
   documents: string[],
   webSearch: boolean,
   webSources: string[],
@@ -109,8 +109,19 @@ export async function runQualitative(
     const model = buildModel(modelId, keys);
     const tools = buildTools(toolCtx);
 
+    const isMacro = parameter.section === "macro_evaluation";
+    const contextLines = isMacro
+      ? [
+          `Market: ${toolCtx.source.toUpperCase()} (${toolCtx.country}).`,
+          "",
+          "This is a MACRO / market-level evaluation. Judge the state of the broader market that the analyzed company trades in — market direction, index levels, breadth, leadership, and macro conditions — not the company itself. Use web search and market data tools for recent market context.",
+        ]
+      : [
+          `Company: ${toolCtx.shareName || toolCtx.symbol} (${toolCtx.symbol}) on ${toolCtx.source.toUpperCase()} (${toolCtx.country}).`,
+        ];
+
     const userPrompt = [
-      `Company: ${toolCtx.shareName || toolCtx.symbol} (${toolCtx.symbol}) on ${toolCtx.source.toUpperCase()} (${toolCtx.country}).`,
+      ...contextLines,
       ``,
       `Qualitative parameter: ${parameter.parameter}`,
       parameter.content ? `Guidelines for this parameter:\n${parameter.content}` : "",
@@ -152,7 +163,7 @@ export async function runQualitative(
       `${modelId} "${parameter.parameter}" -> score=${score} toolCalls=${calls.length} steps=${steps.length} in ${((Date.now() - started) / 1000).toFixed(1)}s`,
     );
     return {
-      score,
+      score: error ? 0 : score,
       analysis: text,
       toolCalls: calls,
       error,
@@ -160,7 +171,7 @@ export async function runQualitative(
   } catch (e: any) {
     log.error("[agent]", `${modelId} "${parameter.parameter}" failed:`, e?.message || e);
     return {
-      score: 50,
+      score: 0,
       analysis: "",
       toolCalls: [],
       error: String(e?.message || e),
@@ -229,7 +240,7 @@ export async function runQualitativeAll(
       modelId,
       keys,
       toolCtx,
-      { parameter: label, content: p.content, weightage: p.weightage },
+      { parameter: label, content: p.content, weightage: p.weightage, section: p.section },
       documents,
       webSearch,
       webSources,
@@ -247,10 +258,11 @@ export async function runQualitativeAll(
   }
 
   const entries = Object.values(qualitative_analysis);
-  const weightSum = entries.reduce((s, e) => s + e.weightage, 0);
+  const scored = entries.filter((e) => !e.error);
+  const weightSum = scored.reduce((s, e) => s + e.weightage, 0);
   const qualitative_score =
     weightSum > 0
-      ? Math.round((entries.reduce((s, e) => s + e.score * e.weightage, 0) / weightSum) * 100) / 100
+      ? Math.round((scored.reduce((s, e) => s + e.score * e.weightage, 0) / weightSum) * 100) / 100
       : 0;
 
   return { qualitative_analysis, qualitative_tool_calls, qualitative_score };

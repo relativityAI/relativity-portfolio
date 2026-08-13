@@ -7,9 +7,10 @@ interface ChipMultiSelectProps {
   selected: string[];
   onChange: (selected: string[]) => void;
   multiple?: boolean;
+  columns?: number;
 }
 
-export default function ChipMultiSelect({ label, description, options, selected, onChange, multiple = true }: ChipMultiSelectProps) {
+export default function ChipMultiSelect({ label, description, options, selected, onChange, multiple = true, columns }: ChipMultiSelectProps) {
   const toggle = (value: string) => {
     if (multiple) {
       const next = selected.includes(value)
@@ -25,7 +26,12 @@ export default function ChipMultiSelect({ label, description, options, selected,
     <Flex direction="column" gap={2}>
       {label && <Text fontSize="sm" fontWeight={500} color="var(--ink-primary)">{label}</Text>}
       {description && <Text fontSize="12px" color="var(--ink-tertiary)" lineHeight="short">{description}</Text>}
-      <Flex wrap="wrap" gap={2}>
+      <Flex
+        wrap={columns ? undefined : "wrap"}
+        gap={2}
+        display={columns ? "grid" : undefined}
+        gridTemplateColumns={columns ? { base: "1fr", md: `repeat(${columns}, minmax(0, 1fr))` } : undefined}
+      >
         {options.map((opt) => {
           const isActive = selected.includes(opt.value)
           return (
@@ -44,6 +50,7 @@ export default function ChipMultiSelect({ label, description, options, selected,
               px={3}
               py={1}
               h="auto"
+              w={columns ? "full" : undefined}
               fontSize="12px"
               fontWeight={isActive ? 500 : 400}
               borderRadius="2px"

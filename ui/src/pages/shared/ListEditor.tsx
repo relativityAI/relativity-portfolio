@@ -188,7 +188,7 @@ export default function ListEditor(props: ListEditorProps) {
                       onChange={(e) => handleChange(index, "label", e.target.value)}
                       bg="bg.subtle"
                       border="1px solid"
-                      borderColor="border.emphasized"
+                      borderColor="var(--hairline)"
                       _focus={{ borderColor: "fg.muted" }}
                       color="fg"
                       rounded="sm"
@@ -220,7 +220,7 @@ export default function ListEditor(props: ListEditorProps) {
                     onChange={(e) => handleChange(index, "content", e.target.value)}
                     bg="bg.subtle"
                     border="1px solid"
-                    borderColor="border.emphasized"
+                    borderColor="var(--hairline)"
                     _focus={{ borderColor: "fg.muted" }}
                     color="fg"
                     rounded="sm"

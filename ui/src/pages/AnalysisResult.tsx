@@ -74,6 +74,10 @@ const OP_SYMBOL: Record<string, string> = {
     gt: ">", gte: "≥", lt: "<", lte: "≤", eq: "=", between: "between",
 };
 
+function isMacroSection(section: string): boolean {
+    return String(section || "").toLowerCase().includes("macro");
+}
+
 function generateVerdict(totalScore: number | null, quant: Record<string, any>, qual: Record<string, any>): string {
     if (totalScore == null) return "Analysis completed. Review quantitative and qualitative sections for details.";
     const quantEntries = Object.values(quant);
@@ -82,9 +86,14 @@ function generateVerdict(totalScore: number | null, quant: Record<string, any>, 
     const failed = live.filter((m: any) => (m.score ?? 0) < 0.4).length;
     const unavailable = quantEntries.length - live.length;
     const qualEntries = Object.values(qual);
-    const qualAvg = qualEntries.length > 0
-        ? qualEntries.reduce((s: number, p: any) => s + (p.score ?? 0), 0) / qualEntries.length
+    const qualScored = qualEntries.filter((p) => !p.error);
+    const qualAvg = qualScored.length > 0
+        ? qualScored.reduce((s, p) => s + (p.score ?? 0), 0) / qualScored.length
         : 0;
+    const macroScored = qualScored.filter((p) => isMacroSection(p.section));
+    const macroAvg = macroScored.length > 0
+        ? macroScored.reduce((s, p) => s + (p.score ?? 0), 0) / macroScored.length
+        : null;
 
     let sentence = `Passes ${passed} of ${quantEntries.length} quantitative gates`;
     if (failed > 0) {
@@ -99,9 +108,16 @@ function generateVerdict(totalScore: number | null, quant: Record<string, any>, 
     if (unavailable > 0) {
         sentence += ` ${unavailable} price-dependent ${unavailable === 1 ? "criterion" : "criteria"} not scored (live price unavailable).`;
     }
-    if (qualEntries.length > 0) {
+    if (qualScored.length > 0) {
         const qualLabel = qualAvg >= 0.7 ? "supportive" : qualAvg >= 0.4 ? "moderately supportive" : "mixed";
         sentence += ` Qualitative narrative is ${qualLabel}.`;
+    }
+    if (macroAvg != null) {
+        const macroLabel = macroAvg >= 0.7 ? "supportive" : macroAvg >= 0.4 ? "moderately supportive" : "mixed";
+        sentence += ` Macro (market) narrative is ${macroLabel}.`;
+    }
+    if (qualEntries.some((p) => p.error)) {
+        sentence += " Some qualitative parameters failed to score.";
     }
     return sentence;
 }
@@ -239,6 +255,15 @@ export default function AnalysisResult() {
     const docs: any[] = analysis.documents || [];
     const webSrc: string[] = analysis.web_sources || [];
 
+    const assetQuant = Object.entries(quantAnalysis)
+        .filter(([, d]) => !isMacroSection(d?.section))
+        .map(([key, d]) => ({ key, ...d, _score: d.score ?? 0 }));
+    const macroQuant = Object.entries(quantAnalysis)
+        .filter(([, d]) => isMacroSection(d?.section))
+        .map(([key, d]) => ({ key, ...d, _score: d.score ?? 0 }));
+    const assetQual = Object.entries(qualAnalysis).filter(([, d]) => !isMacroSection(d?.section));
+    const macroQual = Object.entries(qualAnalysis).filter(([, d]) => isMacroSection(d?.section));
+
     const toggleToolCalls = (param: string) => {
         setExpandedTools((prev) => ({ ...prev, [param]: !prev[param] }));
     };
@@ -270,9 +295,10 @@ export default function AnalysisResult() {
     }));
 
     if (sortByScore) {
-        quantEntries.sort((a, b) =>
-            sortByScore === "asc" ? a._score - b._score : b._score - a._score
-        );
+        const byScore = (a, b) =>
+            sortByScore === "asc" ? a._score - b._score : b._score - a._score;
+        assetQuant.sort(byScore);
+        macroQuant.sort(byScore);
     }
 
     const metaLine = [
@@ -647,12 +673,24 @@ export default function AnalysisResult() {
                                                 View full table →
                                             </Button>
                                         </Box>
+                                        <SubHeader label="Asset" count={assetQuant.length} />
                                         <QuantTable
-                                            entries={quantEntries}
+                                            entries={assetQuant}
                                             sortByScore={sortByScore}
                                             setSortByScore={setSortByScore}
                                             formatValue={formatValue}
                                         />
+                                        {macroQuant.length > 0 && (
+                                            <Box mt={6}>
+                                                <SubHeader label="Macro" count={macroQuant.length} />
+                                                <QuantTable
+                                                    entries={macroQuant}
+                                                    sortByScore={sortByScore}
+                                                    setSortByScore={setSortByScore}
+                                                    formatValue={formatValue}
+                                                />
+                                            </Box>
+                                        )}
                                     </Box>
                                 )}
 
@@ -675,7 +713,14 @@ export default function AnalysisResult() {
                                                 View all parameters →
                                             </Button>
                                         </Box>
-                                        <QualTable entries={Object.entries(qualAnalysis)} />
+                                        <SubHeader label="Asset" count={assetQual.length} />
+                                        <QualTable entries={assetQual} />
+                                        {macroQual.length > 0 && (
+                                            <Box mt={6}>
+                                                <SubHeader label="Macro" count={macroQual.length} />
+                                                <QualTable entries={macroQual} />
+                                            </Box>
+                                        )}
                                     </Box>
                                 )}
 
@@ -697,12 +742,30 @@ export default function AnalysisResult() {
                             >
                                 <SectionHeader label="Quantitative" count={quantEntries.length} />
                                 {quantEntries.length > 0 ? (
-                                    <QuantTable
-                                        entries={quantEntries}
-                                        sortByScore={sortByScore}
-                                        setSortByScore={setSortByScore}
-                                        formatValue={formatValue}
-                                    />
+                                    <>
+                                        <SubHeader label="Asset" count={assetQuant.length} />
+                                        <QuantTable
+                                            entries={assetQuant}
+                                            sortByScore={sortByScore}
+                                            setSortByScore={setSortByScore}
+                                            formatValue={formatValue}
+                                        />
+                                        <Box mt={6}>
+                                            <SubHeader label="Macro" count={macroQuant.length} />
+                                            {macroQuant.length > 0 ? (
+                                                <QuantTable
+                                                    entries={macroQuant}
+                                                    sortByScore={sortByScore}
+                                                    setSortByScore={setSortByScore}
+                                                    formatValue={formatValue}
+                                                />
+                                            ) : (
+                                                <Text fontSize="12px" color="var(--ink-tertiary)" py={3}>
+                                                    No macro quantitative criteria were configured for this agent.
+                                                </Text>
+                                            )}
+                                        </Box>
+                                    </>
                                 ) : (
                                     <EmptyState message="No quantitative data available." />
                                 )}
@@ -717,12 +780,36 @@ export default function AnalysisResult() {
                             >
                                 <SectionHeader label="Qualitative" count={Object.keys(qualAnalysis).length} />
                                 {Object.keys(qualAnalysis).length > 0 ? (
-                                    <QualFullCards
-                                        qualAnalysis={qualAnalysis}
-                                        toolCalls={toolCalls}
-                                        expandedTools={expandedTools}
-                                        toggleToolCalls={toggleToolCalls}
-                                    />
+                                    <>
+                                        <SubHeader label="Asset" count={assetQual.length} />
+                                        {assetQual.length > 0 ? (
+                                            <QualFullCards
+                                                qualAnalysis={Object.fromEntries(assetQual)}
+                                                toolCalls={toolCalls}
+                                                expandedTools={expandedTools}
+                                                toggleToolCalls={toggleToolCalls}
+                                            />
+                                        ) : (
+                                            <Text fontSize="12px" color="var(--ink-tertiary)" py={3}>
+                                                No asset-level qualitative findings for this run.
+                                            </Text>
+                                        )}
+                                        <Box mt={6}>
+                                            <SubHeader label="Macro" count={macroQual.length} />
+                                            {macroQual.length > 0 ? (
+                                                <QualFullCards
+                                                    qualAnalysis={Object.fromEntries(macroQual)}
+                                                    toolCalls={toolCalls}
+                                                    expandedTools={expandedTools}
+                                                    toggleToolCalls={toggleToolCalls}
+                                                />
+                                            ) : (
+                                                <Text fontSize="12px" color="var(--ink-tertiary)" py={3}>
+                                                    No macro qualitative findings for this run.
+                                                </Text>
+                                            )}
+                                        </Box>
+                                    </>
                                 ) : (
                                     <EmptyState message="No qualitative findings available." />
                                 )}
@@ -783,6 +870,25 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
                 fontFamily="var(--font-mono)"
                 color="var(--ink-tertiary)"
             >
+                {count}
+            </Text>
+        </Flex>
+    );
+}
+
+function SubHeader({ label, count }: { label: string; count: number }) {
+    return (
+        <Flex align="center" gap={2} mb={2}>
+            <Text
+                fontSize="11.5px"
+                fontWeight={600}
+                color="var(--ink-secondary)"
+                letterSpacing="0.06em"
+                textTransform="uppercase"
+            >
+                {label}
+            </Text>
+            <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
                 {count}
             </Text>
         </Flex>
@@ -1072,15 +1178,24 @@ function QualTable({ entries }: { entries: [string, any][] }) {
                                         {d?.weightage ?? "—"}
                                     </Table.Cell>
                                     <Table.Cell textAlign="right" px={4} py={3}>
-                                        <Text
-                                            fontSize="13.5px"
-                                            fontFamily="var(--font-tabular)"
-                                            fontVariantNumeric="tabular-nums"
-                                            fontWeight={500}
-                                            color={signalColor(sig)}
-                                        >
-                                            {score.toFixed(1)}
-                                        </Text>
+                                        {d?.error ? (
+                                            <Text
+                                                fontSize="13.5px"
+                                                color="var(--signal-negative)"
+                                            >
+                                                —
+                                            </Text>
+                                        ) : (
+                                            <Text
+                                                fontSize="13.5px"
+                                                fontFamily="var(--font-tabular)"
+                                                fontVariantNumeric="tabular-nums"
+                                                fontWeight={500}
+                                                color={signalColor(sig)}
+                                            >
+                                                {score.toFixed(1)}
+                                            </Text>
+                                        )}
                                     </Table.Cell>
                                 </Table.Row>
                             );
@@ -1248,11 +1363,11 @@ function QualCard({
                     fontFamily="var(--font-tabular)"
                     fontVariantNumeric="tabular-nums"
                     fontWeight={500}
-                    color={signalColor(sig)}
+                    color={paramData.error ? "var(--signal-negative)" : signalColor(sig)}
                     whiteSpace="nowrap"
                     pt={compact ? 0 : 2}
                 >
-                    {paramScore.toFixed(1)}
+                    {paramData.error ? "—" : paramScore.toFixed(1)}
                 </Text>
             </Flex>
 

@@ -1,19 +1,23 @@
 import { useEffect, useState } from "react";
 import { Flex, Text, IconButton, Drawer, Separator } from "@chakra-ui/react"
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { runHealthCheck } from "../utils"
 import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings } from "react-icons/md";
 import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX } from "react-icons/lu";
 import { ColorModeButton } from "@/components/ui/color-mode";
 
 const VOYAGER_DOCS_URL = import.meta.env.VITE_VOYAGER_DOCS_URL || "https://voyager-1hpq.onrender.com";
+const HEALTH_CHECK_INTERVAL_MS = 15000;
 
 export default function NavBar() {
+
+    const location = useLocation();
 
     const [systemStatus, setSystemStatus] = useState({
         api: 0,
         db: 0,
         voyagerApi: 0,
+        voyagerKeyed: false,
     })
 
     const [endpoints, setEndpoints] = useState({
@@ -25,14 +29,28 @@ export default function NavBar() {
     const [navOpen, setNavOpen] = useState(false)
 
     useEffect(() => {
+        let cancelled = false;
         const fetchData = async () => {
             const { data, endpoints } = await runHealthCheck();
-            setSystemStatus(data)
-            setEndpoints(endpoints)
+            if (!cancelled) {
+                setSystemStatus(data)
+                setEndpoints(endpoints)
+            }
         };
 
+        const refreshOnVisible = () => fetchData();
+
         fetchData();
-    }, []);
+        const interval = setInterval(fetchData, HEALTH_CHECK_INTERVAL_MS);
+        window.addEventListener("focus", refreshOnVisible);
+        document.addEventListener("visibilitychange", refreshOnVisible);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+            window.removeEventListener("focus", refreshOnVisible);
+            document.removeEventListener("visibilitychange", refreshOnVisible);
+        };
+    }, [location.pathname]);
 
     const navLinks = [
         { to: "/", icon: MdAddCircleOutline, label: "New Analysis" },
@@ -41,10 +59,21 @@ export default function NavBar() {
         { to: "/settings", icon: MdOutlineSettings, label: "Settings" },
     ]
 
+    const apiOk = !!systemStatus.api;
+    const dbOk = !!systemStatus.db;
+    const voyagerOk = !!systemStatus.voyagerApi;
+    const voyagerKeyed = !!systemStatus.voyagerKeyed;
+
+    const voyagerState = !voyagerOk
+        ? { color: "red", labelColor: "red.500", icon: <MdError size={12} color="red" />, title: "Voyager unreachable" }
+        : voyagerKeyed
+            ? { color: "green", labelColor: "fg.subtle", icon: <MdCheckCircle size={12} color="green" />, title: "Voyager healthy · API key added" }
+            : { color: "blue", labelColor: "blue.500", icon: <MdCheckCircle size={12} color="blue" />, title: "Voyager healthy · no API key added" };
+
     const statusRows = [
-        { key: "api", label: "API", icon: LuWebhook, ok: !!systemStatus.api, open: () => window.open(endpoints.api, "_blank") },
-        { key: "db", label: "DB", icon: LuDatabase, ok: !!systemStatus.db, open: () => window.open(endpoints.db, "_blank") },
-        { key: "voyager", label: "VOYAGER", icon: LuSatellite, ok: !!systemStatus.voyagerApi, open: () => window.open(VOYAGER_DOCS_URL + "/docs", "_blank") },
+        { key: "api", label: "API", icon: LuWebhook, ok: apiOk, open: () => window.open(endpoints.api, "_blank") },
+        { key: "db", label: "DB", icon: LuDatabase, ok: dbOk, open: () => window.open(endpoints.db, "_blank") },
+        { key: "voyager", label: "VOYAGER", icon: LuSatellite, ok: voyagerOk, stateIcon: voyagerState.icon, stateTitle: voyagerState.title, stateColor: voyagerState.labelColor, open: () => window.open(VOYAGER_DOCS_URL + "/docs", "_blank") },
     ]
 
     return (
@@ -140,14 +169,15 @@ export default function NavBar() {
                         <Text 
                             textStyle={"xs"} 
                             fontWeight={"bold"} 
-                            color={systemStatus.voyagerApi ? "fg.subtle" : "red.500"} 
+                            color={voyagerState.labelColor} 
                             cursor={"pointer"}
                             _hover={{ color: "blue.500" }}
                             onClick={() => window.open(VOYAGER_DOCS_URL + "/docs", "_blank")}
+                            title={voyagerState.title}
                         >
                             VOYAGER
                         </Text>
-                        {systemStatus.voyagerApi ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                        {voyagerState.icon}
                     </Flex>
                 </Flex>
             </Flex>
@@ -233,6 +263,7 @@ export default function NavBar() {
                                     borderBottom="1px solid var(--hairline)"
                                     cursor="pointer"
                                     onClick={row.open}
+                                    title={row.stateTitle}
                                 >
                                     <row.icon size={14} color="var(--chakra-colors-fg-muted)" />
                                     <Text
@@ -240,11 +271,11 @@ export default function NavBar() {
                                         fontWeight="bold"
                                         fontFamily="var(--font-mono)"
                                         letterSpacing="0.06em"
-                                        color={row.ok ? "var(--ink-secondary)" : "red.500"}
+                                        color={row.stateColor ?? (row.ok ? "var(--ink-secondary)" : "red.500")}
                                     >
                                         {row.label}
                                     </Text>
-                                    {row.ok ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                                    {row.stateIcon ?? (row.ok ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />)}
                                 </Flex>
                             ))}
                         </Drawer.Body>
