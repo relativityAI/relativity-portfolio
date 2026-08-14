@@ -10,6 +10,7 @@ import { getMetricsCatalog } from "./metrics.js";
 import { createRun, RunRequest } from "./run.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
 import type { LlmKeys } from "./agent.js";
+import { requireAuth, type AuthedRequest } from "./auth.js";
 import { log, paint } from "./logger.js";
 
 const METHOD_COLORS: Record<string, string> = {
@@ -145,9 +146,11 @@ function voyagerKey(req: express.Request): string {
 }
 
 // Match a doc by string id, ObjectId-hex id, or legacy analysis_id.
-function idFilter(id: string): Record<string, unknown> {
-  const conditions: Record<string, unknown>[] = [{ analysis_id: id }, { _id: id }];
-  if (/^[0-9a-fA-F]{24}$/.test(id)) conditions.push({ _id: new ObjectId(id) });
+function idFilter(id: string | string[]): Record<string, unknown> {
+  const idStr = Array.isArray(id) ? id[0] : id;
+  if (!idStr) return {};
+  const conditions: Record<string, unknown>[] = [{ analysis_id: idStr }, { _id: idStr }];
+  if (/^[0-9a-fA-F]{24}$/.test(idStr)) conditions.push({ _id: new ObjectId(idStr) });
   return { $or: conditions };
 }
 
@@ -177,10 +180,13 @@ app.get("/health/voyager", async (req, res) => {
   }
 });
 
-// ---- agents ----
-app.get("/agents", async (_req, res) => {
+// ---- agents (authenticated, scoped to the signed-in user) ----
+app.get("/agents", requireAuth, async (req, res) => {
   try {
-    const docs = await db().collection("agents").find().toArray();
+    const docs = await db()
+      .collection("agents")
+      .find({ user_id: (req as AuthedRequest).user.id })
+      .toArray();
     docs.sort((a, b) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
     res.json(docs.map(toPlain));
   } catch (e: any) {
@@ -188,12 +194,12 @@ app.get("/agents", async (_req, res) => {
   }
 });
 
-app.get("/agents/search", async (req, res) => {
+app.get("/agents/search", requireAuth, async (req, res) => {
   try {
     const q = String(req.query.query || "");
     const docs = await db()
       .collection("agents")
-      .find({ name: { $regex: q, $options: "i" } })
+      .find({ user_id: (req as AuthedRequest).user.id, name: { $regex: q, $options: "i" } })
       .limit(25)
       .toArray();
     res.json(docs.map(toPlain));
@@ -202,10 +208,11 @@ app.get("/agents/search", async (req, res) => {
   }
 });
 
-app.post("/agents", async (req, res) => {
+app.post("/agents", requireAuth, async (req, res) => {
   try {
     const doc = {
       _id: undefined as any,
+      user_id: (req as AuthedRequest).user.id,
       name: String(req.body?.name || ""),
       source: req.body?.source || "",
       persona: req.body?.persona || {},
@@ -223,9 +230,11 @@ app.post("/agents", async (req, res) => {
   }
 });
 
-app.get("/agents/:id", async (req, res) => {
+app.get("/agents/:id", requireAuth, async (req, res) => {
   try {
-    const doc = await db().collection("agents").findOne(idFilter(req.params.id));
+    const doc = await db()
+      .collection("agents")
+      .findOne({ ...idFilter(req.params.id), user_id: (req as AuthedRequest).user.id });
     if (!doc) return res.status(404).json({ error: "Agent not found" });
     res.json(toPlain(doc));
   } catch (e: any) {
@@ -233,17 +242,19 @@ app.get("/agents/:id", async (req, res) => {
   }
 });
 
-app.put("/agents/:id", async (req, res) => {
+app.put("/agents/:id", requireAuth, async (req, res) => {
   try {
     const id = req.params.id;
-    const filter = idFilter(id);
+    const userId = (req as AuthedRequest).user.id;
+    const filter = { ...idFilter(id), user_id: userId };
     const existing = await db().collection("agents").findOne(filter);
     if (!existing) return res.status(404).json({ error: "Agent not found" });
-    const { _id, id: _id2, created_at, ...rest } = req.body || {};
+    const { _id, id: _id2, created_at, user_id, ...rest } = req.body || {};
     const doc = {
       ...existing,
       ...rest,
       _id: existing._id,
+      user_id: userId,
       created_at: existing.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -254,23 +265,26 @@ app.put("/agents/:id", async (req, res) => {
   }
 });
 
-app.delete("/agents/:id", async (req, res) => {
+app.delete("/agents/:id", requireAuth, async (req, res) => {
   try {
-    await db().collection("agents").deleteOne(idFilter(req.params.id));
+    await db()
+      .collection("agents")
+      .deleteOne({ ...idFilter(req.params.id), user_id: (req as AuthedRequest).user.id });
     res.json({ deleted: true });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
 });
 
-// ---- analysis runs ----
-app.post("/analysis", async (req, res) => {
+// ---- analysis runs (authenticated, scoped to the signed-in user) ----
+app.post("/analysis", requireAuth, async (req, res) => {
   try {
     const body = req.body || {};
     if (!body.symbol || !body.agent_name) {
       return res.status(400).json({ error: "symbol and agent_name are required" });
     }
     const runReq: RunRequest = {
+      userId: (req as AuthedRequest).user.id,
       symbol: String(body.symbol),
       share_name: body.share_name ? String(body.share_name) : undefined,
       agent_name: String(body.agent_name),
@@ -290,11 +304,11 @@ app.post("/analysis", async (req, res) => {
   }
 });
 
-app.get("/analysis", async (_req, res) => {
+app.get("/analysis", requireAuth, async (req, res) => {
   try {
     const docs = await db()
       .collection("analysis_runs")
-      .find()
+      .find({ user_id: (req as AuthedRequest).user.id })
       .project({
         _id: 1,
         analysis_id: 1,
@@ -355,9 +369,11 @@ app.get("/analysis/data-status", async (req, res) => {
   }
 });
 
-app.get("/analysis/:id", async (req, res) => {
+app.get("/analysis/:id", requireAuth, async (req, res) => {
   try {
-    const doc = await db().collection("analysis_runs").findOne(idFilter(req.params.id));
+    const doc = await db()
+      .collection("analysis_runs")
+      .findOne({ ...idFilter(req.params.id), user_id: (req as AuthedRequest).user.id });
     if (!doc) return res.status(404).json({ error: "Analysis not found" });
     res.json(toPlain(doc));
   } catch (e: any) {
@@ -365,9 +381,11 @@ app.get("/analysis/:id", async (req, res) => {
   }
 });
 
-app.delete("/analysis/:id", async (req, res) => {
+app.delete("/analysis/:id", requireAuth, async (req, res) => {
   try {
-    await db().collection("analysis_runs").deleteOne(idFilter(req.params.id));
+    await db()
+      .collection("analysis_runs")
+      .deleteOne({ ...idFilter(req.params.id), user_id: (req as AuthedRequest).user.id });
     res.json({ deleted: true });
   } catch (e: any) {
     res.status(503).json({ error: e.message });

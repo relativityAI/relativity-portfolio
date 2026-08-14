@@ -1,4 +1,5 @@
 import axios from "axios";
+import { supabase } from "@/lib/supabase";
 
 // All data services go through the in-repo backend (Vite proxy /api -> :8080).
 // The backend reads LLM keys and the Voyager API key from these headers,
@@ -16,11 +17,16 @@ const LLM_KEY_HEADERS: Record<string, string> = {
     voyager_api_key: "X-Voyager-Key",
 };
 
-axios.interceptors.request.use((config) => {
+axios.interceptors.request.use(async (config) => {
     for (const [storeKey, header] of Object.entries(LLM_KEY_HEADERS)) {
         const v = localStorage.getItem(storeKey);
         if (v) config.headers[header] = v;
     }
+
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+
     return config;
 });
 

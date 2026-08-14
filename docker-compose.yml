@@ -8,6 +8,8 @@ services:
       - "5173:5173"
     environment:
       VITE_API_URL: http://api:8080
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+      VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
 
   api:
     container_name: relativity-api
@@ -22,6 +24,7 @@ services:
       MONGODB_DB_NAME: ${MONGODB_DB_NAME:-relativity}
       VOYAGER_URL: https://voyager-1hpq.onrender.com
       VOYAGER_API_KEY: ${VOYAGER_API_KEY:-}
+      SUPABASE_PROJECT_URL: ${SUPABASE_PROJECT_URL:-}
 
   ##########################################################
 

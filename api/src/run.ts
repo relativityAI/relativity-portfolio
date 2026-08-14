@@ -8,6 +8,7 @@ import type { LlmKeys } from "./agent.js";
 import { log } from "./logger.js";
 
 export interface RunRequest {
+  userId: string;
   symbol: string;
   share_name?: string;
   agent_name: string;
@@ -86,6 +87,7 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
   const run = {
     _id: runId,
     analysis_id: runId,
+    user_id: req.userId,
     status: "PENDING",
     symbol: req.symbol,
     share_name: req.share_name || req.symbol,
@@ -168,7 +170,12 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     await begin("agent");
     const agent = await db()
       .collection("agents")
-      .findOne({ $or: [{ name: req.agent_name }, { _id: req.agent_name }] } as any);
+      .findOne({
+        $and: [
+          { user_id: req.userId },
+          { $or: [{ name: req.agent_name }, { _id: req.agent_name }] },
+        ],
+      } as any);
     if (!agent) {
       await end("agent", "failed", "Agent not found");
       throw new Error(`Agent not found: ${req.agent_name}`);
