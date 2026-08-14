@@ -8,6 +8,9 @@ export const config = {
   port: Number(process.env.PORT || 8080),
   mongodbUrl: process.env.MONGODB_URL || "mongodb://root:example@localhost:27017/",
   mongodbDb: process.env.MONGODB_DB_NAME || "relativity",
+  // Supabase project URL used to verify access tokens via the public JWKS
+  // endpoint (e.g. https://<project-ref>.supabase.co). Required for auth.
+  supabaseProjectUrl: process.env.SUPABASE_PROJECT_URL || "",
   voyagerUrl: process.env.VOYAGER_URL || "https://voyager-1hpq.onrender.com",
   // Optional server-side fallback key. Users normally provide their own key in
   // Settings (sent as X-Voyager-Key); this is only used when none is set.

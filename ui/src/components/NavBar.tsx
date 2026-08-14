@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Flex, Text, IconButton, Drawer, Separator } from "@chakra-ui/react"
+import { Flex, Text, IconButton, Drawer, Separator, Menu } from "@chakra-ui/react"
 import { Link, useLocation } from "react-router-dom";
 import { runHealthCheck } from "../utils"
-import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings } from "react-icons/md";
+import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout } from "react-icons/md";
 import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX } from "react-icons/lu";
 import { ColorModeButton } from "@/components/ui/color-mode";
+import { useAuth } from "@/auth/useAuth";
 
 const VOYAGER_DOCS_URL = import.meta.env.VITE_VOYAGER_DOCS_URL || "https://voyager-1hpq.onrender.com";
 const HEALTH_CHECK_INTERVAL_MS = 15000;
@@ -12,6 +13,15 @@ const HEALTH_CHECK_INTERVAL_MS = 15000;
 export default function NavBar() {
 
     const location = useLocation();
+    const { user, signOut } = useAuth();
+
+    const email = user?.email ?? "";
+    const displayName =
+        (user?.user_metadata?.name as string | undefined) ??
+        (user?.user_metadata?.full_name as string | undefined) ??
+        email.split("@")[0] ??
+        (user?.id?.slice(0, 8) ?? "User");
+    const initials = (displayName || email || "?").slice(0, 2).toUpperCase();
 
     const [systemStatus, setSystemStatus] = useState({
         api: 0,
@@ -133,6 +143,65 @@ export default function NavBar() {
                     <LuMenu size={20} />
                 </IconButton>
                 <ColorModeButton />
+                <Menu.Root>
+                    <Menu.Trigger asChild>
+                        <Flex
+                            align="center"
+                            gap={2}
+                            px={2}
+                            py={1}
+                            borderRadius="full"
+                            bg="blue.muted"
+                            cursor="pointer"
+                            _hover={{ bg: "blue.subtle" }}
+                            title={email || "Account"}
+                        >
+                            <Flex
+                                align="center"
+                                justify="center"
+                                minW="24px"
+                                minH="24px"
+                                borderRadius="full"
+                                bg="blue.solid"
+                                color="white"
+                                fontSize="xs"
+                                fontWeight="bold"
+                            >
+                                {initials}
+                            </Flex>
+                            <Text
+                                fontSize="sm"
+                                fontWeight="semibold"
+                                color="blue.300"
+                                display={{ base: "none", md: "block" }}
+                            >
+                                {displayName}
+                            </Text>
+                        </Flex>
+                    </Menu.Trigger>
+                    <Menu.Positioner>
+                        <Menu.Content minWidth="260px">
+                            <Flex direction="column" gap={0} px={3} py={2.5} w="full" minW="0">
+                                <Text textStyle="xs" color="fg.muted">Signed in as</Text>
+                                <Text
+                                    fontSize="sm"
+                                    color="fg"
+                                    w="full"
+                                    overflow="hidden"
+                                    textOverflow="ellipsis"
+                                    whiteSpace="nowrap"
+                                >
+                                    {email}
+                                </Text>
+                            </Flex>
+                            <Menu.Separator />
+                            <Menu.Item value="signout" onClick={() => signOut()}>
+                                <MdOutlineLogout size={15} />
+                                Sign out
+                            </Menu.Item>
+                        </Menu.Content>
+                    </Menu.Positioner>
+                </Menu.Root>
                 <Flex gap={4} align={"center"} display={{ base: "none", md: "flex" }}>
                     <Flex gap={1} align={"center"}>
                         <LuWebhook size={12} color="var(--chakra-colors-fg-muted)" />
