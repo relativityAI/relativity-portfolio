@@ -22,7 +22,7 @@ export interface RunRequest {
   reqId?: string;
 }
 
-const DEFAULT_MODEL = "gemini/gemini-flash-lite-latest";
+const DEFAULT_MODEL = "gemini/gemini-3.5-flash-lite";
 
 export type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 
