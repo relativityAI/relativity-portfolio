@@ -305,7 +305,7 @@ app.post("/agents", requireAuth, async (req, res) => {
       id,
       user_id: userId,
       name: String(req.body?.name || ""),
-      source: req.body?.source || "",
+      source: req.body?.source || "NSE",
       persona: req.body?.persona || {},
       configuration: req.body?.configuration || {},
       asset_evaluation: req.body?.asset_evaluation || { qualitative: [], quantitative: [] },
@@ -339,7 +339,7 @@ app.put("/agents/:id", requireAuth, async (req, res) => {
     const id = req.params.id;
     const { data: existing, error: fetchErr } = await db.from("agents").select("*").eq("id", id).eq("user_id", userId).single();
     if (fetchErr || !existing) return res.status(404).json({ error: "Agent not found" });
-    const { id: _id, user_id: _uid, created_at: _ca, ...rest } = req.body || {};
+    const { id: _id, _id: __id, user_id: _uid, created_at: _ca, ...rest } = req.body || {};
     const doc = {
       ...existing,
       ...rest,
