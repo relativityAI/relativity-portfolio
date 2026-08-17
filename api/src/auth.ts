@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { config } from "./config.js";
 import { ensureUserSettings } from "./provision.js";
+import { log } from "./logger.js";
 
 export interface AuthUser {
   id: string;
@@ -78,7 +79,7 @@ export async function requireAuth(
       return;
     }
     (req as AuthedRequest).user = user;
-    ensureUserSettings(user.id).catch(() => {});
+    ensureUserSettings(user.id).catch((e) => log.error("[auth]", `ensureUserSettings failed for ${user.id}: ${e.message}`));
     next();
   } catch {
     res.status(401).json({ error: "Invalid or expired token" });
