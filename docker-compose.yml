@@ -20,51 +20,10 @@ services:
       - "8080:8080"
     environment:
       PORT: 8080
-      MONGODB_URL: ${MONGODB_URL:-mongodb://root:example@mongo:27017/}
-      MONGODB_DB_NAME: ${MONGODB_DB_NAME:-relativity}
-      VOYAGER_URL: https://voyager-1hpq.onrender.com
-      VOYAGER_API_KEY: ${VOYAGER_API_KEY:-}
       SUPABASE_PROJECT_URL: ${SUPABASE_PROJECT_URL:-}
-
-  ##########################################################
-
-  voyager:
-    container_name: relativity-voyager
-    build: https://github.com/relativityAI/voyager.git
-    ports:
-      - "8001:8001"
-    environment:
-      PORT: 8001
-      MONGODB_URL: mongodb://root:example@mongo:27017/
-      MONGODB_DB_NAME: relativity
-
-  ##########################################################
-
-  mongo:
-    container_name: relativity-mongo
-    image: mongo
-    # restart: always
-    ports:
-      - 27017:27017
-
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
-
-    volumes:
-      - relativitydb:/data/db
-
-  mongo-express:
-    container_name: relativity-mongo-express
-    image: mongo-express
-    # restart: always
-    ports:
-      - 8081:8081
-    environment:
-      ME_CONFIG_MONGODB_URL: mongodb://root:example@mongo:27017/
-      ME_CONFIG_BASICAUTH_ENABLED: true
-      ME_CONFIG_BASICAUTH_USERNAME: mongoexpressuser
-      ME_CONFIG_BASICAUTH_PASSWORD: mongoexpresspass
-
-volumes:
-  relativitydb:
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      VOYAGER_URL: https://voyager-1hpq.onrender.com
+      VOYAGER_ADMIN_KEY: ${VOYAGER_ADMIN_KEY:-}
+      VOYAGER_RPM: ${VOYAGER_RPM:-60}

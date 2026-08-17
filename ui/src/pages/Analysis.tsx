@@ -279,7 +279,7 @@ function DataAvailabilityTag({ loading, data, symbol }: { loading: boolean; data
         detail = "Could not determine data availability.";
     } else if (data.keyed === false) {
         label = "no Voyager key";
-        detail = "No Voyager API key configured — add one in Settings to fetch market data.";
+        detail = "No Voyager API key configured. A key will be generated automatically on your next login, or you can set one manually in Settings.";
     } else if (data.error) {
         label = "data not available";
         detail = String(data.error);
@@ -379,7 +379,7 @@ export default function Analysis() {
     }, [availableAgents]);
 
     const [availableModels, setAvailableModels] = useState<string[]>([]);
-    const [selectedModel, setSelectedModel] = useState("gemini/gemini-flash-lite-latest");
+    const [selectedModel, setSelectedModel] = useState("");
     const [modelQuery, setModelQuery] = useState("");
     const debouncedModelQuery = useDebounce(modelQuery, 200);
     const [showModelList, setShowModelList] = useState(false);
@@ -413,7 +413,12 @@ export default function Analysis() {
     const fetchModels = useCallback(async () => {
         try {
             const data = await AnalysisService.getAvailableModels();
-            setAvailableModels(Array.isArray(data) ? data : []);
+            const models = Array.isArray(data) ? data : [];
+            setAvailableModels(models);
+            setSelectedModel(prev => {
+                if (prev && models.includes(prev)) return prev;
+                return models[0] || "";
+            });
         } catch {
             setAvailableModels([]);
         }

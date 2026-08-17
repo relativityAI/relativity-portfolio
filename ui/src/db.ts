@@ -1,32 +1,13 @@
 import axios from "axios";
 import { supabase } from "@/lib/supabase";
 
-// All data services go through the in-repo backend (Vite proxy /api -> :8080).
-// The backend reads LLM keys and the Voyager API key from these headers,
-// keeping secrets in the browser only.
 export const API_BASE = import.meta.env.VITE_RELATIVITY_API || "/api";
 
-const LLM_KEY_HEADERS: Record<string, string> = {
-    openai_key: "X-LLM-OpenAI-Key",
-    gemini_key: "X-LLM-Gemini-Key",
-    anthropic_key: "X-LLM-Anthropic-Key",
-    cerebras_key: "X-LLM-Cerebras-Key",
-    groq_key: "X-LLM-Groq-Key",
-    openrouter_key: "X-LLM-OpenRouter-Key",
-    tavily_key: "X-LLM-Tavily-Key",
-    voyager_api_key: "X-Voyager-Key",
-};
-
+// Only attach the Supabase auth token — keys are now stored server-side.
 axios.interceptors.request.use(async (config) => {
-    for (const [storeKey, header] of Object.entries(LLM_KEY_HEADERS)) {
-        const v = localStorage.getItem(storeKey);
-        if (v) config.headers[header] = v;
-    }
-
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
     if (token) config.headers.Authorization = `Bearer ${token}`;
-
     return config;
 });
 
@@ -133,6 +114,18 @@ export const DataService = {
 
     async getVoyagerHealth() {
         const response = await axios.get(`${API_BASE}/health/voyager`);
+        return response.data;
+    }
+};
+
+export const SettingsService = {
+    async getSettings() {
+        const response = await axios.get(`${API_BASE}/user/settings`);
+        return response.data as { voyager_key: string | null; llm_keys: Record<string, string> };
+    },
+
+    async updateSettings(payload: { voyager_key?: string; llm_keys?: Record<string, string> }) {
+        const response = await axios.put(`${API_BASE}/user/settings`, payload);
         return response.data;
     }
 };

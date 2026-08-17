@@ -1,4 +1,6 @@
-import { db, newId } from "./db.js";
+import { randomUUID } from "node:crypto";
+import { getDb } from "./db.js";
+import { decrypt } from "./crypto.js";
 import { config } from "./config.js";
 import { getModelIds } from "./models.js";
 import { VoyagerClient, toCountrySource, type PullStatus } from "./voyager.js";
@@ -17,8 +19,6 @@ export interface RunRequest {
   documents?: string[];
   web_search?: boolean;
   web_sources?: string[];
-  voyagerApiKey?: string;
-  keys: LlmKeys;
   reqId?: string;
 }
 
@@ -82,11 +82,31 @@ function failRunningStep(steps: RunStep[]): RunStep[] {
   return next;
 }
 
+// ── DB helpers ─────────────────────────────────────────────────────────
+
+async function fetchUserKeys(userId: string): Promise<{ voyagerKey: string; llmKeys: LlmKeys }> {
+  const db = getDb();
+  const { data } = await db.from("user_settings").select("voyager_key_encrypted, llm_keys_encrypted").eq("user_id", userId).single();
+  if (!data) return { voyagerKey: "", llmKeys: {} };
+  let voyagerKey = "";
+  try { voyagerKey = data.voyager_key_encrypted ? decrypt(data.voyager_key_encrypted) : ""; } catch { voyagerKey = ""; }
+  const llmKeys: LlmKeys = {};
+  if (data.llm_keys_encrypted && typeof data.llm_keys_encrypted === "object") {
+    const enc = data.llm_keys_encrypted as Record<string, string>;
+    for (const [k, v] of Object.entries(enc)) {
+      try { (llmKeys as any)[k] = decrypt(v); } catch { (llmKeys as any)[k] = ""; }
+    }
+  }
+  return { voyagerKey, llmKeys };
+}
+
+// ── run orchestration ──────────────────────────────────────────────────
+
 export async function createRun(req: RunRequest): Promise<{ analysis_id: string }> {
-  const runId = newId();
+  const runId = randomUUID();
+  const db = getDb();
   const run = {
-    _id: runId,
-    analysis_id: runId,
+    id: runId,
     user_id: req.userId,
     status: "PENDING",
     symbol: req.symbol,
@@ -110,7 +130,8 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
     qualitative_score: null,
     total_score: null,
   };
-  await db().collection("analysis_runs").insertOne(run as any);
+  const { error } = await db.from("analysis_runs").insert(run);
+  if (error) throw error;
   executeRun(runId, req).catch((e) => {
     log.error(`[run ${runId}]`, "background execution failed:", e);
   });
@@ -118,10 +139,8 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
 }
 
 async function updateRun(runId: string, patch: Record<string, unknown>): Promise<void> {
-  await db().collection("analysis_runs").updateOne(
-    { _id: runId } as any,
-    { $set: { ...patch, updated_at: new Date().toISOString() } },
-  );
+  const db = getDb();
+  await db.from("analysis_runs").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", runId);
 }
 
 async function markFailed(runId: string, err: unknown, started?: number): Promise<void> {
@@ -142,6 +161,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
   const started = Date.now();
   const steps: RunStep[] = initialSteps();
   const runTag = `[run ${runId}] reqId=${req.reqId || "-"}`;
+  const db = getDb();
 
   // Serialize every write to the run doc so out-of-order steps snapshots
   // (e.g. fire-and-forget progress updates) can't clobber newer ones.
@@ -168,15 +188,13 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
   try {
     // ---- agent ----
     await begin("agent");
-    const agent = await db()
-      .collection("agents")
-      .findOne({
-        $and: [
-          { user_id: req.userId },
-          { $or: [{ name: req.agent_name }, { _id: req.agent_name }] },
-        ],
-      } as any);
-    if (!agent) {
+    const { data: agent, error: agentErr } = await db
+      .from("agents")
+      .select("*")
+      .eq("user_id", req.userId)
+      .or(`name.eq.${req.agent_name},id.eq.${req.agent_name}`)
+      .single();
+    if (agentErr || !agent) {
       await end("agent", "failed", "Agent not found");
       throw new Error(`Agent not found: ${req.agent_name}`);
     }
@@ -187,16 +205,16 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     await write(() => updateRun(runId, { status: "RUNNING", source }));
     log.info(runTag, `start symbol=${req.symbol} agent="${agent.name}" model=${req.model || DEFAULT_MODEL} source=${source}`);
 
-    const voyagerApiKey = req.voyagerApiKey || config.voyagerApiKey;
-    if (!voyagerApiKey) {
-      const msg =
-        "No Voyager API key configured. Add your Voyager API key in Settings before running an analysis.";
+    // Fetch user's Voyager key and LLM keys from DB
+    const { voyagerKey, llmKeys } = await fetchUserKeys(req.userId);
+    if (!voyagerKey) {
+      const msg = "No Voyager API key configured. A key will be generated automatically on your next login.";
       await end("agent", "completed");
       await write(() => updateRun(runId, { status: "FAILED", error: msg }));
       log.error(runTag, msg);
       return;
     }
-    const voyager = new VoyagerClient(config.voyagerUrl, voyagerApiKey, config.voyagerRpm);
+    const voyager = new VoyagerClient(config.voyagerUrl, voyagerKey, config.voyagerRpm);
 
     // ---- data availability ----
     await begin("data");
@@ -225,7 +243,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
 
     const toolCtx = {
       voyager,
-      tavilyKey: req.keys.tavily,
+      tavilyKey: llmKeys.tavily,
       symbol: req.symbol,
       country: cs.country,
       source: cs.source,
@@ -249,7 +267,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     } else {
       qual = await runQualitativeAll(
         req.model || DEFAULT_MODEL,
-        req.keys,
+        llmKeys,
         toolCtx,
         agent,
         req.documents || [],
