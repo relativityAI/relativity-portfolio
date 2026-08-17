@@ -12,8 +12,8 @@ async function provisionVoyagerKey(userId: string): Promise<string | null> {
   try {
     const res = await fetch(`${config.voyagerUrl}/admin/keys`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": config.voyagerAdminKey },
-      body: JSON.stringify({ label: `user:${userId}` }),
+      headers: { "Content-Type": "application/json", "X-Voyager-Admin-Key": config.voyagerAdminKey },
+      body: JSON.stringify({ label: `user:${userId}`, name: `User ${userId}`, scopes: ["data:read"] }),
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
