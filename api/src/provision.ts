@@ -31,15 +31,21 @@ async function provisionVoyagerKey(userId: string): Promise<string | null> {
 /** Ensure user_settings row exists; auto-provision Voyager key on first login. */
 export async function ensureUserSettings(userId: string): Promise<void> {
   const db = getDb();
-  const { data } = await db.from("user_settings").select("user_id").eq("user_id", userId).single();
-  if (data) return;
+  const { data } = await db.from("user_settings").select("user_id, voyager_key_encrypted").eq("user_id", userId).single();
+  if (data && data.voyager_key_encrypted) return;
   const voyagerKey = await provisionVoyagerKey(userId);
-  await db.from("user_settings").insert({
-    user_id: userId,
-    voyager_key_encrypted: voyagerKey ? encrypt(voyagerKey) : null,
-    llm_keys_encrypted: {},
-  });
-  log.info("[provision]", `Created user_settings for ${userId} (voyager=${voyagerKey ? "provisioned" : "pending"})`);
+  if (voyagerKey) {
+    if (data) {
+      await db.from("user_settings").update({ voyager_key_encrypted: encrypt(voyagerKey) }).eq("user_id", userId);
+      log.info("[provision]", `Backfilled Voyager key for ${userId}`);
+    } else {
+      await db.from("user_settings").insert({ user_id: userId, voyager_key_encrypted: encrypt(voyagerKey), llm_keys_encrypted: {} });
+      log.info("[provision]", `Created user_settings for ${userId} (voyager=provisioned)`);
+    }
+  } else if (!data) {
+    await db.from("user_settings").insert({ user_id: userId, voyager_key_encrypted: null, llm_keys_encrypted: {} });
+    log.info("[provision]", `Created user_settings for ${userId} (voyager=pending)`);
+  }
 }
 
 /** Fetch decrypted user settings (Voyager + LLM keys) from Supabase. */
