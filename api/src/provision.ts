@@ -13,7 +13,14 @@ async function provisionVoyagerKey(userId: string): Promise<string | null> {
     const res = await fetch(`${config.voyagerUrl}/admin/keys`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Voyager-Admin-Key": config.voyagerAdminKey },
-      body: JSON.stringify({ label: `user:${userId}`, name: `User ${userId}`, scopes: ["data:read"] }),
+      body: JSON.stringify({
+        label: `user:${userId}`,
+        name: `User ${userId}`,
+        owner: userId,
+        scopes: ["data:read"],
+        rpm: 60,
+        expires_in_days: 30,
+      }),
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
