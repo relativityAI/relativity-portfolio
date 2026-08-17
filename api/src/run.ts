@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db.js";
-import { decrypt } from "./crypto.js";
+import { fetchUserKeys } from "./provision.js";
 import { config } from "./config.js";
 import { getModelIds } from "./models.js";
 import { VoyagerClient, toCountrySource, type PullStatus } from "./voyager.js";
@@ -80,24 +80,6 @@ function failRunningStep(steps: RunStep[]): RunStep[] {
   const next = steps.slice();
   next[idx] = { ...next[idx], status: "failed", finished_at, duration_ms };
   return next;
-}
-
-// ── DB helpers ─────────────────────────────────────────────────────────
-
-async function fetchUserKeys(userId: string): Promise<{ voyagerKey: string; llmKeys: LlmKeys }> {
-  const db = getDb();
-  const { data } = await db.from("user_settings").select("voyager_key_encrypted, llm_keys_encrypted").eq("user_id", userId).single();
-  if (!data) return { voyagerKey: "", llmKeys: {} };
-  let voyagerKey = "";
-  try { voyagerKey = data.voyager_key_encrypted ? decrypt(data.voyager_key_encrypted) : ""; } catch { voyagerKey = ""; }
-  const llmKeys: LlmKeys = {};
-  if (data.llm_keys_encrypted && typeof data.llm_keys_encrypted === "object") {
-    const enc = data.llm_keys_encrypted as Record<string, string>;
-    for (const [k, v] of Object.entries(enc)) {
-      try { (llmKeys as any)[k] = decrypt(v); } catch { (llmKeys as any)[k] = ""; }
-    }
-  }
-  return { voyagerKey, llmKeys };
 }
 
 // ── run orchestration ──────────────────────────────────────────────────
