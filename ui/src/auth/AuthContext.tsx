@@ -27,14 +27,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user: session?.user ?? null,
     session,
     loading,
-    async signInWithEmail(email, password) {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      return { error: error?.message ?? null };
-    },
-    async signUp(email, password) {
-      const { error } = await supabase.auth.signUp({ email, password });
-      return { error: error?.message ?? null };
-    },
     async signInWithGoogle() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",

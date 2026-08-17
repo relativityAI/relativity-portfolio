@@ -1,15 +1,14 @@
 import express from "express";
 import cors from "cors";
 import { randomUUID } from "node:crypto";
-import { ObjectId } from "mongodb";
 import { config } from "./config.js";
-import { connectDb, db, toPlain } from "./db.js";
+import { getDb } from "./db.js";
+import { encrypt, decrypt } from "./crypto.js";
 import { getModelIds } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
 import { getMetricsCatalog } from "./metrics.js";
 import { createRun, RunRequest } from "./run.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
-import type { LlmKeys } from "./agent.js";
 import { requireAuth, type AuthedRequest } from "./auth.js";
 import { log, paint } from "./logger.js";
 
@@ -58,11 +57,6 @@ app.use((req, res, next) => {
     const reqId = (req as any)._reqId || "-";
     const ms = Date.now() - t;
     const bytes = Number(res.getHeader("content-length") || 0);
-    const keys = Object.entries(extractKeys(req))
-      .filter(([, v]) => v)
-      .map(([k]) => k)
-      .join(",");
-    const voyager = (req.headers["x-voyager-key"] as string)?.trim() ? "user" : config.voyagerApiKey ? "default" : "none";
 
     const parts = [
       paint(req.method, methodColor(req.method)),
@@ -71,8 +65,6 @@ app.use((req, res, next) => {
       paint(String(res.statusCode), statusColor(res.statusCode)),
       paint(`(${ms}ms, ${bytes ? (bytes / 1024).toFixed(1) + "KB" : "no body"})`, ms >= 1000 ? "1;33" : "2"),
       paint(`ip=${req.ip || "-"}`, "2"),
-      paint(`keys=${keys || "none"}`, "2"),
-      paint(`voyager=${voyager}`, "2"),
     ];
 
     if (req.method === "POST" && req.path === "/analysis") {
@@ -107,8 +99,6 @@ app.use((req, res, next) => {
 });
 
 // ---- simple per-IP rate limiter (agent runs are token-heavy) ----
-// Only POST /analysis creates a token-heavy run; reads/polls must not be
-// throttled or the UI's status polling exhausts the budget immediately.
 const WINDOW_MS = 60_000;
 const hits = new Map<string, number[]>();
 app.use((req, _res, next) => {
@@ -126,49 +116,84 @@ app.use((req, _res, next) => {
   next();
 });
 
-function extractKeys(req: express.Request): LlmKeys {
-  const h = req.headers;
-  return {
-    openai: (h["x-llm-openai-key"] as string) || undefined,
-    gemini: (h["x-llm-gemini-key"] as string) || undefined,
-    anthropic: (h["x-llm-anthropic-key"] as string) || undefined,
-    cerebras: (h["x-llm-cerebras-key"] as string) || undefined,
-    groq: (h["x-llm-groq-key"] as string) || undefined,
-    openrouter: (h["x-llm-openrouter-key"] as string) || undefined,
-    tavily: (h["x-llm-tavily-key"] as string) || undefined,
-  };
+// ── helpers ────────────────────────────────────────────────────────────
+
+/** Fetch decrypted user settings (Voyager + LLM keys) from Supabase. */
+async function fetchUserKeys(userId: string): Promise<{ voyagerKey: string; llmKeys: Record<string, string> }> {
+  const db = getDb();
+  const { data } = await db.from("user_settings").select("voyager_key_encrypted, llm_keys_encrypted").eq("user_id", userId).single();
+  if (!data) return { voyagerKey: "", llmKeys: {} };
+  let voyagerKey = "";
+  try {
+    voyagerKey = data.voyager_key_encrypted ? decrypt(data.voyager_key_encrypted) : "";
+  } catch { voyagerKey = ""; }
+  let llmKeys: Record<string, string> = {};
+  if (data.llm_keys_encrypted && typeof data.llm_keys_encrypted === "object") {
+    for (const [k, v] of Object.entries(data.llm_keys_encrypted as Record<string, string>)) {
+      try { llmKeys[k] = decrypt(v); } catch { llmKeys[k] = ""; }
+    }
+  }
+  return { voyagerKey, llmKeys };
 }
 
-function voyagerKey(req: express.Request): string {
-  const header = req.headers["x-voyager-key"];
-  if (typeof header === "string" && header.trim()) return header.trim();
-  return config.voyagerApiKey;
+/** Auto-provision a Voyager key for a new user via Voyager's admin API. */
+async function provisionVoyagerKey(userId: string): Promise<string | null> {
+  if (!config.voyagerAdminKey) {
+    log.warn("[provision]", "VOYAGER_ADMIN_KEY not set, skipping auto-provision");
+    return null;
+  }
+  try {
+    const res = await fetch(`${config.voyagerUrl}/admin/keys`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": config.voyagerAdminKey },
+      body: JSON.stringify({ label: `user:${userId}` }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      log.error("[provision]", `Voyager key provision failed: ${res.status}`);
+      return null;
+    }
+    const { key } = await res.json() as { key: string };
+    return key || null;
+  } catch (e: any) {
+    log.error("[provision]", `Voyager key provision error: ${e.message}`);
+    return null;
+  }
 }
 
-// Match a doc by string id, ObjectId-hex id, or legacy analysis_id.
-function idFilter(id: string | string[]): Record<string, unknown> {
-  const idStr = Array.isArray(id) ? id[0] : id;
-  if (!idStr) return {};
-  const conditions: Record<string, unknown>[] = [{ analysis_id: idStr }, { _id: idStr }];
-  if (/^[0-9a-fA-F]{24}$/.test(idStr)) conditions.push({ _id: new ObjectId(idStr) });
-  return { $or: conditions };
+/** Ensure user_settings row exists; auto-provision Voyager key on first login. */
+async function ensureUserSettings(userId: string): Promise<void> {
+  const db = getDb();
+  const { data } = await db.from("user_settings").select("user_id").eq("user_id", userId).single();
+  if (data) return;
+  const voyagerKey = await provisionVoyagerKey(userId);
+  await db.from("user_settings").insert({
+    user_id: userId,
+    voyager_key_encrypted: voyagerKey ? encrypt(voyagerKey) : null,
+    llm_keys_encrypted: {},
+  });
+  log.info("[provision]", `Created user_settings for ${userId} (voyager=${voyagerKey ? "provisioned" : "pending"})`);
 }
+
+// ── routes ─────────────────────────────────────────────────────────────
 
 // ---- health ----
 app.get("/health", async (_req, res) => {
   let dbOk = false;
   try {
-    await db().command({ ping: 1 });
-    dbOk = true;
+    const db = getDb();
+    const { error } = await db.from("agents").select("id").limit(1);
+    dbOk = !error;
   } catch {
     dbOk = false;
   }
   res.json({ ok: 1, db: dbOk });
 });
 
-app.get("/health/voyager", async (req, res) => {
+app.get("/health/voyager", requireAuth, async (req, res) => {
   const base = config.voyagerUrl.replace(/\/+$/, "");
-  const keyed = !!voyagerKey(req);
+  const { voyagerKey } = await fetchUserKeys((req as AuthedRequest).user.id);
+  const keyed = !!voyagerKey;
   try {
     const r = await fetch(`${base}/healthz`, {
       signal: AbortSignal.timeout(5000),
@@ -180,15 +205,79 @@ app.get("/health/voyager", async (req, res) => {
   }
 });
 
+// ── user settings (encrypted API keys) ────────────────────────────────
+
+app.get("/user/settings", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const db = getDb();
+    const { data } = await db.from("user_settings").select("voyager_key_encrypted, llm_keys_encrypted").eq("user_id", userId).single();
+    if (!data) return res.json({ voyager_key: null, llm_keys: {} });
+
+    let voyagerKeyMasked: string | null = null;
+    if (data.voyager_key_encrypted) {
+      try {
+        const raw = decrypt(data.voyager_key_encrypted);
+        voyagerKeyMasked = raw.length > 8 ? raw.slice(0, 3) + "****" + raw.slice(-4) : "****";
+      } catch { voyagerKeyMasked = "****"; }
+    }
+
+    const llmKeysMasked: Record<string, string> = {};
+    if (data.llm_keys_encrypted && typeof data.llm_keys_encrypted === "object") {
+      for (const [k, v] of Object.entries(data.llm_keys_encrypted as Record<string, string>)) {
+        try {
+          const raw = decrypt(v);
+          llmKeysMasked[k] = raw.length > 8 ? raw.slice(0, 3) + "****" + raw.slice(-4) : "****";
+        } catch { llmKeysMasked[k] = "****"; }
+      }
+    }
+
+    res.json({ voyager_key: voyagerKeyMasked, llm_keys: llmKeysMasked });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+app.put("/user/settings", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const { voyager_key, llm_keys } = req.body || {};
+    const db = getDb();
+
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (voyager_key !== undefined) {
+      patch.voyager_key_encrypted = voyager_key ? encrypt(String(voyager_key)) : null;
+    }
+    if (llm_keys !== undefined && typeof llm_keys === "object") {
+      const encrypted: Record<string, string> = {};
+      for (const [k, v] of Object.entries(llm_keys as Record<string, string>)) {
+        encrypted[k] = v ? encrypt(String(v)) : "";
+      }
+      patch.llm_keys_encrypted = encrypted;
+    }
+
+    const { data: existing } = await db.from("user_settings").select("user_id").eq("user_id", userId).single();
+    if (existing) {
+      await db.from("user_settings").update(patch).eq("user_id", userId);
+    } else {
+      await db.from("user_settings").insert({ user_id: userId, ...patch });
+    }
+
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
 // ---- agents (authenticated, scoped to the signed-in user) ----
 app.get("/agents", requireAuth, async (req, res) => {
   try {
-    const docs = await db()
-      .collection("agents")
-      .find({ user_id: (req as AuthedRequest).user.id })
-      .toArray();
-    docs.sort((a, b) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
-    res.json(docs.map(toPlain));
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const { data, error } = await db.from("agents").select("*").eq("user_id", userId);
+    if (error) throw error;
+    const docs = (data || []).sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
+    res.json(docs);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -196,13 +285,12 @@ app.get("/agents", requireAuth, async (req, res) => {
 
 app.get("/agents/search", requireAuth, async (req, res) => {
   try {
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
     const q = String(req.query.query || "");
-    const docs = await db()
-      .collection("agents")
-      .find({ user_id: (req as AuthedRequest).user.id, name: { $regex: q, $options: "i" } })
-      .limit(25)
-      .toArray();
-    res.json(docs.map(toPlain));
+    const { data, error } = await db.from("agents").select("*").eq("user_id", userId).ilike("name", `%${q}%`).limit(25);
+    if (error) throw error;
+    res.json(data || []);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -210,9 +298,12 @@ app.get("/agents/search", requireAuth, async (req, res) => {
 
 app.post("/agents", requireAuth, async (req, res) => {
   try {
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const id = randomUUID();
     const doc = {
-      _id: undefined as any,
-      user_id: (req as AuthedRequest).user.id,
+      id,
+      user_id: userId,
       name: String(req.body?.name || ""),
       source: req.body?.source || "",
       persona: req.body?.persona || {},
@@ -221,10 +312,9 @@ app.post("/agents", requireAuth, async (req, res) => {
       macro_evaluation: req.body?.macro_evaluation || { qualitative: [], quantitative: [] },
       created_at: new Date().toISOString(),
     };
-    const id = doc._id ?? randomUUID();
-    doc._id = id;
-    await db().collection("agents").insertOne(doc);
-    res.status(201).json(toPlain(doc));
+    const { error } = await db.from("agents").insert(doc);
+    if (error) throw error;
+    res.status(201).json(doc);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -232,11 +322,11 @@ app.post("/agents", requireAuth, async (req, res) => {
 
 app.get("/agents/:id", requireAuth, async (req, res) => {
   try {
-    const doc = await db()
-      .collection("agents")
-      .findOne({ ...idFilter(req.params.id), user_id: (req as AuthedRequest).user.id });
-    if (!doc) return res.status(404).json({ error: "Agent not found" });
-    res.json(toPlain(doc));
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const { data, error } = await db.from("agents").select("*").eq("id", req.params.id).eq("user_id", userId).single();
+    if (error || !data) return res.status(404).json({ error: "Agent not found" });
+    res.json(data);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -244,22 +334,23 @@ app.get("/agents/:id", requireAuth, async (req, res) => {
 
 app.put("/agents/:id", requireAuth, async (req, res) => {
   try {
-    const id = req.params.id;
+    const db = getDb();
     const userId = (req as AuthedRequest).user.id;
-    const filter = { ...idFilter(id), user_id: userId };
-    const existing = await db().collection("agents").findOne(filter);
-    if (!existing) return res.status(404).json({ error: "Agent not found" });
-    const { _id, id: _id2, created_at, user_id, ...rest } = req.body || {};
+    const id = req.params.id;
+    const { data: existing, error: fetchErr } = await db.from("agents").select("*").eq("id", id).eq("user_id", userId).single();
+    if (fetchErr || !existing) return res.status(404).json({ error: "Agent not found" });
+    const { id: _id, user_id: _uid, created_at: _ca, ...rest } = req.body || {};
     const doc = {
       ...existing,
       ...rest,
-      _id: existing._id,
+      id: existing.id,
       user_id: userId,
       created_at: existing.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-    await db().collection("agents").replaceOne(filter as any, doc);
-    res.json(toPlain(doc));
+    const { error } = await db.from("agents").update(doc).eq("id", id).eq("user_id", userId);
+    if (error) throw error;
+    res.json(doc);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -267,9 +358,10 @@ app.put("/agents/:id", requireAuth, async (req, res) => {
 
 app.delete("/agents/:id", requireAuth, async (req, res) => {
   try {
-    await db()
-      .collection("agents")
-      .deleteOne({ ...idFilter(req.params.id), user_id: (req as AuthedRequest).user.id });
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const { error } = await db.from("agents").delete().eq("id", req.params.id).eq("user_id", userId);
+    if (error) throw error;
     res.json({ deleted: true });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
@@ -283,8 +375,10 @@ app.post("/analysis", requireAuth, async (req, res) => {
     if (!body.symbol || !body.agent_name) {
       return res.status(400).json({ error: "symbol and agent_name are required" });
     }
+    const userId = (req as AuthedRequest).user.id;
+    const { voyagerKey, llmKeys } = await fetchUserKeys(userId);
     const runReq: RunRequest = {
-      userId: (req as AuthedRequest).user.id,
+      userId,
       symbol: String(body.symbol),
       share_name: body.share_name ? String(body.share_name) : undefined,
       agent_name: String(body.agent_name),
@@ -293,8 +387,6 @@ app.post("/analysis", requireAuth, async (req, res) => {
       documents: Array.isArray(body.documents) ? body.documents : undefined,
       web_search: !!body.web_search,
       web_sources: Array.isArray(body.web_sources) ? body.web_sources : undefined,
-      voyagerApiKey: voyagerKey(req),
-      keys: extractKeys(req),
       reqId: (req as any)._reqId,
     };
     const result = await createRun(runReq);
@@ -306,48 +398,34 @@ app.post("/analysis", requireAuth, async (req, res) => {
 
 app.get("/analysis", requireAuth, async (req, res) => {
   try {
-    const docs = await db()
-      .collection("analysis_runs")
-      .find({ user_id: (req as AuthedRequest).user.id })
-      .project({
-        _id: 1,
-        analysis_id: 1,
-        symbol: 1,
-        share_name: 1,
-        agent_name: 1,
-        agent: 1,
-        status: 1,
-        total_score: 1,
-        quantitative_score: 1,
-        qualitative_score: 1,
-        created_at: 1,
-        updated_at: 1,
-        duration: 1,
-        model: 1,
-        source: 1,
-        error: 1,
-      })
-      .toArray();
-    docs.sort((a, b) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
-    res.json(docs.map(toPlain));
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const { data, error } = await db
+      .from("analysis_runs")
+      .select("id, symbol, share_name, agent_name, status, total_score, quantitative_score, qualitative_score, created_at, updated_at, duration, model, source, error")
+      .eq("user_id", userId);
+    if (error) throw error;
+    const docs = (data || []).sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
+    res.json(docs);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
 });
 
-// Read-only Voyager pull status / data availability for a stock. Never
-// triggers a pull. Always 200 — degrade per-widget rather than hard-fail.
-app.get("/analysis/data-status", async (req, res) => {
+// Read-only Voyager pull status / data availability for a stock.
+app.get("/analysis/data-status", requireAuth, async (req, res) => {
   const symbol = String(req.query.symbol || "");
   const source = String(req.query.source || "NSE");
   if (!symbol) return res.status(400).json({ error: "symbol is required" });
-  const key = voyagerKey(req);
+
+  const userId = (req as AuthedRequest).user.id;
+  const { voyagerKey: key } = await fetchUserKeys(userId);
   if (!key) {
     return res.json({
       symbol,
       available: false,
       keyed: false,
-      error: "No Voyager API key configured. Add your Voyager API key in Settings.",
+      error: "No Voyager API key configured. A key will be generated automatically on your first login.",
     });
   }
   const cs = toCountrySource(source);
@@ -371,11 +449,11 @@ app.get("/analysis/data-status", async (req, res) => {
 
 app.get("/analysis/:id", requireAuth, async (req, res) => {
   try {
-    const doc = await db()
-      .collection("analysis_runs")
-      .findOne({ ...idFilter(req.params.id), user_id: (req as AuthedRequest).user.id });
-    if (!doc) return res.status(404).json({ error: "Analysis not found" });
-    res.json(toPlain(doc));
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const { data, error } = await db.from("analysis_runs").select("*").eq("id", req.params.id).eq("user_id", userId).single();
+    if (error || !data) return res.status(404).json({ error: "Analysis not found" });
+    res.json(data);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -383,9 +461,10 @@ app.get("/analysis/:id", requireAuth, async (req, res) => {
 
 app.delete("/analysis/:id", requireAuth, async (req, res) => {
   try {
-    await db()
-      .collection("analysis_runs")
-      .deleteOne({ ...idFilter(req.params.id), user_id: (req as AuthedRequest).user.id });
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const { error } = await db.from("analysis_runs").delete().eq("id", req.params.id).eq("user_id", userId);
+    if (error) throw error;
     res.json({ deleted: true });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
@@ -416,14 +495,8 @@ const server = app.listen(config.port, async () => {
   log.info("[api]", `listening on :${config.port}`);
   log.info(
     "[api]",
-    `config: mongo=${config.mongodbUrl} db=${config.mongodbDb} voyager=${config.voyagerUrl} voyagerKey=${config.voyagerApiKey ? "set" : "unset"} rateLimit=${config.rateLimitPerMin}/min logLevel=${process.env.LOG_LEVEL || "info"}`,
+    `config: supabase=${config.supabaseUrl ? "set" : "unset"} voyager=${config.voyagerUrl} rateLimit=${config.rateLimitPerMin}/min logLevel=${process.env.LOG_LEVEL || "info"}`,
   );
-  try {
-    await connectDb();
-    log.info("[api]", "mongodb connected");
-  } catch (e) {
-    log.warn("[api]", "mongodb NOT connected:", (e as Error).message);
-  }
 });
 
 async function shutdown() {

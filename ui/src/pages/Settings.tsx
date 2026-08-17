@@ -5,13 +5,7 @@ import {
 } from "@chakra-ui/react";
 import { MdCheck, MdClose, MdVisibility, MdVisibilityOff, MdWeb, MdSave, MdSatelliteAlt, MdLink } from "react-icons/md";
 import { toaster } from "@/components/ui/toaster";
-import { DataService } from "@/db";
-
-const STORAGE_KEYS = {
-    llm_provider: "llm_provider",
-    llm_api_key: "llm_api_key",
-    voyager_api_key: "voyager_api_key",
-};
+import { DataService, SettingsService } from "@/db";
 
 const providerOptions = createListCollection({
     items: [
@@ -45,92 +39,123 @@ export default function Settings() {
     const [voyagerHealth, setVoyagerHealth] = useState<{ ok?: boolean; base?: string; keyed?: boolean } | null>(null);
 
     useEffect(() => {
-        const provider = localStorage.getItem(STORAGE_KEYS.llm_provider) || "openai";
-        const key = localStorage.getItem(STORAGE_KEYS.llm_api_key) || "";
-        setProvider(provider);
-        setApiKey(key);
-
-        const allKeys: Record<string, string> = {};
-        for (const p of providerOptions.items) {
-            const k = localStorage.getItem(`${p.value}_key`);
-            if (k) allKeys[p.value] = k;
-        }
-
-        const savedTavily = localStorage.getItem("tavily_key") || "";
-        const savedVoyager = localStorage.getItem(STORAGE_KEYS.voyager_api_key) || "";
-        if (savedTavily) allKeys.tavily = savedTavily;
-        if (savedVoyager) allKeys.voyager = savedVoyager;
-        setSavedKeys(allKeys);
-
-        setTavilyKey(savedTavily);
-
-        setVoyagerKey(savedVoyager);
+        SettingsService.getSettings()
+            .then((data) => {
+                if (data.voyager_key) {
+                    setSavedKeys(prev => ({ ...prev, voyager: data.voyager_key! }));
+                    setVoyagerKey(data.voyager_key!);
+                }
+                if (data.llm_keys) {
+                    const allKeys: Record<string, string> = {};
+                    for (const [k, v] of Object.entries(data.llm_keys)) {
+                        allKeys[k] = v;
+                    }
+                    setSavedKeys(prev => ({ ...prev, ...allKeys }));
+                    // Set the first available key as current
+                    const firstKey = Object.entries(data.llm_keys)[0];
+                    if (firstKey) {
+                        setProvider(firstKey[0]);
+                        setApiKey(firstKey[1]);
+                    }
+                }
+            })
+            .catch(() => {});
 
         DataService.getVoyagerHealth()
             .then(setVoyagerHealth)
             .catch(() => setVoyagerHealth(null));
     }, []);
 
-    const handleSave = () => {
+    const handleSaveLLM = async () => {
         if (!apiKey.trim()) {
             toaster.create({ title: "API key is empty", type: "error" });
             return;
         }
-        localStorage.setItem(STORAGE_KEYS.llm_provider, provider);
-        localStorage.setItem(STORAGE_KEYS.llm_api_key, apiKey);
-        localStorage.setItem(`${provider}_key`, apiKey);
-
-        setSavedKeys(prev => ({ ...prev, [provider]: apiKey }));
-        toaster.create({ title: `${providerOptions.items.find(p => p.value === provider)?.label || provider} API key saved`, type: "success" });
+        try {
+            const llmKeys: Record<string, string> = {};
+            for (const [k, v] of Object.entries(savedKeys)) {
+                if (k !== "voyager" && k !== "tavily") llmKeys[k] = v;
+            }
+            llmKeys[provider] = apiKey;
+            await SettingsService.updateSettings({ llm_keys: llmKeys });
+            setSavedKeys(prev => ({ ...prev, [provider]: apiKey }));
+            toaster.create({ title: `${providerOptions.items.find(p => p.value === provider)?.label || provider} API key saved`, type: "success" });
+        } catch (e: any) {
+            toaster.create({ title: `Failed to save: ${e.message}`, type: "error" });
+        }
     };
 
-    const handleSaveTavily = () => {
+    const handleSaveTavily = async () => {
         if (!tavilyKey.trim()) {
             toaster.create({ title: "Tavily API key is empty", type: "error" });
             return;
         }
-        localStorage.setItem("tavily_key", tavilyKey);
-        setSavedKeys(prev => ({ ...prev, tavily: tavilyKey }));
-        toaster.create({ title: "Tavily API key saved", type: "success" });
+        try {
+            const llmKeys: Record<string, string> = {};
+            for (const [k, v] of Object.entries(savedKeys)) {
+                if (k !== "voyager") llmKeys[k] = v;
+            }
+            llmKeys.tavily = tavilyKey;
+            await SettingsService.updateSettings({ llm_keys: llmKeys });
+            setSavedKeys(prev => ({ ...prev, tavily: tavilyKey }));
+            toaster.create({ title: "Tavily API key saved", type: "success" });
+        } catch (e: any) {
+            toaster.create({ title: `Failed to save: ${e.message}`, type: "error" });
+        }
     };
 
-    const handleClearTavily = () => {
-        localStorage.removeItem("tavily_key");
-        setTavilyKey("");
-        const { tavily, ...rest } = savedKeys;
-        setSavedKeys(rest);
-        toaster.create({ title: "Tavily API key removed", type: "info" });
+    const handleClearTavily = async () => {
+        try {
+            const llmKeys: Record<string, string> = {};
+            for (const [k, v] of Object.entries(savedKeys)) {
+                if (k !== "voyager" && k !== "tavily") llmKeys[k] = v;
+            }
+            await SettingsService.updateSettings({ llm_keys: llmKeys });
+            setTavilyKey("");
+            const { tavily: _, ...rest } = savedKeys;
+            setSavedKeys(rest);
+            toaster.create({ title: "Tavily API key removed", type: "info" });
+        } catch (e: any) {
+            toaster.create({ title: `Failed to remove: ${e.message}`, type: "error" });
+        }
     };
 
-    const handleSaveVoyager = () => {
+    const handleSaveVoyager = async () => {
         if (!voyagerKey.trim()) {
             toaster.create({ title: "Voyager API key is empty", type: "error" });
             return;
         }
-        localStorage.setItem(STORAGE_KEYS.voyager_api_key, voyagerKey.trim());
-        setSavedKeys(prev => ({ ...prev, voyager: voyagerKey.trim() }));
-        toaster.create({ title: "Voyager API key saved", type: "success" });
-    };
-
-    const handleClearVoyager = () => {
-        localStorage.removeItem(STORAGE_KEYS.voyager_api_key);
-        setVoyagerKey("");
-        const { voyager, ...rest } = savedKeys;
-        setSavedKeys(rest);
-        toaster.create({ title: "Voyager API key removed", type: "info" });
-    };
-
-    const handleClear = () => {
-        for (const p of providerOptions.items) {
-            localStorage.removeItem(`${p.value}_key`);
+        try {
+            await SettingsService.updateSettings({ voyager_key: voyagerKey.trim() });
+            setSavedKeys(prev => ({ ...prev, voyager: voyagerKey.trim() }));
+            toaster.create({ title: "Voyager API key saved", type: "success" });
+        } catch (e: any) {
+            toaster.create({ title: `Failed to save: ${e.message}`, type: "error" });
         }
-        localStorage.removeItem(STORAGE_KEYS.llm_provider);
-        localStorage.removeItem(STORAGE_KEYS.llm_api_key);
-        localStorage.removeItem(STORAGE_KEYS.voyager_api_key);
-        setVoyagerKey("");
-        setSavedKeys({});
-        setApiKey("");
-        toaster.create({ title: "All API keys cleared", type: "info" });
+    };
+
+    const handleClearVoyager = async () => {
+        try {
+            await SettingsService.updateSettings({ voyager_key: "" });
+            setVoyagerKey("");
+            const { voyager: _, ...rest } = savedKeys;
+            setSavedKeys(rest);
+            toaster.create({ title: "Voyager API key removed", type: "info" });
+        } catch (e: any) {
+            toaster.create({ title: `Failed to remove: ${e.message}`, type: "error" });
+        }
+    };
+
+    const handleClear = async () => {
+        try {
+            await SettingsService.updateSettings({ voyager_key: "", llm_keys: {} });
+            setVoyagerKey("");
+            setSavedKeys({});
+            setApiKey("");
+            toaster.create({ title: "All API keys cleared", type: "info" });
+        } catch (e: any) {
+            toaster.create({ title: `Failed to clear: ${e.message}`, type: "error" });
+        }
     };
 
     const providerLabel = (value: string) =>
@@ -168,7 +193,6 @@ export default function Settings() {
                         flex="1"
                         minW={{ base: "full", xl: "300px" }}
                     >
-                        {/* Section: API Keys header + security note */}
                         <Text
                             fontSize="10.5px"
                             fontWeight={500}
@@ -184,7 +208,7 @@ export default function Settings() {
                             mt={1}
                             mb={5}
                         >
-                            Keys are stored in your browser and sent to the analysis backend as headers. Never stored on any server.
+                            Keys are stored securely on the server, encrypted at rest. Never exposed in the browser.
                         </Text>
 
                         {/* Group: Model Provider */}
@@ -213,7 +237,7 @@ export default function Settings() {
                                     value={[provider]}
                                     onValueChange={(e) => {
                                         setProvider(e.value[0]);
-                                        const existing = localStorage.getItem(`${e.value[0]}_key`) || "";
+                                        const existing = savedKeys[e.value[0]] || "";
                                         setApiKey(existing);
                                     }}
                                 >
@@ -282,7 +306,7 @@ export default function Settings() {
                                     px={4}
                                     _hover={{ opacity: 0.9 }}
                                     borderRadius="3px"
-                                    onClick={handleSave}
+                                    onClick={handleSaveLLM}
                                 >
                                     <MdCheck size={14} style={{ marginRight: 4 }} />
                                     Save
@@ -415,8 +439,8 @@ export default function Settings() {
                             Voyager API
                         </Text>
                         <Text fontSize="12px" color="var(--ink-tertiary)" mb={3}>
-                            Key is stored in your browser and sent to the analysis backend as a header.
-                            Never stored on any server. Use a data:read-scoped key with a low request rate.
+                            Your Voyager key is stored securely on the server. A key is auto-generated on your first login.
+                            Use a data:read-scoped key with a low request rate.
                         </Text>
 
                         <VStack gap={4} align="stretch">
@@ -481,7 +505,7 @@ export default function Settings() {
                                     <MdSave size={14} style={{ marginRight: 4 }} />
                                     Save
                                 </Button>
-                                {voyagerKey && (
+                                {savedKeys.voyager && (
                                     <Button
                                         size="sm"
                                         variant="outline"
@@ -520,31 +544,31 @@ export default function Settings() {
                         >
                             Saved Keys
                         </Text>
-                                <VStack gap={0} align="stretch">
-                                    {Object.entries(savedKeys).map(([prov, key], i, arr) => (
-                                        <HStack
-                                            key={prov}
-                                            justify="space-between"
-                                            py={2.5}
-                                            px={0}
-                                            borderBottom={i < arr.length - 1 ? "1px solid var(--hairline)" : undefined}
-                                        >
-                                            <Text
-                                                fontSize="13px"
-                                                fontWeight={500}
-                                                color="var(--ink-primary)"
-                                            >
-                                                {providerLabel(prov)}
-                                            </Text>
-                                            <Text
-                                                fontSize="13px"
-                                                fontFamily="var(--font-mono)"
-                                                color="var(--ink-tertiary)"
-                                            >
-                                                {maskKey(key)}
-                                            </Text>
-                                        </HStack>
-                                    ))}
+                        <VStack gap={0} align="stretch">
+                            {Object.entries(savedKeys).map(([prov, key], i, arr) => (
+                                <HStack
+                                    key={prov}
+                                    justify="space-between"
+                                    py={2.5}
+                                    px={0}
+                                    borderBottom={i < arr.length - 1 ? "1px solid var(--hairline)" : undefined}
+                                >
+                                    <Text
+                                        fontSize="13px"
+                                        fontWeight={500}
+                                        color="var(--ink-primary)"
+                                    >
+                                        {providerLabel(prov)}
+                                    </Text>
+                                    <Text
+                                        fontSize="13px"
+                                        fontFamily="var(--font-mono)"
+                                        color="var(--ink-tertiary)"
+                                    >
+                                        {maskKey(key)}
+                                    </Text>
+                                </HStack>
+                            ))}
                         </VStack>
                     </Box>
                 )}
