@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { config } from "./config.js";
+import { ensureUserSettings } from "./provision.js";
 
 export interface AuthUser {
   id: string;
@@ -77,6 +78,7 @@ export async function requireAuth(
       return;
     }
     (req as AuthedRequest).user = user;
+    ensureUserSettings(user.id).catch(() => {});
     next();
   } catch {
     res.status(401).json({ error: "Invalid or expired token" });

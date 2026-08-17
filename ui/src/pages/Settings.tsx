@@ -3,9 +3,9 @@ import {
     Flex, Text, Box, Button, Input, VStack, HStack, Field,
     createListCollection, Select, Portal
 } from "@chakra-ui/react";
-import { MdCheck, MdClose, MdVisibility, MdVisibilityOff, MdWeb, MdSave, MdSatelliteAlt, MdLink } from "react-icons/md";
+import { MdCheck, MdClose, MdVisibility, MdVisibilityOff, MdWeb } from "react-icons/md";
 import { toaster } from "@/components/ui/toaster";
-import { DataService, SettingsService } from "@/db";
+import { SettingsService } from "@/db";
 
 const providerOptions = createListCollection({
     items: [
@@ -34,24 +34,15 @@ export default function Settings() {
     const [tavilyKey, setTavilyKey] = useState("");
     const [showTavily, setShowTavily] = useState(false);
 
-    const [voyagerKey, setVoyagerKey] = useState("");
-    const [showVoyagerKey, setShowVoyagerKey] = useState(false);
-    const [voyagerHealth, setVoyagerHealth] = useState<{ ok?: boolean; base?: string; keyed?: boolean } | null>(null);
-
     useEffect(() => {
         SettingsService.getSettings()
             .then((data) => {
-                if (data.voyager_key) {
-                    setSavedKeys(prev => ({ ...prev, voyager: data.voyager_key! }));
-                    setVoyagerKey(data.voyager_key!);
-                }
                 if (data.llm_keys) {
                     const allKeys: Record<string, string> = {};
                     for (const [k, v] of Object.entries(data.llm_keys)) {
                         allKeys[k] = v;
                     }
-                    setSavedKeys(prev => ({ ...prev, ...allKeys }));
-                    // Set the first available key as current
+                    setSavedKeys(allKeys);
                     const firstKey = Object.entries(data.llm_keys)[0];
                     if (firstKey) {
                         setProvider(firstKey[0]);
@@ -60,10 +51,6 @@ export default function Settings() {
                 }
             })
             .catch(() => {});
-
-        DataService.getVoyagerHealth()
-            .then(setVoyagerHealth)
-            .catch(() => setVoyagerHealth(null));
     }, []);
 
     const handleSaveLLM = async () => {
@@ -120,36 +107,9 @@ export default function Settings() {
         }
     };
 
-    const handleSaveVoyager = async () => {
-        if (!voyagerKey.trim()) {
-            toaster.create({ title: "Voyager API key is empty", type: "error" });
-            return;
-        }
-        try {
-            await SettingsService.updateSettings({ voyager_key: voyagerKey.trim() });
-            setSavedKeys(prev => ({ ...prev, voyager: voyagerKey.trim() }));
-            toaster.create({ title: "Voyager API key saved", type: "success" });
-        } catch (e: any) {
-            toaster.create({ title: `Failed to save: ${e.message}`, type: "error" });
-        }
-    };
-
-    const handleClearVoyager = async () => {
-        try {
-            await SettingsService.updateSettings({ voyager_key: "" });
-            setVoyagerKey("");
-            const { voyager: _, ...rest } = savedKeys;
-            setSavedKeys(rest);
-            toaster.create({ title: "Voyager API key removed", type: "info" });
-        } catch (e: any) {
-            toaster.create({ title: `Failed to remove: ${e.message}`, type: "error" });
-        }
-    };
-
     const handleClear = async () => {
         try {
-            await SettingsService.updateSettings({ voyager_key: "", llm_keys: {} });
-            setVoyagerKey("");
+            await SettingsService.updateSettings({ llm_keys: {} });
             setSavedKeys({});
             setApiKey("");
             toaster.create({ title: "All API keys cleared", type: "info" });
@@ -159,9 +119,7 @@ export default function Settings() {
     };
 
     const providerLabel = (value: string) =>
-        value === "voyager"
-            ? "Voyager"
-            : value === "tavily"
+        value === "tavily"
               ? "Tavily"
               : providerOptions.items.find(p => p.value === value)?.label || value;
 
@@ -419,111 +377,6 @@ export default function Settings() {
                         </VStack>
                     </Box>
 
-                    {/* Panel: Voyager API */}
-                    <Box
-                        bg="var(--surface-panel)"
-                        border="1px solid var(--hairline)"
-                        borderRadius="2px"
-                        p={6}
-                        flex="1"
-                        minW={{ base: "full", xl: "280px" }}
-                    >
-                        <Text
-                            fontSize="10.5px"
-                            fontWeight={500}
-                            color="var(--ink-tertiary)"
-                            textTransform="uppercase"
-                            letterSpacing="0.06em"
-                            mb={1}
-                        >
-                            Voyager API
-                        </Text>
-                        <Text fontSize="12px" color="var(--ink-tertiary)" mb={3}>
-                            Your Voyager key is stored securely on the server. A key is auto-generated on your first login.
-                            Use a data:read-scoped key with a low request rate.
-                        </Text>
-
-                        <VStack gap={4} align="stretch">
-                            {voyagerHealth?.base && (
-                                <HStack gap={2} fontSize="12px" color="var(--ink-tertiary)">
-                                    <MdLink size={14} color="var(--ink-tertiary)" />
-                                    <Text fontFamily="var(--font-mono)" fontSize="12px">
-                                        {voyagerHealth.base}
-                                    </Text>
-                                    {voyagerHealth.keyed === false && (
-                                        <Text color="var(--signal-caution)">(no key configured)</Text>
-                                    )}
-                                </HStack>
-                            )}
-                            <Field.Root>
-                                <Field.Label
-                                    fontSize="13px"
-                                    fontWeight={500}
-                                    color="var(--ink-primary)"
-                                >
-                                    <HStack gap={1}>
-                                        <MdSatelliteAlt size={14} color="var(--ink-tertiary)" />
-                                        <Text>API Key</Text>
-                                    </HStack>
-                                </Field.Label>
-                                <HStack gap={2}>
-                                    <Input
-                                        type={showVoyagerKey ? "text" : "password"}
-                                        placeholder="vgr_..."
-                                        value={voyagerKey}
-                                        onChange={(e) => setVoyagerKey(e.target.value)}
-                                        flex={1}
-                                        fontFamily="var(--font-mono)"
-                                        fontSize="13px"
-                                        borderColor="var(--hairline)"
-                                        borderRadius="2px"
-                                        _focus={{ borderColor: "var(--accent-primary)" }}
-                                    />
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        color="var(--ink-tertiary)"
-                                        _hover={{ color: "var(--ink-primary)" }}
-                                        onClick={() => setShowVoyagerKey(!showVoyagerKey)}
-                                    >
-                                        {showVoyagerKey ? <MdVisibilityOff size={18} /> : <MdVisibility size={18} />}
-                                    </Button>
-                                </HStack>
-                            </Field.Root>
-                            <HStack gap={2}>
-                                <Button
-                                    size="sm"
-                                    bg="var(--accent-primary)"
-                                    color="#fff"
-                                    fontWeight={500}
-                                    fontSize="13px"
-                                    px={4}
-                                    _hover={{ opacity: 0.9 }}
-                                    borderRadius="3px"
-                                    onClick={handleSaveVoyager}
-                                >
-                                    <MdSave size={14} style={{ marginRight: 4 }} />
-                                    Save
-                                </Button>
-                                {savedKeys.voyager && (
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        color="var(--signal-negative)"
-                                        borderColor="var(--signal-negative)"
-                                        _hover={{ bg: "var(--signal-negative)", color: "#fff" }}
-                                        fontWeight={500}
-                                        fontSize="13px"
-                                        borderRadius="3px"
-                                        onClick={handleClearVoyager}
-                                    >
-                                        <MdClose size={14} style={{ marginRight: 4 }} />
-                                        Remove
-                                    </Button>
-                                )}
-                            </HStack>
-                        </VStack>
-                    </Box>
                 </Flex>
 
                 {/* Saved Keys */}
