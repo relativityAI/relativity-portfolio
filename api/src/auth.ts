@@ -79,7 +79,9 @@ export async function requireAuth(
       return;
     }
     (req as AuthedRequest).user = user;
-    ensureUserSettings(user.id).catch((e) => log.error("[auth]", `ensureUserSettings failed for ${user.id}: ${e.message}`));
+    ensureUserSettings(user.id).catch((e) =>
+      log.error("[auth]", `ensureUserSettings failed for ${user.id}: ${e.message}`),
+    );
     next();
   } catch {
     res.status(401).json({ error: "Invalid or expired token" });
