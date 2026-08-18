@@ -279,15 +279,20 @@ function DataAvailabilityTag({ loading, data, symbol }: { loading: boolean; data
     if (!data) {
         label = "availability unknown";
         detail = "Could not determine data availability.";
-    } else if (data.error) {
-        label = "data not available";
-        detail = String(data.error);
     } else if (data.pull_supported === false) {
         label = "pull not available";
         detail = "Automated data pulling is only supported for NSE stocks.";
-    } else if (!data.available) {
+    } else if (!data.available && !data.error) {
         label = "will pull data";
         detail = "No data exists yet. Data will be pulled automatically when you start the analysis.";
+        color = "var(--accent-secondary)";
+        textColor = "#fff";
+    } else if (data.error && !data.keyed) {
+        label = "data not available";
+        detail = String(data.error);
+    } else if (data.error && data.keyed) {
+        label = "will pull data";
+        detail = String(data.error);
         color = "var(--accent-secondary)";
         textColor = "#fff";
     } else if (data.is_fresh) {
