@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Flex, Text, IconButton, Drawer, Separator, Menu } from "@chakra-ui/react"
+import { Flex, Text, IconButton, Drawer, Separator, Menu, Popover } from "@chakra-ui/react"
 import { Link, useLocation } from "react-router-dom";
 import { runHealthCheck } from "../utils"
 import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout } from "react-icons/md";
@@ -7,7 +7,6 @@ import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX } from "react-icons/lu"
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { useAuth } from "@/auth/useAuth";
 
-const VOYAGER_DOCS_URL = import.meta.env.VITE_VOYAGER_DOCS_URL || "https://voyager-1hpq.onrender.com";
 const HEALTH_CHECK_INTERVAL_MS = 15000;
 
 export default function NavBar() {
@@ -72,19 +71,6 @@ export default function NavBar() {
     const apiOk = !!systemStatus.api;
     const dbOk = !!systemStatus.db;
     const voyagerOk = !!systemStatus.voyagerApi;
-    const voyagerKeyed = !!systemStatus.voyagerKeyed;
-
-    const voyagerState = !voyagerOk
-        ? { color: "red", labelColor: "red.500", icon: <MdError size={12} color="red" />, title: "Voyager unreachable" }
-        : voyagerKeyed
-            ? { color: "green", labelColor: "fg.subtle", icon: <MdCheckCircle size={12} color="green" />, title: "Voyager healthy · API key added" }
-            : { color: "blue", labelColor: "blue.500", icon: <MdCheckCircle size={12} color="blue" />, title: "Voyager healthy · no API key added" };
-
-    const statusRows = [
-        { key: "api", label: "API", icon: LuWebhook, ok: apiOk, open: () => window.open(endpoints.api, "_blank") },
-        { key: "db", label: "DB", icon: LuDatabase, ok: dbOk, open: () => window.open(endpoints.db, "_blank") },
-        { key: "voyager", label: "VOYAGER", icon: LuSatellite, ok: voyagerOk, stateIcon: voyagerState.icon, stateTitle: voyagerState.title, stateColor: voyagerState.labelColor, open: () => window.open(VOYAGER_DOCS_URL + "/docs", "_blank") },
-    ]
 
     return (
         <Flex 
@@ -128,54 +114,89 @@ export default function NavBar() {
                 </Flex>
             </Flex>
 
-            <Flex justify={"flex-end"} gap={{ base: 2, md: 6 }} align="center">
+            <Flex justify={"flex-end"} gap={{ base: 2, md: 4 }} align="center">
                 <IconButton
                     aria-label="Open navigation menu"
                     variant="ghost"
+                    size="sm"
                     display={{ base: "flex", md: "none" }}
-                    minW="44px"
-                    minH="44px"
-                    p={0}
                     color="fg.muted"
                     _hover={{ color: "fg", bg: "bg.muted" }}
                     onClick={() => setNavOpen(true)}
                 >
-                    <LuMenu size={20} />
+                    <LuMenu size={16} />
                 </IconButton>
                 <ColorModeButton />
+                <Popover.Root>
+                    <Popover.Trigger asChild>
+                        <IconButton
+                            aria-label="System status"
+                            variant="ghost"
+                            size="sm"
+                            color={apiOk && dbOk ? "fg.muted" : "red.500"}
+                            _hover={{ color: "fg" }}
+                        >
+                            <LuSatellite size={16} />
+                        </IconButton>
+                    </Popover.Trigger>
+                    <Popover.Positioner>
+                        <Popover.Content width="220px">
+                            <Popover.Arrow>
+                                <Popover.ArrowTip />
+                            </Popover.Arrow>
+                            <Popover.Header fontWeight="semibold" fontSize="xs">
+                                System Status
+                            </Popover.Header>
+                            <Popover.Body>
+                                <Flex direction="column" gap={2}>
+                                    <Flex justify="space-between" align="center">
+                                        <Flex gap={1.5} align="center">
+                                            <LuWebhook size={12} color="var(--chakra-colors-fg-muted)" />
+                                            <Text fontSize="xs" fontWeight="500">API</Text>
+                                        </Flex>
+                                        {apiOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                                    </Flex>
+                                    <Flex justify="space-between" align="center">
+                                        <Flex gap={1.5} align="center">
+                                            <LuDatabase size={12} color="var(--chakra-colors-fg-muted)" />
+                                            <Text fontSize="xs" fontWeight="500">DB</Text>
+                                        </Flex>
+                                        {dbOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                                    </Flex>
+                                    <Flex justify="space-between" align="center">
+                                        <Flex gap={1.5} align="center">
+                                            <LuSatellite size={12} color="var(--chakra-colors-fg-muted)" />
+                                            <Text fontSize="xs" fontWeight="500">
+                                                Data Provider{" "}
+                                                <Text as="span" color="fg.muted" fontWeight="400">(Voyager)</Text>
+                                            </Text>
+                                        </Flex>
+                                        {voyagerOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                                    </Flex>
+                                </Flex>
+                            </Popover.Body>
+                        </Popover.Content>
+                    </Popover.Positioner>
+                </Popover.Root>
                 <Menu.Root>
                     <Menu.Trigger asChild>
                         <Flex
                             align="center"
-                            gap={2}
-                            px={2}
-                            py={1}
+                            justify="center"
+                            minW="28px"
+                            minH="28px"
                             borderRadius="full"
-                            bg="blue.muted"
+                            bg="blue.solid"
                             cursor="pointer"
-                            _hover={{ bg: "blue.subtle" }}
+                            _hover={{ opacity: 0.85 }}
                             title={email || "Account"}
                         >
-                            <Flex
-                                align="center"
-                                justify="center"
-                                minW="24px"
-                                minH="24px"
-                                borderRadius="full"
-                                bg="blue.solid"
-                                color="white"
+                            <Text
                                 fontSize="xs"
                                 fontWeight="bold"
+                                color="white"
                             >
                                 {initials}
-                            </Flex>
-                            <Text
-                                fontSize="sm"
-                                fontWeight="semibold"
-                                color="blue.300"
-                                display={{ base: "none", md: "block" }}
-                            >
-                                {displayName}
                             </Text>
                         </Flex>
                     </Menu.Trigger>
@@ -202,53 +223,6 @@ export default function NavBar() {
                         </Menu.Content>
                     </Menu.Positioner>
                 </Menu.Root>
-                <Flex gap={4} align={"center"} display={{ base: "none", md: "flex" }}>
-                    <Flex gap={1} align={"center"}>
-                        <LuWebhook size={12} color="var(--chakra-colors-fg-muted)" />
-                        <Text 
-                            textStyle={"xs"} 
-                            fontWeight={"bold"} 
-                            color={systemStatus.api ? "fg.subtle" : "red.500"} 
-                            cursor={"pointer"}
-                            _hover={{ color: "blue.500" }}
-                            onClick={() => window.open(endpoints.api, "_blank")}
-                        >
-                            API
-                        </Text>
-                        {systemStatus.api ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
-                    </Flex>
-
-                    <Flex gap={1} align={"center"}>
-                        <LuDatabase size={12} color="var(--chakra-colors-fg-muted)" />
-                        <Text 
-                            textStyle={"xs"} 
-                            fontWeight={"bold"} 
-                            color={systemStatus.db ? "fg.subtle" : "red.500"} 
-                            cursor={"pointer"}
-                            _hover={{ color: "blue.500" }}
-                            onClick={() => window.open(endpoints.db, "_blank")}
-                        >
-                            DB
-                        </Text>
-                        {systemStatus.db ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
-                    </Flex>
-
-                    <Flex gap={1} align={"center"}>
-                        <LuSatellite size={12} color="var(--chakra-colors-fg-muted)" />
-                        <Text 
-                            textStyle={"xs"} 
-                            fontWeight={"bold"} 
-                            color={voyagerState.labelColor} 
-                            cursor={"pointer"}
-                            _hover={{ color: "blue.500" }}
-                            onClick={() => window.open(VOYAGER_DOCS_URL + "/docs", "_blank")}
-                            title={voyagerState.title}
-                        >
-                            VOYAGER
-                        </Text>
-                        {voyagerState.icon}
-                    </Flex>
-                </Flex>
             </Flex>
 
             <Drawer.Root
@@ -322,31 +296,23 @@ export default function NavBar() {
                                 <Separator borderColor="var(--hairline)" />
                             </Flex>
 
-                            {statusRows.map((row) => (
-                                <Flex
-                                    key={row.key}
-                                    gap={2.5}
-                                    align="center"
-                                    minH="48px"
-                                    px={5}
-                                    borderBottom="1px solid var(--hairline)"
-                                    cursor="pointer"
-                                    onClick={row.open}
-                                    title={row.stateTitle}
-                                >
-                                    <row.icon size={14} color="var(--chakra-colors-fg-muted)" />
-                                    <Text
-                                        textStyle="xs"
-                                        fontWeight="bold"
-                                        fontFamily="var(--font-mono)"
-                                        letterSpacing="0.06em"
-                                        color={row.stateColor ?? (row.ok ? "var(--ink-secondary)" : "red.500")}
-                                    >
-                                        {row.label}
-                                    </Text>
-                                    {row.stateIcon ?? (row.ok ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />)}
-                                </Flex>
-                            ))}
+                            <Flex gap={2.5} align="center" minH="48px" px={5} borderBottom="1px solid var(--hairline)">
+                                <LuWebhook size={14} color="var(--chakra-colors-fg-muted)" />
+                                <Text textStyle="xs" fontWeight="bold" fontFamily="var(--font-mono)" letterSpacing="0.06em" color="var(--ink-secondary)">API</Text>
+                                {apiOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                            </Flex>
+                            <Flex gap={2.5} align="center" minH="48px" px={5} borderBottom="1px solid var(--hairline)">
+                                <LuDatabase size={14} color="var(--chakra-colors-fg-muted)" />
+                                <Text textStyle="xs" fontWeight="bold" fontFamily="var(--font-mono)" letterSpacing="0.06em" color="var(--ink-secondary)">DB</Text>
+                                {dbOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                            </Flex>
+                            <Flex gap={2.5} align="center" minH="48px" px={5} borderBottom="1px solid var(--hairline)">
+                                <LuSatellite size={14} color="var(--chakra-colors-fg-muted)" />
+                                <Text textStyle="xs" fontWeight="bold" fontFamily="var(--font-mono)" letterSpacing="0.06em" color="var(--ink-secondary)">
+                                    Data Provider <Text as="span" color="var(--ink-tertiary)" fontWeight="400">(Voyager)</Text>
+                                </Text>
+                                {voyagerOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                            </Flex>
                         </Drawer.Body>
                     </Drawer.Content>
                 </Drawer.Positioner>

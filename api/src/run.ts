@@ -6,6 +6,7 @@ import { getModelIds } from "./models.js";
 import { VoyagerClient, toCountrySource, type PullStatus } from "./voyager.js";
 import { runQuantitative } from "./quant.js";
 import { runQualitativeAll } from "./agent.js";
+import { ensureFreshData } from "./freshness.js";
 import type { LlmKeys } from "./agent.js";
 import { log } from "./logger.js";
 
@@ -39,6 +40,7 @@ export interface RunStep {
 const STEP_DEFS: { key: string; label: string }[] = [
   { key: "agent", label: "Load agent configuration" },
   { key: "data", label: "Check data availability" },
+  { key: "pull", label: "Ensure fresh data" },
   { key: "quantitative", label: "Quantitative scoring" },
   { key: "qualitative", label: "Qualitative scoring" },
   { key: "finalize", label: "Finalize report" },
@@ -215,6 +217,28 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
       await write(() => updateRun(runId, { data_availability: { error: detail } }));
       await end("data", "completed", detail);
       log.warn(runTag, `data availability check failed (continuing): ${detail}`);
+    }
+
+    // ---- pull (ensure fresh data) ----
+    await begin("pull");
+    try {
+      const pullResult = await ensureFreshData(voyager, req.symbol, cs.country, cs.source, req.userId);
+      if (pullResult.pulled) {
+        await end("pull", "completed", `Data pulled fresh (${pullResult.duration_ms}ms)`);
+        log.info(runTag, `pull completed duration=${pullResult.duration_ms}ms`);
+        // Re-fetch data availability after pull
+        try {
+          dataAvailability = await voyager.getPullStatus(req.symbol, cs.country, cs.source);
+          await write(() => updateRun(runId, { data_availability: dataAvailability }));
+        } catch { /* best effort */ }
+      } else {
+        await end("pull", "completed", pullResult.reason || "Data already available");
+        log.info(runTag, `pull skipped: ${pullResult.reason}`);
+      }
+    } catch (e: any) {
+      const detail = e?.message || String(e);
+      await end("pull", "failed", `Pull failed: ${detail}. Proceeding with existing data.`);
+      log.warn(runTag, `pull step failed (continuing): ${detail}`);
     }
 
     // ---- quantitative ----

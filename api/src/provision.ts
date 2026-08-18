@@ -23,7 +23,7 @@ export async function provisionVoyagerKey(userId: string): Promise<string | null
       label,
       name: `User ${userId}`,
       owner: userId,
-      scopes: ["data:read"],
+      scopes: ["data:read", "data:write"],
       rpm: 60,
       expires_in_days: 30,
     });
@@ -78,7 +78,7 @@ export async function ensureUserSettings(userId: string): Promise<void> {
 
   // Check if row exists and already has a key
   const { data: rowData, error: rowError } = await db.from("user_settings")
-    .select("user_id, voyager_key_encrypted")
+    .select("user_id, voyager_key_encrypted, key_version")
     .eq("user_id", userId)
     .single();
 
@@ -86,9 +86,26 @@ export async function ensureUserSettings(userId: string): Promise<void> {
     log.error("[provision]", `DB error checking row: ${rowError.message}`);
   }
 
-  // If row exists AND has a key value, we're done
-  if (rowData && rowData.voyager_key_encrypted) {
-    log.info("[provision]", `Key already exists for ${userId} (skip)`);
+  // If row exists AND has a key AND key_version >= 2 (has data:write scope), we're done
+  if (rowData && rowData.voyager_key_encrypted && (rowData.key_version || 1) >= 2) {
+    log.info("[provision]", `Key already exists for ${userId} with write scope (skip)`);
+    return;
+  }
+
+  // If key exists but is old (key_version < 2, only data:read scope), re-provision
+  if (rowData && rowData.voyager_key_encrypted && (rowData.key_version || 1) < 2) {
+    log.info("[provision]", `Key exists but lacks data:write scope, re-provisioning for ${userId}`);
+    const newKey = await provisionVoyagerKey(userId);
+    if (newKey) {
+      try {
+        await db.from("user_settings")
+          .update({ voyager_key_encrypted: encrypt(newKey), key_version: 2, updated_at: new Date().toISOString() })
+          .eq("user_id", userId);
+        log.info("[provision]", `Re-provisioned Voyager key with write scope for ${userId}`);
+      } catch (e: any) {
+        log.error("[provision]", `Failed to save re-provisioned key: ${e.message}`);
+      }
+    }
     return;
   }
 
