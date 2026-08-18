@@ -43,6 +43,7 @@ export default function Settings() {
                         allKeys[k] = v;
                     }
                     setSavedKeys(allKeys);
+                    // Set the first available key as current
                     const firstKey = Object.entries(data.llm_keys)[0];
                     if (firstKey) {
                         setProvider(firstKey[0]);
@@ -61,7 +62,7 @@ export default function Settings() {
         try {
             const llmKeys: Record<string, string> = {};
             for (const [k, v] of Object.entries(savedKeys)) {
-                if (k !== "voyager" && k !== "tavily") llmKeys[k] = v;
+                if (k !== "tavily") llmKeys[k] = v;
             }
             llmKeys[provider] = apiKey;
             await SettingsService.updateSettings({ llm_keys: llmKeys });
@@ -80,7 +81,7 @@ export default function Settings() {
         try {
             const llmKeys: Record<string, string> = {};
             for (const [k, v] of Object.entries(savedKeys)) {
-                if (k !== "voyager") llmKeys[k] = v;
+                if (k !== "voyager" && k !== "tavily") llmKeys[k] = v;
             }
             llmKeys.tavily = tavilyKey;
             await SettingsService.updateSettings({ llm_keys: llmKeys });
@@ -88,22 +89,6 @@ export default function Settings() {
             toaster.create({ title: "Tavily API key saved", type: "success" });
         } catch (e: any) {
             toaster.create({ title: `Failed to save: ${e.message}`, type: "error" });
-        }
-    };
-
-    const handleClearTavily = async () => {
-        try {
-            const llmKeys: Record<string, string> = {};
-            for (const [k, v] of Object.entries(savedKeys)) {
-                if (k !== "voyager" && k !== "tavily") llmKeys[k] = v;
-            }
-            await SettingsService.updateSettings({ llm_keys: llmKeys });
-            setTavilyKey("");
-            const { tavily: _, ...rest } = savedKeys;
-            setSavedKeys(rest);
-            toaster.create({ title: "Tavily API key removed", type: "info" });
-        } catch (e: any) {
-            toaster.create({ title: `Failed to remove: ${e.message}`, type: "error" });
         }
     };
 
@@ -157,6 +142,7 @@ export default function Settings() {
                             color="var(--ink-tertiary)"
                             textTransform="uppercase"
                             letterSpacing="0.06em"
+                            mb={3}
                         >
                             API Keys
                         </Text>
@@ -376,55 +362,7 @@ export default function Settings() {
                             </HStack>
                         </VStack>
                     </Box>
-
                 </Flex>
-
-                {/* Saved Keys */}
-                {Object.keys(savedKeys).length > 0 && (
-                    <Box
-                        bg="var(--surface-panel)"
-                        border="1px solid var(--hairline)"
-                        borderRadius="2px"
-                        p={6}
-                    >
-                        <Text
-                            fontSize="10.5px"
-                            fontWeight={500}
-                            color="var(--ink-tertiary)"
-                            textTransform="uppercase"
-                            letterSpacing="0.06em"
-                            mb={3}
-                        >
-                            Saved Keys
-                        </Text>
-                        <VStack gap={0} align="stretch">
-                            {Object.entries(savedKeys).map(([prov, key], i, arr) => (
-                                <HStack
-                                    key={prov}
-                                    justify="space-between"
-                                    py={2.5}
-                                    px={0}
-                                    borderBottom={i < arr.length - 1 ? "1px solid var(--hairline)" : undefined}
-                                >
-                                    <Text
-                                        fontSize="13px"
-                                        fontWeight={500}
-                                        color="var(--ink-primary)"
-                                    >
-                                        {providerLabel(prov)}
-                                    </Text>
-                                    <Text
-                                        fontSize="13px"
-                                        fontFamily="var(--font-mono)"
-                                        color="var(--ink-tertiary)"
-                                    >
-                                        {maskKey(key)}
-                                    </Text>
-                                </HStack>
-                            ))}
-                        </VStack>
-                    </Box>
-                )}
             </Flex>
         </Box>
     );
