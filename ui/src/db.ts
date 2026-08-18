@@ -127,5 +127,10 @@ export const SettingsService = {
     async updateSettings(payload: { voyager_key?: string; llm_keys?: Record<string, string> }) {
         const response = await axios.put(`${API_BASE}/user/settings`, payload);
         return response.data;
+    },
+
+    async deleteLLMKey(keyName: string) {
+        const response = await axios.delete(`${API_BASE}/user/settings/llm-key/${encodeURIComponent(keyName)}`);
+        return response.data;
     }
 };

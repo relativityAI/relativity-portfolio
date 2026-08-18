@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import {
-    Flex, Text, Box, Button, Input, VStack, HStack, Field,
+    Flex, Text, Box, Button, Input, VStack, HStack, Field, Spinner,
     createListCollection, Select, Portal
 } from "@chakra-ui/react";
-import { MdCheck, MdClose, MdVisibility, MdVisibilityOff, MdWeb } from "react-icons/md";
+import { MdCheck, MdClose, MdVisibility, MdVisibilityOff, MdWeb, MdDelete } from "react-icons/md";
 import { toaster } from "@/components/ui/toaster";
 import { SettingsService } from "@/db";
 
@@ -30,6 +30,8 @@ export default function Settings() {
     const [apiKey, setApiKey] = useState("");
     const [savedKeys, setSavedKeys] = useState<Record<string, string>>({});
     const [showKey, setShowKey] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [deleting, setDeleting] = useState<string | null>(null);
 
     const [tavilyKey, setTavilyKey] = useState("");
     const [showTavily, setShowTavily] = useState(false);
@@ -59,6 +61,7 @@ export default function Settings() {
             toaster.create({ title: "API key is empty", type: "error" });
             return;
         }
+        setSaving(true);
         try {
             const llmKeys: Record<string, string> = {};
             for (const [k, v] of Object.entries(savedKeys)) {
@@ -70,6 +73,8 @@ export default function Settings() {
             toaster.create({ title: `${providerOptions.items.find(p => p.value === provider)?.label || provider} API key saved`, type: "success" });
         } catch (e: any) {
             toaster.create({ title: `Failed to save: ${e.message}`, type: "error" });
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -78,6 +83,7 @@ export default function Settings() {
             toaster.create({ title: "Tavily API key is empty", type: "error" });
             return;
         }
+        setSaving(true);
         try {
             const llmKeys: Record<string, string> = {};
             for (const [k, v] of Object.entries(savedKeys)) {
@@ -89,10 +95,13 @@ export default function Settings() {
             toaster.create({ title: "Tavily API key saved", type: "success" });
         } catch (e: any) {
             toaster.create({ title: `Failed to save: ${e.message}`, type: "error" });
+        } finally {
+            setSaving(false);
         }
     };
 
     const handleClear = async () => {
+        setSaving(true);
         try {
             await SettingsService.updateSettings({ llm_keys: {} });
             setSavedKeys({});
@@ -100,6 +109,28 @@ export default function Settings() {
             toaster.create({ title: "All API keys cleared", type: "info" });
         } catch (e: any) {
             toaster.create({ title: `Failed to clear: ${e.message}`, type: "error" });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDeleteKey = async (keyName: string) => {
+        setDeleting(keyName);
+        try {
+            await SettingsService.deleteLLMKey(keyName);
+            setSavedKeys(prev => {
+                const next = { ...prev };
+                delete next[keyName];
+                return next;
+            });
+            if (provider === keyName) {
+                setApiKey("");
+            }
+            toaster.create({ title: `${providerLabel(keyName)} key deleted`, type: "info" });
+        } catch (e: any) {
+            toaster.create({ title: `Failed to delete: ${e.message}`, type: "error" });
+        } finally {
+            setDeleting(null);
         }
     };
 
@@ -107,6 +138,8 @@ export default function Settings() {
         value === "tavily"
               ? "Tavily"
               : providerOptions.items.find(p => p.value === value)?.label || value;
+
+    const hasSavedKeys = Object.keys(savedKeys).length > 0;
 
     return (
         <Box bg="var(--surface-canvas)" minH="100vh">
@@ -251,9 +284,9 @@ export default function Settings() {
                                     _hover={{ opacity: 0.9 }}
                                     borderRadius="3px"
                                     onClick={handleSaveLLM}
+                                    disabled={saving}
                                 >
-                                    <MdCheck size={14} style={{ marginRight: 4 }} />
-                                    Save
+                                    {saving ? <Spinner size="sm" borderWidth="2px" /> : <><MdCheck size={14} style={{ marginRight: 4 }} />Save</>}
                                 </Button>
                                 <Button
                                     size="sm"
@@ -265,6 +298,7 @@ export default function Settings() {
                                     fontSize="13px"
                                     borderRadius="3px"
                                     onClick={handleClear}
+                                    disabled={saving}
                                 >
                                     <MdClose size={14} style={{ marginRight: 4 }} />
                                     Clear All
@@ -339,9 +373,9 @@ export default function Settings() {
                                     _hover={{ opacity: 0.9 }}
                                     borderRadius="3px"
                                     onClick={handleSaveTavily}
+                                    disabled={saving}
                                 >
-                                    <MdCheck size={14} style={{ marginRight: 4 }} />
-                                    Save
+                                    {saving ? <Spinner size="sm" borderWidth="2px" /> : <><MdCheck size={14} style={{ marginRight: 4 }} />Save</>}
                                 </Button>
                                 {savedKeys.tavily && (
                                     <Button
@@ -353,16 +387,67 @@ export default function Settings() {
                                         fontWeight={500}
                                         fontSize="13px"
                                         borderRadius="3px"
-                                        onClick={handleClearTavily}
+                                        onClick={() => handleDeleteKey("tavily")}
+                                        disabled={deleting === "tavily"}
                                     >
-                                        <MdClose size={14} style={{ marginRight: 4 }} />
-                                        Remove
+                                        {deleting === "tavily" ? <Spinner size="sm" borderWidth="2px" /> : <><MdClose size={14} style={{ marginRight: 4 }} />Remove</>}
                                     </Button>
                                 )}
                             </HStack>
                         </VStack>
                     </Box>
                 </Flex>
+
+                {/* Saved Keys */}
+                {hasSavedKeys && (
+                    <Box
+                        bg="var(--surface-panel)"
+                        border="1px solid var(--hairline)"
+                        borderRadius="2px"
+                        p={6}
+                    >
+                        <Text
+                            fontSize="10.5px"
+                            fontWeight={500}
+                            color="var(--ink-tertiary)"
+                            textTransform="uppercase"
+                            letterSpacing="0.06em"
+                            mb={3}
+                        >
+                            Saved Keys
+                        </Text>
+                        <VStack gap={0} align="stretch">
+                            {Object.entries(savedKeys).map(([prov, key], i, arr) => (
+                                <HStack
+                                    key={prov}
+                                    justify="space-between"
+                                    py={2.5}
+                                    px={0}
+                                    borderBottom={i < arr.length - 1 ? "1px solid var(--hairline)" : undefined}
+                                >
+                                    <HStack gap={3}>
+                                        <Text fontSize="13px" fontWeight={500} color="var(--ink-primary)">
+                                            {providerLabel(prov)}
+                                        </Text>
+                                        <Text fontSize="13px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
+                                            {key}
+                                        </Text>
+                                    </HStack>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        color="var(--ink-tertiary)"
+                                        _hover={{ color: "var(--signal-negative)" }}
+                                        onClick={() => handleDeleteKey(prov)}
+                                        disabled={deleting === prov}
+                                    >
+                                        {deleting === prov ? <Spinner size="sm" borderWidth="2px" /> : <MdDelete size={14} />}
+                                    </Button>
+                                </HStack>
+                            ))}
+                        </VStack>
+                    </Box>
+                )}
             </Flex>
         </Box>
     );

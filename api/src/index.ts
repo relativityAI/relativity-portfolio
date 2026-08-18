@@ -10,6 +10,7 @@ import { getSources, searchStocks } from "./discovery.js";
 import { getMetricsCatalog } from "./metrics.js";
 import { createRun, RunRequest } from "./run.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
+import { isDataFresh, FRESHNESS_FUNDAMENTAL_MS } from "./freshness.js";
 import { requireAuth, type AuthedRequest } from "./auth.js";
 import { log, paint } from "./logger.js";
 
@@ -213,6 +214,27 @@ app.put("/user/settings", requireAuth, async (req, res) => {
   }
 });
 
+app.delete("/user/settings/llm-key/:keyName", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const keyName = String(req.params.keyName);
+    const db = getDb();
+
+    const { data } = await db.from("user_settings").select("llm_keys_encrypted").eq("user_id", userId).single();
+    if (!data || !data.llm_keys_encrypted || !data.llm_keys_encrypted[keyName]) {
+      return res.status(404).json({ error: "Key not found" });
+    }
+
+    const updated = { ...data.llm_keys_encrypted } as Record<string, string>;
+    delete updated[keyName];
+
+    await db.from("user_settings").update({ llm_keys_encrypted: updated, updated_at: new Date().toISOString() }).eq("user_id", userId);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
 // ---- agents (authenticated, scoped to the signed-in user) ----
 app.get("/agents", requireAuth, async (req, res) => {
   try {
@@ -376,7 +398,15 @@ app.get("/analysis/data-status", requireAuth, async (req, res) => {
   const voyager = new VoyagerClient(config.voyagerUrl, key, config.voyagerRpm);
   try {
     const data = await voyager.getPullStatus(symbol, cs.country, cs.source);
-    res.json({ ...data, symbol, keyed: true });
+    const isFresh = await isDataFresh(userId, symbol, cs.source);
+    res.json({
+      ...data,
+      symbol,
+      keyed: true,
+      is_fresh: isFresh,
+      freshness_threshold_ms: FRESHNESS_FUNDAMENTAL_MS,
+      pull_supported: cs.source === "nse",
+    });
   } catch (e: any) {
     const status = e?.status;
     const message =
@@ -387,7 +417,14 @@ app.get("/analysis/data-status", requireAuth, async (req, res) => {
           : status === 429
             ? "Rate limit exceeded for the Voyager API key."
             : `Voyager data check failed: ${e?.message || String(e)}`;
-    res.status(200).json({ symbol, available: false, keyed: true, error: message });
+    res.status(200).json({
+      symbol,
+      available: false,
+      keyed: true,
+      error: message,
+      is_fresh: false,
+      pull_supported: cs.source === "nse",
+    });
   }
 });
 

@@ -145,6 +145,24 @@ export class VoyagerClient {
     const data = await this.get("/pull", { symbol, country, source });
     return (data ?? {}) as PullStatus;
   }
+
+  // Trigger an async data pull. Returns a job_id for polling.
+  async triggerPull(
+    symbol: string,
+    country: string,
+    source: string,
+    filingType = "quarterly",
+    refresh = false,
+  ): Promise<{ job_id: string; status: string; status_url: string }> {
+    return this.post("/pull", { symbol, country, source, filing_type: filingType, refresh });
+  }
+
+  // Check the status of an async pull job.
+  async getPullJobStatus(
+    jobId: string,
+  ): Promise<{ job_id: string; status: string; error?: string; duration_ms?: number }> {
+    return this.get(`/pull/jobs/${jobId}`);
+  }
 }
 
 export function toCountrySource(source: string): { country: string; source: string } {

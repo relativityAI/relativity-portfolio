@@ -4,7 +4,7 @@ import {
     createListCollection, Portal, HStack, VStack
 } from "@chakra-ui/react";
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
-import { MdInfoOutline, MdCheck, MdClose } from "react-icons/md";
+import { MdInfoOutline, MdCheck, MdClose, MdRefresh } from "react-icons/md";
 import { Link, useParams } from "react-router-dom";
 import { AnalysisService, AgentService, DataService, API_BASE } from "@/db";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -259,9 +259,11 @@ function RunningNow() {
 }
 
 function DataAvailabilityTag({ loading, data, symbol }: { loading: boolean; data: any; symbol: string }) {
-    let ok = false;
+    let color = "var(--surface-recessed)";
+    let textColor = "var(--ink-secondary)";
     let label = "";
     let detail = "";
+    let icon: React.ReactNode = <MdInfoOutline size={11} />;
 
     if (loading) {
         return (
@@ -277,21 +279,32 @@ function DataAvailabilityTag({ loading, data, symbol }: { loading: boolean; data
     if (!data) {
         label = "availability unknown";
         detail = "Could not determine data availability.";
-    } else if (data.keyed === false) {
-        label = "no Voyager key";
-        detail = "No Voyager API key configured. A key will be generated automatically on your next login, or you can set one manually in Settings.";
     } else if (data.error) {
         label = "data not available";
         detail = String(data.error);
-    } else if (data.available) {
-        ok = true;
-        label = "data available";
+    } else if (data.pull_supported === false) {
+        label = "pull not available";
+        detail = "Automated data pulling is only supported for NSE stocks.";
+    } else if (!data.available) {
+        label = "will pull data";
+        detail = "No data exists yet. Data will be pulled automatically when you start the analysis.";
+        color = "var(--accent-secondary)";
+        textColor = "#fff";
+    } else if (data.is_fresh) {
+        label = "data fresh";
         detail = data.last_pulled
-            ? `Data pulled for ${symbol} · last pulled ${new Date(data.last_pulled).toLocaleString()}`
-            : `Data available for ${symbol}`;
+            ? `Last pulled ${new Date(data.last_pulled).toLocaleString()} — within freshness window.`
+            : `Data available and fresh for ${symbol}.`;
+        color = "var(--signal-positive)";
+        textColor = "#fff";
+        icon = <MdCheck size={11} />;
     } else {
-        label = "no data pulled";
-        detail = `No data pulled yet for ${symbol} — the analysis may return empty metrics.`;
+        label = "data stale";
+        detail = data.last_pulled
+            ? `Last pulled ${new Date(data.last_pulled).toLocaleString()} — data will be refreshed automatically.`
+            : `Data exists but may be stale — will refresh on analysis start.`;
+        color = "#f59e0b";
+        textColor = "#fff";
     }
 
     return (
@@ -301,11 +314,11 @@ function DataAvailabilityTag({ loading, data, symbol }: { loading: boolean; data
                 px={2}
                 py={1}
                 borderRadius="999px"
-                bg={ok ? "var(--signal-positive)" : "var(--signal-negative)"}
-                color="#fff"
+                bg={color}
+                color={textColor}
                 cursor="help"
             >
-                {ok ? <MdCheck size={11} /> : <MdClose size={11} />}
+                {icon}
                 <Text fontSize="11px" fontFamily="var(--font-mono)" fontWeight={500}>
                     {label}
                 </Text>
