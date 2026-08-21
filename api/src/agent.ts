@@ -1,11 +1,17 @@
-import { generateText, stepCountIs } from "ai";
+import { generateText, stepCountIs, type LanguageModel } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { config } from "./config.js";
 import { buildTools, extractToolCalls, ToolContext } from "./tools.js";
+import type { DataAdequacy } from "./quant.js";
 import { log } from "./logger.js";
+
+// Per-parameter wall-clock budget for the LLM tool loop.
+const PARAM_TIMEOUT_MS = 180_000;
+// Qualitative parameters scored in parallel.
+const QUAL_CONCURRENCY = 3;
 
 export interface LlmKeys {
   openai?: string;
@@ -93,6 +99,32 @@ export interface QualResult {
   analysis: string;
   toolCalls: Record<string, unknown>[];
   error?: string;
+  /** Thrown provider/network errors are worth one retry; parse failures are not. */
+  retryable?: boolean;
+  tokens?: { input?: number; output?: number };
+}
+
+// Last-resort score recovery: ask the model to restate just the integer.
+async function recoverScore(
+  model: LanguageModel,
+  analysis: string,
+): Promise<{ score: number; found: boolean }> {
+  try {
+    const res = await generateText({
+      model,
+      prompt:
+        `The following investment analysis is missing a parsable FINAL_SCORE line. ` +
+        `Read it and reply with ONLY the final score as an integer between 0 and 100.\n\n` +
+        analysis.slice(0, 6000),
+      temperature: 0,
+      maxOutputTokens: 8,
+    });
+    const m = (res.text || "").match(/\d{1,3}/);
+    if (!m) return { score: 0, found: false };
+    return { score: Math.max(0, Math.min(100, Number(m[0]))), found: true };
+  } catch {
+    return { score: 0, found: false };
+  }
 }
 
 export async function runQualitative(
@@ -102,7 +134,7 @@ export async function runQualitative(
   parameter: { parameter: string; content?: string; weightage?: number; section?: string },
   documents: string[],
   webSearch: boolean,
-  webSources: string[],
+  adequacy: DataAdequacy,
 ): Promise<QualResult> {
   const started = Date.now();
   try {
@@ -129,10 +161,15 @@ export async function runQualitative(
       `Instructions for this parameter:
 - Work through your checklist for "${parameter.parameter}" one item at a time.
 - Call tools to verify claims with real data.
-- If web search is enabled you may use it for recent context.`,
+- Internal data availability: ${adequacy}. ${
+        adequacy === "adequate"
+          ? "Internal data should cover most criteria."
+          : "Internal data may be incomplete — expect empty tool results."
+      }
+- If an internal tool returns empty or no-data results, mark that criterion Insufficient Data unless web search is enabled and can supply evidence instead.`,
       documents?.length ? `Relevant documents available on the exchange: ${documents.join(", ")}` : "",
       webSearch ? "Web search is enabled." : "Web search is disabled.",
-      webSources?.length ? `Preferred web sources: ${webSources.join(", ")}` : "",
+      toolCtx.webSources?.length ? `Preferred web sources: ${toolCtx.webSources.join(", ")}` : "",
       ``,
       `End with the FINAL_SCORE line.`,
     ]
@@ -146,10 +183,14 @@ export async function runQualitative(
       temperature: 0.1,
       stopWhen: stepCountIs(config.maxToolSteps),
       tools,
+      abortSignal: AbortSignal.timeout(PARAM_TIMEOUT_MS),
     });
 
     const text = result.text || "";
-    const { score, found } = parseFinalScoreResult(text);
+    let { score, found } = parseFinalScoreResult(text);
+    if (!found && text.trim()) {
+      ({ score, found } = await recoverScore(model, text));
+    }
     const calls = extractToolCalls(result.steps as any);
 
     const steps = result.steps || [];
@@ -158,6 +199,7 @@ export async function runQualitative(
       steps.length >= config.maxToolSteps && !!lastStep && lastStep.finishReason === "tool-calls";
     const error = found ? undefined : maxTurnsReached ? "Max tool-call turns reached" : "FINAL_SCORE not found";
 
+    const usage: any = result.usage;
     log.info(
       "[agent]",
       `${modelId} "${parameter.parameter}" -> score=${score} toolCalls=${calls.length} steps=${steps.length} in ${((Date.now() - started) / 1000).toFixed(1)}s`,
@@ -167,14 +209,19 @@ export async function runQualitative(
       analysis: text,
       toolCalls: calls,
       error,
+      tokens: usage
+        ? { input: usage.inputTokens ?? undefined, output: usage.outputTokens ?? undefined }
+        : undefined,
     };
   } catch (e: any) {
+    const timedOut = e?.name === "TimeoutError" || /abort/i.test(String(e?.name));
     log.error("[agent]", `${modelId} "${parameter.parameter}" failed:`, e?.message || e);
     return {
       score: 0,
       analysis: "",
       toolCalls: [],
       error: String(e?.message || e),
+      retryable: !timedOut,
     };
   } finally {
     const elapsed = Date.now() - started;
@@ -185,7 +232,9 @@ export async function runQualitative(
 }
 
 export function parseFinalScoreResult(text: string): { score: number; found: boolean } {
-  const m = text.match(/FINAL_SCORE\s*[:：]\s*(\d{1,3})/i);
+  const m =
+    text.match(/FINAL_SCORE\s*[:：=]\s*\**\s*(\d{1,3})\s*\**/i) ||
+    text.match(/FINAL[\s_-]*SCORE[^\d\n]{0,20}(\d{1,3})/i);
   if (!m) return { score: 50, found: false };
   const n = Number(m[1]);
   if (!Number.isFinite(n)) return { score: 50, found: false };
@@ -202,6 +251,25 @@ export interface QualParamEntry {
   analysis: string;
   error?: string;
   section?: string;
+  tokens?: { input?: number; output?: number };
+}
+
+// Run async work over items with at most `limit` in flight, preserving order.
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 export async function runQualitativeAll(
@@ -211,7 +279,7 @@ export async function runQualitativeAll(
   agent: any,
   documents: string[],
   webSearch: boolean,
-  webSources: string[],
+  adequacy: DataAdequacy,
   onProgress?: (done: number, total: number, label: string) => void,
 ): Promise<{
   qualitative_analysis: Record<string, QualParamEntry>;
@@ -234,28 +302,42 @@ export async function runQualitativeAll(
 
   const total = params.length;
   let done = 0;
-  for (const p of params) {
+
+  await mapWithConcurrency(params, QUAL_CONCURRENCY, async (p) => {
     const label = p.parameter || "Qualitative Parameter";
-    const res = await runQualitative(
+    let res = await runQualitative(
       modelId,
       keys,
       toolCtx,
       { parameter: label, content: p.content, weightage: p.weightage, section: p.section },
       documents,
       webSearch,
-      webSources,
+      adequacy,
     );
+    if (res.error && res.retryable) {
+      log.warn("[agent]", `${modelId} "${label}" retrying once after: ${res.error}`);
+      res = await runQualitative(
+        modelId,
+        keys,
+        toolCtx,
+        { parameter: label, content: p.content, weightage: p.weightage, section: p.section },
+        documents,
+        webSearch,
+        adequacy,
+      );
+    }
     qualitative_analysis[label] = {
       score: res.score,
       weightage: typeof p.weightage === "number" ? p.weightage : 5,
       analysis: res.analysis,
       error: res.error,
       section: p.section,
+      tokens: res.tokens,
     };
     qualitative_tool_calls[label] = res.toolCalls;
     done += 1;
     onProgress?.(done, total, label);
-  }
+  });
 
   const entries = Object.values(qualitative_analysis);
   const scored = entries.filter((e) => !e.error);

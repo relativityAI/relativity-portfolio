@@ -10,6 +10,7 @@ export interface ToolContext {
   country: string;
   source: string;
   shareName: string;
+  webSources?: string[];
 }
 
 const MAX_PDF_CHARS = 30000;
@@ -378,6 +379,7 @@ export function buildTools(ctx: ToolContext) {
             api_key: ctx.tavilyKey,
             query: `${args.query} ${shareName || symbol}`,
             max_results: 5,
+            ...(ctx.webSources?.length ? { include_domains: ctx.webSources } : {}),
           }),
           signal: AbortSignal.timeout(30_000),
         });
