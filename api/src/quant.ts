@@ -1,4 +1,4 @@
-import { VoyagerClient } from "./voyager.js";
+import { VoyagerClient, type PullStatus } from "./voyager.js";
 
 export interface Criterion {
   category?: string;
@@ -142,7 +142,7 @@ function isPriceDerived(category?: string): boolean {
 // Fetch the /financial-metrics snapshot. This is the single metrics source —
 // the legacy /equity/data/* snapshot endpoints do not exist in the deployed
 // Voyager API. Returns the raw payload plus the price_data marker.
-async function fetchMetrics(
+export async function fetchMetricsSnapshot(
   voyager: VoyagerClient,
   symbol: string,
   country: string,
@@ -171,6 +171,25 @@ async function fetchMetrics(
     // no metrics available; callers score missing data as 0
   }
   return { metrics, price_data };
+}
+
+export type DataAdequacy = "adequate" | "sparse" | "inadequate";
+
+// Classify how much internal (Voyager) data exists for a symbol, so the run
+// can decide whether to auto-enable web search. Heuristic thresholds.
+// ponytail: fixed cutoffs, tune once real record counts are known.
+export function assessDataAdequacy(
+  pullStatus: PullStatus | null,
+  metrics: Record<string, any>,
+): DataAdequacy {
+  const records = Object.values(pullStatus?.collections ?? {}).reduce(
+    (n, c) => n + (c?.records || 0),
+    0,
+  );
+  const metricKeys = Object.keys(metrics || {}).filter((k) => k !== "price_data").length;
+  if (records === 0 && metricKeys === 0) return "inadequate";
+  if (records < 50 || metricKeys < 10) return "sparse";
+  return "adequate";
 }
 
 // Triangular soft-boundary decay. Spread = max(|threshold|, 1) * 0.5:
@@ -258,7 +277,7 @@ function _evaluateText(operator: string, value: any, threshold: any): number {
   }
 }
 
-function evaluateMetric(
+export function evaluateMetric(
   metrics: Record<string, any>,
   criterion: Criterion,
   section: string,
@@ -322,28 +341,19 @@ function evaluateMetric(
   return base;
 }
 
-export async function runQuantitative(
-  voyager: VoyagerClient,
+export function runQuantitative(
   agent: any,
-  symbol: string,
-  country: string,
-  source: string,
-): Promise<QuantResult> {
-  const { metrics, price_data } = await fetchMetrics(voyager, symbol, country, source);
-
-  const criteria: Criterion[] = [
-    ...(agent?.asset_evaluation?.quantitative || []),
-    ...(agent?.macro_evaluation?.quantitative || []),
+  metrics: Record<string, any>,
+  price_data: "live" | "unavailable" | "unknown",
+): QuantResult {
+  const sections = [
+    { section: "asset_evaluation", criteria: (agent?.asset_evaluation?.quantitative || []) as any[] },
+    { section: "macro_evaluation", criteria: (agent?.macro_evaluation?.quantitative || []) as any[] },
   ];
 
   const entries: Record<string, QuantEntry> = {};
   let weighted = 0;
   let weightSum = 0;
-
-  const sections = [
-    { section: "asset_evaluation", criteria: (agent?.asset_evaluation?.quantitative || []) as any[] },
-    { section: "macro_evaluation", criteria: (agent?.macro_evaluation?.quantitative || []) as any[] },
-  ];
 
   for (const { section, criteria } of sections) {
     criteria.forEach((c, idx) => {

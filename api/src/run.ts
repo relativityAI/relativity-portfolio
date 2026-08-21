@@ -4,7 +4,7 @@ import { fetchUserKeys } from "./provision.js";
 import { config } from "./config.js";
 import { getModelIds } from "./models.js";
 import { VoyagerClient, toCountrySource, type PullStatus } from "./voyager.js";
-import { runQuantitative } from "./quant.js";
+import { runQuantitative, fetchMetricsSnapshot, assessDataAdequacy, type DataAdequacy } from "./quant.js";
 import { runQualitativeAll } from "./agent.js";
 import { ensureFreshData } from "./freshness.js";
 import type { LlmKeys } from "./agent.js";
@@ -18,6 +18,7 @@ export interface RunRequest {
   model?: string;
   source?: string;
   documents?: string[];
+  /** undefined = not specified (auto), true/false = explicit user choice. */
   web_search?: boolean;
   web_sources?: string[];
   reqId?: string;
@@ -84,6 +85,57 @@ function failRunningStep(steps: RunStep[]): RunStep[] {
   return next;
 }
 
+// Persists step transitions through the run's serialized write queue.
+class StepTracker {
+  steps: RunStep[] = initialSteps();
+
+  constructor(private readonly save: () => Promise<void>) {}
+
+  async begin(key: string): Promise<void> {
+    this.steps = startStep(this.steps, key);
+    await this.save();
+  }
+
+  async end(key: string, status: StepStatus, detail?: string): Promise<void> {
+    this.steps = finishStep(this.steps, key, status, detail);
+    await this.save();
+  }
+
+  setDetail(key: string, detail: string): void {
+    const s = this.steps.find((x) => x.key === key);
+    if (s && s.status === "running") {
+      s.detail = detail;
+      void this.save();
+    }
+  }
+}
+
+// ── web search resolution ──────────────────────────────────────────────
+// Explicit user choice wins; otherwise auto-enable when internal data is
+// inadequate and a Tavily key exists.
+
+export function resolveWebSearch(
+  requested: boolean | undefined,
+  adequacy: DataAdequacy,
+  tavilyKey?: string,
+): { effective: "user" | "auto" | "off"; note?: string } {
+  if (requested === true) {
+    if (tavilyKey) return { effective: "user" };
+    return { effective: "off", note: "Web search was requested but no Tavily API key is configured." };
+  }
+  if (requested === false) return { effective: "off" };
+  if (adequacy !== "adequate") {
+    if (tavilyKey) {
+      return { effective: "auto", note: `Web search auto-enabled: internal data is ${adequacy}.` };
+    }
+    return {
+      effective: "off",
+      note: `Internal data is ${adequacy}; add a Tavily API key in Settings to enable automatic web search.`,
+    };
+  }
+  return { effective: "off" };
+}
+
 // ── run orchestration ──────────────────────────────────────────────────
 
 export async function createRun(req: RunRequest): Promise<{ analysis_id: string }> {
@@ -106,6 +158,9 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
     error: null,
     steps: initialSteps(),
     data_availability: null,
+    data_adequacy: null,
+    web_search_effective: null,
+    web_search_note: null,
     price_data: null,
     quantitative_analysis: {},
     qualitative_analysis: {},
@@ -143,7 +198,6 @@ async function markFailed(runId: string, err: unknown, started?: number): Promis
 
 async function executeRun(runId: string, req: RunRequest): Promise<void> {
   const started = Date.now();
-  const steps: RunStep[] = initialSteps();
   const runTag = `[run ${runId}] reqId=${req.reqId || "-"}`;
   const db = getDb();
 
@@ -159,19 +213,12 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     queue = next;
     return next;
   };
-  const saveSteps = () => write(() => updateRun(runId, { steps }));
-  const begin = async (key: string) => {
-    steps.splice(0, steps.length, ...startStep(steps, key));
-    await saveSteps();
-  };
-  const end = async (key: string, status: StepStatus, detail?: string) => {
-    steps.splice(0, steps.length, ...finishStep(steps, key, status, detail));
-    await saveSteps();
-  };
+  const saveSteps = (): Promise<void> => write(() => updateRun(runId, { steps: tracker.steps }));
+  const tracker = new StepTracker(saveSteps);
 
   try {
     // ---- agent ----
-    await begin("agent");
+    await tracker.begin("agent");
     const { data: agent, error: agentErr } = await db
       .from("agents")
       .select("*")
@@ -179,10 +226,10 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
       .or(`name.eq.${req.agent_name},id.eq.${req.agent_name}`)
       .single();
     if (agentErr || !agent) {
-      await end("agent", "failed", "Agent not found");
+      await tracker.end("agent", "failed", "Agent not found");
       throw new Error(`Agent not found: ${req.agent_name}`);
     }
-    await end("agent", "completed");
+    await tracker.end("agent", "completed");
 
     const source = req.source || agent.source || "NSE";
     const cs = toCountrySource(source);
@@ -193,7 +240,6 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     const { voyagerKey, llmKeys } = await fetchUserKeys(req.userId);
     if (!voyagerKey) {
       const msg = "No Voyager API key configured. A key will be generated automatically on your next login.";
-      await end("agent", "completed");
       await write(() => updateRun(runId, { status: "FAILED", error: msg }));
       log.error(runTag, msg);
       return;
@@ -201,12 +247,12 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     const voyager = new VoyagerClient(config.voyagerUrl, voyagerKey, config.voyagerRpm);
 
     // ---- data availability ----
-    await begin("data");
+    await tracker.begin("data");
     let dataAvailability: PullStatus | null = null;
     try {
       dataAvailability = await voyager.getPullStatus(req.symbol, cs.country, cs.source);
       await write(() => updateRun(runId, { data_availability: dataAvailability }));
-      await end("data", "completed");
+      await tracker.end("data", "completed");
       const total = Object.values(dataAvailability?.collections ?? {}).reduce(
         (n, c) => n + (c?.records || 0),
         0,
@@ -215,16 +261,16 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     } catch (e: any) {
       const detail = e?.message || String(e);
       await write(() => updateRun(runId, { data_availability: { error: detail } }));
-      await end("data", "completed", detail);
+      await tracker.end("data", "completed", detail);
       log.warn(runTag, `data availability check failed (continuing): ${detail}`);
     }
 
     // ---- pull (ensure fresh data) ----
-    await begin("pull");
+    await tracker.begin("pull");
     try {
       const pullResult = await ensureFreshData(voyager, req.symbol, cs.country, cs.source, req.userId);
       if (pullResult.pulled) {
-        await end("pull", "completed", `Data pulled fresh (${pullResult.duration_ms}ms)`);
+        await tracker.end("pull", "completed", `Data pulled fresh (${pullResult.duration_ms}ms)`);
         log.info(runTag, `pull completed duration=${pullResult.duration_ms}ms`);
         // Re-fetch data availability after pull
         try {
@@ -232,20 +278,36 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
           await write(() => updateRun(runId, { data_availability: dataAvailability }));
         } catch { /* best effort */ }
       } else {
-        await end("pull", "completed", pullResult.reason || "Data already available");
+        await tracker.end("pull", "completed", pullResult.reason || "Data already available");
         log.info(runTag, `pull skipped: ${pullResult.reason}`);
       }
     } catch (e: any) {
       const detail = e?.message || String(e);
-      await end("pull", "failed", `Pull failed: ${detail}. Proceeding with existing data.`);
+      await tracker.end("pull", "failed", `Pull failed: ${detail}. Proceeding with existing data.`);
       log.warn(runTag, `pull step failed (continuing): ${detail}`);
     }
 
-    // ---- quantitative ----
-    await begin("quantitative");
-    const quant = await runQuantitative(voyager, agent, req.symbol, cs.country, cs.source);
-    await end("quantitative", "completed");
-    log.info(runTag, `quant done score=${quant.quantitative_score} price_data=${quant.price_data}`);
+    // ---- quantitative (single metrics snapshot feeds scoring + adequacy) ----
+    await tracker.begin("quantitative");
+    const { metrics, price_data } = await fetchMetricsSnapshot(voyager, req.symbol, cs.country, cs.source);
+    const adequacy = assessDataAdequacy(dataAvailability, metrics);
+    const quant = runQuantitative(agent, metrics, price_data);
+    await tracker.end("quantitative", "completed");
+    log.info(
+      runTag,
+      `quant done score=${quant.quantitative_score} price_data=${price_data} adequacy=${adequacy}`,
+    );
+
+    // Resolve effective web search now that adequacy is known.
+    const web = resolveWebSearch(req.web_search, adequacy, llmKeys.tavily);
+    await write(() =>
+      updateRun(runId, {
+        data_adequacy: adequacy,
+        web_search_effective: web.effective,
+        web_search_note: web.note || null,
+      }),
+    );
+    log.info(runTag, `web search effective=${web.effective}${web.note ? ` (${web.note})` : ""}`);
 
     const toolCtx = {
       voyager,
@@ -254,6 +316,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
       country: cs.country,
       source: cs.source,
       shareName: req.share_name || req.symbol,
+      webSources: req.web_sources || [],
     };
 
     // ---- qualitative ----
@@ -261,7 +324,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
       ...(agent?.asset_evaluation?.qualitative || []),
       ...(agent?.macro_evaluation?.qualitative || []),
     ];
-    await begin("qualitative");
+    await tracker.begin("qualitative");
     let qual: {
       qualitative_analysis: Record<string, unknown>;
       qualitative_tool_calls: Record<string, unknown[]>;
@@ -269,7 +332,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     } | null = null;
     let qualErrors: string[] = [];
     if (qualParams.length === 0) {
-      await end("qualitative", "skipped", "No qualitative parameters");
+      await tracker.end("qualitative", "skipped", "No qualitative parameters");
     } else {
       qual = await runQualitativeAll(
         req.model || DEFAULT_MODEL,
@@ -277,20 +340,16 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
         toolCtx,
         agent,
         req.documents || [],
-        req.web_search ?? false,
-        req.web_sources || [],
+        web.effective !== "off",
+        adequacy,
         (done, total, label) => {
-          const idx = steps.findIndex((s) => s.key === "qualitative");
-          if (idx >= 0 && steps[idx].status === "running") {
-            steps[idx].detail = `${done} of ${total} parameters scored — ${label}`;
-            void saveSteps();
-          }
+          tracker.setDetail("qualitative", `${done} of ${total} parameters scored — ${label}`);
         },
       );
       qualErrors = Object.entries(qual.qualitative_analysis)
         .filter(([, e]) => !!(e as any)?.error)
         .map(([label, e]) => `${label}: ${(e as any).error}`);
-      await end(
+      await tracker.end(
         "qualitative",
         qualErrors.length ? "failed" : "completed",
         qualErrors.length
@@ -301,7 +360,9 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     }
 
     // ---- finalize ----
-    await begin("finalize");
+    // Run only fails when every qualitative parameter failed; partial results
+    // complete with per-parameter errors preserved in the report.
+    await tracker.begin("finalize");
     const quantScore = quant.quantitative_score;
     const qualScore = qual?.qualitative_score ?? 0;
     let total = 0;
@@ -310,7 +371,9 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     else if (qualScore > 0) total = qualScore;
     total = Math.round(total * 100) / 100;
 
-    const qualErrorSummary = qualErrors.length
+    const qualTotal = Object.keys(qual?.qualitative_analysis || {}).length;
+    const allQualFailed = qualTotal > 0 && qualErrors.length === qualTotal;
+    const qualErrorSummary = allQualFailed
       ? `Qualitative scoring failed — ${qualErrors.join("; ")}`
       : null;
     const finalStatus = qualErrorSummary ? "FAILED" : "COMPLETED";
@@ -326,14 +389,14 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
         quantitative_score: quantScore,
         qualitative_score: qualScore,
         total_score: total,
-        price_data: quant.price_data || null,
-        steps: finishStep(steps, "finalize", "completed"),
+        price_data: price_data || null,
+        steps: finishStep(tracker.steps, "finalize", "completed"),
       }),
     );
     log.info(runTag, `${finalStatus} total=${total} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
   } catch (e) {
-    steps.splice(0, steps.length, ...failRunningStep(steps));
-    await write(() => updateRun(runId, { steps })).catch(() => {});
+    tracker.steps = failRunningStep(tracker.steps);
+    await write(() => updateRun(runId, { steps: tracker.steps })).catch(() => {});
     log.error(runTag, "execution failed:", e);
     await markFailed(runId, e, started);
   }

@@ -1487,8 +1487,13 @@ function SourcesStrip({
                     <span style={{ fontWeight: 500 }}>{webSrc.length}</span> web source{webSrc.length > 1 ? "s" : ""}
                 </Text>
             )}
-            {analysis.web_search && (
+            {(analysis.web_search_effective === "user" || analysis.web_search) && (
                 <Text color="var(--ink-tertiary)">Web search enabled</Text>
+            )}
+            {analysis.web_search_effective === "auto" && (
+                <Text color="var(--ink-tertiary)">
+                    Web search auto-enabled (internal data {analysis.data_adequacy || "sparse"})
+                </Text>
             )}
         </Flex>
     );

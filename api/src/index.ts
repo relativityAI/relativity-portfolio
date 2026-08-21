@@ -351,7 +351,7 @@ app.post("/analysis", requireAuth, async (req, res) => {
       model: body.model ? String(body.model) : undefined,
       source: body.source ? String(body.source) : undefined,
       documents: Array.isArray(body.documents) ? body.documents : undefined,
-      web_search: !!body.web_search,
+      web_search: body.web_search === undefined ? undefined : !!body.web_search,
       web_sources: Array.isArray(body.web_sources) ? body.web_sources : undefined,
       reqId: (req as any)._reqId,
     };
