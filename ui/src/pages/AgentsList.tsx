@@ -10,6 +10,8 @@ import {
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AgentService } from "@/db";
+import { motion } from "motion/react";
+import { stagger, staggerItem } from "@/lib/motion";
 
 interface Agent {
     _id: string;
@@ -143,7 +145,7 @@ export default function AgentsList() {
                                     <Table.ColumnHeader py={3} px={4} w="48px" />
                                 </Table.Row>
                             </Table.Header>
-                            <Table.Body>
+                            <Table.Body as={motion.tbody} variants={stagger} initial="initial" animate="animate">
                                 {loading ? (
                                     <Table.Row>
                                         <Table.Cell colSpan={colSpan} py={12}>
@@ -188,6 +190,9 @@ export default function AgentsList() {
                                             item.asset_evaluation?.quantitative?.length || 0;
                                         return (
                                             <Table.Row
+                                                as={motion.tr}
+                                                variants={staggerItem}
+                                                layout
                                                 key={item._id || item.id}
                                                 cursor="pointer"
                                                 onClick={() =>

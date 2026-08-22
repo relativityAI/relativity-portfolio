@@ -2,6 +2,8 @@ import { Flex, Text, Box, Button, VStack } from "@chakra-ui/react";
 import { FcGoogle } from "react-icons/fc";
 import { useAuth } from "@/auth/useAuth";
 import { useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import { dur, ease } from "@/lib/motion";
 
 export default function Login() {
     const { signInWithGoogle } = useAuth();
@@ -20,8 +22,13 @@ export default function Login() {
     };
 
     return (
-        <Flex minH="calc(100vh - 56px)" align="center" justify="center" p={6}>
+        <Flex minH="calc(100vh - 56px)" align="center" justify="center" p={6} position="relative" overflow="hidden">
+            <Box position="absolute" inset={0} pointerEvents="none" opacity={0.35} css={{ background: "radial-gradient(600px 300px at 50% 0%, var(--accent-primary) 0%, transparent 70%)" }} />
             <Box
+                as={motion.div}
+                initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: dur.slow, ease }}
                 w="100%"
                 maxW="400px"
                 p={8}
@@ -29,6 +36,7 @@ export default function Login() {
                 borderColor="border"
                 borderRadius="xl"
                 bg="bg.subtle"
+                position="relative"
             >
                 <VStack gap={6} align="stretch">
                     <VStack gap={1} align="center">
@@ -40,13 +48,20 @@ export default function Login() {
                         </Text>
                     </VStack>
 
-                    {error && (
-                        <Text fontSize="sm" color="red.400" textAlign="center">
-                            {error}
-                        </Text>
-                    )}
+                    <AnimatePresence>
+                        {error && (
+                            <Box as={motion.div} initial={{ opacity: 0, y: -6, height: 0 }} animate={{ opacity: 1, y: 0, height: "auto" }} exit={{ opacity: 0, y: -6, height: 0 }} transition={{ duration: dur.base, ease }} overflow="hidden">
+                                <Text fontSize="sm" color="red.400" textAlign="center">
+                                    {error}
+                                </Text>
+                            </Box>
+                        )}
+                    </AnimatePresence>
 
                     <Button
+                        as={motion.button}
+                        whileHover={{ scale: 1.01 }}
+                        whileTap={{ scale: 0.99 }}
                         variant="outline"
                         w="full"
                         onClick={handleGoogle}

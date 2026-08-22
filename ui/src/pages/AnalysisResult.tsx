@@ -17,6 +17,8 @@ import { formatSeconds } from "@/utils";
 import { RunSteps } from "./shared/RunStatus";
 import ReactMarkdown from "react-markdown";
 import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
+import { motion, AnimatePresence } from "motion/react";
+import { CountUp, dur, ease } from "@/lib/motion";
 
 const TABS = ["overview", "quantitative", "qualitative", "data", "sources"] as const;
 type Tab = (typeof TABS)[number];
@@ -313,82 +315,96 @@ export default function AnalysisResult() {
 
     return (
         <Box bg="var(--surface-canvas)" minH="100vh">
-            <Container maxW="100%" py={6}>
-                {/* Utility bar */}
-                <Flex justify="space-between" align="center" mb={6}>
-                    <Link to="/analysis-list">
-                        <Button variant="ghost" size="sm" color="var(--ink-secondary)" px={1} _hover={{ color: "var(--ink-primary)" }}>
-                            <MdArrowBack style={{ marginRight: 4 }} /> Back
-                        </Button>
-                    </Link>
-                    {isComplete && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={downloadResult}
-                            color="var(--ink-secondary)"
-                            _hover={{ color: "var(--ink-primary)" }}
-                        >
-                            <MdDownload style={{ marginRight: 4 }} /> Export
-                        </Button>
-                    )}
-                </Flex>
-
-                {/* Identity bar */}
-                <Box pb={3} mb={6} borderBottom="1px solid var(--hairline)">
-                    <Flex justify="space-between" align="baseline" wrap="wrap" gap={3}>
-                        <HStack gap={3} align="baseline">
+            <Container maxW="1400px" mx="auto" py={6}>
+                {/* Sticky identity + utility bar */}
+                <Box
+                    as={motion.div}
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: dur.base, ease }}
+                    position="sticky"
+                    top={0}
+                    zIndex={20}
+                    bg="var(--surface-canvas)"
+                    borderBottom="1px solid var(--hairline)"
+                    pb={3}
+                    pt={2}
+                    mb={5}
+                >
+                    <Flex justify="space-between" align="center" gap={3} wrap="wrap">
+                        <HStack gap={3} align="center" minW={0}>
+                            <Link to="/analysis-list">
+                                <Button variant="ghost" size="sm" color="var(--ink-secondary)" px={1} _hover={{ color: "var(--ink-primary)" }} flexShrink={0}>
+                                    <MdArrowBack />
+                                </Button>
+                            </Link>
                             <Text
-                                fontSize="18px"
+                                fontSize="17px"
                                 fontWeight={600}
                                 color="var(--ink-primary)"
                                 lineHeight="short"
+                                truncate
                             >
                                 {analysis.share_name || analysis.symbol}
                             </Text>
                             <Text
-                                fontSize="14px"
+                                fontSize="13px"
                                 fontFamily="var(--font-mono)"
                                 color="var(--ink-tertiary)"
                                 fontWeight={400}
+                                display={{ base: "none", md: "inline" }}
                             >
                                 {analysis.symbol}
                             </Text>
-                            <Text
-                                fontSize="11px"
-                                fontWeight={500}
-                                color="var(--ink-tertiary}"
-                                letterSpacing="0.05em"
-                                textTransform="uppercase"
-                            >
-                                {analysis.source}
-                            </Text>
                         </HStack>
-                        <HStack gap={1.5} align="center">
-                            <Box
-                                w="6px"
-                                h="6px"
-                                borderRadius="50%"
-                                bg={
-                                    isError
-                                        ? "var(--signal-negative)"
-                                        : isComplete
-                                        ? "var(--signal-positive)"
-                                        : "var(--signal-caution)"
-                                }
-                            />
-                            <Text fontSize="12px" color="var(--ink-secondary)">
-                                {isError ? "Failed" : isComplete ? "Complete" : "Running"}
-                            </Text>
+                        <HStack gap={3} align="center">
+                            <HStack gap={1.5} align="center">
+                                <motion.span
+                                    animate={
+                                        isRunning
+                                            ? { scale: [1, 1.3, 1], opacity: [1, 0.6, 1] }
+                                            : {}
+                                    }
+                                    transition={{ repeat: Infinity, duration: 1.4 }}
+                                    style={{
+                                        width: 7,
+                                        height: 7,
+                                        borderRadius: "50%",
+                                        background: isError
+                                            ? "var(--signal-negative)"
+                                            : isComplete
+                                            ? "var(--signal-positive)"
+                                            : "var(--signal-caution)",
+                                        display: "inline-block",
+                                    }}
+                                />
+                                <Text fontSize="12px" color="var(--ink-secondary)">
+                                    {isError ? "Failed" : isComplete ? "Complete" : "Running"}
+                                </Text>
+                            </HStack>
+                            {isComplete && (
+                                <Button
+                                    as={motion.button}
+                                    whileTap={{ scale: 0.96 }}
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={downloadResult}
+                                    color="var(--ink-secondary)"
+                                    _hover={{ color: "var(--ink-primary)" }}
+                                >
+                                    <MdDownload style={{ marginRight: 4 }} /> Export
+                                </Button>
+                            )}
                         </HStack>
                     </Flex>
                     {metaLine && (
                         <Text
-                            fontSize="11.5px"
+                            fontSize="11px"
                             fontFamily="var(--font-mono)"
                             color="var(--ink-tertiary)"
                             mt={2}
                             overflowWrap={{ base: "anywhere", md: "normal" }}
+                            display={{ base: "none", md: "block" }}
                         >
                             {metaLine}
                         </Text>
@@ -458,16 +474,22 @@ export default function AnalysisResult() {
                                 {totalScore != null ? (
                                     <HStack gap={2} align="baseline">
                                         <Text
-                                            fontSize="40px"
+                                            fontSize="52px"
                                             fontWeight={600}
                                             lineHeight="1"
                                             fontFamily="var(--font-tabular)"
                                             fontVariantNumeric="tabular-nums"
+                                            letterSpacing="-0.02em"
                                             color="var(--ink-primary)"
                                         >
-                                            {totalScore.toFixed(1)}
+                                            <CountUp value={totalScore} decimals={1} />
                                         </Text>
                                         <Box
+                                            as={motion.div}
+                                            initial={{ scaleY: 0 }}
+                                            animate={{ scaleY: 1 }}
+                                            transition={{ duration: 0.5, ease, delay: 0.2 }}
+                                            style={{ transformOrigin: "bottom" }}
                                             w="3px"
                                             h="28px"
                                             bg={signalColor(scoreSignal(totalScore))}
@@ -495,10 +517,13 @@ export default function AnalysisResult() {
                                 </Text>
                                 {quantScore != null ? (
                                     <HStack gap={2}>
-                                        <Box flex={1} h="4px" bg="var(--surface-recessed)" borderRadius="1px">
+                                        <Box flex={1} h="4px" bg="var(--surface-recessed)" borderRadius="1px" overflow="hidden">
                                             <Box
+                                                as={motion.div}
                                                 h="100%"
-                                                width={`${quantScore}%`}
+                                                initial={{ width: 0 }}
+                                                animate={{ width: `${quantScore}%` }}
+                                                transition={{ duration: 0.7, ease, delay: 0.15 }}
                                                 bg={signalColor(scoreSignal(quantScore))}
                                                 borderRadius="1px"
                                             />
@@ -511,7 +536,7 @@ export default function AnalysisResult() {
                                             minW="44px"
                                             textAlign="right"
                                         >
-                                            {quantScore.toFixed(1)}
+                                            <CountUp value={quantScore} decimals={1} />
                                         </Text>
                                     </HStack>
                                 ) : (
@@ -533,10 +558,13 @@ export default function AnalysisResult() {
                                 </Text>
                                 {qualScore != null ? (
                                     <HStack gap={2}>
-                                        <Box flex={1} h="4px" bg="var(--surface-recessed)" borderRadius="1px">
+                                        <Box flex={1} h="4px" bg="var(--surface-recessed)" borderRadius="1px" overflow="hidden">
                                             <Box
+                                                as={motion.div}
                                                 h="100%"
-                                                width={`${qualScore}%`}
+                                                initial={{ width: 0 }}
+                                                animate={{ width: `${qualScore}%` }}
+                                                transition={{ duration: 0.7, ease, delay: 0.25 }}
                                                 bg={signalColor(scoreSignal(qualScore))}
                                                 borderRadius="1px"
                                             />
@@ -549,7 +577,7 @@ export default function AnalysisResult() {
                                             minW="44px"
                                             textAlign="right"
                                         >
-                                            {qualScore.toFixed(1)}
+                                            <CountUp value={qualScore} decimals={1} />
                                         </Text>
                                     </HStack>
                                 ) : (
@@ -638,15 +666,18 @@ export default function AnalysisResult() {
                                     px={4}
                                     py={2.5}
                                     minH={{ base: "44px", md: "auto" }}
+                                    position="relative"
                                     _hover={{ color: "var(--ink-primary)" }}
                                     _selected={{
                                         color: "var(--ink-primary)",
                                         fontWeight: 600,
-                                        borderBottom: "2px solid var(--accent-primary)",
                                     }}
                                     transition="none"
                                 >
                                     {tab}
+                                    {activeTab === tab && (
+                                        <Box as={motion.div} layoutId="tab-underline" position="absolute" bottom={0} left={0} right={0} h="2px" bg="var(--accent-primary)" />
+                                    )}
                                 </Tabs.Trigger>
                             ))}
                         </Tabs.List>
@@ -855,7 +886,16 @@ export default function AnalysisResult() {
 
 function SectionHeader({ label, count }: { label: string; count: number }) {
     return (
-        <Flex align="center" gap={2} mb={4}>
+        <Flex
+            as={motion.div}
+            initial={{ opacity: 0, y: 10 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-60px" }}
+            transition={{ duration: dur.base, ease }}
+            align="center"
+            gap={2}
+            mb={4}
+        >
             <Text
                 fontSize="13px"
                 fontWeight={600}
@@ -872,6 +912,7 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
             >
                 {count}
             </Text>
+            <Box flex={1} h="1px" bg="var(--hairline)" ml={2} />
         </Flex>
     );
 }
@@ -1387,16 +1428,18 @@ function QualCard({
                         {expandedTools[paramName] ? <MdExpandLess size={14} /> : <MdExpandMore size={14} />}
                         {expandedTools[paramName] ? "Hide" : "Show"} tool calls ({toolCalls[paramName].length})
                     </Button>
-                    {expandedTools[paramName] && (
-                        <VStack gap={0} mt={2} align="stretch">
-                            {toolCalls[paramName].map((call: any, i: number) => (
-                                <Box
-                                    key={i}
-                                    py={2}
-                                    px={3}
-                                    borderBottom="1px solid var(--hairline)"
-                                    fontSize="12px"
-                                >
+                    <AnimatePresence initial={false}>
+                        {expandedTools[paramName] && (
+                            <Box as={motion.div} initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: dur.base, ease }} overflow="hidden">
+                                <VStack gap={0} mt={2} align="stretch">
+                                    {toolCalls[paramName].map((call: any, i: number) => (
+                                        <Box
+                                            key={i}
+                                            py={2}
+                                            px={3}
+                                            borderBottom="1px solid var(--hairline)"
+                                            fontSize="12px"
+                                        >
                                     <HStack gap={3} mb={call.args || call.result ? 1 : 0}>
                                         <Text
                                             fontFamily="var(--font-mono)"
@@ -1457,9 +1500,11 @@ function QualCard({
                                         </Box>
                                     )}
                                 </Box>
-                            ))}
-                        </VStack>
-                    )}
+                                    ))}
+                                </VStack>
+                            </Box>
+                        )}
+                    </AnimatePresence>
                 </Box>
             )}
         </Box>

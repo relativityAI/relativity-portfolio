@@ -15,6 +15,8 @@ import { AgentService, AnalysisService } from "@/db"
 
 import { FaFilePen, FaBrain } from "react-icons/fa6";
 import { MdAnalytics, MdTrendingUp } from "react-icons/md";
+import { motion } from "motion/react";
+import { CountUp, dur, ease } from "@/lib/motion";
 
 function scoreColor(score: number): string {
     if (score >= 70) return "green";
@@ -112,11 +114,11 @@ export default function Dashboard() {
                         <Flex direction="column" gap={4}>
                             <Stat.Root>
                                 <Stat.Label color="fg.muted">Total Agents</Stat.Label>
-                                <Stat.ValueText fontSize="3xl" fontWeight="bold" mt={0}>{stats.agents}</Stat.ValueText>
+                                <Stat.ValueText fontSize="3xl" fontWeight="bold" mt={0}><CountUp value={stats.agents} decimals={0} /></Stat.ValueText>
                             </Stat.Root>
                             <Stat.Root>
                                 <Stat.Label color="fg.muted">Total Analyses</Stat.Label>
-                                <Stat.ValueText fontSize="3xl" fontWeight="bold" mt={0}>{stats.analysis}</Stat.ValueText>
+                                <Stat.ValueText fontSize="3xl" fontWeight="bold" mt={0}><CountUp value={stats.analysis} decimals={0} /></Stat.ValueText>
                             </Stat.Root>
                         </Flex>
                     </Box>
