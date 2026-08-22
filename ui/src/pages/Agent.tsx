@@ -1,19 +1,20 @@
 import {
-    Text, Flex, Button, Spinner, Input, Box,
+    Text, Flex, Button, Spinner, Input, Box, Menu,
 } from "@chakra-ui/react"
-import { MdOutlineFileDownload, MdOutlineFileUpload, MdSave, MdDeleteForever, MdWarningAmber } from "react-icons/md"
+import { MdOutlineFileDownload, MdOutlineFileUpload, MdSave, MdDeleteForever, MdMoreHoriz } from "react-icons/md"
 
 import { useParams, useNavigate } from "react-router-dom"
-import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { AgentService, VoyagerService } from "@/db"
 
-import { DesktopSidebar, MobilePills } from "./AgentSidebarNav"
+import { StepRail, MobilePills, type StepDef } from "./AgentSidebarNav"
 import AgentOverview from "./AgentOverview"
-import SectionBlock from "./shared/SectionBlock"
-import PersonaSection from "./sections/PersonaSection"
 import ConfigurationSection from "./sections/ConfigurationSection"
+import PersonaSection from "./sections/PersonaSection"
 import AssetEvalSection from "./sections/AssetEvalSection"
 import MacroEvalSection from "./sections/MacroEvalSection"
+import { motion, AnimatePresence } from "motion/react"
+import { dur, ease } from "@/lib/motion"
 
 
 const DEFAULT_AGENT = {
@@ -39,31 +40,18 @@ const DEFAULT_AGENT = {
     },
 }
 
-function getFirstSubsection(section: string): string | null {
-    const map: Record<string, string[]> = {
-        configuration: ["asset_class", "universe_cap"],
-        persona: ["philosophy_and_mindset"],
-        asset_evaluation: ["qualitative", "quantitative"],
-        macro_evaluation: ["qualitative", "quantitative"],
-    }
-    const subs = map[section]
-    return subs ? subs[0] : null
-}
+const STEPS: StepDef[] = [
+    { id: "overview", label: "Overview" },
+    { id: "configuration", label: "Configuration" },
+    { id: "persona", label: "Agent Persona" },
+    { id: "asset_evaluation", label: "Asset Evaluation" },
+    { id: "macro_evaluation", label: "Macro Evaluation" },
+]
 
-function computeSubsectionCompletion(agent: any): Record<string, boolean> {
-    const c = agent.configuration || {}
-    const ae = agent.asset_evaluation || {}
-    const me = agent.macro_evaluation || {}
-
-    return {
-        "configuration/asset_class": c.asset_class?.length > 0,
-        "configuration/universe_cap": c.universe_cap?.length > 0,
-        "persona/philosophy_and_mindset": !!agent.persona?.philosophy_and_mindset,
-        "asset_evaluation/qualitative": ae.qualitative?.length > 0,
-        "asset_evaluation/quantitative": ae.quantitative?.length > 0,
-        "macro_evaluation/qualitative": me.qualitative?.length > 0,
-        "macro_evaluation/quantitative": me.quantitative?.length > 0,
-    }
+const panelVariants = {
+    enter: (dir: number) => ({ opacity: 0, x: 28 * dir }),
+    center: { opacity: 1, x: 0 },
+    exit: (dir: number) => ({ opacity: 0, x: -28 * dir }),
 }
 
 function computeSectionCompletion(agent: any): Record<string, boolean> {
@@ -89,8 +77,8 @@ function computeOverviewSections(agent: any): { id: string; label: string; summa
             id: "configuration",
             label: "Configuration",
             summary: [
-                c.asset_class?.length ? `${c.asset_class.length} asset classes` : "",
-                c.universe_cap?.length ? `${c.universe_cap.length} cap sizes` : "",
+                c.asset_class?.length ? `${c.asset_class.length} asset class${c.asset_class.length === 1 ? "" : "es"}` : "",
+                c.universe_cap?.length ? `${c.universe_cap.length} cap size${c.universe_cap.length === 1 ? "" : "s"}` : "",
             ].filter(Boolean).join(" · ") || "Not configured",
             hasContent: !!(c.asset_class?.length || c.universe_cap?.length),
         },
@@ -131,8 +119,8 @@ export default function Agent() {
     const [availableMetrics, setAvailableMetrics] = useState<any>(null)
     const [metricsSource, setMetricsSource] = useState<string>("NSE")
     const [agent, setAgent] = useState<any>({ ...DEFAULT_AGENT })
-    const [visibleSection, setVisibleSection] = useState<string>("overview")
-    const [visibleSubsection, setVisibleSubsection] = useState<string | null>(null)
+    const [step, setStep] = useState<string>("overview")
+    const [dir, setDir] = useState<number>(1)
     const [isMobile, setIsMobile] = useState(false)
 
     const isNew = urlParams.id === "new"
@@ -145,8 +133,17 @@ export default function Agent() {
     }, [])
 
     const sectionCompletion = useMemo(() => computeSectionCompletion(agent), [agent])
-    const subsectionCompletion = useMemo(() => computeSubsectionCompletion(agent), [agent])
     const overviewSections = useMemo(() => computeOverviewSections(agent), [agent])
+
+    const goTo = (next: string) => {
+        if (next === step) return
+        setDir(STEPS.findIndex((s) => s.id === next) > STEPS.findIndex((s) => s.id === step) ? 1 : -1)
+        setStep(next)
+    }
+
+    useEffect(() => {
+        window.scrollTo({ top: 0, behavior: "smooth" })
+    }, [step])
 
     const fetchAgent = async () => {
         try {
@@ -176,7 +173,7 @@ export default function Agent() {
             } else {
                 setAgent({ ...DEFAULT_AGENT })
                 setIsDirty(true)
-                setTimeout(() => handleScrollTo("persona", "philosophy_and_mindset"), 100)
+                setStep("configuration")
             }
         } catch (error) {
             console.error("API Error:", error)
@@ -207,41 +204,6 @@ export default function Agent() {
             fetchMetrics(metricsSource)
         }
     }, [metricsSource])
-
-    useEffect(() => {
-        const elements = document.querySelectorAll("[data-section]")
-        if (elements.length === 0) return
-
-        const observer = new IntersectionObserver(
-            (entries) => {
-                const visible = entries
-                    .filter((e) => e.isIntersecting)
-                    .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
-
-                if (visible.length > 0) {
-                    const top = visible[0]
-                    const section = top.target.getAttribute("data-section") || "overview"
-                    const subsection = top.target.getAttribute("data-subsection") || null
-                    setVisibleSection(section)
-                    setVisibleSubsection(subsection)
-                }
-            },
-            { rootMargin: "-80px 0px -60% 0px" }
-        )
-
-        elements.forEach((el) => observer.observe(el))
-        return () => observer.disconnect()
-    }, [loading, agent])
-
-    const handleScrollTo = useCallback((section: string, subsection?: string | null) => {
-        const selector = subsection
-            ? `[data-section="${section}"][data-subsection="${subsection}"]`
-            : `[data-section="${section}"]:not([data-subsection])`
-        const el = document.querySelector(selector)
-        if (el) {
-            el.scrollIntoView({ behavior: "smooth", block: "start" })
-        }
-    }, [])
 
     const VALID_METRIC_TYPES = new Set(["number", "currency", "percentage", "date", "text"])
 
@@ -373,229 +335,240 @@ export default function Agent() {
         if (!loading) setIsDirty(true)
     }
 
-    const overviewNavigate = (section: string) => {
-        const first = getFirstSubsection(section)
-        handleScrollTo(section, first)
-    }
-
-    const renderedSections = (
-        <>
-            <SectionBlock sectionId="overview" title="Overview" description="">
-                <AgentOverview
-                    agentName={agent.name}
-                    isDirty={isDirty}
-                    sections={overviewSections}
-                    onNavigate={overviewNavigate}
-                />
-            </SectionBlock>
-
-            <ConfigurationSection
-                data={agent.configuration}
-                onChange={(v) => updateAgent({ configuration: v })}
-            />
-
-            <PersonaSection
-                data={agent.persona}
-                onChange={(v) => updateAgent({ persona: v })}
-            />
-
-            <AssetEvalSection
-                qualitative={agent.asset_evaluation?.qualitative || []}
-                onQualitativeUpdate={(v) => updateAgent({ asset_evaluation: { ...agent.asset_evaluation, qualitative: v } })}
-                quantitative={agent.asset_evaluation?.quantitative || []}
-                onQuantitativeUpdate={(v) => updateAgent({ asset_evaluation: { ...agent.asset_evaluation, quantitative: v } })}
-                id={agent._id || agent.id}
-                name={agent.name}
-                metrics={availableMetrics}
-                source={agent.source}
-            />
-
-            <MacroEvalSection
-                qualitative={agent.macro_evaluation?.qualitative || []}
-                onQualitativeUpdate={(v) => updateAgent({ macro_evaluation: { ...agent.macro_evaluation, qualitative: v } })}
-                quantitative={agent.macro_evaluation?.quantitative || []}
-                onQuantitativeUpdate={(v) => updateAgent({ macro_evaluation: { ...agent.macro_evaluation, quantitative: v } })}
-                id={agent._id || agent.id}
-                name={agent.name}
-                metrics={availableMetrics}
-                source={agent.source}
-            />
-        </>
-    )
-
-    if (loading) return (
-        <Flex justify="center" align="center" minH="60vh">
-            <Spinner size="lg" borderWidth="2px" color="var(--ink-secondary)" />
-        </Flex>
-    )
-
     const metaLine = !isNew ? [
-        agent._id || agent.id ? `ID ${(agent._id || agent.id).slice(0, 10)}` : null,
+        agent.id ? `ID ${(agent._id || agent.id).slice(0, 10)}` : null,
         agent.created_at ? new Date(agent.created_at).toLocaleDateString() : null,
         agent.source || null,
     ].filter(Boolean).join("  ·  ") : null
 
+    const activePanel = (
+        <AnimatePresence mode="wait" custom={dir} initial={false}>
+            <motion.div
+                key={step}
+                custom={dir}
+                variants={panelVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: dur.base, ease }}
+            >
+                {step === "overview" && (
+                    <AgentOverview
+                        agentName={agent.name}
+                        isDirty={isDirty}
+                        sections={overviewSections}
+                        onNavigate={goTo}
+                    />
+                )}
+                {step === "configuration" && (
+                    <ConfigurationSection
+                        data={agent.configuration}
+                        onChange={(v) => updateAgent({ configuration: v })}
+                    />
+                )}
+                {step === "persona" && (
+                    <PersonaSection
+                        data={agent.persona}
+                        onChange={(v) => updateAgent({ persona: v })}
+                    />
+                )}
+                {step === "asset_evaluation" && (
+                    <AssetEvalSection
+                        qualitative={agent.asset_evaluation?.qualitative || []}
+                        onQualitativeUpdate={(v) => updateAgent({ asset_evaluation: { ...agent.asset_evaluation, qualitative: v } })}
+                        quantitative={agent.asset_evaluation?.quantitative || []}
+                        onQuantitativeUpdate={(v) => updateAgent({ asset_evaluation: { ...agent.asset_evaluation, quantitative: v } })}
+                        id={agent._id || agent.id}
+                        name={agent.name}
+                        metrics={availableMetrics}
+                        source={agent.source}
+                    />
+                )}
+                {step === "macro_evaluation" && (
+                    <MacroEvalSection
+                        qualitative={agent.macro_evaluation?.qualitative || []}
+                        onQualitativeUpdate={(v) => updateAgent({ macro_evaluation: { ...agent.macro_evaluation, qualitative: v } })}
+                        quantitative={agent.macro_evaluation?.quantitative || []}
+                        onQuantitativeUpdate={(v) => updateAgent({ macro_evaluation: { ...agent.macro_evaluation, quantitative: v } })}
+                        id={agent._id || agent.id}
+                        name={agent.name}
+                        metrics={availableMetrics}
+                        source={agent.source}
+                    />
+                )}
+            </motion.div>
+        </AnimatePresence>
+    )
+
+    if (loading) return (
+        <Flex justify="center" align="center" minH="60vh">
+            <Spinner size="lg" color="var(--accent-primary)" />
+        </Flex>
+    )
+
     return (
-        <Flex direction="column" gap={6} pt={4} bg="var(--surface-canvas)" minH="100vh">
-            {/* Sticky header */}
+        <Flex direction="column" gap={5} pt={2} w="full" maxW="1240px" mx="auto">
+            {/* Sticky header — one row */}
             <Flex
                 position="sticky"
                 top={0}
                 zIndex={10}
                 bg="var(--surface-canvas)"
                 borderBottom="1px solid var(--hairline)"
-                pb={4}
-                pt={4}
-                direction="column"
+                py={3}
+                justify="space-between"
+                align="center"
                 gap={3}
             >
-                <Flex
-                    justify="space-between"
-                    align="start"
-                    direction={{ base: "column", md: "row" }}
-                    gap={{ base: 4, md: 0 }}
-                >
-                    <Flex direction="column" gap={1} flex={1} maxW="400px" w={{ base: "full", md: "auto" }}>
-                        <Input
-                            variant="plain"
-                            fontWeight={600}
-                            fontSize="18px"
-                            value={agent.name}
-                            onChange={(e) => updateAgent({ name: e.target.value })}
-                            placeholder="Agent name"
-                            bg="transparent"
-                            border="none"
-                            borderBottom="1px solid var(--hairline)"
-                            borderRadius={0}
-                            _focus={{ borderBottomColor: "var(--accent-primary)" }}
-                            px={0}
-                            py={2}
-                            h="auto"
-                        />
-                        {metaLine && (
-                            <Text
-                                fontSize="11.5px"
-                                fontFamily="var(--font-mono)"
-                                color="var(--ink-tertiary)"
-                                mt={1}
-                                overflowWrap={{ base: "anywhere", md: "normal" }}
-                            >
-                                {metaLine}
-                            </Text>
-                        )}
+                <Flex direction="column" flex={1} minW={{ base: "140px", md: "320px" }} maxW="420px">
+                    <Input
+                        variant="plain"
+                        fontWeight={600}
+                        fontSize="17px"
+                        value={agent.name}
+                        onChange={(e) => updateAgent({ name: e.target.value })}
+                        placeholder="Untitled agent"
+                        bg="transparent"
+                        border="none"
+                        borderBottom="1px solid var(--hairline)"
+                        borderRadius={0}
+                        _focus={{ borderBottomColor: "var(--accent-primary)" }}
+                        px={0}
+                        py={1}
+                        h="auto"
+                    />
+                    {metaLine && (
+                        <Text
+                            fontSize="11px"
+                            fontFamily="var(--font-mono)"
+                            color="var(--ink-tertiary)"
+                            mt={1.5}
+                            truncate
+                        >
+                            {metaLine}
+                        </Text>
+                    )}
+                </Flex>
+
+                <Flex align="center" gap={2} flexShrink={0}>
+                    <AnimatePresence mode="wait">
                         {isDirty ? (
-                            <Flex align="center" gap={1.5} mt={1}>
-                                <MdWarningAmber size={14} color="var(--signal-caution)" />
-                                <Text fontSize="12px" color="var(--signal-caution)" fontWeight={500}>
-                                    Unsaved changes
+                            <Flex as={motion.div} key="dirty" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }} transition={{ duration: dur.fast, ease }} align="center" gap={1.5} mr={1}>
+                                <motion.span
+                                    animate={{ scale: [1, 1.25, 1] }}
+                                    transition={{ repeat: Infinity, repeatDelay: 1.6, duration: dur.slow }}
+                                    style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--signal-caution)", display: "inline-block" }}
+                                />
+                                <Text as="span" fontSize="12px" color="var(--signal-caution)" fontWeight={500} display={{ base: "none", md: "inline" }}>
+                                    Unsaved
                                 </Text>
                             </Flex>
                         ) : (
-                            <Text fontSize="12px" color="var(--ink-tertiary)" mt={1}>
-                                All changes saved
-                            </Text>
+                            <Flex as={motion.div} key="clean" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }} transition={{ duration: dur.fast, ease }} align="center" gap={1.5} mr={1}>
+                                <Box w="7px" h="7px" borderRadius="50%" bg="var(--signal-positive)" />
+                                <Text as="span" fontSize="12px" color="var(--ink-tertiary)" display={{ base: "none", md: "inline" }}>
+                                    Saved
+                                </Text>
+                            </Flex>
                         )}
-                    </Flex>
+                    </AnimatePresence>
 
-                    <Flex direction="column" align={{ base: "flex-start", md: "flex-end" }} gap={2} pt={4}>
-                        <Flex gap={2} flexWrap={{ base: "wrap", md: "nowrap" }}>
-                            {!isNew && (
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    color="var(--ink-tertiary)"
-                                    _hover={{ color: "var(--signal-negative)", bg: "transparent" }}
-                                    onClick={handleDelete}
-                                    fontWeight={500}
-                                    minH={{ base: "44px", md: "auto" }}
-                                >
-                                    <MdDeleteForever size={16} style={{ marginRight: 4 }} />
-                                    Delete
-                                </Button>
-                            )}
-
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept=".json"
-                                style={{ display: "none" }}
-                                onChange={handleImport}
-                            />
-                            {!isNew && (
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    color="var(--ink-tertiary)"
-                                    _hover={{ color: "var(--ink-primary)", bg: "transparent" }}
-                                    onClick={handleExport}
-                                    fontWeight={500}
-                                    minH={{ base: "44px", md: "auto" }}
-                                >
-                                    <MdOutlineFileDownload size={16} style={{ marginRight: 4 }} />
-                                    Export
-                                </Button>
-                            )}
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                color="var(--ink-tertiary)"
-                                _hover={{ color: "var(--ink-primary)", bg: "transparent" }}
-                                onClick={() => fileInputRef.current?.click()}
-                                fontWeight={500}
-                                minH={{ base: "44px", md: "auto" }}
-                            >
-                                <MdOutlineFileUpload size={16} style={{ marginRight: 4 }} />
-                                Import
+                    <Menu.Root>
+                        <Menu.Trigger asChild>
+                            <Button variant="ghost" size="sm" color="var(--ink-secondary)" px={2} aria-label="More actions">
+                                <MdMoreHoriz size={18} />
                             </Button>
+                        </Menu.Trigger>
+                        <Menu.Positioner>
+                            <Menu.Content minW="180px">
+                                <Menu.Item
+                                    value="import"
+                                    onClick={() => fileInputRef.current?.click()}
+                                >
+                                    <MdOutlineFileUpload size={15} />
+                                    Import JSON
+                                </Menu.Item>
+                                {!isNew && (
+                                    <Menu.Item value="export" onClick={handleExport}>
+                                        <MdOutlineFileDownload size={15} />
+                                        Export JSON
+                                    </Menu.Item>
+                                )}
+                                {!isNew && (
+                                    <>
+                                        <Menu.Separator />
+                                        <Menu.Item
+                                            value="delete"
+                                            color="var(--signal-negative)"
+                                            onClick={handleDelete}
+                                        >
+                                            <MdDeleteForever size={15} />
+                                            Delete agent
+                                        </Menu.Item>
+                                    </>
+                                )}
+                            </Menu.Content>
+                        </Menu.Positioner>
+                    </Menu.Root>
 
-                            <Button
-                                size="sm"
-                                bg="var(--accent-primary)"
-                                color="#fff"
-                                fontWeight={500}
-                                fontSize="13px"
-                                px={5}
-                                _hover={{ opacity: 0.9 }}
-                                borderRadius="3px"
-                                loading={saving}
-                                onClick={handleSave}
-                                minH={{ base: "44px", md: "auto" }}
-                            >
-                                <MdSave size={14} style={{ marginRight: 4 }} />
-                                {isNew ? "Create" : "Save"}
-                            </Button>
-                        </Flex>
+                    <Button
+                        as={motion.button}
+                        whileTap={{ scale: 0.97 }}
+                        whileHover={{ y: -1 }}
+                        size="sm"
+                        bg="var(--accent-primary)"
+                        color="#fff"
+                        fontWeight={500}
+                        fontSize="13px"
+                        px={5}
+                        _hover={{ opacity: 0.92 }}
+                        borderRadius="3px"
+                        loading={saving}
+                        onClick={handleSave}
+                    >
+                        <MdSave size={14} />
+                        {isNew ? "Create agent" : "Save"}
+                    </Button>
+
+                    <AnimatePresence>
                         {saved && (
-                            <Text fontSize="12px" color="var(--signal-positive)">
+                            <Text
+                                as={motion.span}
+                                initial={{ opacity: 0, x: 8 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: 8 }}
+                                transition={{ duration: dur.base, ease }}
+                                fontSize="12px"
+                                color="var(--signal-positive)"
+                                display={{ base: "none", md: "inline" }}
+                                whiteSpace="nowrap"
+                            >
                                 Changes saved
                             </Text>
                         )}
-                    </Flex>
+                    </AnimatePresence>
                 </Flex>
             </Flex>
 
+            {/* Hidden import input */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                style={{ display: "none" }}
+                onChange={handleImport}
+            />
+
             {isMobile ? (
                 <Flex direction="column" gap={4}>
-                    <MobilePills
-                        visibleSection={visibleSection}
-                        visibleSubsection={visibleSubsection}
-                        onScrollTo={handleScrollTo}
-                        sectionCompletion={sectionCompletion}
-                        subsectionCompletion={subsectionCompletion}
-                    />
-                    {renderedSections}
+                    <MobilePills steps={STEPS} active={step} onSelect={goTo} completion={sectionCompletion} />
+                    {activePanel}
                 </Flex>
             ) : (
-                <Flex direction="row" align="stretch" gap={8}>
-                    <DesktopSidebar
-                        visibleSection={visibleSection}
-                        visibleSubsection={visibleSubsection}
-                        onScrollTo={handleScrollTo}
-                        sectionCompletion={sectionCompletion}
-                        subsectionCompletion={subsectionCompletion}
-                    />
-                    <Box flex={1} minW={0}>
-                        {renderedSections}
+                <Flex direction="row" align="flex-start" gap={8}>
+                    <StepRail steps={STEPS} active={step} onSelect={goTo} completion={sectionCompletion} />
+                    <Box flex={1} minW={0} pb={10}>
+                        {activePanel}
                     </Box>
                 </Flex>
             )}

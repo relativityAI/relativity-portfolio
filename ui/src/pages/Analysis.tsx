@@ -4,12 +4,14 @@ import {
     createListCollection, Portal, HStack, VStack
 } from "@chakra-ui/react";
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
-import { MdInfoOutline, MdCheck, MdClose, MdRefresh } from "react-icons/md";
+import { MdInfoOutline, MdCheck, MdClose } from "react-icons/md";
 import { Link, useParams } from "react-router-dom";
 import { AnalysisService, AgentService, DataService, API_BASE } from "@/db";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatSeconds } from "@/utils";
 import { RunSteps, type RunStep } from "./shared/RunStatus";
+import { motion, AnimatePresence } from "motion/react";
+import { dur, ease, stagger, staggerItem } from "@/lib/motion";
 
 const MAX_POLL_RETRIES = 600;
 
@@ -31,6 +33,10 @@ function StatusDot({ state }: { state: "idle" | "active" | "done" | "error" }) {
     if (state === "error") {
         return (
             <Box
+                as={motion.div}
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", stiffness: 500, damping: 20 }}
                 w="6px"
                 h="6px"
                 borderRadius="50%"
@@ -41,6 +47,9 @@ function StatusDot({ state }: { state: "idle" | "active" | "done" | "error" }) {
     }
     return (
         <Box
+            as={motion.div}
+            animate={{ scale: state === "done" ? 1 : 1, backgroundColor: state === "done" ? "var(--ink-primary)" : "transparent" }}
+            transition={{ duration: dur.fast, ease }}
             w="6px"
             h="6px"
             borderRadius="1px"
@@ -98,7 +107,15 @@ function AnalysisStepper({ sourceComplete, companyComplete, agentComplete }: {
                         </Text>
                     </Flex>
                     {i < steps.length - 1 && (
-                        <Box flex={1} h="1px" bg="var(--hairline)" mb={4} />
+                        <Box
+                            as={motion.div}
+                            flex={1}
+                            h="1px"
+                            mb={4}
+                            initial={false}
+                            animate={{ backgroundColor: step.done ? "var(--accent-primary)" : "var(--hairline)" }}
+                            transition={{ duration: dur.base, ease }}
+                        />
                     )}
                 </Fragment>
             ))}
@@ -124,10 +141,14 @@ function AnalysisGettingStarted() {
             >
                 How it works
             </Text>
-            <Flex align="center" gap={1.5} wrap="wrap">
+            <Flex align="center" gap={1.5} wrap="wrap" as={motion.div} variants={stagger} initial="initial" animate="animate">
                 {steps.map((s, i) => (
                     <Fragment key={s.num}>
                         <Flex
+                            as={motion.div}
+                            variants={staggerItem}
+                            whileHover={{ y: -2 }}
+                            transition={{ duration: dur.fast, ease }}
                             align="center"
                             gap={1.5}
                             px={2.5}
@@ -221,11 +242,13 @@ function RunningNow() {
             >
                 Running Now
             </Text>
-            <Flex direction="column" gap={1.5}>
+            <Flex direction="column" gap={1.5} as={motion.div} layout>
+                <AnimatePresence>
                 {running.map((a) => {
                     const rid = a.analysis_id || a._id || a.id;
                     return (
-                        <Link key={rid} to={`/analysis-result/${rid}`}>
+                        <Box as={motion.div} key={rid} layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: dur.base, ease }}>
+                        <Link to={`/analysis-result/${rid}`}>
                             <HStack
                                 gap={2}
                                 p={2}
@@ -251,8 +274,10 @@ function RunningNow() {
                                 </Flex>
                             </HStack>
                         </Link>
+                        </Box>
                     );
                 })}
+                </AnimatePresence>
             </Flex>
         </Box>
     );
@@ -315,6 +340,11 @@ function DataAvailabilityTag({ loading, data, symbol }: { loading: boolean; data
     return (
         <Tooltip content={detail}>
             <HStack
+                as={motion.div}
+                key={label}
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: dur.fast, ease }}
                 gap={1.5}
                 px={2}
                 py={1}
@@ -609,27 +639,46 @@ export default function Analysis() {
     const canRunAnalysis = isConfigComplete;
 
     return (
-        <Flex direction="column" gap={8} py={4} bg="var(--surface-canvas)" minH="100vh" px={6}>
-            <AnalysisHero />
+        <Box bg="var(--surface-canvas)" minH="100vh">
+            <Flex direction="column" gap={7} maxW="1240px" mx="auto" py={5}>
+                {/* Header: hero + inline stepper */}
+                <Flex
+                    as={motion.div}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: dur.base, ease }}
+                    justify="space-between"
+                    align={{ base: "flex-start", md: "flex-end" }}
+                    gap={{ base: 5, md: 8 }}
+                    wrap="wrap"
+                >
+                    <AnalysisHero />
+                    <Box w={{ base: "full", md: "auto" }} flex={{ md: 1 }} maxW="460px" minW={{ base: "full", md: "320px" }}>
+                        <AnalysisStepper
+                            sourceComplete={!!config.source}
+                            companyComplete={!!config.share}
+                            agentComplete={!!config.agent}
+                        />
+                    </Box>
+                </Flex>
 
-            <AnalysisStepper
-                sourceComplete={!!config.source}
-                companyComplete={!!config.share}
-                agentComplete={!!config.agent}
-            />
-
-            <Flex direction={{ base: "column", md: "row" }} gap={8} align="start" mb={4}>
+            <Flex direction={{ base: "column", md: "row" }} gap={6} align="start" mb={4}>
                 {/* Left: Configuration */}
-                <Box flex="1" width="full" minW={0}>
+                <Box flex="1" width="full" minW={0}
+                    as={motion.div}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: dur.base, ease, delay: 0.05 }}
+                >
                     <Box
                         bg="var(--surface-panel)"
                         border="1px solid var(--hairline)"
                         borderRadius="2px"
-                        p={8}
+                        p={{ base: 5, md: 8 }}
                         mb={6}
                     >
-                        <Flex direction="column" gap={6}>
-                            <Flex direction="column" align="start">
+                        <Flex direction="column" gap={6} as={motion.div} variants={stagger} initial="initial" animate="animate">
+                            <Flex direction="column" align="start" as={motion.div} variants={staggerItem}>
                                 <Flex align="center" gap={1} mb={2}>
                                     <Text
                                         fontSize="10.5px"
@@ -677,7 +726,7 @@ export default function Analysis() {
                                 </Box>
                             </Flex>
 
-                            <Flex direction="column" align="start">
+                            <Flex direction="column" align="start" as={motion.div} variants={staggerItem}>
                                 <Flex justify="space-between" align="center" w="full" mb={2}>
                                     <Text
                                         fontSize="10.5px"
@@ -707,7 +756,7 @@ export default function Analysis() {
                                 />
                             </Flex>
 
-                            <Flex direction="column" align="start">
+                            <Flex direction="column" align="start" as={motion.div} variants={staggerItem}>
                                 <Text
                                     mb={2}
                                     fontSize="10.5px"
@@ -751,7 +800,7 @@ export default function Analysis() {
                                 </Box>
                             </Flex>
 
-                            <Flex direction="column" align="start">
+                            <Flex direction="column" align="start" as={motion.div} variants={staggerItem}>
                                 <Text
                                     mb={2}
                                     fontSize="10.5px"
@@ -779,8 +828,14 @@ export default function Analysis() {
                                         borderRadius="2px"
                                         _focus={{ borderColor: "var(--accent-primary)" }}
                                     />
+                                    <AnimatePresence>
                                     {showModelList && (
                                         <Box
+                                            as={motion.div}
+                                            initial={{ opacity: 0, y: -4, height: 0 }}
+                                            animate={{ opacity: 1, y: 0, height: "auto" }}
+                                            exit={{ opacity: 0, y: -4, height: 0 }}
+                                            transition={{ duration: dur.base, ease }}
                                             position="absolute"
                                             top="100%"
                                             left={0}
@@ -817,6 +872,7 @@ export default function Analysis() {
                                             )}
                                         </Box>
                                     )}
+                                    </AnimatePresence>
                                 </Box>
                             </Flex>
                         </Flex>
@@ -825,7 +881,12 @@ export default function Analysis() {
                 </Box>
 
                 {/* Right: Analysis Status */}
-                <Box width={{ base: "full", md: "380px" }} flexShrink={0}>
+                <Box width={{ base: "full", md: "380px" }} flexShrink={0}
+                    as={motion.div}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: dur.base, ease, delay: 0.12 }}
+                >
                     <Box
                         bg="var(--surface-panel)"
                         border="1px solid var(--hairline)"
@@ -844,7 +905,15 @@ export default function Analysis() {
                         </Text>
 
                         <VStack gap={5} align="stretch">
-                            {/* Overall run state */}
+                            {/* Overall run state — crossfades between states */}
+                            <AnimatePresence mode="wait" initial={false}>
+                                <motion.div
+                                    key={status === "EMPTY" && id ? "resuming" : status}
+                                    initial={{ opacity: 0, y: 6 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -6 }}
+                                    transition={{ duration: dur.fast, ease }}
+                                >
                             {status === "PENDING" ? (
                                 <HStack gap={2}>
                                     <Spinner size="sm" borderWidth="2px" color="var(--accent-primary)" />
@@ -894,6 +963,8 @@ export default function Analysis() {
                                     </Text>
                                 </HStack>
                             ) : null}
+                                </motion.div>
+                            </AnimatePresence>
 
                             {/* Step checklist */}
                             {status !== "EMPTY" && steps.length > 0 && (
@@ -915,6 +986,9 @@ export default function Analysis() {
                                         </Text>
                                     )}
                                     <Button
+                                        as={motion.button}
+                                        whileHover={canRunAnalysis ? { scale: 1.02 } : undefined}
+                                        whileTap={canRunAnalysis ? { scale: 0.98 } : undefined}
                                         size="sm"
                                         bg="var(--accent-primary)"
                                         color="#fff"
@@ -1028,6 +1102,7 @@ export default function Analysis() {
                     </Text>
                 </Flex>
             ) : !id && !config.share && <AnalysisGettingStarted />}
-        </Flex>
+            </Flex>
+        </Box>
     )
 }

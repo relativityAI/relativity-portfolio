@@ -11,6 +11,8 @@ import {
   IconButton,
 } from "@chakra-ui/react"
 import { MdDeleteForever, MdAdd, MdRemove } from "react-icons/md"
+import { motion, AnimatePresence } from "motion/react"
+import { dur, ease } from "@/lib/motion"
 
 const OPERATORS_BY_TYPE: Record<string, { value: string; label: string }[]> = {
   text: [
@@ -261,7 +263,8 @@ export default function CriteriaBuilder({
           <Text fontSize="xs" color="fg.muted">{emptyStateSubtitle}</Text>
         </Flex>
       ) : (
-        localCriteria.map((criterion, index) => {
+        <AnimatePresence initial={false}>
+        {localCriteria.map((criterion, index) => {
           const availableMetrics = getMetricsForCategory(criterion.category)
           const operators = OPERATORS_BY_TYPE[criterion.metric_type] || OPERATORS_BY_TYPE.number
           const isBetween = criterion.operator === "between"
@@ -270,7 +273,13 @@ export default function CriteriaBuilder({
 
           return (
             <Flex
+              as={motion.div}
+              layout
               key={index}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6, height: 0 }}
+              transition={{ duration: dur.base, ease }}
               gap={{ base: 2, md: 1.5 }}
                px={2}
                py={{ base: 3, md: 1 }}
@@ -407,7 +416,8 @@ export default function CriteriaBuilder({
               </Box>
             </Flex>
           )
-        })
+        })}
+        </AnimatePresence>
       )}
 
       <Button

@@ -17,6 +17,7 @@ export default function PersonaSection({ data, onChange }: PersonaSectionProps) 
   return (
     <>
       <SectionHeader
+        first
         title="Agent Persona"
         description="A free-form, in-depth description of who the agent is as a decision-maker — the investing beliefs, philosophy, and mindset it operates with."
         sequenceNumber={2}

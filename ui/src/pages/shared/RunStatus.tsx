@@ -1,6 +1,8 @@
 import { Box, Flex, Text, Spinner, HStack, VStack } from "@chakra-ui/react";
 import { MdCheck, MdClose } from "react-icons/md";
 import { formatSeconds } from "@/utils";
+import { motion } from "motion/react";
+import { dur, ease } from "@/lib/motion";
 
 export type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 
@@ -26,6 +28,10 @@ function StepIcon({ status }: { status: StepStatus }) {
     if (status === "completed") {
         return (
             <Flex
+                as={motion.div}
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", stiffness: 400, damping: 18 }}
                 w="16px"
                 h="16px"
                 borderRadius="50%"
@@ -41,6 +47,10 @@ function StepIcon({ status }: { status: StepStatus }) {
     if (status === "failed") {
         return (
             <Flex
+                as={motion.div}
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", stiffness: 400, damping: 18 }}
                 w="16px"
                 h="16px"
                 borderRadius="50%"
@@ -89,7 +99,7 @@ function StepRow({ step, now }: { step: RunStep; now: number }) {
                     : "var(--ink-tertiary)";
 
     return (
-        <Flex gap={2.5} align="flex-start">
+        <Flex as={motion.div} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: dur.base, ease }} gap={2.5} align="flex-start">
             <Box mt="1px">
                 <StepIcon status={step.status} />
             </Box>

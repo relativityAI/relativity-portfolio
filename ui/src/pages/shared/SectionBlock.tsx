@@ -1,4 +1,6 @@
 import { Flex, Text } from "@chakra-ui/react"
+import { motion } from "motion/react"
+import { dur, ease } from "@/lib/motion"
 
 interface SectionBlockProps {
   sectionId: string;
@@ -11,6 +13,11 @@ interface SectionBlockProps {
 export default function SectionBlock({ sectionId, subsectionId, title, description, children }: SectionBlockProps) {
   return (
     <Flex
+      as={motion.div}
+      initial={{ opacity: 0, y: 8 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-40px" }}
+      transition={{ duration: dur.base, ease }}
       direction="column"
       gap={4}
       pt={6}

@@ -1,4 +1,5 @@
 import { Flex, Text, Button } from "@chakra-ui/react"
+import { motion } from "motion/react";
 
 interface ChipMultiSelectProps {
   label: string;
@@ -36,6 +37,8 @@ export default function ChipMultiSelect({ label, description, options, selected,
           const isActive = selected.includes(opt.value)
           return (
             <Button
+              as={motion.button}
+              whileTap={{ scale: 0.96 }}
               key={opt.value}
               size="sm"
               variant="ghost"

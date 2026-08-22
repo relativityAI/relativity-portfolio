@@ -6,6 +6,8 @@ import {
 import { MdCheck, MdClose, MdVisibility, MdVisibilityOff, MdWeb, MdDelete } from "react-icons/md";
 import { toaster } from "@/components/ui/toaster";
 import { SettingsService } from "@/db";
+import { motion, AnimatePresence } from "motion/react";
+import { dur, ease } from "@/lib/motion";
 
 const providerOptions = createListCollection({
     items: [
@@ -19,11 +21,6 @@ const providerOptions = createListCollection({
     itemToString: (item: any) => item.label,
     itemToValue: (item: any) => item.value,
 });
-
-function maskKey(key: string): string {
-    if (!key || key.length < 8) return key;
-    return key.slice(0, 3) + "****" + key.slice(-4);
-}
 
 export default function Settings() {
     const [provider, setProvider] = useState("openai");
@@ -143,31 +140,40 @@ export default function Settings() {
 
     return (
         <Box bg="var(--surface-canvas)" minH="100vh">
-            <Flex direction="column" gap={6} maxW="1100px" mx="auto" px={6} py={6}>
+            <Flex direction="column" gap={6} maxW="1240px" mx="auto" py={6}>
                 {/* Header */}
-                <Flex direction="column" gap={1}>
-                    <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
-                        Settings
-                    </Text>
-                    <Text fontSize="13px" color="var(--ink-secondary)">
-                        Manage the API keys used to run analyses.
+                <Flex justify="space-between" align={{ base: "flex-start", md: "flex-end" }} gap={3}>
+                    <Flex direction="column" gap={1}>
+                        <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
+                            Settings
+                        </Text>
+                        <Text fontSize="13px" color="var(--ink-secondary)">
+                            Manage the API keys used to run analyses.
+                        </Text>
+                    </Flex>
+                    <Text
+                        fontSize="11.5px"
+                        fontFamily="var(--font-mono)"
+                        color="var(--ink-tertiary)"
+                        whiteSpace="nowrap"
+                    >
+                        {Object.keys(savedKeys).length} KEY{Object.keys(savedKeys).length === 1 ? "" : "S"} STORED
                     </Text>
                 </Flex>
 
-                <Flex
-                    direction={{ base: "column", xl: "row" }}
-                    gap={6}
-                    align="start"
-                    wrap="wrap"
-                >
-                    {/* Panel: API Keys / Model Provider */}
+                <Flex direction={{ base: "column", lg: "row" }} gap={6} align="stretch">
+                    {/* Panel: Model Provider */}
                     <Box
+                        as={motion.div}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: dur.base, ease }}
                         bg="var(--surface-panel)"
                         border="1px solid var(--hairline)"
                         borderRadius="2px"
                         p={6}
                         flex="1"
-                        minW={{ base: "full", xl: "300px" }}
+                        minW={0}
                     >
                         <Text
                             fontSize="10.5px"
@@ -250,6 +256,12 @@ export default function Settings() {
                                 >
                                     API Key
                                 </Field.Label>
+                                <motion.div
+                                    key={provider}
+                                    initial={{ opacity: 0, x: -8 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    transition={{ duration: dur.fast, ease }}
+                                >
                                 <HStack gap={2}>
                                     <Input
                                         type={showKey ? "text" : "password"}
@@ -271,10 +283,13 @@ export default function Settings() {
                                         {showKey ? <MdVisibilityOff size={18} /> : <MdVisibility size={18} />}
                                     </Button>
                                 </HStack>
+                                </motion.div>
                             </Field.Root>
 
                             <HStack gap={2}>
                                 <Button
+                                    as={motion.button}
+                                    whileTap={{ scale: 0.97 }}
                                     size="sm"
                                     bg="var(--accent-primary)"
                                     color="#fff"
@@ -289,6 +304,8 @@ export default function Settings() {
                                     {saving ? <Spinner size="sm" borderWidth="2px" /> : <><MdCheck size={14} style={{ marginRight: 4 }} />Save</>}
                                 </Button>
                                 <Button
+                                    as={motion.button}
+                                    whileTap={{ scale: 0.97 }}
                                     size="sm"
                                     variant="outline"
                                     color="var(--signal-negative)"
@@ -309,12 +326,16 @@ export default function Settings() {
 
                     {/* Panel: Web Search */}
                     <Box
+                        as={motion.div}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: dur.base, ease, delay: 0.06 }}
                         bg="var(--surface-panel)"
                         border="1px solid var(--hairline)"
                         borderRadius="2px"
                         p={6}
                         flex="1"
-                        minW={{ base: "full", xl: "280px" }}
+                        minW={0}
                     >
                         <Text
                             fontSize="10.5px"
@@ -364,6 +385,8 @@ export default function Settings() {
 
                             <HStack gap={2}>
                                 <Button
+                                    as={motion.button}
+                                    whileTap={{ scale: 0.97 }}
                                     size="sm"
                                     bg="var(--accent-primary)"
                                     color="#fff"
@@ -399,8 +422,14 @@ export default function Settings() {
                 </Flex>
 
                 {/* Saved Keys */}
+                <AnimatePresence>
                 {hasSavedKeys && (
                     <Box
+                        as={motion.div}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: dur.base, ease }}
                         bg="var(--surface-panel)"
                         border="1px solid var(--hairline)"
                         borderRadius="2px"
@@ -415,10 +444,19 @@ export default function Settings() {
                             mb={3}
                         >
                             Saved Keys
+                            <Text as="span" fontFamily="var(--font-mono)" ml={2} color="var(--ink-tertiary)">
+                                {Object.keys(savedKeys).length}
+                            </Text>
                         </Text>
                         <VStack gap={0} align="stretch">
                             {Object.entries(savedKeys).map(([prov, key], i, arr) => (
                                 <HStack
+                                    as={motion.div}
+                                    layout
+                                    initial={{ opacity: 0, x: -6 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    exit={{ opacity: 0, x: 6 }}
+                                    transition={{ duration: dur.fast, ease }}
                                     key={prov}
                                     justify="space-between"
                                     py={2.5}
@@ -448,6 +486,7 @@ export default function Settings() {
                         </VStack>
                     </Box>
                 )}
+                </AnimatePresence>
             </Flex>
         </Box>
     );

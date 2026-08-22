@@ -3,6 +3,8 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MdArrowUpward, MdArrowDownward } from "react-icons/md";
 import { AnalysisService } from "@/db";
+import { motion } from "motion/react";
+import { dur, ease, stagger, staggerItem, CountUp } from "@/lib/motion";
 
 type SortKey = "share" | "created_at" | "score" | "status" | "agent" | "model" | "duration";
 
@@ -67,7 +69,7 @@ function MiniBar({ value, max, color }: { value: number; max: number; color: str
             overflow="hidden"
             minW={0}
         >
-            <Box h="full" bg={color} width={`${pct}%`} transition="width 200ms" />
+            <Box as={motion.div} h="full" bg={color} initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.6, ease }} />
         </Box>
     );
 }
@@ -97,15 +99,18 @@ function Sparkline({ values, height = 40 }: { values: number[]; height?: number 
                 preserveAspectRatio="none"
                 style={{ display: "block" }}
             >
-                <polyline
+                <motion.polyline
                     points={line}
                     fill="none"
                     stroke="var(--accent-primary)"
                     strokeWidth="1.5"
                     strokeLinejoin="round"
                     strokeLinecap="round"
+                    initial={{ pathLength: 0 }}
+                    animate={{ pathLength: 1 }}
+                    transition={{ duration: 0.9, ease }}
                 />
-                <polygon points={area} fill="var(--accent-primary)" opacity="0.08" />
+                <motion.polygon points={area} fill="var(--accent-primary)" initial={{ opacity: 0 }} animate={{ opacity: 0.08 }} transition={{ duration: 0.6, delay: 0.5 }} />
             </svg>
         </Box>
     );
@@ -288,13 +293,28 @@ export default function AnalysisList() {
 
     return (
         <Box bg="var(--surface-canvas)" minH="100vh">
-            <Flex direction="column" gap={6} maxW="1600px" mx="auto" px={6} py={6}>
+            <Flex direction="column" gap={6} maxW="1600px" mx="auto" py={6}>
                 {/* Page header */}
-                <Flex justify="space-between" align="center">
-                    <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
-                        Share Analysis
-                    </Text>
+                <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} wrap="wrap"
+                    as={motion.div}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: dur.base, ease }}
+                >
+                    <Flex direction="column" gap={0.5}>
+                        <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
+                            Share Analysis
+                        </Text>
+                        <Text fontSize="11.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
+                            {total} RUN{total === 1 ? "" : "S"}
+                            {completed.length > 0 && ` · ${completed.length} COMPLETED`}
+                            {avgScore != null && ` · AVG ${avgScore.toFixed(1)}`}
+                        </Text>
+                    </Flex>
                     <Button
+                        as={motion.button}
+                        whileHover={{ y: -1 }}
+                        whileTap={{ scale: 0.97 }}
                         size="sm"
                         onClick={() => navigate("/")}
                         bg="var(--accent-primary)"
@@ -319,9 +339,13 @@ export default function AnalysisList() {
                         border="1px solid var(--hairline)"
                         borderRadius="2px"
                         bg="var(--surface-panel)"
+                        as={motion.div}
+                        variants={stagger}
+                        initial="initial"
+                        animate="animate"
                     >
                         {/* Run health */}
-                        <Box px={4} py={3}>
+                        <Box px={4} py={3} as={motion.div} variants={staggerItem}>
                             <SectionLabel>Run Health</SectionLabel>
                             <Flex direction="column" gap={3}>
                                 <Flex justify="space-between" align="baseline">
@@ -336,7 +360,7 @@ export default function AnalysisList() {
                                         color="var(--ink-primary)"
                                         lineHeight="1"
                                     >
-                                        {completed.length}
+                                        <CountUp value={completed.length} decimals={0} />
                                     </Text>
                                 </Flex>
                                 <Flex justify="space-between" align="baseline">
@@ -351,7 +375,7 @@ export default function AnalysisList() {
                                         color={failed.length > 0 ? "var(--signal-negative)" : "var(--ink-primary)"}
                                         lineHeight="1"
                                     >
-                                        {failed.length}
+                                        <CountUp value={failed.length} decimals={0} />
                                     </Text>
                                 </Flex>
                                 {total > 0 && (
@@ -388,7 +412,7 @@ export default function AnalysisList() {
                         <Box mx={4} borderTop="1px solid var(--hairline)" />
 
                         {/* Score distribution */}
-                        <Box px={4} py={3}>
+                        <Box px={4} py={3} as={motion.div} variants={staggerItem}>
                             <SectionLabel>Score Distribution</SectionLabel>
                             {completed.length === 0 ? (
                                 <Text fontSize="12px" color="var(--ink-tertiary)">
@@ -422,7 +446,7 @@ export default function AnalysisList() {
                         <Box mx={4} borderTop="1px solid var(--hairline)" />
 
                         {/* Quant vs Qual */}
-                        <Box px={4} py={3}>
+                        <Box px={4} py={3} as={motion.div} variants={staggerItem}>
                             <SectionLabel>Quant vs Qual</SectionLabel>
                             {completed.length === 0 ? (
                                 <Text fontSize="12px" color="var(--ink-tertiary)">
@@ -471,7 +495,7 @@ export default function AnalysisList() {
                         <Box mx={4} borderTop="1px solid var(--hairline)" />
 
                         {/* Recent trend */}
-                        <Box px={4} py={3}>
+                        <Box px={4} py={3} as={motion.div} variants={staggerItem}>
                             <SectionLabel>Recent Trend</SectionLabel>
                             <Sparkline values={trend.map((a) => a.total_score)} />
                             {trend.length > 0 && (
@@ -494,7 +518,7 @@ export default function AnalysisList() {
                         <Box mx={4} borderTop="1px solid var(--hairline)" />
 
                         {/* Model usage */}
-                        <Box px={4} py={3}>
+                        <Box px={4} py={3} as={motion.div} variants={staggerItem}>
                             <SectionLabel>Model Usage</SectionLabel>
                             {modelUsage.length === 0 ? (
                                 <Text fontSize="12px" color="var(--ink-tertiary)">
@@ -676,7 +700,7 @@ export default function AnalysisList() {
                                                 <Table.ColumnHeader py={3} px={4} w="48px" />
                                             </Table.Row>
                                         </Table.Header>
-                                        <Table.Body>
+                                        <Table.Body as={motion.tbody} variants={stagger} initial="initial" animate="animate">
                                             {fetchError ? (
                                                 <Table.Row>
                                                     <Table.Cell
@@ -739,6 +763,9 @@ export default function AnalysisList() {
 
                                                     return (
                                                         <Table.Row
+                                                            as={motion.tr}
+                                                            variants={staggerItem}
+                                                            layout
                                                             key={id}
                                                             cursor="pointer"
                                                             onClick={() => onRowClick(id)}

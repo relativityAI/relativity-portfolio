@@ -9,6 +9,8 @@ import {
   IconButton,
 } from "@chakra-ui/react"
 import { MdDeleteForever, MdAdd, MdRemove } from "react-icons/md"
+import { motion, AnimatePresence } from "motion/react"
+import { dur, ease } from "@/lib/motion"
 
 interface ListEditorItem {
   id: string;
@@ -159,11 +161,18 @@ export default function ListEditor(props: ListEditorProps) {
             <Box width="32px" flexShrink={0} />
           </Flex>
 
+          <AnimatePresence initial={false}>
           {items.map((item, index) => {
             const isLast = index === items.length - 1
             return (
               <Flex
+                as={motion.div}
+                layout
                 key={item.id || index}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6, height: 0 }}
+                transition={{ duration: dur.base, ease }}
                 gap={{ base: 2, md: 3 }}
                 px={3}
                 py={{ base: 3, md: 2.5 }}
@@ -248,6 +257,7 @@ export default function ListEditor(props: ListEditorProps) {
               </Flex>
             )
           })}
+          </AnimatePresence>
         </>
       )}
 

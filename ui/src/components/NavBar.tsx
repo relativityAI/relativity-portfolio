@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Flex, Text, IconButton, Drawer, Separator, Menu, Popover } from "@chakra-ui/react"
+import { Flex, Text, IconButton, Drawer, Separator, Menu, Popover, Box } from "@chakra-ui/react"
 import { Link, useLocation } from "react-router-dom";
 import { runHealthCheck } from "../utils"
 import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout } from "react-icons/md";
 import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX } from "react-icons/lu";
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { useAuth } from "@/auth/useAuth";
+import { motion } from "motion/react";
 
 const HEALTH_CHECK_INTERVAL_MS = 15000;
 
@@ -87,30 +88,23 @@ export default function NavBar() {
                 <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
                 
                 <Flex gap={6} align="center" display={{ base: "none", md: "flex" }}>
-                    <Link to={"/"}>
-                        <Flex gap={1.5} align="center">
-                            <MdAddCircleOutline size={16} color="var(--chakra-colors-fg-muted)" />
-                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>New Analysis</Text>
-                        </Flex>
-                    </Link>
-                    <Link to={"/agents"}>
-                        <Flex gap={1.5} align="center">
-                            <MdOutlinePeople size={16} color="var(--chakra-colors-fg-muted)" />
-                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Agents</Text>
-                        </Flex>
-                    </Link>
-                    <Link to={"/analysis-list"}>
-                        <Flex gap={1.5} align="center">
-                            <MdOutlineAssessment size={16} color="var(--chakra-colors-fg-muted)" />
-                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Analysis</Text>
-                        </Flex>
-                    </Link>
-                    <Link to={"/settings"}>
-                        <Flex gap={1.5} align="center">
-                            <MdOutlineSettings size={16} color="var(--chakra-colors-fg-muted)" />
-                            <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>Settings</Text>
-                        </Flex>
-                    </Link>
+                    {[
+                        { to: "/", icon: MdAddCircleOutline, label: "New Analysis" },
+                        { to: "/agents", icon: MdOutlinePeople, label: "Agents" },
+                        { to: "/analysis-list", icon: MdOutlineAssessment, label: "Analysis" },
+                        { to: "/settings", icon: MdOutlineSettings, label: "Settings" },
+                    ].map((item) => {
+                        const active = location.pathname === item.to || (item.to !== "/" && location.pathname.startsWith(item.to));
+                        return (
+                            <Link key={item.to} to={item.to}>
+                                <Flex gap={1.5} align="center" position="relative" py={1}>
+                                    <item.icon size={16} color={active ? "var(--chakra-colors-fg)" : "var(--chakra-colors-fg-muted)"} />
+                                    <Text fontSize="sm" fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{item.label}</Text>
+                                    {active && <Box as={motion.div} layoutId="nav-underline" position="absolute" bottom="-6px" left={0} right={0} h="2px" bg="var(--accent-primary)" borderRadius="1px" />}
+                                </Flex>
+                            </Link>
+                        );
+                    })}
                 </Flex>
             </Flex>
 
