@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseFinalScoreResult } from "../src/agent.js";
+import { parseFinalScoreResult, investorProfileLine } from "../src/agent.js";
 import { assessDataAdequacy, evaluateMetric, runQuantitative } from "../src/quant.js";
 import { resolveWebSearch } from "../src/run.js";
+import { buildFieldList, getFlatCatalog } from "../src/metrics.js";
 
 describe("parseFinalScoreResult", () => {
   it("parses plain FINAL_SCORE line", () => {
@@ -103,6 +104,53 @@ describe("runQuantitative", () => {
     const r = runQuantitative(agent, { a: 5, b: -5 }, "live");
     // a=1 (w3), b=0 (w1) → 0.75 → 75
     expect(r.quantitative_score).toBe(75);
+  });
+});
+
+describe("buildFieldList", () => {
+  it("excludes metadata keys and infers types from the sample snapshot", () => {
+    const fields = buildFieldList({
+      symbol: "TCS",
+      price_data: "live",
+      consolidated: true,
+      filing_type: "quarterly",
+      period_end_date: "2026-06-30",
+      price_to_earnings_ratio: 16.7,
+      return_on_equity: 46.6,
+    });
+    const ids = fields.map((f) => f.id);
+    expect(ids).toContain("period_end_date");
+    expect(ids).toContain("price_to_earnings_ratio");
+    expect(ids).not.toContain("symbol");
+    expect(ids).not.toContain("price_data");
+    expect(ids).not.toContain("consolidated");
+    expect(ids).not.toContain("filing_type");
+    expect(fields.find((f) => f.id === "period_end_date")!.type).toBe("date");
+    expect(fields.find((f) => f.id === "price_to_earnings_ratio")!.type).toBe("number");
+  });
+
+  it("sorts alphabetically and prettifies acronyms", () => {
+    const fields = buildFieldList({ rs_14: 1, atr_14: 2 });
+    expect(fields[0].name < fields[1].name || fields.length < 2).toBe(true);
+    expect(buildFieldList({ rsi_14: 1 })[0].name).toBe("RSI 14");
+  });
+
+  it("handles null/empty samples", () => {
+    expect(buildFieldList(null)).toEqual([]);
+    expect(getFlatCatalog().length).toBeGreaterThan(0);
+  });
+});
+
+describe("investorProfileLine", () => {
+  it("joins horizon and risk", () => {
+    expect(investorProfileLine({ investment_horizon: "Long-term (years)", risk_appetite: "Conservative" })).toBe(
+      "Investor profile — Investment horizon: Long-term (years). Risk appetite: Conservative.",
+    );
+  });
+
+  it("empty when nothing configured", () => {
+    expect(investorProfileLine(undefined)).toBe("");
+    expect(investorProfileLine({})).toBe("");
   });
 });
 

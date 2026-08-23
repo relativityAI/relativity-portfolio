@@ -97,9 +97,12 @@ export const AnalysisService = {
 
 export const VoyagerService = {
     async getAvailableMetrics(source: string) {
-        const response = await axios.get(`${API_BASE}/metrics`, {
-            params: { source }
-        });
+        const response = await axios.get(`${API_BASE}/metrics/fields?source=${encodeURIComponent(source)}`);
+        return response.data;
+    },
+
+    async draftParameters(payload: { persona: string; section: string }): Promise<{ parameters: { parameter: string; content: string; weightage: number }[] }> {
+        const response = await axios.post(`${API_BASE}/agents/draft-parameters`, payload);
         return response.data;
     }
 };

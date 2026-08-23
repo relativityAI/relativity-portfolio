@@ -13,6 +13,7 @@ import { Box, Spinner, Center } from "@chakra-ui/react";
 import { AuthProvider } from "./auth/AuthContext";
 import { useAuth } from "./auth/useAuth";
 import Login from "./pages/Login";
+import Landing from "./pages/Landing";
 import AgentsList from "./pages/AgentsList";
 import AnalysisList from "./pages/AnalysisList";
 import Analysis from "./pages/Analysis";
@@ -40,14 +41,30 @@ function Protected({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function Home() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <Center minH="calc(100vh - 56px)">
+        <Spinner size="lg" />
+      </Center>
+    );
+  }
+
+  return user ? <Analysis /> : <Landing />;
+}
+
 function AppRoutes() {
   const location = useLocation();
   const locationPath = location.pathname;
+  const { user } = useAuth();
 
   useEffect(() => {
     const getTitle = (path: string) => {
       if (path === "/login") return "Sign in";
-      if (path === "/" || path === "/analysis") return "New Analysis";
+      if (path === "/") return user ? "New Analysis" : "Welcome";
+      if (path === "/analysis") return "New Analysis";
       if (path === "/agents") return "Agents";
       if (path.startsWith("/agent/")) return "Agent Detail";
       if (path === "/analysis-list") return "Analysis List";
@@ -57,28 +74,21 @@ function AppRoutes() {
     };
 
     document.title = `${getTitle(locationPath)} | Relativity AI`;
-  }, [locationPath]);
+  }, [locationPath, user]);
 
   const isLogin = locationPath === "/login";
+  const isLanding = locationPath === "/" && !user;
 
   return (
     <>
-      <AuthProvider>
-        {!isLogin && <NavBar />}
+      {!isLogin && !isLanding && <NavBar />}
 
-        <Box w="100%" paddingX={{ base: 4, md: 16 }} marginY={5}>
+        <Box w="100%" paddingX={isLanding ? 0 : { base: 4, md: 16 }} marginY={isLanding ? 0 : 5}>
           <AnimatePresence mode="wait">
             <motion.div key={location.pathname} variants={page} initial="initial" animate="animate" exit="exit">
               <Routes location={location}>
               <Route path="/login" element={<Login />} />
-              <Route
-                path="/"
-                element={
-                  <Protected>
-                    <Analysis />
-                  </Protected>
-                }
-              />
+              <Route path="/" element={<Home />} />
               <Route
                 path="/agent"
                 element={<Navigate to="/agents" replace />}
@@ -155,16 +165,17 @@ function AppRoutes() {
             </motion.div>
           </AnimatePresence>
         </Box>
-      </AuthProvider>
     </>
   );
 }
 
 function App() {
   return (
-    <MotionConfig reducedMotion="user">
-      <AppRoutes />
-    </MotionConfig>
+    <AuthProvider>
+      <MotionConfig reducedMotion="user">
+        <AppRoutes />
+      </MotionConfig>
+    </AuthProvider>
   )
 }
 

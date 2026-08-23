@@ -121,3 +121,37 @@ export function findMetricId(metric: string): string | null {
   }
   return null;
 }
+
+// ── live metric fields (from Voyager's /financial-metrics snapshot) ────
+
+// Keys that describe the query rather than the company — never offered as criteria.
+const METADATA_KEYS = new Set(["symbol", "price_data", "consolidated", "filing_type"]);
+
+const ACRONYMS = new Set(["rsi", "sma", "bb", "atr"]);
+
+function prettifyField(id: string): string {
+  return id
+    .split("_")
+    .map((w) => (ACRONYMS.has(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
+// Map a /financial-metrics response body to selectable criteria definitions.
+// Field names come straight from Voyager so future fields appear automatically.
+export function buildFieldList(sample: Record<string, any>): MetricDef[] {
+  const fields: MetricDef[] = [];
+  for (const key of Object.keys(sample || {})) {
+    if (METADATA_KEYS.has(key)) continue;
+    fields.push({
+      id: key,
+      name: prettifyField(key),
+      type: /date/i.test(key) ? "date" : "number",
+    });
+  }
+  return fields.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Fallback when Voyager is unreachable: the hardcoded catalog, flattened.
+export function getFlatCatalog(): MetricDef[] {
+  return CATALOG.flatMap((c) => c.metrics);
+}

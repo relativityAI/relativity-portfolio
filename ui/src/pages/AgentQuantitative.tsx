@@ -29,7 +29,7 @@ export default function AgentQuantitative(props: AgentQuantitativeProps) {
     if (!props.source) {
         return (
             <Flex direction="column" align="center" gap={2} py={10} border="1px solid" borderColor="border" rounded="sm">
-                <Text fontSize="sm" color="fg.muted">Select a data source above to configure criteria</Text>
+                <Text fontSize="sm" color="fg.muted">Select a market in Configuration to set up criteria</Text>
             </Flex>
         );
     }

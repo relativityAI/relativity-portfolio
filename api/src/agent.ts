@@ -31,7 +31,7 @@ function modelNameFor(modelId: string): string {
   return modelId.slice(modelId.indexOf("/") + 1);
 }
 
-function buildModel(modelId: string, keys: LlmKeys) {
+export function buildModel(modelId: string, keys: LlmKeys) {
   const provider = providerFor(modelId);
   const name = modelNameFor(modelId);
   switch (provider) {
@@ -127,6 +127,61 @@ async function recoverScore(
   }
 }
 
+// One context line from the agent's Configuration section (horizon + risk).
+export function investorProfileLine(configuration: any): string {
+  const h = configuration?.investment_horizon;
+  const r = configuration?.risk_appetite;
+  if (!h && !r) return "";
+  const parts = [
+    h ? `Investment horizon: ${h}.` : "",
+    r ? `Risk appetite: ${r}.` : "",
+  ].filter(Boolean);
+  return `Investor profile — ${parts.join(" ")}`;
+}
+
+// Draft qualitative parameters from an investor's persona text.
+export async function draftParameters(
+  modelId: string,
+  keys: LlmKeys,
+  persona: string,
+  section: "asset_evaluation" | "macro_evaluation",
+  count: number,
+): Promise<{ parameter: string; content: string; weightage: number }[]> {
+  const model = buildModel(modelId, keys);
+  const scope =
+    section === "macro_evaluation"
+      ? "market-level / macro qualitative factors a stock picker should monitor"
+      : "company-level qualitative parameters for judging individual stocks";
+  const result = await generateText({
+    model,
+    prompt:
+      `An investor describes their philosophy:\n"""\n${persona.slice(0, 4000)}\n"""\n\n` +
+      `Draft exactly ${count} distinct qualitative evaluation parameters — ${scope} — that match this philosophy.\n` +
+      `Each item must be JSON: {"parameter": "<short name>", "content": "<1-3 sentence checklist guidance for scoring this parameter>", "weightage": <integer 1-10 importance>}.\n` +
+      `Respond with ONLY the JSON array. No markdown fences, no commentary.`,
+    temperature: 0.4,
+    maxOutputTokens: 1500,
+  });
+  const text = (result.text || "").replace(/```(?:json)?|```/g, "").trim();
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start < 0 || end <= start) throw new Error("Draft response was not a JSON array");
+  let arr: any[];
+  try {
+    arr = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    throw new Error("Could not parse drafted parameters");
+  }
+  return (Array.isArray(arr) ? arr : [])
+    .filter((p) => p && typeof p.parameter === "string" && p.parameter.trim())
+    .slice(0, count)
+    .map((p) => ({
+      parameter: String(p.parameter).trim(),
+      content: String(p.content ?? "").trim(),
+      weightage: Number.isFinite(Number(p.weightage)) ? Math.min(Math.max(Math.round(Number(p.weightage)), 1), 10) : 5,
+    }));
+}
+
 export async function runQualitative(
   modelId: string,
   keys: LlmKeys,
@@ -135,6 +190,7 @@ export async function runQualitative(
   documents: string[],
   webSearch: boolean,
   adequacy: DataAdequacy,
+  investorContext = "",
 ): Promise<QualResult> {
   const started = Date.now();
   try {
@@ -142,15 +198,18 @@ export async function runQualitative(
     const tools = buildTools(toolCtx);
 
     const isMacro = parameter.section === "macro_evaluation";
-    const contextLines = isMacro
-      ? [
-          `Market: ${toolCtx.source.toUpperCase()} (${toolCtx.country}).`,
-          "",
-          "This is a MACRO / market-level evaluation. Judge the state of the broader market that the analyzed company trades in — market direction, index levels, breadth, leadership, and macro conditions — not the company itself. Use web search and market data tools for recent market context.",
-        ]
-      : [
-          `Company: ${toolCtx.shareName || toolCtx.symbol} (${toolCtx.symbol}) on ${toolCtx.source.toUpperCase()} (${toolCtx.country}).`,
-        ];
+    const contextLines = [
+      ...(isMacro
+        ? [
+            `Market: ${toolCtx.source.toUpperCase()} (${toolCtx.country}).`,
+            "",
+            "This is a MACRO / market-level evaluation. Judge the state of the broader market that the analyzed company trades in — market direction, index levels, breadth, leadership, and macro conditions — not the company itself. Use web search and market data tools for recent market context.",
+          ]
+        : [
+            `Company: ${toolCtx.shareName || toolCtx.symbol} (${toolCtx.symbol}) on ${toolCtx.source.toUpperCase()} (${toolCtx.country}).`,
+          ]),
+      ...(investorContext ? [``, investorContext] : []),
+    ];
 
     const userPrompt = [
       ...contextLines,
@@ -302,6 +361,7 @@ export async function runQualitativeAll(
 
   const total = params.length;
   let done = 0;
+  const investorContext = investorProfileLine(agent?.configuration);
 
   await mapWithConcurrency(params, QUAL_CONCURRENCY, async (p) => {
     const label = p.parameter || "Qualitative Parameter";
@@ -313,6 +373,7 @@ export async function runQualitativeAll(
       documents,
       webSearch,
       adequacy,
+      investorContext,
     );
     if (res.error && res.retryable) {
       log.warn("[agent]", `${modelId} "${label}" retrying once after: ${res.error}`);
@@ -324,6 +385,7 @@ export async function runQualitativeAll(
         documents,
         webSearch,
         adequacy,
+        investorContext,
       );
     }
     qualitative_analysis[label] = {

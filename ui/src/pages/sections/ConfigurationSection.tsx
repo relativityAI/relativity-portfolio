@@ -1,23 +1,20 @@
-import { Flex, Text, SimpleGrid } from "@chakra-ui/react"
+import { Flex, SimpleGrid, Text } from "@chakra-ui/react"
 import ChipMultiSelect from "../shared/ChipMultiSelect"
 import SectionBlock from "../shared/SectionBlock"
 import SectionHeader from "../shared/SectionHeader"
+import { Slider } from "@chakra-ui/react"
 
-const ASSET_CLASS_OPTIONS = [
-  { value: "stocks", label: "Stocks" },
-  { value: "mutual_funds", label: "Mutual Funds" },
-]
-
-const CAP_OPTIONS = [
-  { value: "large", label: "Large" },
-  { value: "mid", label: "Mid" },
-  { value: "small", label: "Small" },
+const HORIZON_OPTIONS = [
+  { value: "Intraday", label: "Intraday" },
+  { value: "Swing", label: "Swing" },
+  { value: "Positional", label: "Positional" },
+  { value: "Long-term (years)", label: "Long-term" },
 ]
 
 interface ConfigurationSectionProps {
   data: {
-    asset_class: string[];
-    universe_cap: string[];
+    investment_horizon: string;
+    risk_appetite: number;
   };
   onChange: (data: any) => void;
 }
@@ -39,38 +36,51 @@ export default function ConfigurationSection({ data, onChange }: ConfigurationSe
       <SimpleGrid columns={{ base: 1, lg: 2 }} columnGap={10} alignItems="start">
         <SectionBlock
           sectionId="configuration"
-          subsectionId="asset_class"
-          title="Asset Class"
-          description="Which asset classes are in scope."
-        >
-          <Flex direction="column" gap={3}>
-            <ChipMultiSelect
-              label=""
-              description=""
-              options={ASSET_CLASS_OPTIONS}
-              selected={data.asset_class}
-              onChange={(v) => update("asset_class", v)}
-              multiple={false}
-              columns={2}
-            />
-            <Text fontSize="12px" color="var(--ink-tertiary)">Only 1 asset class allowed</Text>
-          </Flex>
-        </SectionBlock>
-
-        <SectionBlock
-          sectionId="configuration"
-          subsectionId="universe_cap"
-          title="Capitalization Based Options"
-          description="Which size segments — large, mid, small cap — are in scope."
+          subsectionId="horizon"
+          title="Investment Horizon"
+          description="How long this agent typically holds positions."
         >
           <ChipMultiSelect
             label=""
             description=""
-            options={CAP_OPTIONS}
-            selected={data.universe_cap}
-            onChange={(v) => update("universe_cap", v)}
-            columns={2}
+            options={HORIZON_OPTIONS}
+            selected={data.investment_horizon ? [data.investment_horizon] : []}
+            onChange={(v) => update("investment_horizon", v[0] || "")}
+            multiple={false}
+            columns={4}
           />
+        </SectionBlock>
+
+        <SectionBlock
+          sectionId="configuration"
+          subsectionId="risk"
+          title="Risk Appetite"
+          description="How much risk this agent tolerates — 1 = very conservative, 10 = aggressive."
+        >
+          <Flex direction="column" gap={3}>
+            <Flex justify="space-between" align="center">
+              <Text fontSize="sm" color="var(--ink-secondary)">
+                {data.risk_appetite <= 3 ? "Conservative" : data.risk_appetite <= 6 ? "Balanced" : "Aggressive"}
+              </Text>
+              <Text fontSize="sm" fontWeight={600} color="var(--ink-primary)" fontFamily="var(--font-mono)">
+                {data.risk_appetite || 5}
+              </Text>
+            </Flex>
+            <Slider
+              min={1}
+              max={10}
+              step={1}
+              value={data.risk_appetite || 5}
+              onChange={(v) => update("risk_appetite", v)}
+              size="sm"
+              colorScheme="accent"
+            />
+            <Flex justify="space-between" fontSize="11px" color="var(--ink-tertiary)">
+              <span>Conservative (1)</span>
+              <span>Balanced (5)</span>
+              <span>Aggressive (10)</span>
+            </Flex>
+          </Flex>
         </SectionBlock>
       </SimpleGrid>
     </>

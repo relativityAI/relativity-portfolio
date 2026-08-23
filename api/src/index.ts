@@ -7,8 +7,9 @@ import { encrypt, decrypt } from "./crypto.js";
 import { fetchUserKeys, ensureUserSettings } from "./provision.js";
 import { getModelIds } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
-import { getMetricsCatalog } from "./metrics.js";
-import { createRun, RunRequest } from "./run.js";
+import { getMetricsCatalog, buildFieldList, getFlatCatalog, type MetricDef } from "./metrics.js";
+import { createRun, RunRequest, DEFAULT_MODEL } from "./run.js";
+import { draftParameters, type LlmKeys } from "./agent.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
 import { isDataFresh, FRESHNESS_FUNDAMENTAL_MS } from "./freshness.js";
 import { requireAuth, type AuthedRequest } from "./auth.js";
@@ -470,6 +471,91 @@ app.get("/stocks/search", (req, res) => {
 app.get("/metrics", (req, res) => {
   const source = String(req.query.source || "");
   res.json(getMetricsCatalog(source || undefined));
+});
+
+// ── live metric fields (drives the agent criteria builder) ────────────
+const METRIC_FIELDS_TTL_MS = 24 * 60 * 60 * 1000;
+// Liquid, long-listed symbols per source — used to discover which fields the
+// /financial-metrics snapshot exposes. Falls back through the chain.
+const REPRESENTATIVE_SYMBOLS: Record<string, { symbol: string; country: string }[]> = {
+  nse: [
+    { symbol: "RELIANCE", country: "in" },
+    { symbol: "TCS", country: "in" },
+  ],
+  sec: [
+    { symbol: "AAPL", country: "us" },
+    { symbol: "MSFT", country: "us" },
+  ],
+};
+const metricFieldsCache = new Map<string, { fields: MetricDef[]; fetched_at: number }>();
+
+async function loadMetricFields(sourceLower: string, userId: string): Promise<MetricDef[]> {
+  const cached = metricFieldsCache.get(sourceLower);
+  if (cached && Date.now() - cached.fetched_at < METRIC_FIELDS_TTL_MS) return cached.fields;
+
+  let fields: MetricDef[] | null = null;
+  const { voyagerKey } = await fetchUserKeys(userId);
+  if (voyagerKey) {
+    const voyager = new VoyagerClient(config.voyagerUrl, voyagerKey, config.voyagerRpm);
+    for (const { symbol, country } of REPRESENTATIVE_SYMBOLS[sourceLower] || []) {
+      try {
+        const sample = await voyager.get("/financial-metrics", {
+          symbol,
+          country,
+          source: sourceLower,
+          consolidated: true,
+          filing_type: "ttm",
+        });
+        const list = buildFieldList(sample);
+        if (list.length > 0) {
+          fields = list;
+          break;
+        }
+      } catch {
+        // try next representative symbol
+      }
+    }
+  }
+  if (!fields) fields = getFlatCatalog();
+  metricFieldsCache.set(sourceLower, { fields, fetched_at: Date.now() });
+  return fields;
+}
+
+app.get("/metrics/fields", requireAuth, async (req, res) => {
+  try {
+    const source = String(req.query.source || "NSE").toLowerCase();
+    const userId = (req as AuthedRequest).user.id;
+    res.json({ fields: await loadMetricFields(source, userId) });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+// Draft qualitative parameters from an investor's persona text via their LLM key.
+app.post("/agents/draft-parameters", requireAuth, async (req, res) => {
+  try {
+    const persona = String(req.body?.persona || "").trim();
+    if (!persona) {
+      return res.status(400).json({
+        error: "Write your Philosophy & Mindset first — drafts are generated from it.",
+      });
+    }
+    const { llmKeys } = await fetchUserKeys((req as AuthedRequest).user.id);
+    if (!llmKeys || Object.values(llmKeys).every((v) => !v)) {
+      return res.status(400).json({ error: "No LLM API key configured. Add one in Settings first." });
+    }
+    // First model in priority order whose provider has a user key.
+    const modelId =
+      getModelIds().find(
+        (id) => id.split("/")[0] !== "ollama" && !!llmKeys[id.split("/")[0]],
+      ) || DEFAULT_MODEL;
+    const section = req.body?.section === "macro_evaluation" ? "macro_evaluation" : "asset_evaluation";
+    const count = Math.min(Math.max(Number(req.body?.count) || 5, 1), 8);
+    const parameters = await draftParameters(modelId, llmKeys as LlmKeys, persona, section, count);
+    res.json({ parameters });
+  } catch (e: any) {
+    res.status(502).json({ error: e?.message || "Draft generation failed" });
+  }
 });
 
 const server = app.listen(config.port, async () => {
