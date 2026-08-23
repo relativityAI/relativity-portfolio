@@ -9,6 +9,8 @@ import {
   createListCollection,
   Portal,
   IconButton,
+  Combobox,
+  useFilter,
 } from "@chakra-ui/react"
 import { MdDeleteForever, MdAdd, MdRemove } from "react-icons/md"
 import { motion, AnimatePresence } from "motion/react"
@@ -97,6 +99,86 @@ function SelectInput({ value, options, onChange, placeholder, width }: {
   )
 }
 
+function FieldCombobox({ value, options, onChange, placeholder }: {
+  value: string;
+  options: { value: string; label: string; type?: string }[];
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const { contains } = useFilter({ sensitivity: "base" })
+  const [inputValue, setInputValue] = useState("")
+
+  // Keep saved-but-no-longer-listed metrics visible so existing agents render.
+  const allOptions = useMemo(() => {
+    if (!value) return options
+    const current = options.find((o) => o.value === value)
+    if (current) return options
+    return [{ value, label: `${value} (unavailable)` }, ...options]
+  }, [options, value])
+
+  const collection = useMemo(
+    () =>
+      createListCollection({
+        items: allOptions,
+        itemToString: (item: any) => item.label,
+        itemToValue: (item: any) => item.value,
+        filter: contains,
+      }),
+    [allOptions, contains]
+  )
+
+  const selectedLabel = allOptions.find((o) => o.value === value)?.label
+
+  return (
+    <Combobox.Root
+      collection={collection}
+      value={value ? [value] : []}
+      onValueChange={(e) => {
+        onChange(e.value[0])
+        setInputValue("")
+      }}
+      inputValue={inputValue}
+      onInputValueChange={(e) => setInputValue(e.inputValue)}
+      inputBehavior="autohighlight"
+      openOnClick
+      positioning={{ sameWidth: false, fitContent: true }}
+      width="full"
+    >
+      <Combobox.Control>
+        <Combobox.Input
+          placeholder={placeholder || "Search metric..."}
+          borderColor="var(--hairline)"
+          bg="bg.subtle"
+          color="fg"
+          fontSize="sm"
+          px={2}
+          minH="36px"
+          fontWeight={selectedLabel ? 500 : undefined}
+        />
+        <Combobox.IndicatorGroup>
+          <Combobox.Trigger />
+          <Combobox.Indicator />
+        </Combobox.IndicatorGroup>
+      </Combobox.Control>
+      <Portal>
+        <Combobox.Positioner minW="240px">
+          <Combobox.Content fontSize="sm" maxH="260px">
+            {collection.items.length === 0 && (
+              <Box px={3} py={2} fontSize="xs" color="fg.muted">No matching metrics</Box>
+            )}
+            {collection.items.map((item: any) => (
+              <Combobox.Item item={item} key={item.value} fontSize="sm" py={1.5} px={3}>
+                {item.label}
+                <Combobox.ItemIndicator />
+              </Combobox.Item>
+            ))}
+          </Combobox.Content>
+        </Combobox.Positioner>
+      </Portal>
+    </Combobox.Root>
+  )
+}
+
 function MobileFieldLabel({ children }: { children: ReactNode }) {
   return (
     <Text
@@ -135,41 +217,22 @@ export default function CriteriaBuilder({
     setLocalCriteria(criteria || [])
   }, [criteria])
 
-  const categories = useMemo(() => {
-    if (!metrics?.categories) return []
-    return metrics.categories.map((c: any) => ({ value: c.id, label: c.name }))
+  const fieldOptions = useMemo(() => {
+    const fields = metrics?.fields || []
+    return fields.map((m: any) => ({ value: m.id, label: m.name, type: m.type }))
   }, [metrics])
-
-  const getMetricsForCategory = (categoryId: string) => {
-    if (!metrics?.categories) return []
-    const cat = metrics.categories.find((c: any) => c.id === categoryId)
-    if (!cat?.metrics) return []
-    return cat.metrics.map((m: any) => ({ value: m.id, label: m.name, type: m.type }))
-  }
 
   const handleChange = (index: number, field: string, value: any) => {
     const newArr = [...localCriteria]
-    if (field === "category") {
-      newArr[index] = {
-        category: value,
-        metric: "",
-        metric_name: "",
-        metric_type: "number",
-        operator: "gt",
-        value: null,
-        value_upper: null,
-        ...(showWeight ? { weightage: 5 } : {}),
-      }
-    } else if (field === "metric") {
-      const cat = metrics?.categories?.find((c: any) => c.id === newArr[index].category)
-      const metricDef = cat?.metrics?.find((m: any) => m.id === value)
+    if (field === "metric") {
+      const metricDef = fieldOptions.find((m: any) => m.value === value)
       const rawType = metricDef?.type || "number"
       const mType = OPERATORS_BY_TYPE[rawType] ? rawType : "number"
       const ops = OPERATORS_BY_TYPE[mType]
       newArr[index] = {
         ...newArr[index],
         metric: value,
-        metric_name: metricDef?.name || value,
+        metric_name: metricDef?.label || value,
         metric_type: mType,
         operator: ops[0]?.value || "gt",
         value: null,
@@ -185,7 +248,6 @@ export default function CriteriaBuilder({
   const addCriterion = (e: any) => {
     e.preventDefault()
     const newItem: any = {
-      category: "",
       metric: "",
       metric_name: "",
       metric_type: "number",
@@ -240,8 +302,7 @@ export default function CriteriaBuilder({
         letterSpacing="widest"
         display={{ base: "none", md: "flex" }}
       >
-        <Box flex={1.5}>CATEGORY</Box>
-        <Box flex={2}>METRIC</Box>
+        <Box flex={3}>METRIC</Box>
         {showWeight && <Box width="44px" textAlign="center" flexShrink={0}>WGT</Box>}
         <Box flex={1}>OP</Box>
         <Box flex={1.5}>VALUE</Box>
@@ -265,7 +326,6 @@ export default function CriteriaBuilder({
       ) : (
         <AnimatePresence initial={false}>
         {localCriteria.map((criterion, index) => {
-          const availableMetrics = getMetricsForCategory(criterion.category)
           const operators = OPERATORS_BY_TYPE[criterion.metric_type] || OPERATORS_BY_TYPE.number
           const isBetween = criterion.operator === "between"
           const iType = inputType(criterion.metric_type)
@@ -293,22 +353,12 @@ export default function CriteriaBuilder({
               _hover={{ bg: "bg.muted/50" }}
               transition="background 0.15s"
             >
-              <Box flex={{ base: "none", md: 1.5 }}>
-                <MobileFieldLabel>Category</MobileFieldLabel>
-                <SelectInput
-                  value={criterion.category}
-                  options={categories}
-                  onChange={(v) => handleChange(index, "category", v)}
-                  placeholder="Category"
-                />
-              </Box>
-              <Box flex={{ base: "none", md: 2 }}>
+              <Box flex={{ base: "none", md: 3 }}>
                 <MobileFieldLabel>Metric</MobileFieldLabel>
-                <SelectInput
+                <FieldCombobox
                   value={criterion.metric}
-                  options={availableMetrics}
+                  options={fieldOptions}
                   onChange={(v) => handleChange(index, "metric", v)}
-                  placeholder="Metric"
                 />
               </Box>
               {showWeight && (

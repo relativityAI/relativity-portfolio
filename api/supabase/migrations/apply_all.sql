@@ -25,3 +25,9 @@ CREATE INDEX IF NOT EXISTS idx_stock_pulls_status ON stock_pulls(status);
 
 -- ─── 003: key_version column on user_settings ────────────────────────────
 ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS key_version INT DEFAULT 1;
+
+-- ─── 004: web-search / adequacy fields on analysis_runs ──────────────────
+ALTER TABLE analysis_runs
+  ADD COLUMN IF NOT EXISTS data_adequacy TEXT,
+  ADD COLUMN IF NOT EXISTS web_search_effective TEXT,
+  ADD COLUMN IF NOT EXISTS web_search_note TEXT;

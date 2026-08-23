@@ -8,7 +8,7 @@ import {
   Text,
   IconButton,
 } from "@chakra-ui/react"
-import { MdDeleteForever, MdAdd, MdRemove } from "react-icons/md"
+import { MdDeleteForever, MdAdd, MdRemove, MdAutoAwesome } from "react-icons/md"
 import { motion, AnimatePresence } from "motion/react"
 import { dur, ease } from "@/lib/motion"
 
@@ -29,6 +29,8 @@ interface ListEditorProps {
   emptyStateTitle: string;
   emptyStateSubtitle: string;
   addButtonLabel: string;
+  onDraft?: () => Promise<void> | void;
+  drafting?: boolean;
 }
 
 function WeightStepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
@@ -261,22 +263,40 @@ export default function ListEditor(props: ListEditorProps) {
         </>
       )}
 
-      <Button
-        variant="outline"
-        color="fg.subtle"
-        size="sm"
-        onClick={addItem}
-        alignSelf="flex-start"
-        mt={3}
-        fontWeight="bold"
-        borderStyle="dashed"
-        borderColor="border"
-        _hover={{ color: "fg", bg: "bg.muted", borderColor: "border.emphasized" }}
-        px={5}
-      >
-        <MdAdd />
-        {props.addButtonLabel}
-      </Button>
+      <Flex gap={2} mt={3} alignSelf="flex-start">
+        <Button
+          variant="outline"
+          color="fg.subtle"
+          size="sm"
+          onClick={addItem}
+          fontWeight="bold"
+          borderStyle="dashed"
+          borderColor="border"
+          _hover={{ color: "fg", bg: "bg.muted", borderColor: "border.emphasized" }}
+          px={5}
+        >
+          <MdAdd />
+          {props.addButtonLabel}
+        </Button>
+        {props.onDraft && (
+          <Button
+            variant="outline"
+            color="var(--accent-primary)"
+            size="sm"
+            onClick={() => props.onDraft!()}
+            loading={props.drafting}
+            loadingText="DRAFTING..."
+            fontWeight="bold"
+            borderStyle="dashed"
+            borderColor="border"
+            _hover={{ bg: "bg.muted", borderColor: "border.emphasized" }}
+            px={5}
+          >
+            <MdAutoAwesome />
+            DRAFT WITH AI
+          </Button>
+        )}
+      </Flex>
     </Flex>
   )
 }

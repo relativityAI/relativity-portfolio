@@ -27,8 +27,8 @@ const DEFAULT_AGENT = {
         philosophy_and_mindset: "",
     },
     configuration: {
-        asset_class: [],
-        universe_cap: [],
+        investment_horizon: "",
+        risk_appetite: 5,
     },
     asset_evaluation: {
         qualitative: [],
@@ -57,10 +57,7 @@ const panelVariants = {
 function computeSectionCompletion(agent: any): Record<string, boolean> {
     return {
         overview: true,
-        configuration: !!(
-            agent.configuration?.asset_class?.length ||
-            agent.configuration?.universe_cap?.length
-        ),
+        configuration: !!(agent.configuration?.investment_horizon || agent.configuration?.risk_appetite),
         persona: !!(agent.persona?.philosophy_and_mindset),
         asset_evaluation: !!((agent.asset_evaluation?.qualitative?.length > 0) || (agent.asset_evaluation?.quantitative?.length > 0)),
         macro_evaluation: !!((agent.macro_evaluation?.qualitative?.length > 0) || (agent.macro_evaluation?.quantitative?.length > 0)),
@@ -77,10 +74,10 @@ function computeOverviewSections(agent: any): { id: string; label: string; summa
             id: "configuration",
             label: "Configuration",
             summary: [
-                c.asset_class?.length ? `${c.asset_class.length} asset class${c.asset_class.length === 1 ? "" : "es"}` : "",
-                c.universe_cap?.length ? `${c.universe_cap.length} cap size${c.universe_cap.length === 1 ? "" : "s"}` : "",
+                c.investment_horizon ? `${c.investment_horizon} horizon` : "",
+                c.risk_appetite ? `Risk ${c.risk_appetite}/10` : "",
             ].filter(Boolean).join(" · ") || "Not configured",
-            hasContent: !!(c.asset_class?.length || c.universe_cap?.length),
+            hasContent: !!(c.investment_horizon || c.risk_appetite),
         },
         {
             id: "persona",
@@ -117,7 +114,6 @@ export default function Agent() {
     const [saved, setSaved] = useState(false)
     const [isDirty, setIsDirty] = useState(false)
     const [availableMetrics, setAvailableMetrics] = useState<any>(null)
-    const [metricsSource, setMetricsSource] = useState<string>("NSE")
     const [agent, setAgent] = useState<any>({ ...DEFAULT_AGENT })
     const [step, setStep] = useState<string>("overview")
     const [dir, setDir] = useState<number>(1)
@@ -155,9 +151,8 @@ export default function Agent() {
                         id: data.id || data._id || "",
                         _id: data._id || data.id || "",
                         created_at: data.created_at || "",
-                        source: data.source || "",
                         persona: data.persona ?? DEFAULT_AGENT.persona,
-                        configuration: data.configuration ?? DEFAULT_AGENT.configuration,
+                        configuration: { ...DEFAULT_AGENT.configuration, ...(data.configuration || {}) },
                         asset_evaluation: {
                             qualitative: data.asset_evaluation?.qualitative ?? data.qualitative ?? [],
                             quantitative: data.asset_evaluation?.quantitative ?? [],
@@ -167,7 +162,6 @@ export default function Agent() {
                             quantitative: data.macro_evaluation?.quantitative ?? [],
                         },
                     })
-                    if (data.source) setMetricsSource(data.source)
                     setIsDirty(false)
                 }
             } else {
@@ -182,14 +176,10 @@ export default function Agent() {
         }
     }
 
-    const fetchMetrics = async (source: string) => {
-        if (!source) {
-            setAvailableMetrics(null)
-            return
-        }
+    const fetchMetrics = async () => {
         try {
-            const data = await VoyagerService.getAvailableMetrics(source)
-            if (data?.categories) setAvailableMetrics(data)
+            const data = await VoyagerService.getAvailableMetrics("NSE")
+            if (data?.fields) setAvailableMetrics(data)
         } catch {
             // silently fail
         }
@@ -200,10 +190,8 @@ export default function Agent() {
     }, [urlParams.id])
 
     useEffect(() => {
-        if (!isNew || metricsSource) {
-            fetchMetrics(metricsSource)
-        }
-    }, [metricsSource])
+        fetchMetrics()
+    }, [])
 
     const VALID_METRIC_TYPES = new Set(["number", "currency", "percentage", "date", "text"])
 
@@ -338,7 +326,6 @@ export default function Agent() {
     const metaLine = !isNew ? [
         agent.id ? `ID ${(agent._id || agent.id).slice(0, 10)}` : null,
         agent.created_at ? new Date(agent.created_at).toLocaleDateString() : null,
-        agent.source || null,
     ].filter(Boolean).join("  ·  ") : null
 
     const activePanel = (
@@ -381,7 +368,7 @@ export default function Agent() {
                         id={agent._id || agent.id}
                         name={agent.name}
                         metrics={availableMetrics}
-                        source={agent.source}
+                        persona={agent.persona?.philosophy_and_mindset || ""}
                     />
                 )}
                 {step === "macro_evaluation" && (
@@ -393,7 +380,7 @@ export default function Agent() {
                         id={agent._id || agent.id}
                         name={agent.name}
                         metrics={availableMetrics}
-                        source={agent.source}
+                        persona={agent.persona?.philosophy_and_mindset || ""}
                     />
                 )}
             </motion.div>

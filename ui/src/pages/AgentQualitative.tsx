@@ -1,4 +1,6 @@
+import { useState } from "react"
 import ListEditor from "./shared/ListEditor"
+import { VoyagerService } from "@/db"
 
 interface AgentDataQualitativeProps {
     data: any[];
@@ -6,9 +8,12 @@ interface AgentDataQualitativeProps {
     id: string;
     name: string;
     metrics?: any;
+    persona?: string;
+    section?: "asset_evaluation" | "macro_evaluation";
 }
 
 export default function AgentDataQualitative(props: AgentDataQualitativeProps) {
+    const [drafting, setDrafting] = useState(false)
     const items = (props.data || []).map((p: any) => ({
         id: p.id || String(Math.random()),
         label: p.parameter,
@@ -26,6 +31,27 @@ export default function AgentDataQualitative(props: AgentDataQualitativeProps) {
         props.onUpdate(mapped)
     }
 
+    const handleDraft = async () => {
+        setDrafting(true)
+        try {
+            const res = await VoyagerService.draftParameters({
+                persona: props.persona || "",
+                section: props.section || "asset_evaluation",
+            })
+            const drafted = (res.parameters || []).map((p, i) => ({
+                id: `${Date.now()}_${i}`,
+                label: p.parameter,
+                content: p.content || "",
+                weightage: p.weightage ?? 5,
+            }))
+            handleChange([...items, ...drafted])
+        } catch (e: any) {
+            alert(e?.response?.data?.error || "Could not draft parameters")
+        } finally {
+            setDrafting(false)
+        }
+    }
+
     return (
         <ListEditor
             items={items}
@@ -35,8 +61,10 @@ export default function AgentDataQualitative(props: AgentDataQualitativeProps) {
             labelPlaceholder="e.g. Management Quality"
             contentPlaceholder="Describe the parameter or add context..."
             emptyStateTitle="No qualitative parameters yet"
-            emptyStateSubtitle="Add parameters like management quality, brand strength, etc."
+            emptyStateSubtitle="Add them manually or let AI draft a starting list from your persona."
             addButtonLabel="ADD PARAMETER"
+            onDraft={props.persona ? handleDraft : undefined}
+            drafting={drafting}
         />
     )
 }

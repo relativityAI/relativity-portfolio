@@ -15,6 +15,7 @@ interface MacroEvalSectionProps {
     name: string;
     metrics: any;
     source: string;
+    persona?: string;
 }
 
 const SUB_TABS = [
@@ -39,6 +40,7 @@ export default function MacroEvalSection({
     name,
     metrics,
     source,
+    persona,
 }: MacroEvalSectionProps) {
     const [sub, setSub] = useState<"qualitative" | "quantitative">("qualitative")
     const activeTab = SUB_TABS.find((t) => t.id === sub)!
@@ -85,7 +87,7 @@ export default function MacroEvalSection({
                         {activeTab.description}
                     </Text>
                     {sub === "qualitative" ? (
-                        <AgentDataQualitative name={name} data={qualitative} id={id} metrics={metrics} onUpdate={onQualitativeUpdate} />
+                        <AgentDataQualitative name={name} data={qualitative} id={id} metrics={metrics} onUpdate={onQualitativeUpdate} persona={persona} section="macro_evaluation" />
                     ) : (
                         <AgentQuantitative name={name} data={quantitative} id={id} metrics={metrics} source={source} onUpdate={onQuantitativeUpdate} />
                     )}
