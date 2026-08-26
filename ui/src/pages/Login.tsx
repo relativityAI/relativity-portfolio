@@ -3,6 +3,7 @@ import { FcGoogle } from "react-icons/fc";
 import { useAuth } from "@/auth/useAuth";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { Helmet } from "react-helmet-async";
 import { dur, ease } from "@/lib/motion";
 
 export default function Login() {
@@ -23,6 +24,10 @@ export default function Login() {
 
     return (
         <Flex minH="calc(100vh - 56px)" align="center" justify="center" p={6} position="relative" overflow="hidden">
+            <Helmet>
+                <title>Sign in | Relativity AI</title>
+                <meta name="description" content="Sign in to your Relativity AI workspace." />
+            </Helmet>
             <Box position="absolute" inset={0} pointerEvents="none" opacity={0.35} css={{ background: "radial-gradient(600px 300px at 50% 0%, var(--accent-primary) 0%, transparent 70%)" }} />
             <Box
                 as={motion.div}

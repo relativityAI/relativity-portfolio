@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /agent/
+Disallow: /analysis/
+Disallow: /analysis-list
+Disallow: /analysis-result/
+Disallow: /settings
+
+Sitemap: https://relativity-ai.example.com/sitemap.xml

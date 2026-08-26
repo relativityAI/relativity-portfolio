@@ -14,7 +14,6 @@ interface AssetEvalSectionProps {
     id: string;
     name: string;
     metrics: any;
-    source: string;
     persona?: string;
 }
 
@@ -39,7 +38,6 @@ export default function AssetEvalSection({
     id,
     name,
     metrics,
-    source,
     persona,
 }: AssetEvalSectionProps) {
     const [sub, setSub] = useState<"qualitative" | "quantitative">("qualitative")
@@ -89,7 +87,7 @@ export default function AssetEvalSection({
                     {sub === "qualitative" ? (
                         <AgentDataQualitative name={name} data={qualitative} id={id} metrics={metrics} onUpdate={onQualitativeUpdate} persona={persona} section="asset_evaluation" />
                     ) : (
-                        <AgentQuantitative name={name} data={quantitative} id={id} metrics={metrics} source={source} onUpdate={onQuantitativeUpdate} />
+                        <AgentQuantitative name={name} data={quantitative} id={id} metrics={metrics} source={name} onUpdate={onQuantitativeUpdate} />
                     )}
                 </motion.div>
             </AnimatePresence>

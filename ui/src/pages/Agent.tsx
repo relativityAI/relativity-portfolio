@@ -1,7 +1,7 @@
 import {
     Text, Flex, Button, Spinner, Input, Box, Menu,
 } from "@chakra-ui/react"
-import { MdOutlineFileDownload, MdOutlineFileUpload, MdSave, MdDeleteForever, MdMoreHoriz } from "react-icons/md"
+import { MdOutlineFileDownload, MdOutlineFileUpload, MdSave, MdDeleteForever, MdMoreHoriz, MdOutlineAutoAwesome } from "react-icons/md"
 
 import { useParams, useNavigate } from "react-router-dom"
 import { useState, useEffect, useMemo, useRef } from "react"
@@ -307,7 +307,7 @@ export default function Agent() {
                         id: prev.id,
                         created_at: prev.created_at,
                     }))
-                    if (data.source) setMetricsSource(data.source)
+                    if (data.source) setAvailableMetrics(data.source)
                     setIsDirty(true)
                 }
             } catch {
@@ -498,8 +498,29 @@ export default function Agent() {
                         </Menu.Positioner>
                     </Menu.Root>
 
+                    {!isNew && (agent._id || agent.id) && (
+                        <Button
+                            size="xs"
+                            variant="ghost"
+                            color="var(--ink-secondary)"
+                            onClick={() => navigate(`/agent/builder/${agent._id || agent.id}`)}
+                            fontSize="12px"
+                        >
+                            <MdOutlineAutoAwesome size={13} />
+                            Builder Mode
+                        </Button>
+                    )}
+
                     <Button
                         as={motion.button}
+                        animate={isDirty ? {
+                            boxShadow: [
+                                "0 0 0 0 rgba(91, 127, 222, 0)",
+                                "0 0 0 4px rgba(91, 127, 222, 0.3)",
+                                "0 0 0 0 rgba(91, 127, 222, 0)",
+                            ],
+                        } : { boxShadow: "0 0 0 0 rgba(91, 127, 222, 0)" }}
+                        transition={isDirty ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : {}}
                         whileTap={{ scale: 0.97 }}
                         whileHover={{ y: -1 }}
                         size="sm"

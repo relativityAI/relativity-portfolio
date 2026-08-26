@@ -53,11 +53,11 @@ export default function AgentsList() {
     };
 
     const handleCreate = () => {
-        navigate("/agent/new");
+        navigate("/agent/builder");
     };
 
     const onRowClick = (id: string) => {
-        navigate("/agent/" + id);
+        navigate("/agent/builder/" + id);
     };
 
     const handleDelete = async (e: React.MouseEvent, id: string, name: string) => {
