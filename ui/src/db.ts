@@ -137,3 +137,59 @@ export const SettingsService = {
         return response.data;
     }
 };
+
+export const BuilderService = {
+    async getSchema() {
+        const response = await axios.get(`${API_BASE}/agent-schema`);
+        return response.data;
+    },
+
+    async getPresets() {
+        const response = await axios.get(`${API_BASE}/builder/presets`);
+        return response.data;
+    },
+
+    async getPreset(key: string) {
+        const response = await axios.get(`${API_BASE}/builder/preset/${encodeURIComponent(key)}`);
+        return response.data;
+    },
+
+    async draft(params: {
+        messages: { role: string; content: string }[];
+        agent_draft: Record<string, unknown>;
+        metrics: { id: string; name: string; type: string }[];
+        document_texts: { filename: string; text: string }[];
+        user_response?: string;
+        model_id?: string;
+    }) {
+        const response = await axios.post(`${API_BASE}/builder/draft`, params);
+        return response.data as {
+            message: string;
+            options?: { id: string; label: string; description?: string }[];
+            agent_draft_update?: Record<string, unknown>;
+        };
+    },
+
+    async uploadDocuments(files: File[]) {
+        const form = new FormData();
+        files.forEach((f) => form.append("files", f));
+        const response = await axios.post(`${API_BASE}/builder/upload`, form, {
+            headers: { "Content-Type": "multipart/form-data" },
+        });
+        return response.data as {
+            documents: { filename: string; mime_type: string; text: string; char_count: number }[];
+        };
+    },
+
+    async extractSignals(documents: { filename: string; text: string }[]) {
+        const response = await axios.post(`${API_BASE}/builder/extract-signals`, { documents });
+        return response.data as {
+            style: string;
+            philosophy: string;
+            horizon: string;
+            risk: number;
+            qualitative_params: { parameter: string; content: string; weightage: number }[];
+            quantitative_rules: { metric: string; metric_name: string; metric_type: string; operator: string; value: number; weightage: number }[];
+        };
+    },
+};

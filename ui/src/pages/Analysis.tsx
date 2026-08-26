@@ -6,7 +6,7 @@ import {
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
 import { MdInfoOutline, MdCheck, MdClose } from "react-icons/md";
 import { Link, useParams } from "react-router-dom";
-import { AnalysisService, AgentService, DataService, API_BASE } from "@/db";
+import { AnalysisService, AgentService, DataService, SettingsService, API_BASE } from "@/db";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatSeconds } from "@/utils";
 import { RunSteps, type RunStep } from "./shared/RunStatus";
@@ -418,7 +418,7 @@ export default function Analysis() {
     }, [availableSources]);
 
     const agentOptions = useMemo(() => {
-        const items = availableAgents.map((p: any) => ({ label: p.name, value: p.name }));
+        const items = availableAgents.map((p: any) => ({ label: p.name, value: p._id || p.id || p.name }));
         return createListCollection({
             items,
             itemToString: (item: any) => item.label,
@@ -460,8 +460,18 @@ export default function Analysis() {
 
     const fetchModels = useCallback(async () => {
         try {
-            const data = await AnalysisService.getAvailableModels();
-            const models = Array.isArray(data) ? data : [];
+            const [modelsData, settings] = await Promise.all([
+                AnalysisService.getAvailableModels(),
+                SettingsService.getSettings().catch(() => ({ llm_keys: {} })),
+            ]);
+            const allModels = Array.isArray(modelsData) ? modelsData : [];
+            const keys = Object.keys(settings?.llm_keys || {});
+            const models = keys.length > 0
+                ? allModels.filter((m: string) => {
+                    const provider = m.split("/")[0];
+                    return provider === "ollama" || keys.includes(provider);
+                })
+                : allModels;
             setAvailableModels(models);
             setSelectedModel(prev => {
                 if (prev && models.includes(prev)) return prev;
@@ -874,6 +884,16 @@ export default function Analysis() {
                                     )}
                                     </AnimatePresence>
                                 </Box>
+                                <Flex align="center" gap={1.5} mt={1.5}>
+                                    <MdInfoOutline size={12} color="var(--ink-tertiary)" />
+                                    <Text fontSize="11px" color="var(--ink-tertiary)">
+                                        Add API keys in{" "}
+                                        <Link to="/settings" style={{ color: "var(--accent-primary)" }}>
+                                            Settings
+                                        </Link>
+                                        {" "}to enable more models
+                                    </Text>
+                                </Flex>
                             </Flex>
                         </Flex>
                     </Box>

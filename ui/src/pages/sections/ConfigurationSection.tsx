@@ -1,8 +1,7 @@
-import { Flex, SimpleGrid, Text } from "@chakra-ui/react"
+import { Flex, SimpleGrid, Text, Slider } from "@chakra-ui/react"
 import ChipMultiSelect from "../shared/ChipMultiSelect"
 import SectionBlock from "../shared/SectionBlock"
 import SectionHeader from "../shared/SectionHeader"
-import { Slider } from "@chakra-ui/react"
 
 const HORIZON_OPTIONS = [
   { value: "Intraday", label: "Intraday" },
@@ -66,15 +65,21 @@ export default function ConfigurationSection({ data, onChange }: ConfigurationSe
                 {data.risk_appetite || 5}
               </Text>
             </Flex>
-            <Slider
+            <Slider.Root
               min={1}
               max={10}
               step={1}
-              value={data.risk_appetite || 5}
-              onChange={(v) => update("risk_appetite", v)}
+              value={[data.risk_appetite || 5]}
+              onValueChange={(e) => update("risk_appetite", e.value[0])}
               size="sm"
-              colorScheme="accent"
-            />
+            >
+              <Slider.Control>
+                <Slider.Track>
+                  <Slider.Range />
+                </Slider.Track>
+                <Slider.Thumb index={0} />
+              </Slider.Control>
+            </Slider.Root>
             <Flex justify="space-between" fontSize="11px" color="var(--ink-tertiary)">
               <span>Conservative (1)</span>
               <span>Balanced (5)</span>

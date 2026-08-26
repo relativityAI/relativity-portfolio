@@ -1,7 +1,6 @@
-// import './App.css'
-
-import { useEffect, type ReactNode } from "react";
+import { Suspense, useEffect, type ReactNode } from "react";
 import Agent from "./pages/Agent";
+import AgentBuilder from "./pages/AgentBuilder";
 import {
   Routes,
   Route,
@@ -9,7 +8,7 @@ import {
   Navigate
 } from 'react-router';
 
-import { Box, Spinner, Center } from "@chakra-ui/react";
+import { Box, Flex, Spinner, Center } from "@chakra-ui/react";
 import { AuthProvider } from "./auth/AuthContext";
 import { useAuth } from "./auth/useAuth";
 import Login from "./pages/Login";
@@ -19,7 +18,13 @@ import AnalysisList from "./pages/AnalysisList";
 import Analysis from "./pages/Analysis";
 import AnalysisResult from "./pages/AnalysisResult";
 import Settings from "./pages/Settings";
+import NotFound from "./pages/NotFound";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
+import ThankYou from "./pages/ThankYou";
 import NavBar from "./components/NavBar";
+import Footer from "./components/Footer";
+import CookieBanner from "./components/CookieBanner";
 import { MotionConfig, AnimatePresence, motion } from "motion/react";
 import { page } from "@/lib/motion";
 
@@ -55,6 +60,16 @@ function Home() {
   return user ? <Analysis /> : <Landing />;
 }
 
+function PageFallback() {
+  return (
+    <Center minH="60vh">
+      <Spinner size="lg" />
+    </Center>
+  );
+}
+
+const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/thank-you"];
+
 function AppRoutes() {
   const location = useLocation();
   const locationPath = location.pathname;
@@ -66,6 +81,7 @@ function AppRoutes() {
       if (path === "/") return user ? "New Analysis" : "Welcome";
       if (path === "/analysis") return "New Analysis";
       if (path === "/agents") return "Agents";
+      if (path === "/agent/builder" || path.startsWith("/agent/builder/")) return "Agent Builder";
       if (path.startsWith("/agent/")) return "Agent Detail";
       if (path === "/analysis-list") return "Analysis List";
       if (path.startsWith("/analysis-result/")) return "Analysis Result";
@@ -78,94 +94,114 @@ function AppRoutes() {
 
   const isLogin = locationPath === "/login";
   const isLanding = locationPath === "/" && !user;
+  const isPublicPage = PUBLIC_PATHS.includes(locationPath);
+  const isBuilder = locationPath === "/agent/builder" || locationPath.startsWith("/agent/builder/");
+  const showNav = !isLogin && !isLanding;
+  const showFooter = showNav && !isPublicPage && !isBuilder;
 
   return (
-    <>
-      {!isLogin && !isLanding && <NavBar />}
+    <Flex direction="column" h="100dvh" overflow="hidden">
+      {showNav && <NavBar />}
 
-        <Box w="100%" paddingX={isLanding ? 0 : { base: 4, md: 16 }} marginY={isLanding ? 0 : 5}>
-          <AnimatePresence mode="wait">
-            <motion.div key={location.pathname} variants={page} initial="initial" animate="animate" exit="exit">
-              <Routes location={location}>
-              <Route path="/login" element={<Login />} />
-              <Route path="/" element={<Home />} />
-              <Route
-                path="/agent"
-                element={<Navigate to="/agents" replace />}
-              />
-              <Route
-                path="/agent/new"
-                element={
-                  <Protected>
-                    <Agent />
-                  </Protected>
-                }
-              />
-              <Route
-                path="/agent/:id"
-                element={
-                  <Protected>
-                    <Agent />
-                  </Protected>
-                }
-              />
-              <Route
-                path="/agents"
-                element={
-                  <Protected>
-                    <AgentsList />
-                  </Protected>
-                }
-              />
-              <Route
-                path="/analysis-list"
-                element={
-                  <Protected>
-                    <AnalysisList />
-                  </Protected>
-                }
-              />
-              <Route
-                path="/analysis"
-                element={
-                  <Protected>
-                    <Analysis />
-                  </Protected>
-                }
-              />
-              <Route
-                path="/analysis/:id"
-                element={
-                  <Protected>
-                    <Analysis />
-                  </Protected>
-                }
-              />
-              <Route
-                path="/analysis-result/:id"
-                element={
-                  <Protected>
-                    <AnalysisResult />
-                  </Protected>
-                }
-              />
-              <Route
-                path="/analysis-result"
-                element={<Navigate to="/analysis-list" replace />}
-              />
-              <Route
-                path="/settings"
-                element={
-                  <Protected>
-                    <Settings />
-                  </Protected>
-                }
-              />
-</Routes>
-            </motion.div>
-          </AnimatePresence>
+        <Box w="100%" flex={1} overflow="hidden" paddingX={isLanding || isBuilder ? 0 : { base: 4, md: 16 }} marginY={isLanding || isBuilder ? 0 : 5}>
+          {isBuilder ? (
+            <Routes location={location}>
+              <Route path="/agent/builder" element={<Protected><AgentBuilder /></Protected>} />
+              <Route path="/agent/builder/:id" element={<Protected><AgentBuilder /></Protected>} />
+            </Routes>
+          ) : (
+            <AnimatePresence mode="wait">
+              <motion.div key={location.pathname} variants={page} initial="initial" animate="animate" exit="exit">
+                <Suspense fallback={<PageFallback />}>
+                  <Routes location={location}>
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/" element={<Home />} />
+                    <Route
+                      path="/agent"
+                      element={<Navigate to="/agents" replace />}
+                    />
+                    <Route
+                      path="/agent/new"
+                      element={
+                        <Protected>
+                          <Agent />
+                        </Protected>
+                      }
+                    />
+                    <Route
+                      path="/agent/:id"
+                      element={
+                        <Protected>
+                          <Agent />
+                        </Protected>
+                      }
+                    />
+                    <Route
+                      path="/agents"
+                      element={
+                        <Protected>
+                          <AgentsList />
+                        </Protected>
+                      }
+                    />
+                    <Route
+                      path="/analysis-list"
+                      element={
+                        <Protected>
+                          <AnalysisList />
+                        </Protected>
+                      }
+                    />
+                    <Route
+                      path="/analysis"
+                      element={
+                        <Protected>
+                          <Analysis />
+                        </Protected>
+                      }
+                    />
+                    <Route
+                      path="/analysis/:id"
+                      element={
+                        <Protected>
+                          <Analysis />
+                        </Protected>
+                      }
+                    />
+                    <Route
+                      path="/analysis-result/:id"
+                      element={
+                        <Protected>
+                          <AnalysisResult />
+                        </Protected>
+                      }
+                    />
+                    <Route
+                      path="/analysis-result"
+                      element={<Navigate to="/analysis-list" replace />}
+                    />
+                    <Route
+                      path="/settings"
+                      element={
+                        <Protected>
+                          <Settings />
+                        </Protected>
+                      }
+                    />
+                    <Route path="/privacy" element={<Privacy />} />
+                    <Route path="/terms" element={<Terms />} />
+                    <Route path="/thank-you" element={<ThankYou />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </Suspense>
+              </motion.div>
+            </AnimatePresence>
+          )}
         </Box>
-    </>
+
+      {showFooter && <Footer />}
+      <CookieBanner />
+    </Flex>
   );
 }
 

@@ -1,8 +1,4 @@
 import { useState, useEffect } from "react"
-import {
-    Flex,
-    Text,
-} from "@chakra-ui/react"
 import CriteriaBuilder from "./shared/CriteriaBuilder"
 
 interface AgentQuantitativeProps {
@@ -11,7 +7,6 @@ interface AgentQuantitativeProps {
     id: string;
     name: string;
     metrics: any;
-    source: string;
 }
 
 export default function AgentQuantitative(props: AgentQuantitativeProps) {
@@ -25,14 +20,6 @@ export default function AgentQuantitative(props: AgentQuantitativeProps) {
         setCriteria(newCriteria);
         props.onUpdate(newCriteria);
     };
-
-    if (!props.source) {
-        return (
-            <Flex direction="column" align="center" gap={2} py={10} border="1px solid" borderColor="border" rounded="sm">
-                <Text fontSize="sm" color="fg.muted">Select a market in Configuration to set up criteria</Text>
-            </Flex>
-        );
-    }
 
     return (
         <CriteriaBuilder

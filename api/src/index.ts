@@ -10,7 +10,12 @@ import { getSources, searchStocks } from "./discovery.js";
 import { getMetricsCatalog, buildFieldList, getFlatCatalog, type MetricDef } from "./metrics.js";
 import { createRun, RunRequest, DEFAULT_MODEL } from "./run.js";
 import { draftParameters, type LlmKeys } from "./agent.js";
+import { processBuilderTurn, extractDocumentSignals, type BuilderRequest } from "./builder.js";
+import { getSchemaDescriptor } from "./schema.js";
+import { getPreset, listPresets } from "./presets.js";
+import { extractText } from "./upload.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
+import multer from "multer";
 import { isDataFresh, FRESHNESS_FUNDAMENTAL_MS } from "./freshness.js";
 import { requireAuth, type AuthedRequest } from "./auth.js";
 import { log, paint } from "./logger.js";
@@ -528,6 +533,106 @@ app.get("/metrics/fields", requireAuth, async (req, res) => {
     res.json({ fields: await loadMetricFields(source, userId) });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
+  }
+});
+
+// ── builder agent routes ──────────────────────────────────────────────
+
+app.get("/agent-schema", (_req, res) => {
+  res.json(getSchemaDescriptor());
+});
+
+app.get("/builder/presets", (_req, res) => {
+  res.json(listPresets());
+});
+
+app.get("/builder/preset/:key", (req, res) => {
+  const preset = getPreset(req.params.key);
+  if (!preset) return res.status(404).json({ error: "Preset not found" });
+  res.json(preset);
+});
+
+app.post("/builder/draft", requireAuth, async (req, res) => {
+  let requestedModel = "";
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const { llmKeys } = await fetchUserKeys(userId);
+    if (!llmKeys || Object.values(llmKeys).every((v) => !v)) {
+      return res.status(400).json({ error: "No LLM API key configured. Add one in Settings first." });
+    }
+    const fallbackModel =
+      getModelIds().find(
+        (id) => id.split("/")[0] !== "ollama" && !!llmKeys[id.split("/")[0]],
+      ) || DEFAULT_MODEL;
+
+    const body = req.body || {};
+    requestedModel = body.model_id || fallbackModel;
+    const provider = requestedModel.split("/")[0];
+    if (provider !== "ollama" && !llmKeys[provider as keyof LlmKeys]) {
+      return res.status(400).json({
+        error: `No API key for "${provider}". Add it in Settings, or pick a different model.`,
+      });
+    }
+
+    const builderReq: BuilderRequest = {
+      model_id: requestedModel,
+      llm_keys: llmKeys as LlmKeys,
+      messages: Array.isArray(body.messages) ? body.messages : [],
+      agent_draft: body.agent_draft || {},
+      metrics: Array.isArray(body.metrics) ? body.metrics : [],
+      document_texts: Array.isArray(body.document_texts) ? body.document_texts : [],
+      user_response: body.user_response || undefined,
+    };
+
+    const response = await processBuilderTurn(builderReq);
+    res.json(response);
+  } catch (e: any) {
+    console.error("[builder/draft] FAILED:", e?.name, e?.message);
+    if (e?.cause) console.error("[builder/draft] cause:", e.cause?.message || e.cause);
+    if (e?.stack) console.error("[builder/draft] stack:", e.stack);
+    const detail = e?.message || "Builder draft failed";
+    res.status(502).json({ error: `Model "${requestedModel}": ${detail}` });
+  }
+});
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.post("/builder/upload", requireAuth, upload.array("files", 10), async (req, res) => {
+  try {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: "No files uploaded" });
+    }
+    const results = await Promise.all(
+      files.map((f) => extractText(f.buffer, f.originalname, f.mimetype)),
+    );
+    res.json({ documents: results });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || "Document extraction failed" });
+  }
+});
+
+app.post("/builder/extract-signals", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const { llmKeys } = await fetchUserKeys(userId);
+    if (!llmKeys || Object.values(llmKeys).every((v) => !v)) {
+      return res.status(400).json({ error: "No LLM API key configured." });
+    }
+    const modelId =
+      getModelIds().find(
+        (id) => id.split("/")[0] !== "ollama" && !!llmKeys[id.split("/")[0]],
+      ) || DEFAULT_MODEL;
+
+    const documents = req.body?.documents;
+    if (!Array.isArray(documents) || documents.length === 0) {
+      return res.status(400).json({ error: "No documents provided" });
+    }
+
+    const signals = await extractDocumentSignals(modelId, llmKeys as LlmKeys, documents);
+    res.json(signals);
+  } catch (e: any) {
+    res.status(502).json({ error: e?.message || "Signal extraction failed" });
   }
 });
 
