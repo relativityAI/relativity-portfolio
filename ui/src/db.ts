@@ -92,6 +92,11 @@ export const AnalysisService = {
     async getAvailableModels() {
         const response = await axios.get(`${API_BASE}/models`);
         return response.data;
+    },
+
+    async validateModel(modelId: string): Promise<{ valid: boolean; error?: string }> {
+        const response = await axios.post(`${API_BASE}/models/validate`, { model_id: modelId });
+        return response.data;
     }
 };
 

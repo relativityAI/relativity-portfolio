@@ -283,84 +283,7 @@ function RunningNow() {
     );
 }
 
-function DataAvailabilityTag({ loading, data, symbol }: { loading: boolean; data: any; symbol: string }) {
-    let color = "var(--surface-recessed)";
-    let textColor = "var(--ink-secondary)";
-    let label = "";
-    let detail = "";
-    let icon: React.ReactNode = <MdInfoOutline size={11} />;
 
-    if (loading) {
-        return (
-            <HStack gap={1.5} px={2} py={1} borderRadius="999px" bg="var(--surface-recessed)">
-                <Spinner size="xs" borderWidth="2px" color="var(--ink-secondary)" />
-                <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
-                    checking…
-                </Text>
-            </HStack>
-        );
-    }
-
-    if (!data) {
-        label = "availability unknown";
-        detail = "Could not determine data availability.";
-    } else if (data.pull_supported === false) {
-        label = "pull not available";
-        detail = "Automated data pulling is only supported for NSE stocks.";
-    } else if (!data.available && !data.error) {
-        label = "will pull data";
-        detail = "No data exists yet. Data will be pulled automatically when you start the analysis.";
-        color = "var(--accent-secondary)";
-        textColor = "#fff";
-    } else if (data.error && !data.keyed) {
-        label = "data not available";
-        detail = String(data.error);
-    } else if (data.error && data.keyed) {
-        label = "will pull data";
-        detail = String(data.error);
-        color = "var(--accent-secondary)";
-        textColor = "#fff";
-    } else if (data.is_fresh) {
-        label = "data fresh";
-        detail = data.last_pulled
-            ? `Last pulled ${new Date(data.last_pulled).toLocaleString()} — within freshness window.`
-            : `Data available and fresh for ${symbol}.`;
-        color = "var(--signal-positive)";
-        textColor = "#fff";
-        icon = <MdCheck size={11} />;
-    } else {
-        label = "data stale";
-        detail = data.last_pulled
-            ? `Last pulled ${new Date(data.last_pulled).toLocaleString()} — data will be refreshed automatically.`
-            : `Data exists but may be stale — will refresh on analysis start.`;
-        color = "#f59e0b";
-        textColor = "#fff";
-    }
-
-    return (
-        <Tooltip content={detail}>
-            <HStack
-                as={motion.div}
-                key={label}
-                initial={{ opacity: 0, scale: 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: dur.fast, ease }}
-                gap={1.5}
-                px={2}
-                py={1}
-                borderRadius="999px"
-                bg={color}
-                color={textColor}
-                cursor="help"
-            >
-                {icon}
-                <Text fontSize="11px" fontFamily="var(--font-mono)" fontWeight={500}>
-                    {label}
-                </Text>
-            </HStack>
-        </Tooltip>
-    );
-}
 
 export default function Analysis() {
     const { id } = useParams();
@@ -513,8 +436,34 @@ export default function Analysis() {
         }
     }, []);
 
+    const [validatingModel, setValidatingModel] = useState(false);
+    const [modelError, setModelError] = useState<string | null>(null);
+
+    const checkModel = useCallback(async (modelId: string) => {
+        setValidatingModel(true);
+        setModelError(null);
+        try {
+            const result = await AnalysisService.validateModel(modelId);
+            if (!result.valid) {
+                setModelError(result.error || "Model validation failed.");
+                return false;
+            }
+            return true;
+        } catch (e: any) {
+            setModelError(e.response?.data?.error || e.message || "Model validation failed.");
+            return false;
+        } finally {
+            setValidatingModel(false);
+        }
+    }, []);
+
     const runAnalysis = async () => {
         if (!config.source || !config.share || !config.agent) return;
+
+        // Validate model first
+        const isValid = await checkModel(selectedModel || availableModels[0]);
+        if (!isValid) return;
+
 
         try {
             const result = await AnalysisService.runAnalysis({
@@ -737,24 +686,16 @@ export default function Analysis() {
                             </Flex>
 
                             <Flex direction="column" align="start" as={motion.div} variants={staggerItem}>
-                                <Flex justify="space-between" align="center" w="full" mb={2}>
-                                    <Text
-                                        fontSize="10.5px"
-                                        fontWeight={500}
-                                        color="var(--ink-tertiary)"
-                                        textTransform="uppercase"
-                                        letterSpacing="0.06em"
-                                    >
-                                        Target Company
-                                    </Text>
-                                    {config.share && status === "EMPTY" && !id && (
-                                        <DataAvailabilityTag
-                                            loading={dataStatusLoading}
-                                            data={dataStatus}
-                                            symbol={config.share}
-                                        />
-                                    )}
-                                </Flex>
+                                <Text
+                                    mb={2}
+                                    fontSize="10.5px"
+                                    fontWeight={500}
+                                    color="var(--ink-tertiary)"
+                                    textTransform="uppercase"
+                                    letterSpacing="0.06em"
+                                >
+                                    Target Company
+                                </Text>
                                 <SearchBar
                                     url={`${API_BASE}/stocks/search`}
                                     mainKey={sourceKeys.mainKey}
@@ -808,6 +749,15 @@ export default function Analysis() {
                                         </Portal>
                                     </Select.Root>
                                 </Box>
+                                <Flex align="center" gap={1.5} mt={1.5}>
+                                    <MdInfoOutline size={12} color="var(--ink-tertiary)" />
+                                    <Text fontSize="11px" color="var(--ink-tertiary)">
+                                        View or create agents in the{" "}
+                                        <Link to="/agent/builder" style={{ color: "var(--accent-primary)" }}>
+                                            Agent Builder
+                                        </Link>
+                                    </Text>
+                                </Flex>
                             </Flex>
 
                             <Flex direction="column" align="start" as={motion.div} variants={staggerItem}>
@@ -868,6 +818,7 @@ export default function Analysis() {
                                                         _hover={{ bg: "var(--surface-recessed)" }}
                                                         onClick={() => {
                                                             setSelectedModel(m);
+                                                            setModelError(null);
                                                             setModelQuery("");
                                                             setShowModelList(false);
                                                         }}
@@ -884,6 +835,17 @@ export default function Analysis() {
                                     )}
                                     </AnimatePresence>
                                 </Box>
+                                {modelError && (
+                                    <Text mt={1.5} fontSize="11.5px" color="var(--signal-negative)">
+                                        {modelError}
+                                    </Text>
+                                )}
+                                {validatingModel && (
+                                    <Flex align="center" gap={1.5} mt={1.5}>
+                                        <Spinner size="xs" color="var(--ink-secondary)" />
+                                        <Text fontSize="11px" color="var(--ink-secondary)">Checking model access...</Text>
+                                    </Flex>
+                                )}
                                 <Flex align="center" gap={1.5} mt={1.5}>
                                     <MdInfoOutline size={12} color="var(--ink-tertiary)" />
                                     <Text fontSize="11px" color="var(--ink-tertiary)">

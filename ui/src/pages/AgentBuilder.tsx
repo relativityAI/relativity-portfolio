@@ -169,6 +169,33 @@ export default function AgentBuilder() {
     if (processingRef.current) return;
     processingRef.current = true;
     setIsProcessing(true);
+
+    try {
+      // Validate model access first
+      const validation = await AnalysisService.validateModel(selectedModel || "");
+      if (!validation.valid) {
+        setMessages((prev) => [...prev, {
+          id: nextMsgId(),
+          role: "assistant",
+          content: `Model validation failed: ${validation.error || "Unknown error."}`,
+          timestamp: Date.now(),
+        }]);
+        processingRef.current = false;
+        setIsProcessing(false);
+        return;
+      }
+    } catch (err: any) {
+      setMessages((prev) => [...prev, {
+        id: nextMsgId(),
+        role: "assistant",
+        content: `Error checking model: ${err.message || String(err)}`,
+        timestamp: Date.now(),
+      }]);
+      processingRef.current = false;
+      setIsProcessing(false);
+      return;
+    }
+
     let searched: { label: string; detail?: string; links?: { label: string; url: string }[] } | undefined;
     try {
       const stepTitles: { label: string; detail?: string }[] = [];
@@ -745,7 +772,7 @@ export default function AgentBuilder() {
       {/* Two-column layout */}
       <Flex flex={1} overflow="hidden" px={{ base: 0, md: 0 }} position="relative">
         {/* Chat panel */}
-        <Box flex={1} borderRight={{ base: "none", lg: "1px solid var(--hairline)" }} overflow="hidden">
+        <Box flex={{ base: 1, lg: "0 0 40%" }} borderRight={{ base: "none", lg: "1px solid var(--hairline)" }} overflow="hidden">
           <ChatPanel
             messages={messages}
             onSendMessage={handleSendMessage}
@@ -765,8 +792,7 @@ export default function AgentBuilder() {
           initial={{ opacity: 0, x: 12 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: dur.base, ease }}
-          w="440px"
-          minW="360px"
+          flex="0 0 60%"
           p={4}
           bg="var(--surface-panel)"
           borderLeft="1px solid var(--hairline)"

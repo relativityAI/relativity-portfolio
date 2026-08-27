@@ -26,6 +26,7 @@ import ThankYou from "./pages/ThankYou";
 import NavBar from "./components/NavBar";
 import Footer from "./components/Footer";
 import CookieBanner from "./components/CookieBanner";
+import ApiKeySetupDialog from "./components/ApiKeySetupDialog";
 import { MotionConfig, AnimatePresence, motion } from "motion/react";
 import { page } from "@/lib/motion";
 
@@ -102,6 +103,7 @@ function AppRoutes() {
 
   return (
     <Flex direction="column" h="100dvh" overflow="hidden">
+      {user && locationPath !== "/settings" && <ApiKeySetupDialog user={user} />}
       {showNav && <NavBar />}
 
         <Box w="100%" flex={1} overflowY="auto" overflowX="hidden" paddingX={isLanding || isBuilder ? 0 : { base: 4, md: 16 }} marginY={isLanding || isBuilder ? 0 : 5}>
