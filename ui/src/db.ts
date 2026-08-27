@@ -127,7 +127,7 @@ export const SettingsService = {
         return response.data as { voyager_key: string | null; llm_keys: Record<string, string> };
     },
 
-    async updateSettings(payload: { voyager_key?: string; llm_keys?: Record<string, string> }) {
+    async updateSettings(payload: { voyager_key?: string; llm_keys?: Record<string, string> | null }) {
         const response = await axios.put(`${API_BASE}/user/settings`, payload);
         return response.data;
     },
@@ -167,6 +167,9 @@ export const BuilderService = {
             message: string;
             options?: { id: string; label: string; description?: string }[];
             agent_draft_update?: Record<string, unknown>;
+            sources?: string[];
+            search_results?: { query: string; title: string; url: string }[];
+            annotations?: { what: string; basis: string }[];
         };
     },
 

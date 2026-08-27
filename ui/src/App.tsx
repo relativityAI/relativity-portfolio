@@ -12,6 +12,7 @@ import { Box, Flex, Spinner, Center } from "@chakra-ui/react";
 import { AuthProvider } from "./auth/AuthContext";
 import { useAuth } from "./auth/useAuth";
 import Login from "./pages/Login";
+import AuthCallback from "./pages/AuthCallback";
 import Landing from "./pages/Landing";
 import AgentsList from "./pages/AgentsList";
 import AnalysisList from "./pages/AnalysisList";
@@ -68,7 +69,7 @@ function PageFallback() {
   );
 }
 
-const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/thank-you"];
+const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/thank-you", "/auth/callback"];
 
 function AppRoutes() {
   const location = useLocation();
@@ -103,7 +104,7 @@ function AppRoutes() {
     <Flex direction="column" h="100dvh" overflow="hidden">
       {showNav && <NavBar />}
 
-        <Box w="100%" flex={1} overflow="hidden" paddingX={isLanding || isBuilder ? 0 : { base: 4, md: 16 }} marginY={isLanding || isBuilder ? 0 : 5}>
+        <Box w="100%" flex={1} overflowY="auto" overflowX="hidden" paddingX={isLanding || isBuilder ? 0 : { base: 4, md: 16 }} marginY={isLanding || isBuilder ? 0 : 5}>
           {isBuilder ? (
             <Routes location={location}>
               <Route path="/agent/builder" element={<Protected><AgentBuilder /></Protected>} />
@@ -115,6 +116,7 @@ function AppRoutes() {
                 <Suspense fallback={<PageFallback />}>
                   <Routes location={location}>
                     <Route path="/login" element={<Login />} />
+                    <Route path="/auth/callback" element={<AuthCallback />} />
                     <Route path="/" element={<Home />} />
                     <Route
                       path="/agent"

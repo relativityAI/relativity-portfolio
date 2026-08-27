@@ -99,51 +99,61 @@ export default function DocDropzone({ onUpload, documents, onRemove, disabled }:
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
           >
-            <Flex direction="column" gap={1} mt={2}>
+            <Flex flexWrap="wrap" gap={1.5} mt={2}>
               {documents.map((doc, i) => (
-                <Flex
+                <motion.div
                   key={doc.filename}
-                  align="center"
-                  gap={2}
-                  px={2}
-                  py={1.5}
-                  borderRadius="3px"
-                  bg="var(--surface-recessed)"
-                  border="1px solid var(--hairline)"
+                  layout
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  transition={{ duration: 0.2 }}
                 >
-                  <MdDescription size={13} color="var(--ink-tertiary)" />
-                  <Text fontSize="12px" color="var(--ink-primary)" flex={1} truncate>
-                    {doc.filename}
-                  </Text>
-                  {doc.status === "uploading" || doc.status === "processing" ? (
-                    <Text fontSize="11px" color="var(--ink-tertiary)">
-                      Processing...
+                  <Flex
+                    align="center"
+                    gap={1.5}
+                    px={2}
+                    py={1}
+                    maxW={{ base: "100%", md: "230px" }}
+                    borderRadius="6px"
+                    bg="var(--surface-panel)"
+                    border="1px solid var(--hairline)"
+                    boxShadow="0 1px 2px rgba(0,0,0,0.04)"
+                  >
+                    <MdDescription size={14} color="var(--accent-primary)" flexShrink={0} />
+                    <Text fontSize="12px" color="var(--ink-primary)" flex={1} truncate whiteSpace="nowrap">
+                      {doc.filename}
                     </Text>
-                  ) : doc.status === "error" ? (
-                    <Text fontSize="11px" color="var(--signal-negative)">
-                      {doc.error || "Error"}
-                    </Text>
-                  ) : (
-                    <Text fontSize="11px" color="var(--ink-tertiary)">
-                      {(doc.char_count / 1000).toFixed(1)}k chars
-                    </Text>
-                  )}
-                  {onRemove && doc.status !== "processing" && (
-                    <IconButton
-                      size="xs"
-                      variant="ghost"
-                      color="var(--ink-tertiary)"
-                      _hover={{ color: "var(--signal-negative)" }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRemove(i);
-                      }}
-                      aria-label="Remove document"
-                    >
-                      <MdClose size={12} />
-                    </IconButton>
-                  )}
-                </Flex>
+                    {doc.status === "uploading" || doc.status === "processing" ? (
+                      <Text fontSize="10.5px" color="var(--ink-tertiary)" flexShrink={0}>
+                        Processing...
+                      </Text>
+                    ) : doc.status === "error" ? (
+                      <Text fontSize="10.5px" color="var(--signal-negative)" flexShrink={0}>
+                        {doc.error || "Error"}
+                      </Text>
+                    ) : (
+                      <Text fontSize="10.5px" color="var(--ink-tertiary)" flexShrink={0}>
+                        {(doc.char_count / 1000).toFixed(1)}k
+                      </Text>
+                    )}
+                    {onRemove && doc.status !== "processing" && (
+                      <IconButton
+                        size="2xs"
+                        variant="ghost"
+                        color="var(--ink-tertiary)"
+                        _hover={{ color: "var(--signal-negative)" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRemove(i);
+                        }}
+                        aria-label="Remove document"
+                      >
+                        <MdClose size={12} />
+                      </IconButton>
+                    )}
+                  </Flex>
+                </motion.div>
               ))}
             </Flex>
           </motion.div>

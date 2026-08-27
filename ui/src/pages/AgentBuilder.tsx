@@ -6,8 +6,9 @@ import { dur, ease } from "@/lib/motion";
 import { BuilderService, AgentService, VoyagerService, AnalysisService, SettingsService } from "@/db";
 import ChatPanel from "@/components/builder/ChatPanel";
 import AgentPreviewPanel from "@/components/builder/AgentPreviewPanel";
+import type { BuilderStep } from "@/components/builder/StepsTrace";
 import type { ChatMsg } from "@/components/builder/ChatBubble";
-import { MdSave, MdOutlineEdit } from "react-icons/md";
+import { MdSave, MdOutlineEdit, MdEdit, MdPreview, MdClose } from "react-icons/md";
 
 const DEFAULT_AGENT = {
   name: "",
@@ -43,12 +44,46 @@ export default function AgentBuilder() {
   const [saved, setSaved] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [agentId, setAgentId] = useState<string | null>(urlAgentId || null);
+  const [showPreview, setShowPreview] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const draftRef = useRef(agentDraft);
   draftRef.current = agentDraft;
   const processingRef = useRef(false);
   const savingRef = useRef(false);
+  const [steps, setSteps] = useState<BuilderStep[] | null>(null);
+  const stepTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const clearStepTimers = useCallback(() => {
+    stepTimers.current.forEach(clearTimeout);
+    stepTimers.current = [];
+  }, []);
+
+  // Reveal the real pipeline as a spinner->tick trace. Final step stays active
+  // (spinner) until the whole turn resolves; the others tick on a staggered timer.
+  const beginSteps = useCallback((titles: { label: string; detail?: string }[]) => {
+    clearStepTimers();
+    const n = titles.length;
+    setSteps(titles.map((t, i) => ({
+      ...t,
+      status: i === 0 || i === n - 1 ? ("active" as const) : ("pending" as const),
+    })));
+    titles.forEach((_, i) => {
+      if (i >= n - 1) return;
+      const idx = i;
+      stepTimers.current.push(setTimeout(() => {
+        setSteps((prev) => prev?.map((s, j) => (j <= idx ? { ...s, status: "done" as const } : s)) ?? prev);
+      }, 200 + idx * 280));
+    });
+  }, [clearStepTimers]);
+
+  const resolveSteps = useCallback((extra?: { label: string; detail?: string }) => {
+    clearStepTimers();
+    setSteps((prev) => {
+      const base = (prev ?? []).map((s) => ({ ...s, status: "done" as const }));
+      return extra ? [...base, { ...extra, status: "done" as const }] : base;
+    });
+  }, [clearStepTimers]);
 
   // Fetch metrics + available models + load existing agent on mount
   useEffect(() => {
@@ -134,7 +169,19 @@ export default function AgentBuilder() {
     if (processingRef.current) return;
     processingRef.current = true;
     setIsProcessing(true);
+    let searched: { label: string; detail?: string; links?: { label: string; url: string }[] } | undefined;
     try {
+      const stepTitles: { label: string; detail?: string }[] = [];
+      if (documentTexts.length > 0) {
+        stepTitles.push({
+          label: `Read ${documentTexts.length} document${documentTexts.length === 1 ? "" : "s"}`,
+          detail: documentTexts.map((d) => d.filename).join(", "),
+        });
+      }
+      stepTitles.push({ label: "Compiled your preferences & current draft" });
+      stepTitles.push({ label: `Called ${selectedModel || "default model"}`, detail: "Awaiting model response" });
+      beginSteps(stepTitles);
+
       const response = await BuilderService.draft({
         messages: messagesSnapshot.map((m) => ({ role: m.role, content: m.content })),
         agent_draft: draftRef.current,
@@ -144,11 +191,20 @@ export default function AgentBuilder() {
         model_id: selectedModel || undefined,
       });
 
+      searched = response.sources?.length
+        ? {
+            label: "Searched the web",
+            detail: response.sources.join("\n"),
+            links: (response.search_results || []).map((r) => ({ label: r.title, url: r.url })),
+          }
+        : undefined;
+
       const assistantMsg: ChatMsg = {
         id: nextMsgId(),
         role: "assistant",
         content: response.message,
         options: response.options,
+        annotations: response.annotations,
         timestamp: Date.now(),
       };
 
@@ -180,9 +236,10 @@ export default function AgentBuilder() {
       }]);
     } finally {
       processingRef.current = false;
+      resolveSteps(searched);
       setIsProcessing(false);
     }
-  }, [metrics, documentTexts, selectedModel]);
+  }, [metrics, documentTexts, selectedModel, beginSteps, resolveSteps]);
 
   const handleSendMessage = useCallback((text: string) => {
     const userMsg: ChatMsg = {
@@ -271,6 +328,17 @@ export default function AgentBuilder() {
         const next = [...prev, userMsg];
         setTimeout(async () => {
           setIsProcessing(true);
+          const stepTitles: { label: string; detail?: string }[] = [
+            { label: `Loaded preset "${option.label}"` },
+          ];
+          if (documentTexts.length > 0) {
+            stepTitles.push({
+              label: `Extracted signals from ${documentTexts.length} document${documentTexts.length === 1 ? "" : "s"}`,
+              detail: documentTexts.map((d) => d.filename).join(", "),
+            });
+          }
+          stepTitles.push({ label: "Applied changes to your agent" });
+          beginSteps(stepTitles);
           try {
             const [preset, signals] = await Promise.all([
               BuilderService.getPreset(option.id),
@@ -330,6 +398,7 @@ export default function AgentBuilder() {
               timestamp: Date.now(),
             }]);
           } finally {
+            resolveSteps();
             setIsProcessing(false);
           }
         }, 0);
@@ -378,6 +447,14 @@ export default function AgentBuilder() {
         timestamp: Date.now(),
       }]);
       setIsProcessing(true);
+      beginSteps([
+        {
+          label: `Extracted text from ${newDocTexts.length} document${newDocTexts.length === 1 ? "" : "s"}`,
+          detail: newDocTexts.map((d) => d.filename).join(", "),
+        },
+        { label: "Extracted investment signals (style, criteria, risk)" },
+        { label: "Applied changes to your agent" },
+      ]);
 
       try {
         const signals = await BuilderService.extractSignals(newDocTexts);
@@ -467,6 +544,7 @@ export default function AgentBuilder() {
           timestamp: Date.now(),
         }]);
       } finally {
+        resolveSteps();
         setIsProcessing(false);
       }
     } catch {
@@ -478,7 +556,7 @@ export default function AgentBuilder() {
         return updated;
       });
     }
-  }, []);
+  }, [beginSteps, resolveSteps]);
 
   const handleRemoveDocument = useCallback((index: number) => {
     setDocuments((prev) => prev.filter((_, i) => i !== index));
@@ -505,41 +583,60 @@ export default function AgentBuilder() {
         borderBottom="1px solid var(--hairline)"
         bg="var(--surface-panel)"
         flexShrink={0}
-        gap={4}
+        gap={{ base: 2, md: 4 }}
+        flexWrap={{ base: "wrap", md: "nowrap" }}
       >
-        <Flex align="center" gap={4} minW={0} flex={1}>
-          <Flex direction="column" minW={0}>
+        <Flex
+          align={{ base: "stretch", md: "center" }}
+          gap={{ base: 1.5, md: 4 }}
+          minW={0}
+          flex="1 1 auto"
+          direction={{ base: "column", md: "row" }}
+          w={{ base: "100%", md: "auto" }}
+        >
+          <Flex direction={{ base: "row", md: "column" }} align={{ base: "center", md: "flex-start" }} justify="space-between" minW={0} w={{ base: "100%", md: "auto" }}>
             <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)" whiteSpace="nowrap">
               Agent Builder
             </Text>
-            <Text fontSize="11px" color="var(--ink-tertiary)" whiteSpace="nowrap">
+            <Text fontSize="11px" color="var(--ink-tertiary)" whiteSpace="nowrap" display={{ base: "none", md: "block" }}>
               Use our Agent Builder to create your research agent — configured to your needs
             </Text>
           </Flex>
-          <Input
-            value={(agentDraft.name as string) || ""}
-            onChange={(e) => {
-              setAgentDraft((prev) => ({ ...prev, name: e.target.value }));
-              setIsDirty(true);
-            }}
-            placeholder="Agent name..."
-            size="sm"
-            maxW="240px"
-            bg="var(--surface-recessed)"
-            border="1px solid var(--hairline)"
-            borderRadius="3px"
-            fontSize="13px"
-            fontWeight={500}
-            _placeholder={{ color: "var(--ink-tertiary)" }}
-            _focus={{ borderColor: "var(--accent-primary)", outline: "none" }}
-          />
+          <Box position="relative" w={{ base: "100%", md: "240px" }}>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.15, duration: dur.base, ease }}
+              style={{ position: "absolute", left: "9px", top: "50%", transform: "translateY(-50%)", display: "flex", alignItems: "center", zIndex: 1, pointerEvents: "none" }}
+            >
+              <MdEdit size={13} color="var(--ink-tertiary)" />
+            </motion.div>
+            <Input
+              value={(agentDraft.name as string) || ""}
+              onChange={(e) => {
+                setAgentDraft((prev) => ({ ...prev, name: e.target.value }));
+                setIsDirty(true);
+              }}
+              placeholder="Agent name..."
+              size="sm"
+              w="full"
+              pl={8}
+              bg="var(--surface-recessed)"
+              border="1px solid var(--hairline)"
+              borderRadius="3px"
+              fontSize="13px"
+              fontWeight={500}
+              _placeholder={{ color: "var(--ink-tertiary)" }}
+              _focus={{ borderColor: "var(--accent-primary)", outline: "none" }}
+            />
+          </Box>
         </Flex>
 
-        <Flex align="center" gap={3} flexShrink={0}>
+        <Flex align="center" gap={2.5} flexShrink={0} w={{ base: "100%", md: "auto" }} flexWrap="wrap" justify={{ base: "flex-start", md: "flex-end" }}>
           {/* Model selector */}
           {availableModels.length > 0 && (
             <Flex align="center" gap={1.5}>
-              <Text fontSize="11px" color="var(--ink-tertiary)" whiteSpace="nowrap">Model</Text>
+          <Text fontSize="11px" color="var(--ink-tertiary)" whiteSpace="nowrap" display={{ base: "none", md: "inline" }}>Model</Text>
               <select
                 value={selectedModel}
                 onChange={(e) => setSelectedModel(e.target.value)}
@@ -555,7 +652,7 @@ export default function AgentBuilder() {
                   backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239CA3AF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
                   backgroundRepeat: "no-repeat",
                   backgroundPosition: "right 6px center",
-                  maxWidth: "200px",
+                  maxWidth: "150px",
                 }}
               >
                 {availableModels.map((m) => (
@@ -588,13 +685,32 @@ export default function AgentBuilder() {
           </AnimatePresence>
 
           <Button
+            as={motion.button}
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.96 }}
+            size="xs"
+            variant="ghost"
+            color="var(--ink-secondary)"
+            display={{ base: "inline-flex", lg: "none" }}
+            onClick={() => setShowPreview((p) => !p)}
+            aria-label="Toggle preview"
+            fontSize="12px"
+          >
+            <MdPreview size={14} color="var(--accent-primary)" />
+            Preview
+          </Button>
+
+          <Button
+            as={motion.button}
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.96 }}
             size="xs"
             variant="ghost"
             color="var(--ink-secondary)"
             onClick={handleOpenManual}
             fontSize="12px"
           >
-            <MdOutlineEdit size={13} />
+            <MdOutlineEdit size={13} color="var(--accent-primary)" />
             Manual Editor
           </Button>
 
@@ -627,9 +743,9 @@ export default function AgentBuilder() {
       </Flex>
 
       {/* Two-column layout */}
-      <Flex flex={1} overflow="hidden" px={{ base: 0, md: 0 }}>
+      <Flex flex={1} overflow="hidden" px={{ base: 0, md: 0 }} position="relative">
         {/* Chat panel */}
-        <Box flex={1} borderRight="1px solid var(--hairline)" overflow="hidden">
+        <Box flex={1} borderRight={{ base: "none", lg: "1px solid var(--hairline)" }} overflow="hidden">
           <ChatPanel
             messages={messages}
             onSendMessage={handleSendMessage}
@@ -638,13 +754,64 @@ export default function AgentBuilder() {
             documents={documents}
             onRemoveDocument={handleRemoveDocument}
             isProcessing={isProcessing}
+            steps={steps}
           />
         </Box>
 
-        {/* Preview panel */}
-        <Box w="380px" minW="300px" display={{ base: "none", lg: "block" }} p={4} bg="var(--surface-panel)" overflow="hidden">
+        {/* Preview panel — desktop */}
+        <Box
+          display={{ base: "none", lg: "flex" }}
+          as={motion.div}
+          initial={{ opacity: 0, x: 12 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: dur.base, ease }}
+          w="440px"
+          minW="360px"
+          p={4}
+          bg="var(--surface-panel)"
+          borderLeft="1px solid var(--hairline)"
+          overflow="hidden"
+        >
           <AgentPreviewPanel agentDraft={agentDraft} isDirty={isDirty} />
         </Box>
+
+        {/* Preview panel — mobile overlay */}
+        <AnimatePresence>
+          {showPreview && (
+            <Box
+              as={motion.div}
+              position="fixed"
+              inset={0}
+              zIndex={1500}
+              bg="var(--surface-panel)"
+              display={{ lg: "none" }}
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ duration: dur.base, ease }}
+            >
+              <Flex align="center" justify="space-between" px={4} py={3} borderBottom="1px solid var(--hairline)">
+                <Text fontSize="13px" fontWeight={600} color="var(--ink-primary)">
+                  Agent Preview
+                </Text>
+                <Button
+                  as={motion.button}
+                  whileTap={{ scale: 0.95 }}
+                  size="sm"
+                  variant="ghost"
+                  color="var(--ink-secondary)"
+                  onClick={() => setShowPreview(false)}
+                  aria-label="Close preview"
+                >
+                  <MdClose size={18} />
+                </Button>
+              </Flex>
+              <Box p={4} overflowY="auto" h="calc(100% - 49px)">
+                <AgentPreviewPanel agentDraft={agentDraft} isDirty={isDirty} />
+              </Box>
+            </Box>
+          )}
+        </AnimatePresence>
       </Flex>
     </Box>
   );

@@ -58,14 +58,13 @@ export default function Settings() {
             toaster.create({ title: "API key is empty", type: "error" });
             return;
         }
+        if (apiKey.includes("****")) {
+            toaster.create({ title: "That's a masked value — re-type the API key to change it", type: "error" });
+            return;
+        }
         setSaving(true);
         try {
-            const llmKeys: Record<string, string> = {};
-            for (const [k, v] of Object.entries(savedKeys)) {
-                if (k !== "tavily") llmKeys[k] = v;
-            }
-            llmKeys[provider] = apiKey;
-            await SettingsService.updateSettings({ llm_keys: llmKeys });
+            await SettingsService.updateSettings({ llm_keys: { [provider]: apiKey } });
             setSavedKeys(prev => ({ ...prev, [provider]: apiKey }));
             toaster.create({ title: `${providerOptions.items.find(p => p.value === provider)?.label || provider} API key saved`, type: "success" });
         } catch (e: any) {
@@ -82,12 +81,7 @@ export default function Settings() {
         }
         setSaving(true);
         try {
-            const llmKeys: Record<string, string> = {};
-            for (const [k, v] of Object.entries(savedKeys)) {
-                if (k !== "voyager" && k !== "tavily") llmKeys[k] = v;
-            }
-            llmKeys.tavily = tavilyKey;
-            await SettingsService.updateSettings({ llm_keys: llmKeys });
+            await SettingsService.updateSettings({ llm_keys: { tavily: tavilyKey } });
             setSavedKeys(prev => ({ ...prev, tavily: tavilyKey }));
             toaster.create({ title: "Tavily API key saved", type: "success" });
         } catch (e: any) {
@@ -100,7 +94,7 @@ export default function Settings() {
     const handleClear = async () => {
         setSaving(true);
         try {
-            await SettingsService.updateSettings({ llm_keys: {} });
+            await SettingsService.updateSettings({ llm_keys: null });
             setSavedKeys({});
             setApiKey("");
             toaster.create({ title: "All API keys cleared", type: "info" });

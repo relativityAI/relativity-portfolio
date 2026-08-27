@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from "react";
-import { Box, Flex, Input, IconButton } from "@chakra-ui/react";
-import { MdSend } from "react-icons/md";
+import { Box, Flex, Input, IconButton, Text } from "@chakra-ui/react";
+import { MdSend, MdOutlineInfo } from "react-icons/md";
 import ChatBubble, { type ChatMsg } from "./ChatBubble";
 import DocDropzone from "./DocDropzone";
-import TypingIndicator from "./TypingIndicator";
+import StepsTrace, { type BuilderStep } from "./StepsTrace";
 
 interface DocFile {
   filename: string;
@@ -20,6 +20,7 @@ interface ChatPanelProps {
   documents: DocFile[];
   onRemoveDocument?: (index: number) => void;
   isProcessing: boolean;
+  steps?: BuilderStep[] | null;
   disabled?: boolean;
 }
 
@@ -31,6 +32,7 @@ export default function ChatPanel({
   documents,
   onRemoveDocument,
   isProcessing,
+  steps,
   disabled,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
@@ -78,9 +80,9 @@ export default function ChatPanel({
               isLatest={i === lastOptionsIdx}
             />
           ))}
-          {isProcessing && (
+          {steps && steps.length > 0 && (
             <Box px={1}>
-              <TypingIndicator />
+              <StepsTrace steps={steps} />
             </Box>
           )}
           <div ref={messagesEndRef} />
@@ -127,6 +129,13 @@ export default function ChatPanel({
         >
           <MdSend size={14} />
         </IconButton>
+      </Flex>
+
+      <Flex align="center" justify="center" gap={1} px={4} pb={2}>
+        <MdOutlineInfo size={11} color="var(--ink-tertiary)" />
+        <Text fontSize="10.5px" color="var(--ink-tertiary)">
+          This chat isn't stored — it's cleared when you refresh or leave this page.
+        </Text>
       </Flex>
     </Flex>
   );

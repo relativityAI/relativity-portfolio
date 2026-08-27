@@ -8,6 +8,7 @@ export interface ChatMsg {
   role: "assistant" | "user";
   content: string;
   options?: { id: string; label: string; description?: string }[];
+  annotations?: { what: string; basis: string }[];
   timestamp: number;
 }
 
@@ -50,6 +51,23 @@ export default function ChatBubble({ message, onOptionSelect, isLatest }: ChatBu
         {isAssistant && message.options && message.options.length > 0 && onOptionSelect && (
           <Box maxW="85%">
             <OptionCards options={message.options} onSelect={onOptionSelect} disabled={!isLatest} />
+          </Box>
+        )}
+        {isAssistant && message.annotations && message.annotations.length > 0 && (
+          <Box maxW="85%" w="full" mt={1} p={2.5} borderRadius="4px" border="1px solid var(--hairline)" bg="var(--surface-panel)">
+            <Text fontSize="10px" fontWeight={600} color="var(--ink-tertiary)" letterSpacing="0.04em" textTransform="uppercase" mb={1}>
+              Decisions &amp; sources
+            </Text>
+            {message.annotations.map((a, i) => (
+              <Flex key={i} gap={2} py={0.5} align="flex-start">
+                <Box flexShrink={0} mt="5px" w="4px" h="4px" borderRadius="50%" bg="var(--accent-primary)" />
+                <Text fontSize="11px" lineHeight="1.4" color="var(--ink-secondary)">
+                  <Text as="span" fontWeight={500} color="var(--ink-primary)">{a.what}</Text>
+                  {" — "}
+                  {a.basis}
+                </Text>
+              </Flex>
+            ))}
           </Box>
         )}
       </Flex>

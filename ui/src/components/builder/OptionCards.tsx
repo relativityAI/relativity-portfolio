@@ -19,7 +19,7 @@ export default function OptionCards({ options, onSelect, disabled }: OptionCards
     <Flex direction="column" gap={2} mt={2}>
       {options.map((opt, i) => (
         <motion.button
-          key={opt.id}
+          key={opt.id || `${opt.label}-${i}`}
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: dur.base, ease, delay: i * 0.05 }}

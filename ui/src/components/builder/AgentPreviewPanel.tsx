@@ -1,5 +1,5 @@
 import { Box, Flex, Text, Badge } from "@chakra-ui/react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 
 interface AgentPreviewPanelProps {
@@ -9,48 +9,60 @@ interface AgentPreviewPanelProps {
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <Box mb={3}>
-      <Text fontSize="10px" fontWeight={600} color="var(--ink-tertiary)" letterSpacing="0.06em" textTransform="uppercase" mb={1}>
-        {label}
-      </Text>
-      {children}
-    </Box>
+    <motion.div layout transition={{ duration: dur.base, ease }}>
+      <Box mb={3}>
+        <Text fontSize="10px" fontWeight={600} color="var(--ink-tertiary)" letterSpacing="0.06em" textTransform="uppercase" mb={1}>
+          {label}
+        </Text>
+        {children}
+      </Box>
+    </motion.div>
   );
 }
 
+const itemAnim = {
+  initial: { opacity: 0, y: 4 },
+  animate: { opacity: 1, y: 0, transition: { duration: dur.base, ease } },
+  exit: { opacity: 0, y: -4, transition: { duration: dur.fast, ease } },
+};
+
 function QualParamItem({ param }: { param: { parameter: string; content?: string; weightage?: number } }) {
   return (
-    <Flex direction="column" gap={0.5} py={1.5} borderBottom="1px solid var(--hairline)">
-      <Flex justify="space-between" align="center">
-        <Text fontSize="12px" fontWeight={500} color="var(--ink-primary)">{param.parameter}</Text>
-        {param.weightage != null && (
-          <Badge fontSize="10px" colorPalette="blue" variant="surface" fontWeight={500}>
-            {param.weightage}/10
-          </Badge>
+    <motion.div layout {...itemAnim} transition={{ duration: dur.base, ease }}>
+      <Flex direction="column" gap={0.5} py={1.5} borderBottom="1px solid var(--hairline)">
+        <Flex justify="space-between" align="center">
+          <Text fontSize="12px" fontWeight={500} color="var(--ink-primary)">{param.parameter}</Text>
+          {param.weightage != null && (
+            <Badge fontSize="10px" colorPalette="blue" variant="surface" fontWeight={500}>
+              {param.weightage}/10
+            </Badge>
+          )}
+        </Flex>
+        {param.content && (
+          <Text fontSize="11px" color="var(--ink-secondary)" lineHeight="short">
+            {param.content.length > 120 ? param.content.slice(0, 120) + "..." : param.content}
+          </Text>
         )}
       </Flex>
-      {param.content && (
-        <Text fontSize="11px" color="var(--ink-secondary)" lineHeight="short">
-          {param.content.length > 120 ? param.content.slice(0, 120) + "..." : param.content}
-        </Text>
-      )}
-    </Flex>
+    </motion.div>
   );
 }
 
 function QuantRuleItem({ rule }: { rule: { metric_name?: string; metric?: string; operator?: string; value?: number; weightage?: number } }) {
   const opLabel: Record<string, string> = { gt: ">", gte: ">=", lt: "<", lte: "<=", eq: "=", between: "between" };
   return (
-    <Flex justify="space-between" align="center" py={1} borderBottom="1px solid var(--hairline)">
-      <Text fontSize="12px" color="var(--ink-primary)">
-        {rule.metric_name || rule.metric} {opLabel[rule.operator || ""] || rule.operator} {rule.value}
-      </Text>
-      {rule.weightage != null && (
-        <Badge fontSize="10px" colorPalette="blue" variant="surface" fontWeight={500}>
-          {rule.weightage}/10
-        </Badge>
-      )}
-    </Flex>
+    <motion.div layout {...itemAnim} transition={{ duration: dur.base, ease }}>
+      <Flex justify="space-between" align="center" py={1} borderBottom="1px solid var(--hairline)">
+        <Text fontSize="12px" color="var(--ink-primary)">
+          {rule.metric_name || rule.metric} {opLabel[rule.operator || ""] || rule.operator} {rule.value}
+        </Text>
+        {rule.weightage != null && (
+          <Badge fontSize="10px" colorPalette="blue" variant="surface" fontWeight={500}>
+            {rule.weightage}/10
+          </Badge>
+        )}
+      </Flex>
+    </motion.div>
   );
 }
 
@@ -115,25 +127,41 @@ export default function AgentPreviewPanel({ agentDraft, isDirty }: AgentPreviewP
 
             {assetQual.length > 0 && (
               <Section label={`Asset Qualitative (${assetQual.length})`}>
-                {assetQual.map((p: { parameter: string; content?: string; weightage?: number }, i: number) => <QualParamItem key={i} param={p} />)}
+                <AnimatePresence initial={false}>
+                  {assetQual.map((p: { parameter: string; content?: string; weightage?: number }, i: number) => (
+                    <QualParamItem key={p.parameter || i} param={p} />
+                  ))}
+                </AnimatePresence>
               </Section>
             )}
 
             {assetQuant.length > 0 && (
               <Section label={`Asset Quantitative (${assetQuant.length})`}>
-                {assetQuant.map((r: { metric_name?: string; metric?: string; operator?: string; value?: number; weightage?: number }, i: number) => <QuantRuleItem key={i} rule={r} />)}
+                <AnimatePresence initial={false}>
+                  {assetQuant.map((r: { metric_name?: string; metric?: string; operator?: string; value?: number; weightage?: number }, i: number) => (
+                    <QuantRuleItem key={`${r.metric_name || r.metric}-${r.operator}-${r.value}-${i}`} rule={r} />
+                  ))}
+                </AnimatePresence>
               </Section>
             )}
 
             {macroQual.length > 0 && (
               <Section label={`Macro Qualitative (${macroQual.length})`}>
-                {macroQual.map((p: { parameter: string; content?: string; weightage?: number }, i: number) => <QualParamItem key={i} param={p} />)}
+                <AnimatePresence initial={false}>
+                  {macroQual.map((p: { parameter: string; content?: string; weightage?: number }, i: number) => (
+                    <QualParamItem key={p.parameter || i} param={p} />
+                  ))}
+                </AnimatePresence>
               </Section>
             )}
 
             {macroQuant.length > 0 && (
               <Section label={`Macro Quantitative (${macroQuant.length})`}>
-                {macroQuant.map((r: { metric_name?: string; metric?: string; operator?: string; value?: number; weightage?: number }, i: number) => <QuantRuleItem key={i} rule={r} />)}
+                <AnimatePresence initial={false}>
+                  {macroQuant.map((r: { metric_name?: string; metric?: string; operator?: string; value?: number; weightage?: number }, i: number) => (
+                    <QuantRuleItem key={`${r.metric_name || r.metric}-${r.operator}-${r.value}-${i}`} rule={r} />
+                  ))}
+                </AnimatePresence>
               </Section>
             )}
           </>
