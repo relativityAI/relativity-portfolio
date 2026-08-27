@@ -1,12 +1,23 @@
-import { Text, Flex, Button, Table, Box, HStack, Spinner, Dialog } from "@chakra-ui/react";
+import { Text, Flex, Button, Table, Box, HStack, Spinner } from "@chakra-ui/react";
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MdArrowUpward, MdArrowDownward } from "react-icons/md";
 import { AnalysisService } from "@/db";
 import { motion } from "motion/react";
 import { dur, ease, stagger, staggerItem, CountUp } from "@/lib/motion";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 type SortKey = "share" | "created_at" | "score" | "status" | "agent" | "model" | "duration";
+
+interface AnalysisItem {
+    analysis_id?: string;
+    _id?: string;
+    id?: string;
+    share_name?: string;
+    symbol?: string;
+    agent_name?: string;
+    agent?: string;
+}
 
 function scoreSignal(score: number): "positive" | "caution" | "negative" {
     if (score >= 70) return "positive";
@@ -124,7 +135,7 @@ export default function AnalysisList() {
     const [loading, setLoading] = useState(false);
     const [sortKey, setSortKey] = useState<SortKey | null>(null);
     const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-    const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+    const [deleteTarget, setDeleteTarget] = useState<AnalysisItem | null>(null);
 
     const fetchUniqueAnalysis = async () => {
         try {
@@ -150,7 +161,8 @@ export default function AnalysisList() {
         fetchUniqueAnalysis();
     }, []);
 
-    const handleDelete = async (id: string) => {
+    const handleDelete = async (id: string | undefined) => {
+        if (!id) return;
         try {
             await AnalysisService.deleteAnalysis(id);
             setDeleteTarget(null);
@@ -935,8 +947,8 @@ export default function AnalysisList() {
                                                                     size="xs"
                                                                     variant="ghost"
                                                                     onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setDeleteTarget(id);
+                                        e.stopPropagation();
+                                        setDeleteTarget(item);
                                                                     }}
                                                                     color="var(--ink-tertiary)"
                                                                     _hover={{
@@ -986,47 +998,23 @@ export default function AnalysisList() {
             </Flex>
 
             {/* Delete confirmation */}
-            <Dialog.Root
+            <ConfirmDialog
                 open={deleteTarget !== null}
-                onOpenChange={(e) => {
-                    if (!e.open) setDeleteTarget(null);
-                }}
-                role="alertdialog"
-                size={{ base: "full", md: "md" }}
-            >
-                <Dialog.Backdrop />
-                <Dialog.Positioner>
-                    <Dialog.Content>
-                        <Dialog.Header>
-                            <Dialog.Title fontSize="16px">Delete analysis?</Dialog.Title>
-                        </Dialog.Header>
-                        <Dialog.Body>
-                            <Text fontSize="13.5px" color="var(--ink-secondary)">
-                                This will permanently remove this analysis result. This action cannot be undone.
-                            </Text>
-                        </Dialog.Body>
-                        <Dialog.Footer>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                mr={3}
-                                onClick={() => setDeleteTarget(null)}
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                size="sm"
-                                bg="var(--signal-negative)"
-                                color="#fff"
-                                _hover={{ opacity: 0.9 }}
-                                onClick={() => deleteTarget && handleDelete(deleteTarget)}
-                            >
-                                Delete
-                            </Button>
-                        </Dialog.Footer>
-                    </Dialog.Content>
-                </Dialog.Positioner>
-            </Dialog.Root>
+                title="Delete analysis?"
+                message={
+                    deleteTarget
+                        ? `"${deleteTarget.share_name || deleteTarget.symbol || "this analysis"}"${
+                              deleteTarget.agent_name || deleteTarget.agent
+                                  ? ` by ${deleteTarget.agent_name || deleteTarget.agent}`
+                                  : ""
+                          } will be permanently removed and cannot be undone.`
+                        : ""
+                }
+                onCancel={() => setDeleteTarget(null)}
+                onConfirm={() =>
+                    handleDelete(deleteTarget?.analysis_id || deleteTarget?._id || deleteTarget?.id)
+                }
+            />
         </Box>
     );
 }

@@ -1,4 +1,5 @@
 import { VoyagerClient, type PullStatus } from "./voyager.js";
+import { findMetricId } from "./metrics.js";
 
 export interface Criterion {
   category?: string;
@@ -283,7 +284,10 @@ export function evaluateMetric(
   section: string,
   price_data?: "live" | "unavailable" | "unknown",
 ): QuantEntry {
-  const key = criterion.metric || criterion.metric_name || "";
+  // Some stored rules carry only metric_name ("PEG Ratio"); resolve to a catalog
+  // id so the snapshot lookup finds the value. Valid ids pass through unchanged.
+  const resolvedId = findMetricId(criterion.metric || "") || findMetricId(criterion.metric_name || "");
+  const key = resolvedId || criterion.metric || criterion.metric_name || "";
   const metric_name = criterion.metric_name || key;
   const metric_type = criterion.metric_type || "number";
   const weightage = typeof criterion.weightage === "number" ? criterion.weightage : 5;

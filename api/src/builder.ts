@@ -8,6 +8,8 @@ import { generateText } from "ai";
 import { buildModel, type LlmKeys } from "./agent.js";
 import { getSchemaDescriptor, type SchemaDescriptor } from "./schema.js";
 import type { MetricDef } from "./metrics.js";
+import { normalizeQuantRules } from "./metrics.js";
+import { buildWebSearchTool } from "./tools.js";
 
 export interface BuilderMessage {
   role: "assistant" | "user";
@@ -30,6 +32,9 @@ export interface BuilderResponse {
   options?: { id: string; label: string; description?: string }[];
   agent_draft_update?: Record<string, unknown>;
   thinking?: string;
+  sources?: string[];
+  search_results?: { query: string; title: string; url: string }[];
+  annotations?: { what: string; basis: string }[];
 }
 
 function buildSystemPrompt(schema: SchemaDescriptor, metrics: MetricDef[]): string {
@@ -64,8 +69,9 @@ ${metricList}
 5. For quantitative criteria: use metric IDs from the available list. Include "metric", "metric_name", "metric_type", "operator" (gt/gte/lt/lte/eq/between), "value", "value_upper" (required when operator is "between"), and "weightage" (1-10). Prefer simple operators (gt, lt, gte, lte) over "between" unless a range is clearly needed.
 6. Always generate a reasonable philosophy even if the user provides minimal input.
 7. When documents are provided, extract investment style, criteria, and preferences from them.
-8. Your response MUST be valid JSON: {"message": "text", "options": [...optional], "agent_draft_update": {...optional}}
-9. Never use markdown fences in your response — just raw JSON.
+8. You have a web_search tool. Call it when the user asks you to search the web or says anything like "search online", "look it up", "research X", or "find out about X". Base your draft ONLY on the search results plus the user's own input — not on general knowledge. In your "message", say in one line what the top sources showed (e.g. "The sources emphasize CAN SLIM's C: current quarterly earnings up 20%+"). Only claim facts the sources actually state.
+9. Cite EVERY decision. Your response MUST be valid JSON: {"message": "text", "options": [...optional], "agent_draft_update": {...optional}, "annotations": [{"what": "<the agent setting you chose>", "basis": "<the EXACT source it came from>"}]}. The basis must name the actual source — never a principle, paraphrase, or "known practice": use the exact article title + URL from the web search results you actually retrieved, or "File: <uploaded filename>" for uploaded documents, or "user input" when it came from the conversation. Add one annotation for every meaningful value in agent_draft_update (philosophy themes, each quantitative rule, each qualitative parameter, horizon, risk appetite). Never invent a URL, fact, or source.
+10. Never use markdown fences in your response — just raw JSON.
 
 ## Conversation Flow
 1. First, understand what the user wants to build (investment style, philosophy).
@@ -73,6 +79,103 @@ ${metricList}
 3. If custom, ask about their philosophy, then generate the draft.
 4. After presenting a draft, offer to refine specific sections.
 5. When the user says it's good, confirm and stop generating options.`;
+}
+
+// Extract web_search tool calls into readable "query → sources" strings.
+function extractWebSources(steps: any[]): string[] {
+  const out: string[] = [];
+  for (const step of steps || []) {
+    for (const tc of step?.toolCalls || []) {
+      if (tc.toolName !== "web_search") continue;
+      const query = tc.input?.query;
+      const res = step?.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId)?.output;
+      const domains = Array.from(new Set((res?.results || []).map((r: any) => {
+        try {
+          return new URL(r.url).hostname.replace(/^www\./, "");
+        } catch {
+          return r.url;
+        }
+      })));
+      if (!domains.length) continue;
+      const n = res?.results?.length || domains.length;
+      out.push(query ? `${query} → ${n} results → ${domains.join(", ")}` : `${n} results → ${domains.join(", ")}`);
+    }
+  }
+  return out;
+}
+
+// Extract the structured articles actually returned by Tavily, so the UI can
+// show exactly what the model had access to (query → title → url).
+export function extractSearchResults(steps: any[]): { query: string; title: string; url: string }[] {
+  const out: { query: string; title: string; url: string }[] = [];
+  const seen = new Set<string>();
+  for (const step of steps || []) {
+    for (const tc of step?.toolCalls || []) {
+      if (tc.toolName !== "web_search") continue;
+      const res = step?.toolResults?.find((tr: any) => tr.toolCallId === tc.toolCallId)?.output;
+      for (const r of res?.results || []) {
+        if (!r?.url || seen.has(r.url)) continue;
+        seen.add(r.url);
+        let fallback = r.url;
+        try {
+          fallback = new URL(r.url).hostname.replace(/^www\./, "");
+        } catch {}
+        out.push({
+          query: tc.input?.query || "",
+          title: r.title || fallback,
+          url: r.url,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+// Map display-name-only quantitative rules back to catalog metric ids.
+function normalizeDraft(update: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!update) return update;
+  const next: Record<string, unknown> = { ...update };
+  for (const key of ["asset_evaluation", "macro_evaluation"]) {
+    const sec = next[key];
+    if (sec && typeof sec === "object" && !Array.isArray(sec)) {
+      const s = sec as Record<string, unknown>;
+      if (Array.isArray(s.quantitative)) s.quantitative = normalizeQuantRules(s.quantitative);
+    }
+  }
+  return next;
+}
+
+// Pull and parse the first balanced {...} JSON object out of arbitrary model text.
+export function parseJsonObject(text: string): any | null {
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) {
+      escaped = false;
+    } else if (ch === "\\") {
+      escaped = true;
+    } else if (inString) {
+      if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(text.slice(start, i + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -117,37 +220,96 @@ export async function processBuilderTurn(req: BuilderRequest): Promise<BuilderRe
     userMessage +
     "\n\nRespond with JSON only.";
 
-  const result = await generateText({
-    model,
-    system: buildSystemPrompt(schema, req.metrics),
-    prompt,
-    temperature: 0.4,
-    maxRetries: 0,
-  });
+  const tools = req.llm_keys.tavily
+    ? { web_search: buildWebSearchTool(req.llm_keys.tavily) }
+    : undefined;
 
-  // Parse LLM response
-  const raw = (result.text || "").replace(/```(?:json)?|```/g, "").trim();
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) {
+  // When the user explicitly asks to search the web, force the tool so the
+  // model can't shortcut straight to memory.
+  const explicitSearch = /\b(?:search\w*|research\w*|look\w*\s+up|find\w*\s+out)\b/i.test(req.user_response || "");
+  if (explicitSearch && !tools) {
+    return {
+      message:
+        "Web search needs a Tavily API key — add it in Settings, then try again.",
+    };
+  }
+  const session = { model, system: buildSystemPrompt(schema, req.metrics), prompt, temperature: 0.4, maxRetries: 0 };
+  // Search is best-effort: forced on explicit request, but if the provider chokes
+  // (free-tier models often lack tool support) fall back to answering without tools.
+  const attempts: Array<Record<string, unknown>> = tools
+    ? explicitSearch
+      ? [{ tools, toolChoice: "required" }, { tools, toolChoice: "auto" }, {}]
+      : [{ tools, toolChoice: "auto" }]
+    : [{}];
+
+  let result: Awaited<ReturnType<typeof generateText>> | undefined;
+  for (const attempt of attempts) {
+    try {
+      result = await generateText({ ...session, ...attempt });
+      break;
+    } catch (e: any) {
+      console.warn(`[builder] attempt ${JSON.stringify(attempt)} failed: ${e?.message}`);
+    }
+  }
+  if (!result) throw new Error("All model attempts failed");
+
+  const sources = extractWebSources(result.steps);
+  const searchResults = extractSearchResults(result.steps);
+  let parsed = parseJsonObject(result.text || "");
+
+  // One focused recovery call (no tools, hard JSON-only instruction) before giving up.
+  if (!parsed) {
+    try {
+      const retry = await generateText({
+        ...session,
+        prompt: `${prompt}\n\nREMINDER: your entire reply must be ONE valid JSON object: {"message": string, "options"?: string[], "agent_draft_update"?: object}. No prose, no markdown, no backticks.`,
+      });
+      parsed = parseJsonObject(retry.text || "");
+    } catch (e: any) {
+      console.warn(`[builder] JSON recovery failed: ${e?.message}`);
+    }
+  }
+
+  if (!parsed) {
     return {
       message: "I had trouble processing that. Could you try again?",
+      sources: sources.length ? sources : undefined,
+      search_results: searchResults.length ? searchResults : undefined,
     };
   }
 
-  try {
-    const parsed = JSON.parse(raw.slice(start, end + 1));
-    return {
-      message: parsed.message || "Let me know if you'd like to adjust anything.",
-      options: Array.isArray(parsed.options) ? parsed.options : undefined,
-      agent_draft_update: parsed.agent_draft_update || undefined,
-      thinking: parsed.thinking || undefined,
-    };
-  } catch {
-    return {
-      message: "Let me know what you'd like to adjust, or say 'looks good' to save.",
-    };
-  }
+  // Annotations must cite only sources that actually exist in this turn:
+  // a retrieved search result (title/URL), an uploaded document, or "user input".
+  const docNames = (req.document_texts || []).map((d) => d.filename.toLowerCase());
+  const knownUrls = new Set(searchResults.map((r) => r.url.toLowerCase().replace(/\/+$/, "")));
+  const knownHosts = new Set(
+    searchResults.map((r) => {
+      try {
+        return new URL(r.url).hostname.replace(/^www\./, "");
+      } catch {
+        return "";
+      }
+    }),
+  );
+  const isRealBasis = (basis: string) => {
+    const b = (basis || "").toLowerCase();
+    if (b.includes("user input")) return true;
+    if (docNames.some((n) => n && b.includes(n))) return true;
+    if (knownUrls.has(b.replace(/\/+$/, ""))) return true;
+    return [...knownHosts].some((h) => h && b.includes(h));
+  };
+
+  return {
+    message: parsed.message || "Let me know if you'd like to adjust anything.",
+    options: Array.isArray(parsed.options) ? parsed.options : undefined,
+    agent_draft_update: normalizeDraft(parsed.agent_draft_update || undefined),
+    thinking: parsed.thinking || undefined,
+    sources: sources.length ? sources : undefined,
+    search_results: searchResults.length ? searchResults : undefined,
+    annotations: Array.isArray(parsed.annotations)
+      ? parsed.annotations.filter((a: any) => a?.what && a?.basis && isRealBasis(a.basis)).slice(0, 40)
+      : undefined,
+  };
 }
 
 /**
@@ -210,7 +372,7 @@ export async function extractDocumentSignals(
       horizon: parsed.horizon || "Long-term (years)",
       risk: Math.min(10, Math.max(1, Number(parsed.risk) || 5)),
       qualitative_params: Array.isArray(parsed.qualitative_params) ? parsed.qualitative_params : [],
-      quantitative_rules: Array.isArray(parsed.quantitative_rules) ? parsed.quantitative_rules : [],
+      quantitative_rules: normalizeQuantRules(Array.isArray(parsed.quantitative_rules) ? parsed.quantitative_rules : []),
     };
   } catch {
     return {

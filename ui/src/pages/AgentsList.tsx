@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { AgentService } from "@/db";
 import { motion } from "motion/react";
 import { stagger, staggerItem } from "@/lib/motion";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 interface Agent {
     _id: string;
@@ -31,6 +32,7 @@ export default function AgentsList() {
     const [uniqueAgents, setUniqueAgents] = useState<Agent[]>([]);
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
 
     const fetchUniqueAgents = async () => {
         try {
@@ -60,12 +62,11 @@ export default function AgentsList() {
         navigate("/agent/builder/" + id);
     };
 
-    const handleDelete = async (e: React.MouseEvent, id: string, name: string) => {
-        e.stopPropagation();
-        if (confirm(`Delete "${name || id}"?`)) {
-            await AgentService.deleteAgent(id);
-            fetchUniqueAgents();
-        }
+    const handleDelete = async (id: string | undefined) => {
+        if (!id) return;
+        await AgentService.deleteAgent(id);
+        setDeleteTarget(null);
+        fetchUniqueAgents();
     };
 
     useEffect(() => {
@@ -293,13 +294,10 @@ export default function AgentsList() {
                                                         px={1}
                                                         minW={{ base: "44px", md: "auto" }}
                                                         minH={{ base: "44px", md: "auto" }}
-                                                        onClick={(e) =>
-                                                            handleDelete(
-                                                                e,
-                                                                item._id || item.id,
-                                                                item.name
-                                                            )
-                                                        }
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setDeleteTarget(item);
+                                                        }}
                                                     >
                                                         <svg
                                                             width="14"
@@ -326,6 +324,19 @@ export default function AgentsList() {
                     </Box>
                 </Box>
             </Flex>
+
+            {/* Delete confirmation */}
+            <ConfirmDialog
+                open={deleteTarget !== null}
+                title="Delete agent?"
+                message={
+                    deleteTarget
+                        ? `"${deleteTarget.name || "this agent"}" will be permanently removed and cannot be undone.`
+                        : ""
+                }
+                onCancel={() => setDeleteTarget(null)}
+                onConfirm={() => handleDelete(deleteTarget?._id || deleteTarget?.id)}
+            />
         </Box>
     );
 }

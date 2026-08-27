@@ -7,7 +7,7 @@ import { encrypt, decrypt } from "./crypto.js";
 import { fetchUserKeys, ensureUserSettings } from "./provision.js";
 import { getModelIds } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
-import { getMetricsCatalog, buildFieldList, getFlatCatalog, type MetricDef } from "./metrics.js";
+import { getMetricsCatalog, buildFieldList, getFlatCatalog, mergeCatalogFields, normalizeQuantRules, type MetricDef } from "./metrics.js";
 import { createRun, RunRequest, DEFAULT_MODEL } from "./run.js";
 import { draftParameters, type LlmKeys } from "./agent.js";
 import { processBuilderTurn, extractDocumentSignals, type BuilderRequest } from "./builder.js";
@@ -28,6 +28,9 @@ const METHOD_COLORS: Record<string, string> = {
   DELETE: "1;31",
   OPTIONS: "1;36",
 };
+
+const normalizeEval = (ev: any): any =>
+  ev ? { ...ev, quantitative: normalizeQuantRules(ev.quantitative || []) } : ev;
 
 function methodColor(method: string): string {
   return METHOD_COLORS[method] || "37";
@@ -199,16 +202,21 @@ app.put("/user/settings", requireAuth, async (req, res) => {
     if (voyager_key !== undefined) {
       patch.voyager_key_encrypted = voyager_key ? encrypt(String(voyager_key)) : null;
     }
-    if (llm_keys !== undefined && typeof llm_keys === "object") {
-      const encrypted: Record<string, string> = {};
+    // Merge instead of replace: llm_keys_encrypted carries unrelated keys (e.g. tavily)
+    // plus the client only ever sees masked values, so a full replace would drop or corrupt them.
+    if (llm_keys === null) {
+      patch.llm_keys_encrypted = {};
+    } else if (llm_keys !== undefined && typeof llm_keys === "object") {
+      const { data: existing } = await db.from("user_settings").select("llm_keys_encrypted").eq("user_id", userId).single();
+      const encrypted: Record<string, string> = { ...((existing?.llm_keys_encrypted as Record<string, string>) || {}) };
       for (const [k, v] of Object.entries(llm_keys as Record<string, string>)) {
         encrypted[k] = v ? encrypt(String(v)) : "";
       }
       patch.llm_keys_encrypted = encrypted;
     }
 
-    const { data: existing } = await db.from("user_settings").select("user_id").eq("user_id", userId).single();
-    if (existing) {
+    const { data } = await db.from("user_settings").select("user_id").eq("user_id", userId).single();
+    if (data) {
       await db.from("user_settings").update(patch).eq("user_id", userId);
     } else {
       await db.from("user_settings").insert({ user_id: userId, ...patch });
@@ -280,8 +288,8 @@ app.post("/agents", requireAuth, async (req, res) => {
       source: req.body?.source || "NSE",
       persona: req.body?.persona || {},
       configuration: req.body?.configuration || {},
-      asset_evaluation: req.body?.asset_evaluation || { qualitative: [], quantitative: [] },
-      macro_evaluation: req.body?.macro_evaluation || { qualitative: [], quantitative: [] },
+      asset_evaluation: normalizeEval(req.body?.asset_evaluation) || { qualitative: [], quantitative: [] },
+      macro_evaluation: normalizeEval(req.body?.macro_evaluation) || { qualitative: [], quantitative: [] },
       created_at: new Date().toISOString(),
     };
     const { error } = await db.from("agents").insert(doc);
@@ -298,6 +306,8 @@ app.get("/agents/:id", requireAuth, async (req, res) => {
     const userId = (req as AuthedRequest).user.id;
     const { data, error } = await db.from("agents").select("*").eq("id", req.params.id).eq("user_id", userId).single();
     if (error || !data) return res.status(404).json({ error: "Agent not found" });
+    data.asset_evaluation = normalizeEval(data.asset_evaluation);
+    data.macro_evaluation = normalizeEval(data.macro_evaluation);
     res.json(data);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
@@ -320,6 +330,8 @@ app.put("/agents/:id", requireAuth, async (req, res) => {
       created_at: existing.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+    doc.asset_evaluation = normalizeEval(doc.asset_evaluation || { qualitative: [], quantitative: [] });
+    doc.macro_evaluation = normalizeEval(doc.macro_evaluation || { qualitative: [], quantitative: [] });
     const { error } = await db.from("agents").update(doc).eq("id", id).eq("user_id", userId);
     if (error) throw error;
     res.json(doc);
@@ -522,6 +534,7 @@ async function loadMetricFields(sourceLower: string, userId: string): Promise<Me
     }
   }
   if (!fields) fields = getFlatCatalog();
+  fields = mergeCatalogFields(fields);
   metricFieldsCache.set(sourceLower, { fields, fetched_at: Date.now() });
   return fields;
 }

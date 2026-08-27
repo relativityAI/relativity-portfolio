@@ -122,6 +122,41 @@ export function findMetricId(metric: string): string | null {
   return null;
 }
 
+// Resolve quantitative rule metric references: builder LLMs and the manual
+// editor sometimes write only metric_name (e.g. "PEG Ratio"). Map it back to a
+// catalog metric id so analysis can look it up, while keeping already-valid ids.
+export function normalizeQuantRules(rules: any[]): any[] {
+  return (rules || []).map((r) => {
+    const resolved = findMetricId(r.metric || r.metric_name || "");
+    return {
+      ...r,
+      metric: resolved || r.metric || "",
+      metric_name: r.metric_name || r.metric || "",
+      metric_type: r.metric_type || "number",
+    };
+  });
+}
+
+// Self-check: npx tsx src/metrics.ts
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  const cases: Array<[{ metric: string; metric_name: string }, string]> = [
+    [{ metric: "PEG Ratio", metric_name: "PEG Ratio" }, "peg_ratio"],
+    [{ metric: "", metric_name: "Earnings Growth" }, "earnings_growth"],
+    [{ metric: "debt_to_equity", metric_name: "Debt / Equity" }, "debt_to_equity"],
+    [{ metric: "roe", metric_name: "Return on Equity" }, "roe"],
+  ];
+  for (const [rule, expected] of cases) {
+    const got = normalizeQuantRules([rule])[0].metric;
+    if (got !== expected) throw new Error(`normalizeQuantRules ${rule.metric || rule.metric_name}: got "${got}" want "${expected}"`);
+  }
+  const merged = mergeCatalogFields([{ id: "returnonequity", name: "Return One Equity", type: "number" }]);
+  const ids = new Set(merged.map((m) => m.id));
+  if (!ids.has("peg_ratio")) throw new Error("mergeCatalogFields: peg_ratio missing");
+  if (!ids.has("returnonequity")) throw new Error("mergeCatalogFields: returnonequity missing");
+  if (ids.has("return_on_equity")) throw new Error("mergeCatalogFields: catalog id duplicated after normalization");
+  console.log("normalizeQuantRules OK");
+}
+
 // ── live metric fields (from Voyager's /financial-metrics snapshot) ────
 
 // Keys that describe the query rather than the company — never offered as criteria.
@@ -154,4 +189,13 @@ export function buildFieldList(sample: Record<string, any>): MetricDef[] {
 // Fallback when Voyager is unreachable: the hardcoded catalog, flattened.
 export function getFlatCatalog(): MetricDef[] {
   return CATALOG.flatMap((c) => c.metrics);
+}
+
+// Union a live field list with catalog metrics Voyager's snapshot didn't expose,
+// so catalog-only ids (peg_ratio, return_on_equity, ...) stay selectable in the
+// manual editor even when the live Voyager keys differ.
+export function mergeCatalogFields(fields: MetricDef[]): MetricDef[] {
+  const norm = (id: string) => id.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const seen = new Set(fields.map((f) => norm(f.id)));
+  return [...fields, ...getFlatCatalog().filter((m) => !seen.has(norm(m.id)))];
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react"
+import { useState, useEffect } from "react"
 import {
   Flex,
   Textarea,
@@ -69,21 +69,6 @@ function WeightStepper({ value, onChange }: { value: number; onChange: (v: numbe
   )
 }
 
-function MobileFieldLabel({ children }: { children: ReactNode }) {
-  return (
-    <Text
-      display={{ base: "block", md: "none" }}
-      fontSize="10px"
-      fontWeight={500}
-      color="var(--ink-tertiary)"
-      textTransform="uppercase"
-      letterSpacing="0.06em"
-    >
-      {children}
-    </Text>
-  )
-}
-
 export default function ListEditor(props: ListEditorProps) {
   const [items, setItems] = useState<ListEditorItem[]>(() =>
     (props.items || []).map((item, i) => ({
@@ -135,8 +120,9 @@ export default function ListEditor(props: ListEditorProps) {
 
   return (
     <Flex direction="column" width="full">
+      <Box overflowX="auto" border="1px solid" borderColor="border" borderRadius="sm">
       {items.length === 0 ? (
-        <Flex direction="column" align="center" gap={2} py={8} border="1px solid" borderColor="border" rounded="sm">
+        <Flex direction="column" align="center" gap={2} py={8} minW="600px">
           <Text fontSize="sm" color="fg.muted">{props.emptyStateTitle}</Text>
           <Text fontSize="xs" color="fg.muted">{props.emptyStateSubtitle}</Text>
         </Flex>
@@ -147,18 +133,16 @@ export default function ListEditor(props: ListEditorProps) {
             px={3}
             py={2}
             bg="bg.muted"
-            borderTopRadius="sm"
-            border="1px solid"
+            borderBottom="1px solid"
             borderColor="border"
-            borderBottom="none"
             fontSize="2xs"
             fontWeight="bold"
             color="fg.muted"
             letterSpacing="widest"
-            display={{ base: "none", md: "flex" }}
+            minW="640px"
           >
             {props.showLabel !== false && <Box flex={1.5}>LABEL</Box>}
-            {props.showWeight && <Box width="52px" textAlign="center" flexShrink={0}>WGT</Box>}
+            {props.showWeight && <Box width={{ base: "116px", md: "52px" }} textAlign="center" flexShrink={0}>WGT</Box>}
             <Box flex={3}>DETAILS</Box>
             <Box width="32px" flexShrink={0} />
           </Flex>
@@ -175,22 +159,19 @@ export default function ListEditor(props: ListEditorProps) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6, height: 0 }}
                 transition={{ duration: dur.base, ease }}
-                gap={{ base: 2, md: 3 }}
+                gap={3}
                 px={3}
-                py={{ base: 3, md: 2.5 }}
-                align={{ base: "stretch", md: "flex-start" }}
-                direction={{ base: "column", md: "row" }}
-                border="1px solid"
+                py={2.5}
+                align="flex-start"
+                direction="row"
+                minW="640px"
+                borderBottom={isLast ? "none" : "1px solid"}
                 borderColor="border"
-                borderTop="none"
-                borderBottomRadius={isLast ? "sm" : "none"}
                 bg={index % 2 === 0 ? "bg.subtle/30" : "transparent"}
                 _hover={{ bg: "bg.muted/50" }}
-                transition="background 0.15s"
               >
                 {props.showLabel !== false && (
-                  <Box flex={{ base: "none", md: 1.5 }}>
-                    <MobileFieldLabel>Label</MobileFieldLabel>
+                  <Box flex={1.5}>
                     <Input
                       variant="subtle"
                       size="xs"
@@ -210,16 +191,14 @@ export default function ListEditor(props: ListEditorProps) {
                   </Box>
                 )}
                 {props.showWeight && (
-                  <Box width={{ base: "full", md: "52px" }} flexShrink={0} textAlign={{ base: "left", md: "center" }}>
-                    <MobileFieldLabel>Weight</MobileFieldLabel>
+                  <Box width={{ base: "116px", md: "52px" }} flexShrink={0} textAlign="center">
                     <WeightStepper
                       value={item.weightage ?? 5}
                       onChange={(v) => handleChange(index, "weightage", v)}
                     />
                   </Box>
                 )}
-                <Box flex={{ base: "none", md: 3 }}>
-                  <MobileFieldLabel>Details</MobileFieldLabel>
+                <Box flex={3}>
                   <Textarea
                     autoresize
                     variant="subtle"
@@ -241,7 +220,7 @@ export default function ListEditor(props: ListEditorProps) {
                     lineHeight="short"
                   />
                 </Box>
-                <Box width={{ base: "full", md: "32px" }} flexShrink={0} display="flex" justify={{ base: "flex-end", md: "flex-start" }}>
+                <Box width="32px" flexShrink={0} display="flex" justify="flex-start">
                   <Button
                     size="xs"
                     variant="ghost"
@@ -262,6 +241,7 @@ export default function ListEditor(props: ListEditorProps) {
           </AnimatePresence>
         </>
       )}
+      </Box>
 
       <Flex gap={2} mt={3} alignSelf="flex-start">
         <Button

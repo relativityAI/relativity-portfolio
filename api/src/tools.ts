@@ -44,6 +44,45 @@ function announcementFilter(
     .slice(0, limit);
 }
 
+export function buildWebSearchTool(tavilyKey?: string, querySuffix?: string, webSources?: string[]) {
+  return tool({
+    description:
+      "Search the live web for recent news, analyst commentary, or context. Requires the Tavily API key to be configured in Settings.",
+    inputSchema: z.object({
+      query: z.string(),
+    }),
+    execute: async (args) => {
+      if (!tavilyKey) {
+        return {
+          message:
+            "Web search is not available: no Tavily API key configured. Rely on the other data tools.",
+        };
+      }
+      const res = await fetch(config.tavilyUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: tavilyKey,
+          query: querySuffix ? `${args.query} ${querySuffix}` : args.query,
+          max_results: 5,
+          ...(webSources?.length ? { include_domains: webSources } : {}),
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!res.ok) {
+        return { message: `Web search failed with status ${res.status}.` };
+      }
+      const data = await res.json();
+      const results = (data.results || []).map((r: any) => ({
+        title: r.title,
+        url: r.url,
+        content: r.content ? truncate(r.content, 2000) : undefined,
+      }));
+      return { query: args.query, count: results.length, results };
+    },
+  });
+}
+
 export function buildTools(ctx: ToolContext) {
   const { voyager, symbol, country, source, shareName } = ctx;
 
@@ -359,42 +398,7 @@ export function buildTools(ctx: ToolContext) {
       },
     }),
 
-    web_search: tool({
-      description:
-        "Search the live web for recent news, analyst commentary, or context about the company. Requires the Tavily API key to be configured in Settings.",
-      inputSchema: z.object({
-        query: z.string(),
-      }),
-      execute: async (args) => {
-        if (!ctx.tavilyKey) {
-          return {
-            message:
-              "Web search is not available: no Tavily API key configured. Rely on the other data tools.",
-          };
-        }
-        const res = await fetch(config.tavilyUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            api_key: ctx.tavilyKey,
-            query: `${args.query} ${shareName || symbol}`,
-            max_results: 5,
-            ...(ctx.webSources?.length ? { include_domains: ctx.webSources } : {}),
-          }),
-          signal: AbortSignal.timeout(30_000),
-        });
-        if (!res.ok) {
-          return { message: `Web search failed with status ${res.status}.` };
-        }
-        const data = await res.json();
-        const results = (data.results || []).map((r: any) => ({
-          title: r.title,
-          url: r.url,
-          content: r.content ? truncate(r.content, 2000) : undefined,
-        }));
-        return { query: args.query, count: results.length, results };
-      },
-    }),
+    web_search: buildWebSearchTool(ctx.tavilyKey, ctx.shareName || ctx.symbol, ctx.webSources),
   };
 }
 

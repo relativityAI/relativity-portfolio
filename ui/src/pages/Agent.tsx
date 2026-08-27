@@ -1,7 +1,7 @@
 import {
     Text, Flex, Button, Spinner, Input, Box, Menu,
 } from "@chakra-ui/react"
-import { MdOutlineFileDownload, MdOutlineFileUpload, MdSave, MdDeleteForever, MdMoreHoriz, MdOutlineAutoAwesome } from "react-icons/md"
+import { MdOutlineFileDownload, MdOutlineFileUpload, MdSave, MdDeleteForever, MdMoreHoriz, MdOutlineAutoAwesome, MdEdit } from "react-icons/md"
 
 import { useParams, useNavigate } from "react-router-dom"
 import { useState, useEffect, useMemo, useRef } from "react"
@@ -406,24 +406,36 @@ export default function Agent() {
                 justify="space-between"
                 align="center"
                 gap={3}
+                flexWrap={{ base: "wrap", md: "nowrap" }}
             >
-                <Flex direction="column" flex={1} minW={{ base: "140px", md: "320px" }} maxW="420px">
-                    <Input
-                        variant="plain"
-                        fontWeight={600}
-                        fontSize="17px"
-                        value={agent.name}
-                        onChange={(e) => updateAgent({ name: e.target.value })}
-                        placeholder="Untitled agent"
-                        bg="transparent"
-                        border="none"
-                        borderBottom="1px solid var(--hairline)"
-                        borderRadius={0}
-                        _focus={{ borderBottomColor: "var(--accent-primary)" }}
-                        px={0}
-                        py={1}
-                        h="auto"
-                    />
+                <Flex direction="column" flex={1} minW={{ base: "100%", md: "320px" }} maxW={{ base: "100%", md: "440px" }}>
+                    <Flex align="center" gap={2} minW={0}>
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ duration: dur.base, ease }}
+                            style={{ display: "flex", color: "var(--ink-tertiary)", flexShrink: 0 }}
+                        >
+                            <MdEdit size={15} />
+                        </motion.div>
+                        <Input
+                            variant="plain"
+                            fontWeight={600}
+                            fontSize={{ base: "15px", md: "17px" }}
+                            value={agent.name}
+                            onChange={(e) => updateAgent({ name: e.target.value })}
+                            placeholder="Untitled agent"
+                            bg="transparent"
+                            border="none"
+                            borderBottom="1px solid var(--hairline)"
+                            borderRadius={0}
+                            _focus={{ borderBottomColor: "var(--accent-primary)" }}
+                            px={0}
+                            py={1}
+                            h="auto"
+                            minW={0}
+                        />
+                    </Flex>
                     {metaLine && (
                         <Text
                             fontSize="11px"
@@ -437,7 +449,7 @@ export default function Agent() {
                     )}
                 </Flex>
 
-                <Flex align="center" gap={2} flexShrink={0}>
+                <Flex align="center" gap={2} flexShrink={0} flexWrap="wrap" justify={{ base: "space-between", md: "flex-end" }} w={{ base: "100%", md: "auto" }}>
                     <AnimatePresence mode="wait">
                         {isDirty ? (
                             <Flex as={motion.div} key="dirty" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }} transition={{ duration: dur.fast, ease }} align="center" gap={1.5} mr={1}>
@@ -500,14 +512,19 @@ export default function Agent() {
 
                     {!isNew && (agent._id || agent.id) && (
                         <Button
+                            as={motion.button}
+                            whileHover={{ y: -1 }}
+                            whileTap={{ scale: 0.96 }}
                             size="xs"
                             variant="ghost"
                             color="var(--ink-secondary)"
                             onClick={() => navigate(`/agent/builder/${agent._id || agent.id}`)}
                             fontSize="12px"
                         >
-                            <MdOutlineAutoAwesome size={13} />
-                            Builder Mode
+                            <MdOutlineAutoAwesome size={13} color="var(--accent-primary)" />
+                            <Box as="span" display={{ base: "none", sm: "inline" }}>
+                                Builder Mode
+                            </Box>
                         </Button>
                     )}
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ReactNode } from "react"
+import { useState, useEffect, useMemo } from "react"
 import {
   Flex,
   Button,
@@ -106,7 +106,6 @@ function FieldCombobox({ value, options, onChange, placeholder }: {
   placeholder?: string;
 }) {
   const { contains } = useFilter({ sensitivity: "base" })
-  const [inputValue, setInputValue] = useState("")
 
   // Keep saved-but-no-longer-listed metrics visible so existing agents render.
   const allOptions = useMemo(() => {
@@ -133,12 +132,7 @@ function FieldCombobox({ value, options, onChange, placeholder }: {
     <Combobox.Root
       collection={collection}
       value={value ? [value] : []}
-      onValueChange={(e) => {
-        onChange(e.value[0])
-        setInputValue("")
-      }}
-      inputValue={inputValue}
-      onInputValueChange={(e) => setInputValue(e.inputValue)}
+      onValueChange={(e) => onChange(e.value[0])}
       inputBehavior="autohighlight"
       openOnClick
       positioning={{ sameWidth: false, fitContent: true }}
@@ -157,7 +151,6 @@ function FieldCombobox({ value, options, onChange, placeholder }: {
         />
         <Combobox.IndicatorGroup>
           <Combobox.Trigger />
-          <Combobox.Indicator />
         </Combobox.IndicatorGroup>
       </Combobox.Control>
       <Portal>
@@ -176,21 +169,6 @@ function FieldCombobox({ value, options, onChange, placeholder }: {
         </Combobox.Positioner>
       </Portal>
     </Combobox.Root>
-  )
-}
-
-function MobileFieldLabel({ children }: { children: ReactNode }) {
-  return (
-    <Text
-      display={{ base: "block", md: "none" }}
-      fontSize="10px"
-      fontWeight={500}
-      color="var(--ink-tertiary)"
-      textTransform="uppercase"
-      letterSpacing="0.06em"
-    >
-      {children}
-    </Text>
   )
 }
 
@@ -287,188 +265,172 @@ export default function CriteriaBuilder({
 
   return (
     <Flex direction="column" width="full">
-      <Flex
-        gap={1}
-        px={2}
-        py={1}
-        bg="bg.muted"
-        borderTopRadius="sm"
-        border="1px solid"
-        borderColor="border"
-        borderBottom="none"
-        fontSize="xs"
-        fontWeight="bold"
-        color="fg.muted"
-        letterSpacing="widest"
-        display={{ base: "none", md: "flex" }}
-      >
-        <Box flex={3}>METRIC</Box>
-        {showWeight && <Box width="44px" textAlign="center" flexShrink={0}>WGT</Box>}
-        <Box flex={1}>OP</Box>
-        <Box flex={1.5}>VALUE</Box>
-        <Box width="32px" />
-      </Flex>
-
-      {localCriteria.length === 0 ? (
+      <Box overflowX="auto" border="1px solid" borderColor="border" borderRadius="sm">
         <Flex
-          direction="column"
-          align="center"
-          gap={2}
-          py={8}
-          border="1px solid"
+          gap={1}
+          px={2}
+          py={1}
+          bg="bg.muted"
+          borderBottom="1px solid"
           borderColor="border"
-          borderTop="none"
-          borderBottomRadius="sm"
+          fontSize="xs"
+          fontWeight="bold"
+          color="fg.muted"
+          letterSpacing="widest"
+          minW="640px"
         >
-          <Text fontSize="sm" color="fg.muted">{emptyStateTitle}</Text>
-          <Text fontSize="xs" color="fg.muted">{emptyStateSubtitle}</Text>
+          <Box flex={3}>METRIC</Box>
+          {showWeight && <Box width={{ base: "116px", md: "44px" }} textAlign="center" flexShrink={0}>WGT</Box>}
+          <Box flex={1}>OP</Box>
+          <Box flex={1.5}>VALUE</Box>
+          <Box width="32px" />
         </Flex>
-      ) : (
-        <AnimatePresence initial={false}>
-        {localCriteria.map((criterion, index) => {
-          const operators = OPERATORS_BY_TYPE[criterion.metric_type] || OPERATORS_BY_TYPE.number
-          const isBetween = criterion.operator === "between"
-          const iType = inputType(criterion.metric_type)
-          const isLast = index === localCriteria.length - 1
 
-          return (
-            <Flex
-              as={motion.div}
-              layout
-              key={index}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6, height: 0 }}
-              transition={{ duration: dur.base, ease }}
-              gap={{ base: 2, md: 1.5 }}
-               px={2}
-               py={{ base: 3, md: 1 }}
-               align={{ base: "stretch", md: "center" }}
-               direction={{ base: "column", md: "row" }}
-              border="1px solid"
-              borderColor="border"
-              borderTop="none"
-              borderBottomRadius={isLast ? "sm" : "none"}
-              bg={index % 2 === 0 ? "bg.subtle/30" : "transparent"}
-              _hover={{ bg: "bg.muted/50" }}
-              transition="background 0.15s"
-            >
-              <Box flex={{ base: "none", md: 3 }}>
-                <MobileFieldLabel>Metric</MobileFieldLabel>
-                <FieldCombobox
-                  value={criterion.metric}
-                  options={fieldOptions}
-                  onChange={(v) => handleChange(index, "metric", v)}
-                />
-              </Box>
-              {showWeight && (
-                <Box width={{ base: "full", md: "44px" }} flexShrink={0} textAlign={{ base: "left", md: "center" }}>
-                  <MobileFieldLabel>Weight</MobileFieldLabel>
-                  <Flex align="center" justify={{ base: "flex-start", md: "center" }} gap={0}>
-                    <IconButton
+        {localCriteria.length === 0 ? (
+          <Flex direction="column" align="center" gap={2} py={8} minW="640px">
+            <Text fontSize="sm" color="fg.muted">{emptyStateTitle}</Text>
+            <Text fontSize="xs" color="fg.muted">{emptyStateSubtitle}</Text>
+          </Flex>
+        ) : (
+          <AnimatePresence initial={false}>
+          {localCriteria.map((criterion, index) => {
+            const operators = OPERATORS_BY_TYPE[criterion.metric_type] || OPERATORS_BY_TYPE.number
+            const isBetween = criterion.operator === "between"
+            const iType = inputType(criterion.metric_type)
+            const isLast = index === localCriteria.length - 1
+
+            return (
+              <Flex
+                as={motion.div}
+                layout
+                key={index}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6, height: 0 }}
+                transition={{ duration: dur.base, ease }}
+                gap={1.5}
+                px={2}
+                py={1.5}
+                align="center"
+                direction="row"
+                minW="640px"
+                borderBottom={isLast ? "none" : "1px solid"}
+                borderColor="border"
+                bg={index % 2 === 0 ? "bg.subtle/30" : "transparent"}
+                _hover={{ bg: "bg.muted/50" }}
+              >
+                <Box flex={3}>
+                  <FieldCombobox
+                    value={criterion.metric}
+                    options={fieldOptions}
+                    onChange={(v) => handleChange(index, "metric", v)}
+                  />
+                </Box>
+                {showWeight && (
+                  <Box width={{ base: "116px", md: "44px" }} flexShrink={0} textAlign="center">
+                    <Flex align="center" justify="center" gap={0}>
+                      <IconButton
+                        size="xs"
+                        variant="ghost"
+                        color="fg.muted"
+                        _hover={{ color: "fg" }}
+                        onClick={() => handleChange(index, "weightage", Math.max(1, (criterion.weightage ?? 5) - 1))}
+                        h="22px"
+                        minW={{ base: "44px", md: "14px" }}
+                        minH={{ base: "44px", md: "22px" }}
+                        p={0}
+                      >
+                        <MdRemove size={10} />
+                      </IconButton>
+                      <Text fontSize="xs" fontWeight="bold" color="fg" minW="16px" textAlign="center" userSelect="none">
+                        {criterion.weightage ?? 5}
+                      </Text>
+                      <IconButton
+                        size="xs"
+                        variant="ghost"
+                        color="fg.muted"
+                        _hover={{ color: "fg" }}
+                        onClick={() => handleChange(index, "weightage", Math.min(10, (criterion.weightage ?? 5) + 1))}
+                        h="22px"
+                        minW={{ base: "44px", md: "14px" }}
+                        minH={{ base: "44px", md: "22px" }}
+                        p={0}
+                      >
+                        <MdAdd size={10} />
+                      </IconButton>
+                    </Flex>
+                  </Box>
+                )}
+                <Box flex={1}>
+                  <SelectInput
+                    value={criterion.operator}
+                    options={operators}
+                    onChange={(v) => handleChange(index, "operator", v)}
+                  />
+                </Box>
+                <Box flex={isBetween ? 2.5 : 1.5}>
+                  <Flex gap={1.5} align="center">
+                    <Input
+                      variant="subtle"
                       size="xs"
-                      variant="ghost"
-                      color="fg.muted"
-                      _hover={{ color: "fg" }}
-                      onClick={() => handleChange(index, "weightage", Math.max(1, (criterion.weightage ?? 5) - 1))}
-                      h="22px"
-                      minW={{ base: "44px", md: "14px" }}
-                      minH={{ base: "44px", md: "22px" }}
-                      p={0}
-                    >
-                      <MdRemove size={10} />
-                    </IconButton>
-                    <Text fontSize="xs" fontWeight="bold" color="fg" minW="16px" textAlign="center" userSelect="none">
-                      {criterion.weightage ?? 5}
-                    </Text>
-                    <IconButton
-                      size="xs"
-                      variant="ghost"
-                      color="fg.muted"
-                      _hover={{ color: "fg" }}
-                      onClick={() => handleChange(index, "weightage", Math.min(10, (criterion.weightage ?? 5) + 1))}
-                      h="22px"
-                      minW={{ base: "44px", md: "14px" }}
-                      minH={{ base: "44px", md: "22px" }}
-                      p={0}
-                    >
-                      <MdAdd size={10} />
-                    </IconButton>
+                      type={iType}
+                      step="any"
+                      placeholder={isBetween ? "Low" : "Value"}
+                      value={criterion.value ?? ""}
+                      onChange={(e) => handleChange(index, "value", iType === "number" ? (e.target.value ? Number(e.target.value) : null) : e.target.value)}
+                      bg="bg.subtle"
+                      border="1px solid"
+                      borderColor="var(--hairline)"
+                      _focus={{ borderColor: "fg.muted" }}
+                      color="fg"
+                      rounded="sm"
+                      fontSize="sm"
+                      minH="36px"
+                      px={2}
+                    />
+                    {isBetween && (
+                      <Input
+                        variant="subtle"
+                        size="xs"
+                        type={iType}
+                        step="any"
+                        placeholder="High"
+                        value={criterion.value_upper ?? ""}
+                        onChange={(e) => handleChange(index, "value_upper", iType === "number" ? (e.target.value ? Number(e.target.value) : null) : e.target.value)}
+                        bg="bg.subtle"
+                        border="1px solid"
+                        borderColor="var(--hairline)"
+                        _focus={{ borderColor: "fg.muted" }}
+                        color="fg"
+                        rounded="sm"
+                        fontSize="sm"
+                        minH="36px"
+                        px={2}
+                      />
+                    )}
                   </Flex>
                 </Box>
-              )}
-              <Box flex={{ base: "none", md: 1 }}>
-                <MobileFieldLabel>Operator</MobileFieldLabel>
-                <SelectInput
-                  value={criterion.operator}
-                  options={operators}
-                  onChange={(v) => handleChange(index, "operator", v)}
-                />
-              </Box>
-              <Box flex={{ base: "none", md: isBetween ? 1 : 1.5 }}>
-                <MobileFieldLabel>{isBetween ? "Value (Low)" : "Value"}</MobileFieldLabel>
-                <Input
-                  variant="subtle"
-                  size="xs"
-                  type={iType}
-                  step="any"
-                  placeholder={isBetween ? "Low" : "Value"}
-                  value={criterion.value ?? ""}
-                  onChange={(e) => handleChange(index, "value", iType === "number" ? (e.target.value ? Number(e.target.value) : null) : e.target.value)}
-                  bg="bg.subtle"
-                  border="1px solid"
-                  borderColor="var(--hairline)"
-                  _focus={{ borderColor: "fg.muted" }}
-                  color="fg"
-                    rounded="sm"
-                    fontSize="sm"
-                    minH="36px"
-                    px={2}
-                  />
-                </Box>
-                {isBetween && (
-                <Box flex={{ base: "none", md: 1 }}>
-                  <MobileFieldLabel>Value (High)</MobileFieldLabel>
-                  <Input
-                    variant="subtle"
+                <Box width="32px" flexShrink={0} display="flex" justify="flex-start">
+                  <Button
                     size="xs"
-                    type={iType}
-                    step="any"
-                    placeholder="High"
-                    value={criterion.value_upper ?? ""}
-                    onChange={(e) => handleChange(index, "value_upper", iType === "number" ? (e.target.value ? Number(e.target.value) : null) : e.target.value)}
-                    bg="bg.subtle"
-                    border="1px solid"
-                    borderColor="var(--hairline)"
-                    _focus={{ borderColor: "fg.muted" }}
-                    color="fg"
-                    rounded="sm"
-                    fontSize="sm"
-                    minH="36px"
-                    px={2}
-                  />
+                    variant="ghost"
+                    color="fg.muted"
+                    _hover={{ color: "red.500", bg: "transparent" }}
+                    onClick={deleteCriterion(index)}
+                    h="auto"
+                    minW={{ base: "44px", md: "auto" }}
+                    minH={{ base: "44px", md: "auto" }}
+                    p={1}
+                  >
+                    <MdDeleteForever size={16} />
+                  </Button>
                 </Box>
-              )}
-              <Box width={{ base: "full", md: "32px" }} flexShrink={0} display="flex" justify={{ base: "flex-end", md: "flex-start" }}>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  color="fg.muted"
-                  _hover={{ color: "red.500", bg: "transparent" }}
-                  onClick={deleteCriterion(index)}
-                  h="auto"
-                  minW={{ base: "44px", md: "auto" }}
-                  minH={{ base: "44px", md: "auto" }}
-                  p={1}
-                >
-                  <MdDeleteForever size={16} />
-                </Button>
-              </Box>
-            </Flex>
-          )
-        })}
-        </AnimatePresence>
-      )}
+              </Flex>
+            )
+          })}
+          </AnimatePresence>
+        )}
+      </Box>
 
       <Button
         variant="outline"

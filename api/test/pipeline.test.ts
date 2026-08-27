@@ -3,6 +3,32 @@ import { parseFinalScoreResult, investorProfileLine } from "../src/agent.js";
 import { assessDataAdequacy, evaluateMetric, runQuantitative } from "../src/quant.js";
 import { resolveWebSearch } from "../src/run.js";
 import { buildFieldList, getFlatCatalog } from "../src/metrics.js";
+import { parseJsonObject } from "../src/builder.js";
+
+describe("parseJsonObject", () => {
+  it("parses a bare JSON object", () => {
+    expect(parseJsonObject('{"message":"hi"}')).toEqual({ message: "hi" });
+  });
+
+  it("tolerates prose and backticks around the object", () => {
+    const t = "Here is the draft:\n```json\n{\"message\":\"ok\",\"options\":[\"a\"]}\n```\nHope that helps";
+    expect(parseJsonObject(t)).toEqual({ message: "ok", options: ["a"] });
+  });
+
+  it("keeps braces inside string values", () => {
+    const t = '{"message":"uses {braces} in text","agent_draft_update":{"philosophy":"x"}}';
+    expect(parseJsonObject(t)).toEqual({ message: "uses {braces} in text", agent_draft_update: { philosophy: "x" } });
+  });
+
+  it("returns null for unbalanced/truncated output", () => {
+    expect(parseJsonObject('{"message":"cut off mid')).toBeNull();
+    expect(parseJsonObject("no braces at all")).toBeNull();
+  });
+
+  it("takes the first object when multiple appear", () => {
+    expect(parseJsonObject('prefix {"a":1} tail {"b":2}')).toEqual({ a: 1 });
+  });
+});
 
 describe("parseFinalScoreResult", () => {
   it("parses plain FINAL_SCORE line", () => {
