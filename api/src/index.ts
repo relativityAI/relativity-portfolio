@@ -5,7 +5,7 @@ import { config } from "./config.js";
 import { getDb } from "./db.js";
 import { encrypt, decrypt } from "./crypto.js";
 import { fetchUserKeys, ensureUserSettings } from "./provision.js";
-import { getModelIds } from "./models.js";
+import { getModelIds, getAvailableModelsForUser } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
 import { getMetricsCatalog, buildFieldList, getFlatCatalog, mergeCatalogFields, normalizeQuantRules, type MetricDef } from "./metrics.js";
 import { createRun, RunRequest, DEFAULT_MODEL } from "./run.js";
@@ -475,8 +475,76 @@ app.get("/sources", (_req, res) => {
   res.json(getSources());
 });
 
-app.get("/models", (_req, res) => {
-  res.json(getModelIds());
+app.get("/models", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const { llmKeys } = await fetchUserKeys(userId);
+    const hasKeys = Object.entries(llmKeys).some(([k, v]) => k !== "tavily" && !!v);
+    if (!hasKeys) {
+      // No LLM keys configured — return curated list unfiltered
+      res.json(getModelIds());
+      return;
+    }
+    const models = await getAvailableModelsForUser(llmKeys);
+    res.json(models);
+  } catch (e: any) {
+    // Fallback to static list on error
+    res.json(getModelIds());
+  }
+});
+
+app.post("/models/validate", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const modelId = String(req.body?.model_id || "");
+    if (!modelId) {
+      return res.status(400).json({ valid: false, error: "model_id is required" });
+    }
+
+    const provider = modelId.split("/")[0];
+    const { llmKeys } = await fetchUserKeys(userId);
+
+    // Ollama doesn't need a key
+    if (provider === "ollama") {
+      return res.json({ valid: true });
+    }
+
+    const apiKey = llmKeys[provider];
+    if (!apiKey) {
+      return res.json({
+        valid: false,
+        error: `No API key configured for "${provider}". Add one in Settings.`,
+      });
+    }
+
+    // Try a minimal generateText call to validate the key + model access
+    const { buildModel } = await import("./agent.js");
+    const { generateText } = await import("ai");
+    const model = buildModel(modelId, llmKeys as any);
+    await generateText({
+      model,
+      prompt: "Hi",
+      maxOutputTokens: 1,
+      abortSignal: AbortSignal.timeout(15_000),
+    });
+
+    res.json({ valid: true });
+  } catch (e: any) {
+    const msg = e?.message || String(e);
+    let error = msg;
+    if (/401|unauthorized|invalid.*key/i.test(msg)) {
+      error = "API key is invalid or expired.";
+    } else if (/403|forbidden|insufficient/i.test(msg)) {
+      error = "API key doesn't have access to this model. Check your plan or permissions.";
+    } else if (/429|rate.limit|quota/i.test(msg)) {
+      error = "Rate limit or quota exceeded for this API key.";
+    } else if (/404|not.found|does not exist/i.test(msg)) {
+      error = "Model not found. It may have been deprecated or is not available on your plan.";
+    } else if (/timeout|abort/i.test(msg)) {
+      error = "Validation timed out. The provider may be temporarily unavailable.";
+    }
+    res.json({ valid: false, error });
+  }
 });
 
 app.get("/stocks/search", (req, res) => {

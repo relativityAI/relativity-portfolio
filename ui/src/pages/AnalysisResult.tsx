@@ -20,7 +20,7 @@ import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons
 import { motion, AnimatePresence } from "motion/react";
 import { CountUp, dur, ease } from "@/lib/motion";
 
-const TABS = ["overview", "quantitative", "qualitative", "data", "sources"] as const;
+const TABS = ["overview", "quantitative", "qualitative"] as const;
 type Tab = (typeof TABS)[number];
 
 function scoreSignal(score: number): "positive" | "caution" | "negative" {
@@ -653,6 +653,7 @@ export default function AnalysisResult() {
                             borderBottom="1px solid var(--hairline)"
                             mb={6}
                             overflowX="auto"
+                            flexWrap="nowrap"
                             css={{ scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" } }}
                         >
                             {TABS.map((tab) => (
@@ -663,9 +664,11 @@ export default function AnalysisResult() {
                                     fontWeight={activeTab === tab ? 600 : 400}
                                     color={activeTab === tab ? "var(--ink-primary)" : "var(--ink-tertiary)"}
                                     textTransform="capitalize"
-                                    px={4}
+                                    px={{ base: 3, md: 4 }}
                                     py={2.5}
                                     minH={{ base: "44px", md: "auto" }}
+                                    flexShrink={0}
+                                    whiteSpace="nowrap"
                                     position="relative"
                                     _hover={{ color: "var(--ink-primary)" }}
                                     _selected={{
@@ -847,34 +850,7 @@ export default function AnalysisResult() {
                             </Box>
                         </Tabs.Content>
 
-                        {/* ── Data ── */}
-                        <Tabs.Content value="data">
-                            <Box
-                                ref={(el) => registerSection("data", el)}
-                                data-section="data"
-                            >
-                                <SectionHeader label="Data" count={1} />
-                                <DataStatus
-                                    dataAvailability={analysis.data_availability}
-                                    priceData={analysis.price_data}
-                                />
-                            </Box>
-                        </Tabs.Content>
 
-                        {/* ── Sources ── */}
-                        <Tabs.Content value="sources">
-                            <Box
-                                ref={(el) => registerSection("sources", el)}
-                                data-section="sources"
-                            >
-                                <SectionHeader label="Sources" count={docs.length + webSrc.length} />
-                                {docs.length > 0 || webSrc.length > 0 ? (
-                                    <SourcesDetail docs={docs} webSrc={webSrc} analysis={analysis} />
-                                ) : (
-                                    <EmptyState message="No source data recorded for this run." />
-                                )}
-                            </Box>
-                        </Tabs.Content>
                     </Tabs.Root>
                 )}
             </Container>

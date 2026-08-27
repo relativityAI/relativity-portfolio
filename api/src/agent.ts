@@ -240,6 +240,7 @@ export async function runQualitative(
       system: SYSTEM_PROMPT,
       prompt: userPrompt,
       temperature: 0.1,
+      maxOutputTokens: 8192,
       stopWhen: stepCountIs(config.maxToolSteps),
       tools,
       abortSignal: AbortSignal.timeout(PARAM_TIMEOUT_MS),
