@@ -70,6 +70,12 @@ function PageFallback() {
   );
 }
 
+function UnknownRoute() {
+  const { user, loading } = useAuth();
+  if (loading) return <PageFallback />;
+  return user ? <Navigate to="/" replace /> : <NotFound />;
+}
+
 const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/thank-you", "/auth/callback"];
 
 function AppRoutes() {
@@ -195,7 +201,8 @@ function AppRoutes() {
                     <Route path="/privacy" element={<Privacy />} />
                     <Route path="/terms" element={<Terms />} />
                     <Route path="/thank-you" element={<ThankYou />} />
-                    <Route path="*" element={<NotFound />} />
+                    <Route path="/index.html" element={<Navigate to="/" replace />} />
+                    <Route path="*" element={<UnknownRoute />} />
                   </Routes>
                 </Suspense>
               </motion.div>
