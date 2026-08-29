@@ -28,38 +28,46 @@ import Footer from "./components/Footer";
 import CookieBanner from "./components/CookieBanner";
 import ApiKeySetupDialog from "./components/ApiKeySetupDialog";
 import { MotionConfig, AnimatePresence, motion } from "motion/react";
-import { page } from "@/lib/motion";
+import { page, dur, ease } from "@/lib/motion";
 
 function Protected({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <Center minH="calc(100vh - 56px)">
-        <Spinner size="lg" />
-      </Center>
-    );
-  }
-
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <>{children}</>;
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      {loading ? (
+        <motion.div key="loading" exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }}>
+          <Center minH="calc(100vh - 56px)">
+            <Spinner size="lg" />
+          </Center>
+        </motion.div>
+      ) : (
+        <motion.div key="content" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
+          {user ? children : <Navigate to="/login" replace />}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 function Home() {
   const { user, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <Center minH="calc(100vh - 56px)">
-        <Spinner size="lg" />
-      </Center>
-    );
-  }
-
-  return user ? <Analysis /> : <Landing />;
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      {loading ? (
+        <motion.div key="loading" exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }}>
+          <Center minH="calc(100vh - 56px)">
+            <Spinner size="lg" />
+          </Center>
+        </motion.div>
+      ) : (
+        <motion.div key={user ? "analysis" : "landing"} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
+          {user ? <Analysis /> : <Landing />}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 function PageFallback() {

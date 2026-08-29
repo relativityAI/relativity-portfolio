@@ -25,6 +25,12 @@ export const page = {
   exit: { opacity: 0, y: -6, transition: { duration: dur.fast, ease } },
 }
 
+export const swap = {
+  initial: { opacity: 0, y: 6 },
+  animate: { opacity: 1, y: 0, transition: { duration: dur.base, ease } },
+  exit: { opacity: 0, y: -6, transition: { duration: dur.fast, ease } },
+}
+
 export function CountUp({ value, decimals = 1, duration = 0.7 }: { value: number; decimals?: number; duration?: number }) {
   const mv = useMotionValue(0)
   const spring = useSpring(mv, { damping: 30, stiffness: 90 })

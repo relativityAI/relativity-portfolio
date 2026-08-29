@@ -18,7 +18,7 @@ import { RunSteps } from "./shared/RunStatus";
 import ReactMarkdown from "react-markdown";
 import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
 import { motion, AnimatePresence } from "motion/react";
-import { CountUp, dur, ease } from "@/lib/motion";
+import { CountUp, dur, ease, swap } from "@/lib/motion";
 
 const TABS = ["overview", "quantitative", "qualitative"] as const;
 type Tab = (typeof TABS)[number];
@@ -453,7 +453,7 @@ export default function AnalysisResult() {
 
                 {/* Verdict band — the 3-second read */}
                 {isComplete && (
-                    <Box mb={6}>
+                    <Box mb={6} as={motion.div} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: dur.base, ease }}>
                         <Flex
                             direction={{ base: "column", md: "row" }}
                             align={{ base: "flex-start", md: "center" }}
@@ -598,9 +598,10 @@ export default function AnalysisResult() {
                     </Box>
                 )}
 
-                {/* Running state */}
+                {/* Running state ↔ completed report crossfade */}
+                <AnimatePresence mode="wait">
                 {isRunning && (
-                    <Box mb={6}>
+                    <Box key="running" as={motion.div} variants={swap} initial="initial" animate="animate" exit="exit" mb={6}>
                         <Flex justify="space-between" align="center" mb={3}>
                             <HStack gap={3} color="var(--ink-secondary)">
                                 <Spinner size="sm" borderWidth="2px" />
@@ -642,6 +643,7 @@ export default function AnalysisResult() {
 
                 {/* Section nav */}
                 {isComplete && (
+                    <Box key="report" as={motion.div} variants={swap} initial="initial" animate="animate" exit="exit">
                     <Tabs.Root
                         defaultValue="overview"
                         onValueChange={handleTabChange}
@@ -852,7 +854,9 @@ export default function AnalysisResult() {
 
 
                     </Tabs.Root>
+                    </Box>
                 )}
+                </AnimatePresence>
             </Container>
         </Box>
     );
@@ -1015,7 +1019,7 @@ function QuantTable({
                                     key={m.key}
                                     borderLeft={`3px solid ${borderColor}`}
                                     _hover={{ bg: "var(--surface-recessed)" }}
-                                    transition="background 80ms"
+                                    transition="background 160ms"
                                 >
                                     <Table.Cell
                                         fontSize="13.5px"
@@ -1154,7 +1158,7 @@ function QualTable({ entries }: { entries: [string, any][] }) {
                                     key={paramName}
                                     borderLeft={`3px solid ${signalColor(sig)}`}
                                     _hover={{ bg: "var(--surface-recessed)" }}
-                                    transition="background 80ms"
+                                    transition="background 160ms"
                                 >
                                     <Table.Cell
                                         fontSize="13.5px"

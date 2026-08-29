@@ -89,21 +89,28 @@ export default function AgentPreviewPanel({ agentDraft, isDirty }: AgentPreviewP
           Agent Preview
         </Text>
         {isDirty && (
-          <Badge fontSize="9px" colorPalette="orange" variant="surface" fontWeight={500}>
-            Unsaved
-          </Badge>
+          <AnimatePresence initial={false}>
+            <motion.span key="unsaved" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: dur.fast, ease }}>
+              <Badge fontSize="9px" colorPalette="orange" variant="surface" fontWeight={500}>
+                Unsaved
+              </Badge>
+            </motion.span>
+          </AnimatePresence>
         )}
       </Flex>
 
       <Box flex={1} overflowY="auto" px={1}>
+        <AnimatePresence mode="wait" initial={false}>
         {!hasContent ? (
+          <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }} style={{ height: "100%" }}>
           <Flex direction="column" align="center" justify="center" h="100%" gap={2}>
             <Text fontSize="12px" color="var(--ink-tertiary)" textAlign="center">
               Agent preview will appear here as you build it.
             </Text>
           </Flex>
+          </motion.div>
         ) : (
-          <>
+          <motion.div key="content" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: dur.base, ease }}>
             <Text fontSize="15px" fontWeight={600} color="var(--ink-primary)" mb={2}>
               {name}
             </Text>
@@ -164,8 +171,9 @@ export default function AgentPreviewPanel({ agentDraft, isDirty }: AgentPreviewP
                 </AnimatePresence>
               </Section>
             )}
-          </>
+          </motion.div>
         )}
+        </AnimatePresence>
       </Box>
     </motion.div>
   );
