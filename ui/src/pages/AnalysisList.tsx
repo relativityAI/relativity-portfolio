@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MdArrowUpward, MdArrowDownward } from "react-icons/md";
 import { AnalysisService } from "@/db";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { dur, ease, stagger, staggerItem, CountUp } from "@/lib/motion";
 import ConfirmDialog from "@/components/ConfirmDialog";
 
@@ -137,9 +137,9 @@ export default function AnalysisList() {
     const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
     const [deleteTarget, setDeleteTarget] = useState<AnalysisItem | null>(null);
 
-    const fetchUniqueAnalysis = async () => {
+    const fetchUniqueAnalysis = async (silent = false) => {
         try {
-            setLoading(true);
+            if (!silent) setLoading(true);
             const data = await AnalysisService.listAnalyses();
             if (Array.isArray(data)) {
                 setUniqueAnalysis(data);
@@ -166,7 +166,8 @@ export default function AnalysisList() {
         try {
             await AnalysisService.deleteAnalysis(id);
             setDeleteTarget(null);
-            fetchUniqueAnalysis();
+            setUniqueAnalysis((prev) => prev.filter((a) => (a.analysis_id || a._id || a.id) !== id));
+            fetchUniqueAnalysis(true);
         } catch (error) {
             console.error("Delete analysis error:", error);
         }
@@ -713,8 +714,18 @@ export default function AnalysisList() {
                                             </Table.Row>
                                         </Table.Header>
                                         <Table.Body as={motion.tbody} variants={stagger} initial="initial" animate="animate">
-                                            {fetchError ? (
-                                                <Table.Row>
+                                            <AnimatePresence initial={false}>
+                                            {loading ? (
+                                                <Table.Row as={motion.tr} key="loading" variants={staggerItem} exit={{ opacity: 0 }}>
+                                                    <Table.Cell colSpan={colSpan} py={12}>
+                                                        <Flex justify="center" gap={3} color="var(--ink-secondary)">
+                                                            <Spinner size="sm" borderWidth="2px" />
+                                                            <Text fontSize="13px">Loading analyses…</Text>
+                                                        </Flex>
+                                                    </Table.Cell>
+                                                </Table.Row>
+                                            ) : fetchError ? (
+                                                <Table.Row as={motion.tr} key="error" variants={staggerItem} exit={{ opacity: 0 }}>
                                                     <Table.Cell
                                                         colSpan={colSpan}
                                                         py={8}
@@ -741,7 +752,7 @@ export default function AnalysisList() {
                                                     </Table.Cell>
                                                 </Table.Row>
                                             ) : sorted.length === 0 && !loading ? (
-                                                <Table.Row>
+                                                <Table.Row as={motion.tr} key="empty" variants={staggerItem} exit={{ opacity: 0 }}>
                                                     <Table.Cell
                                                         colSpan={colSpan}
                                                         textAlign="center"
@@ -777,14 +788,15 @@ export default function AnalysisList() {
                                                         <Table.Row
                                                             as={motion.tr}
                                                             variants={staggerItem}
-                                                            layout
+                                                            exit={{ opacity: 0 }}
+                                                            layout={false}
                                                             key={id}
                                                             cursor="pointer"
                                                             onClick={() => onRowClick(id)}
                                                             _hover={{
                                                                 bg: "var(--surface-recessed)",
                                                             }}
-                                                            transition="background 80ms"
+                                                            transition="background 160ms"
                                                         >
                                                             {/* Share — plain text, not badge */}
                                                             <Table.Cell
@@ -988,6 +1000,7 @@ export default function AnalysisList() {
                                                     );
                                                 })
                                             )}
+                                            </AnimatePresence>
                                         </Table.Body>
                                     </Table.Root>
                                 </Box>

@@ -222,15 +222,24 @@ function RunningNow() {
         };
     }, []);
 
-    if (running.length === 0) return null;
-
     return (
+        <AnimatePresence initial={false}>
+        {running.length > 0 && (
         <Box
+            as={motion.div}
+            key="runningnow"
+            mt={4}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+            transition={{ duration: dur.base, ease }}
+            overflow="hidden"
+        >
+            <Box
             bg="var(--surface-panel)"
             border="1px solid var(--hairline)"
             borderRadius="2px"
             p={5}
-            mt={4}
         >
             <Text
                 fontSize="10.5px"
@@ -254,7 +263,7 @@ function RunningNow() {
                                 p={2}
                                 borderRadius="2px"
                                 _hover={{ bg: "var(--surface-recessed)" }}
-                                transition="background 80ms"
+                                transition="background 160ms"
                             >
                                 <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" flexShrink={0} />
                                 <Flex direction="column" minW={0} flex={1}>
@@ -280,6 +289,9 @@ function RunningNow() {
                 </AnimatePresence>
             </Flex>
         </Box>
+        </Box>
+        )}
+        </AnimatePresence>
     );
 }
 
@@ -816,6 +828,7 @@ export default function Analysis() {
                                                         fontSize="12px"
                                                         cursor="pointer"
                                                         _hover={{ bg: "var(--surface-recessed)" }}
+                                                        transition="background 160ms"
                                                         onClick={() => {
                                                             setSelectedModel(m);
                                                             setModelError(null);
@@ -949,7 +962,17 @@ export default function Analysis() {
                             </AnimatePresence>
 
                             {/* Step checklist */}
+                            <AnimatePresence mode="wait" initial={false}>
                             {status !== "EMPTY" && steps.length > 0 && (
+                                <Box
+                                    key="steps"
+                                    as={motion.div}
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: "auto" }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                    transition={{ duration: dur.base, ease }}
+                                    overflow="hidden"
+                                >
                                 <Box
                                     borderTop="1px solid var(--hairline)"
                                     borderBottom="1px solid var(--hairline)"
@@ -957,7 +980,9 @@ export default function Analysis() {
                                 >
                                     <RunSteps steps={steps} now={Date.now()} />
                                 </Box>
+                                </Box>
                             )}
+                            </AnimatePresence>
 
                             {/* Idle: start button */}
                             {status === "EMPTY" && !id && (
@@ -1072,18 +1097,28 @@ export default function Analysis() {
 
             <Separator borderColor="var(--hairline)" />
 
+            <AnimatePresence mode="wait" initial={false}>
             {loading ? (
+                <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }}>
                 <Flex justify="center" align="center" direction="column" gap={4} p={10}>
                     <Spinner size="lg" borderWidth="2px" color="var(--ink-secondary)" />
                     <Text fontSize="13px" color="var(--ink-secondary)">Loading analysis data…</Text>
                 </Flex>
+                </motion.div>
             ) : status === "COMPLETED" && correlationId ? (
+                <motion.div key="done" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
                 <Flex justify="center" align="center" direction="column" gap={4} p={10}>
                     <Text fontSize="13px" color="var(--ink-tertiary)">
                         You can find all your previous analyses in the list view.
                     </Text>
                 </Flex>
-            ) : !id && !config.share && <AnalysisGettingStarted />}
+                </motion.div>
+            ) : !id && !config.share ? (
+                <motion.div key="getting-started" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
+                <AnalysisGettingStarted />
+                </motion.div>
+            ) : null}
+            </AnimatePresence>
             </Flex>
         </Box>
     )

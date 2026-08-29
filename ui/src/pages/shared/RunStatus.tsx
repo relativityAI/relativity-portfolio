@@ -1,7 +1,7 @@
 import { Box, Flex, Text, Spinner, HStack, VStack } from "@chakra-ui/react";
 import { MdCheck, MdClose } from "react-icons/md";
 import { formatSeconds } from "@/utils";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 
 export type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
@@ -99,7 +99,7 @@ function StepRow({ step, now }: { step: RunStep; now: number }) {
                     : "var(--ink-tertiary)";
 
     return (
-        <Flex as={motion.div} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: dur.base, ease }} gap={2.5} align="flex-start">
+        <Flex as={motion.div} layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: dur.base, ease }} gap={2.5} align="flex-start">
             <Box mt="1px">
                 <StepIcon status={step.status} />
             </Box>
@@ -136,21 +136,26 @@ function StepRow({ step, now }: { step: RunStep; now: number }) {
 }
 
 export function RunSteps({ steps, now }: { steps: RunStep[]; now: number }) {
-    if (!steps || steps.length === 0) {
-        return (
-            <HStack gap={1.5}>
-                <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />
-                <Text fontSize="12px" color="var(--ink-secondary)">
-                    Running analysis…
-                </Text>
-            </HStack>
-        );
-    }
     return (
-        <VStack gap={3.5} align="stretch">
-            {steps.map((s) => (
-                <StepRow key={s.key} step={s} now={now} />
-            ))}
-        </VStack>
+        <AnimatePresence mode="wait" initial={false}>
+        {!steps || steps.length === 0 ? (
+            <motion.div key="empty" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }}>
+                <HStack gap={1.5}>
+                    <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />
+                    <Text fontSize="12px" color="var(--ink-secondary)">
+                        Running analysis…
+                    </Text>
+                </HStack>
+            </motion.div>
+        ) : (
+            <motion.div key="steps" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: dur.base, ease }}>
+                <VStack gap={3.5} align="stretch">
+                    {steps.map((s) => (
+                        <StepRow key={s.key} step={s} now={now} />
+                    ))}
+                </VStack>
+            </motion.div>
+        )}
+        </AnimatePresence>
     );
 }

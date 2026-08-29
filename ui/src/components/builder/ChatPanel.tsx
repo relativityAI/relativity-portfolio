@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Box, Flex, Input, IconButton, Text } from "@chakra-ui/react";
+import { motion, AnimatePresence } from "motion/react";
 import { MdSend, MdOutlineInfo } from "react-icons/md";
 import ChatBubble, { type ChatMsg } from "./ChatBubble";
 import DocDropzone from "./DocDropzone";
@@ -80,11 +81,20 @@ export default function ChatPanel({
               isLatest={i === lastOptionsIdx}
             />
           ))}
-          {steps && steps.length > 0 && (
-            <Box px={1}>
-              <StepsTrace steps={steps} />
-            </Box>
-          )}
+          <AnimatePresence initial={false}>
+            {steps && steps.length > 0 && (
+              <Box
+                key="steptrace"
+                px={1}
+                as={motion.div}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ type: "spring", stiffness: 420, damping: 36 }}
+                overflow="hidden"
+              >
+                <StepsTrace steps={steps} />
+              </Box>
+            )}
+          </AnimatePresence>
           <div ref={messagesEndRef} />
         </Flex>
       </Box>

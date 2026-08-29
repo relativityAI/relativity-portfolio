@@ -17,9 +17,11 @@ interface StepsTraceProps {
 function StepRow({ step }: { step: BuilderStep }) {
   return (
     <motion.div
+      layout
       initial={{ opacity: 0, x: -4 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: dur.fast, ease }}
+      exit={{ opacity: 0, x: -4 }}
+      transition={{ type: "spring", stiffness: 420, damping: 32 }}
     >
       <Flex align="flex-start" gap={2}>
         <Flex w="14px" justify="center" flexShrink={0} mt="2px">

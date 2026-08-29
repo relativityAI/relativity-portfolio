@@ -57,7 +57,7 @@ export default function ChipMultiSelect({ label, description, options, selected,
               fontSize="12px"
               fontWeight={isActive ? 500 : 400}
               borderRadius="2px"
-              transition="background 80ms"
+              transition="background 160ms"
             >
               {opt.label}
             </Button>

@@ -10,7 +10,7 @@ import {
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AgentService } from "@/db";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { stagger, staggerItem } from "@/lib/motion";
 import ConfirmDialog from "@/components/ConfirmDialog";
 
@@ -34,9 +34,9 @@ export default function AgentsList() {
     const [fetchError, setFetchError] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
 
-    const fetchUniqueAgents = async () => {
+    const fetchUniqueAgents = async (silent = false) => {
         try {
-            setLoading(true);
+            if (!silent) setLoading(true);
             const data = await AgentService.listAgents();
             if (Array.isArray(data)) {
                 setUniqueAgents(data);
@@ -66,7 +66,8 @@ export default function AgentsList() {
         if (!id) return;
         await AgentService.deleteAgent(id);
         setDeleteTarget(null);
-        fetchUniqueAgents();
+        setUniqueAgents((prev) => prev.filter((a) => (a._id || a.id) !== id));
+        fetchUniqueAgents(true);
     };
 
     useEffect(() => {
@@ -147,8 +148,9 @@ export default function AgentsList() {
                                 </Table.Row>
                             </Table.Header>
                             <Table.Body as={motion.tbody} variants={stagger} initial="initial" animate="animate">
+                                <AnimatePresence initial={false}>
                                 {loading ? (
-                                    <Table.Row>
+                                    <Table.Row as={motion.tr} key="loading" variants={staggerItem} exit={{ opacity: 0 }}>
                                         <Table.Cell colSpan={colSpan} py={12}>
                                             <Flex justify="center" gap={3} color="var(--ink-secondary)">
                                                 <Spinner size="sm" borderWidth="2px" />
@@ -157,7 +159,7 @@ export default function AgentsList() {
                                         </Table.Cell>
                                     </Table.Row>
                                 ) : fetchError ? (
-                                    <Table.Row>
+                                    <Table.Row as={motion.tr} key="error" variants={staggerItem} exit={{ opacity: 0 }}>
                                         <Table.Cell colSpan={colSpan} py={8} px={4}>
                                             <Flex justify="center">
                                                 <Box borderLeft="3px solid var(--signal-negative)" pl={3}>
@@ -172,7 +174,7 @@ export default function AgentsList() {
                                         </Table.Cell>
                                     </Table.Row>
                                 ) : uniqueAgents.length === 0 ? (
-                                    <Table.Row>
+                                    <Table.Row as={motion.tr} key="empty" variants={staggerItem} exit={{ opacity: 0 }}>
                                         <Table.Cell
                                             colSpan={colSpan}
                                             textAlign="center"
@@ -193,14 +195,15 @@ export default function AgentsList() {
                                             <Table.Row
                                                 as={motion.tr}
                                                 variants={staggerItem}
-                                                layout
+                                                exit={{ opacity: 0 }}
+                                                layout={false}
                                                 key={item._id || item.id}
                                                 cursor="pointer"
                                                 onClick={() =>
                                                     onRowClick(item._id || (item.id as string))
                                                 }
                                                 _hover={{ bg: "var(--surface-recessed)" }}
-                                                transition="background 80ms"
+                                                transition="background 160ms"
                                             >
                                                 {/* Name + ID sub-line */}
                                                 <Table.Cell px={4} py={3}>
@@ -319,6 +322,7 @@ export default function AgentsList() {
                                         );
                                     })
                                 )}
+                                </AnimatePresence>
                             </Table.Body>
                         </Table.Root>
                     </Box>

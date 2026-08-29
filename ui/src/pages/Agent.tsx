@@ -15,6 +15,7 @@ import AssetEvalSection from "./sections/AssetEvalSection"
 import MacroEvalSection from "./sections/MacroEvalSection"
 import { motion, AnimatePresence } from "motion/react"
 import { dur, ease } from "@/lib/motion"
+import ConfirmDialog from "@/components/ConfirmDialog"
 
 
 const DEFAULT_AGENT = {
@@ -118,6 +119,7 @@ export default function Agent() {
     const [step, setStep] = useState<string>("overview")
     const [dir, setDir] = useState<number>(1)
     const [isMobile, setIsMobile] = useState(false)
+    const [deleteOpen, setDeleteOpen] = useState(false)
 
     const isNew = urlParams.id === "new"
 
@@ -254,14 +256,17 @@ export default function Agent() {
         }
     }
 
-    const handleDelete = async () => {
-        if (confirm(`Are you sure you want to delete the agent "${agent.name}"?`)) {
-            try {
-                await AgentService.deleteAgent(agent.id || agent._id)
-                navigate("/agents")
-            } catch (error) {
-                console.error("Delete Error:", error)
-            }
+    const handleDelete = () => {
+        setDeleteOpen(true)
+    }
+
+    const confirmDelete = async () => {
+        setDeleteOpen(false)
+        try {
+            await AgentService.deleteAgent(agent.id || agent._id)
+            navigate("/agents")
+        } catch (error) {
+            console.error("Delete Error:", error)
         }
     }
 
@@ -394,7 +399,13 @@ export default function Agent() {
     )
 
     return (
-        <Flex direction="column" gap={5} pt={2} w="full" maxW="1240px" mx="auto">
+        <Flex
+            as={motion.div}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: dur.base, ease }}
+            direction="column" gap={5} pt={2} w="full" maxW="1240px" mx="auto"
+        >
             {/* Sticky header — one row */}
             <Flex
                 position="sticky"
@@ -597,6 +608,14 @@ export default function Agent() {
                     </Box>
                 </Flex>
             )}
+
+            <ConfirmDialog
+                open={deleteOpen}
+                title="Delete agent?"
+                message={`"${agent.name || "Untitled agent"}" will be permanently removed and cannot be undone.`}
+                onCancel={() => setDeleteOpen(false)}
+                onConfirm={confirmDelete}
+            />
         </Flex>
     )
 }
