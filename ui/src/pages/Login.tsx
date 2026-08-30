@@ -67,7 +67,7 @@ export default function Login() {
                         as={motion.button}
                         whileHover={{ scale: 1.01 }}
                         whileTap={{ scale: 0.99 }}
-                        variant="outline"
+                        variant="subtle"
                         w="full"
                         onClick={handleGoogle}
                         loading={submitting}

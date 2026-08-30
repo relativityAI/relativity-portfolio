@@ -16,7 +16,7 @@ export default function NotFound() {
         <Text fontSize="lg" color="fg.muted">
           This page doesn't exist.
         </Text>
-        <Button asChild variant="solid" colorPalette="blue" mt={2}>
+        <Button asChild variant="surface" colorPalette="blue" mt={2}>
           <Link to="/">Go home</Link>
         </Button>
       </Flex>

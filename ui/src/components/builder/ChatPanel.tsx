@@ -131,10 +131,8 @@ export default function ChatPanel({
           size="sm"
           onClick={handleSend}
           disabled={!input.trim() || isProcessing || disabled}
-          bg="var(--accent-primary)"
-          color="#fff"
-          borderRadius="3px"
-          _hover={{ opacity: 0.9 }}
+          variant="surface"
+          colorPalette="blue"
           aria-label="Send message"
         >
           <MdSend size={14} />

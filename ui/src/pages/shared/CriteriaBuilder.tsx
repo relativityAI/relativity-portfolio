@@ -331,7 +331,7 @@ export default function CriteriaBuilder({
                     <Flex align="center" justify="center" gap={0}>
                       <IconButton
                         size="xs"
-                        variant="ghost"
+                        variant="subtle"
                         color="fg.muted"
                         _hover={{ color: "fg" }}
                         onClick={() => handleChange(index, "weightage", Math.max(1, (criterion.weightage ?? 5) - 1))}
@@ -347,7 +347,7 @@ export default function CriteriaBuilder({
                       </Text>
                       <IconButton
                         size="xs"
-                        variant="ghost"
+                        variant="subtle"
                         color="fg.muted"
                         _hover={{ color: "fg" }}
                         onClick={() => handleChange(index, "weightage", Math.min(10, (criterion.weightage ?? 5) + 1))}
@@ -413,7 +413,7 @@ export default function CriteriaBuilder({
                 <Box width="32px" flexShrink={0} display="flex" justify="flex-start">
                   <Button
                     size="xs"
-                    variant="ghost"
+                    variant="subtle"
                     color="fg.muted"
                     _hover={{ color: "red.500", bg: "transparent" }}
                     onClick={deleteCriterion(index)}
@@ -433,7 +433,7 @@ export default function CriteriaBuilder({
       </Box>
 
       <Button
-        variant="outline"
+        variant="subtle"
         color="fg.subtle"
         size="sm"
         onClick={addCriterion}
@@ -441,8 +441,8 @@ export default function CriteriaBuilder({
         mt={3}
         fontWeight="bold"
         borderStyle="dashed"
-        borderColor="border"
-        _hover={{ color: "fg", bg: "bg.muted", borderColor: "border.emphasized" }}
+        borderColor="var(--hairline)"
+        _hover={{ color: "fg", bg: "var(--surface-recessed)" }}
         px={5}
       >
         <MdAdd />

@@ -2,7 +2,8 @@ import { Text, Flex, Button, Table, Box, HStack, Spinner } from "@chakra-ui/reac
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MdArrowUpward, MdArrowDownward } from "react-icons/md";
-import { AnalysisService } from "@/db";
+import { AnalysisService, AgentService } from "@/db";
+import { agentDisplayName } from "@/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease, stagger, staggerItem, CountUp } from "@/lib/motion";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -85,8 +86,9 @@ function MiniBar({ value, max, color }: { value: number; max: number; color: str
     );
 }
 
-function Sparkline({ values, height = 40 }: { values: number[]; height?: number }) {
-    if (values.length < 2) {
+function Sparkline({ data, agents, height = 40 }: { data: any[]; agents: any[]; height?: number }) {
+    const [tip, setTip] = useState<number | null>(null);
+    if (data.length < 2) {
         return (
             <Text fontSize="11px" color="var(--ink-tertiary)">
                 Not enough completed runs yet
@@ -94,15 +96,16 @@ function Sparkline({ values, height = 40 }: { values: number[]; height?: number 
         );
     }
     const W = 100;
-    const pts = values.map((v, i) => {
-        const x = (i / (values.length - 1)) * W;
+    const pts = data.map((item, i) => {
+        const v = item.total_score;
+        const x = (i / (data.length - 1)) * W;
         const y = height - ((Math.max(0, Math.min(100, v)) / 100) * height);
-        return [x, y] as const;
+        return { x, y, item } as const;
     });
-    const line = pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
+    const line = pts.map(({ x, y }) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
     const area = `0,${height} ${line} ${W},${height}`;
     return (
-        <Box width="full">
+        <Box position="relative" width="full">
             <svg
                 width="100%"
                 height={height}
@@ -123,6 +126,69 @@ function Sparkline({ values, height = 40 }: { values: number[]; height?: number 
                 />
                 <motion.polygon points={area} fill="var(--accent-primary)" initial={{ opacity: 0 }} animate={{ opacity: 0.08 }} transition={{ duration: 0.6, delay: 0.5 }} />
             </svg>
+            {pts.map(({ x, y, item }, i) => {
+                const symbol = item.share_name || item.symbol || "—";
+                const date = item.created_at
+                    ? new Date(item.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                    : "—";
+                const agent = agentDisplayName(item.agent_name || item.agent, agents) || "—";
+                const score = typeof item.total_score === "number" ? item.total_score.toFixed(0) : "—";
+                return (
+                    <Box
+                        key={i}
+                        position="absolute"
+                        left={`${x}%`}
+                        top={`${y}px`}
+                        w="18px"
+                        h="18px"
+                        transform="translate(-50%, -50%)"
+                        style={{ cursor: "default" }}
+                        onMouseEnter={() => setTip(i)}
+                        onMouseLeave={() => setTip(null)}
+                    >
+                        <Box
+                            position="absolute"
+                            top="50%"
+                            left="50%"
+                            w="6px"
+                            h="6px"
+                            borderRadius="50%"
+                            bg="var(--surface-panel)"
+                            border="1.5px solid var(--accent-primary)"
+                            transform="translate(-50%, -50%)"
+                        />
+                        {tip === i && (
+                            <Box
+                                position="absolute"
+                                bottom="10px"
+                                left={i === 0 ? "0%" : i === pts.length - 1 ? "100%" : "50%"}
+                                transform={i === 0 ? "none" : i === pts.length - 1 ? "translateX(-100%)" : "translateX(-50%)"}
+                                bg="var(--surface-panel)"
+                                border="1px solid var(--hairline)"
+                                borderRadius="8px"
+                                px={2.5}
+                                py={1.5}
+                                boxShadow="0 8px 24px rgba(0,0,0,0.14)"
+                                zIndex={20}
+                                whiteSpace="nowrap"
+                                pointerEvents="none"
+                            >
+                                <Text color="var(--ink-primary)" fontWeight={600} fontSize="11px">
+                                    {symbol}
+                                </Text>
+                                <Flex gap={1.5} color="var(--ink-tertiary)" fontSize="10.5px" flexWrap="wrap">
+                                    <Text>{date}</Text>
+                                    <Text>·</Text>
+                                    <Text>{agent}</Text>
+                                </Flex>
+                                <Text fontSize="11px" fontWeight={600} color="var(--signal-positive)">
+                                    Fit {score}
+                                </Text>
+                            </Box>
+                        )}
+                    </Box>
+                );
+            })}
         </Box>
     );
 }
@@ -136,6 +202,17 @@ export default function AnalysisList() {
     const [sortKey, setSortKey] = useState<SortKey | null>(null);
     const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
     const [deleteTarget, setDeleteTarget] = useState<AnalysisItem | null>(null);
+    const [agents, setAgents] = useState<any[]>([]);
+
+    useEffect(() => {
+        AgentService.listAgents()
+            .then((data) => {
+                if (Array.isArray(data)) setAgents(data);
+            })
+            .catch(() => {});
+    }, []);
+
+    const agentName = (raw: string | undefined) => agentDisplayName(raw, agents) || "—";
 
     const fetchUniqueAnalysis = async (silent = false) => {
         try {
@@ -200,8 +277,8 @@ export default function AnalysisList() {
                     bVal = b.total_score ?? -1;
                     break;
                 case "agent":
-                    aVal = (a.agent_name || a.agent || "").toLowerCase();
-                    bVal = (b.agent_name || b.agent || "").toLowerCase();
+                    aVal = agentName(a.agent_name || a.agent).toLowerCase();
+                    bVal = agentName(b.agent_name || b.agent).toLowerCase();
                     break;
                 case "model":
                     aVal = (a.model || "").toLowerCase();
@@ -305,7 +382,7 @@ export default function AnalysisList() {
     };
 
     return (
-        <Box bg="var(--surface-canvas)" minH="100vh">
+        <Box bg="var(--surface-canvas)" minH="100%">
             <Flex direction="column" gap={6} maxW="1600px" mx="auto" py={6}>
                 {/* Page header */}
                 <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} wrap="wrap"
@@ -330,10 +407,8 @@ export default function AnalysisList() {
                         whileTap={{ scale: 0.97 }}
                         size="sm"
                         onClick={() => navigate("/")}
-                        bg="var(--accent-primary)"
-                        color="#fff"
-                        fontWeight={500}
-                        fontSize="13px"
+                        variant="surface"
+                        colorPalette="blue"
                         px={4}
                         _hover={{ opacity: 0.9 }}
                         borderRadius="3px"
@@ -510,7 +585,7 @@ export default function AnalysisList() {
                         {/* Recent trend */}
                         <Box px={4} py={3} as={motion.div} variants={staggerItem}>
                             <SectionLabel>Recent Trend</SectionLabel>
-                            <Sparkline values={trend.map((a) => a.total_score)} />
+                            <Sparkline data={trend} agents={agents} />
                             {trend.length > 0 && (
                                 <Text fontSize="11px" color="var(--ink-tertiary)" mt={2}>
                                     Last{" "}
@@ -836,9 +911,7 @@ export default function AnalysisList() {
                                                                 px={4}
                                                                 py={3}
                                                             >
-                                                                {item.agent_name ||
-                                                                    item.agent ||
-                                                                    "—"}
+                                                                {agentName(item.agent_name || item.agent)}
                                                             </Table.Cell>
 
                                                             {/* Model */}
@@ -957,7 +1030,7 @@ export default function AnalysisList() {
                                                             <Table.Cell px={2} py={3}>
                                                                 <Button
                                                                     size="xs"
-                                                                    variant="ghost"
+                                                                    variant="subtle"
                                                                     onClick={(e) => {
                                         e.stopPropagation();
                                         setDeleteTarget(item);
@@ -1017,9 +1090,9 @@ export default function AnalysisList() {
                 message={
                     deleteTarget
                         ? `"${deleteTarget.share_name || deleteTarget.symbol || "this analysis"}"${
-                              deleteTarget.agent_name || deleteTarget.agent
-                                  ? ` by ${deleteTarget.agent_name || deleteTarget.agent}`
-                                  : ""
+deleteTarget.agent_name || deleteTarget.agent
+                              ? ` by ${agentName(deleteTarget.agent_name || deleteTarget.agent)}`
+                              : ""
                           } will be permanently removed and cannot be undone.`
                         : ""
                 }

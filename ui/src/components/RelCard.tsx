@@ -21,7 +21,7 @@ const RelCard = (props) => {
         </Card.Description>
       </Card.Body>
       <Card.Footer justifyContent="flex-end">
-        <Button onClick={()=>{navigate(props.to)}}>
+        <Button variant="surface" colorPalette="blue" onClick={()=>{navigate(props.to)}}>
           {props.button}
         </Button>
       </Card.Footer>

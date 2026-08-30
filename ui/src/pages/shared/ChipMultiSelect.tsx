@@ -41,8 +41,8 @@ export default function ChipMultiSelect({ label, description, options, selected,
               whileTap={{ scale: 0.96 }}
               key={opt.value}
               size="sm"
-              variant="ghost"
-              bg={isActive ? "transparent" : "transparent"}
+              variant="subtle"
+              bg={isActive ? "color-mix(in srgb, var(--accent-primary) 12%, transparent)" : "transparent"}
               color={isActive ? "var(--ink-primary)" : "var(--ink-tertiary)"}
               border="1px solid"
               borderColor={isActive ? "var(--accent-primary)" : "var(--hairline)"}

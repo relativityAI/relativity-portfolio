@@ -1,31 +1,38 @@
 import { useState, useEffect } from "react";
 import { Box, Flex, Text, Button } from "@chakra-ui/react";
 import { SettingsService } from "@/db";
+import { hasRequiredKeys } from "@/utils";
+import { MdWarning } from "react-icons/md";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 import { useNavigate } from "react-router-dom";
 
+const warnedFlag = (userId: string) => `relativity_keys_warned_${userId}`;
+
 export default function ApiKeySetupDialog({ user }: { user: any }) {
+  const [dismissed, setDismissed] = useState<boolean>(() => !!user?.id && !!localStorage.getItem(warnedFlag(user.id)));
   const [isOpen, setIsOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!user) return;
-    
+    if (!user || dismissed) return;
+
     // Check if keys are set
     SettingsService.getSettings().then((settings) => {
-      const keys = settings.llm_keys || {};
-      const hasTavily = !!keys.tavily;
-      const hasLlm = Object.entries(keys).some(([k, v]) => k !== "tavily" && !!v);
-      
+      const { hasLlm, hasTavily } = hasRequiredKeys(settings);
       if (!hasLlm || !hasTavily) {
         setIsOpen(true);
       }
-    }).catch(console.error).finally(() => setLoading(false));
-  }, [user]);
+    }).catch(console.error);
+  }, [user, dismissed]);
 
-  if (!isOpen && !loading) return null;
+  if (dismissed) return null;
+
+  const dismiss = () => {
+    if (user?.id) localStorage.setItem(warnedFlag(user.id), "1");
+    setDismissed(true);
+    setIsOpen(false);
+  };
 
   return (
     <AnimatePresence>
@@ -58,25 +65,26 @@ export default function ApiKeySetupDialog({ user }: { user: any }) {
             p={6}
             boxShadow="0 12px 32px rgba(0,0,0,0.15)"
           >
-            <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)" mb={2}>
-              Welcome to Relativity AI
-            </Text>
+            <Flex align="center" gap={2.5} mb={2}>
+              <MdWarning size={22} color="var(--signal-warning)" flexShrink={0} />
+              <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)">
+                Welcome to Relativity AI
+              </Text>
+            </Flex>
             <Text fontSize="13px" color="var(--ink-secondary)" mb={6}>
-              Before you get started, please configure your API keys. You will need an LLM provider key and a Tavily key for web search.
+              Set your API keys — you will not be able to use our services until you do. You need an LLM provider key and a Tavily key for web search.
             </Text>
 
             <Flex justify="flex-end" gap={3} align="center">
-              <Button size="xs" variant="ghost" color="var(--ink-tertiary)" onClick={() => setIsOpen(false)}>
+              <Button size="xs" variant="subtle" color="var(--ink-tertiary)" onClick={dismiss}>
                 Skip for now
               </Button>
               <Button
                 size="sm"
-                bg="var(--accent-primary)"
-                color="white"
-                fontWeight={500}
-                _hover={{ opacity: 0.9 }}
+                variant="surface"
+                colorPalette="blue"
                 onClick={() => {
-                  setIsOpen(false);
+                  dismiss();
                   navigate("/settings");
                 }}
               >

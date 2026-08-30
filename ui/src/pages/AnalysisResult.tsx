@@ -12,8 +12,8 @@ import {
     VStack,
     Tabs,
 } from "@chakra-ui/react";
-import { AnalysisService } from "@/db";
-import { formatSeconds } from "@/utils";
+import { AnalysisService, AgentService } from "@/db";
+import { formatSeconds, agentDisplayName } from "@/utils";
 import { RunSteps } from "./shared/RunStatus";
 import ReactMarkdown from "react-markdown";
 import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
@@ -137,6 +137,18 @@ export default function AnalysisResult() {
 
     const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
+    const [agents, setAgents] = useState<any[]>([]);
+
+    useEffect(() => {
+        AgentService.listAgents()
+            .then((data) => {
+                if (Array.isArray(data)) setAgents(data);
+            })
+            .catch(() => {});
+    }, []);
+
+    const agentName = (raw: string | undefined) => agentDisplayName(raw, agents) || raw;
+
     const statusKey = (analysis?.status || "").toLowerCase();
     const isRunning = !!analysis && !["complete", "completed", "success", "error", "failed"].includes(statusKey);
 
@@ -235,7 +247,7 @@ export default function AnalysisResult() {
                         <Text fontSize="sm" color="var(--ink-primary)">{error}</Text>
                     </Box>
                     <Link to="/analysis-list">
-                        <Button variant="ghost" size="sm" color="var(--ink-secondary)">
+                        <Button variant="subtle" size="sm" color="var(--ink-secondary)">
                             <MdArrowBack style={{ marginRight: 6 }} /> Back to List
                         </Button>
                     </Link>
@@ -306,7 +318,7 @@ export default function AnalysisResult() {
     const metaLine = [
         analysis.model,
         analysis.source,
-        analysis.agent_name,
+        analysis.agent_name ? agentName(analysis.agent_name) : null,
         analysis.created_at ? new Date(analysis.created_at).toLocaleDateString() : null,
         id ? `ID ${id.slice(0, 8)}` : null,
     ]
@@ -314,7 +326,7 @@ export default function AnalysisResult() {
         .join("  ·  ");
 
     return (
-        <Box bg="var(--surface-canvas)" minH="100vh">
+        <Box bg="var(--surface-canvas)" minH="100%">
             <Container maxW="1400px" mx="auto" py={6}>
                 {/* Sticky identity + utility bar */}
                 <Box
@@ -334,7 +346,7 @@ export default function AnalysisResult() {
                     <Flex justify="space-between" align="center" gap={3} wrap="wrap">
                         <HStack gap={3} align="center" minW={0}>
                             <Link to="/analysis-list">
-                                <Button variant="ghost" size="sm" color="var(--ink-secondary)" px={1} _hover={{ color: "var(--ink-primary)" }} flexShrink={0}>
+                                <Button variant="subtle" size="sm" color="var(--ink-secondary)" px={1} _hover={{ color: "var(--ink-primary)" }} flexShrink={0}>
                                     <MdArrowBack />
                                 </Button>
                             </Link>
@@ -386,7 +398,7 @@ export default function AnalysisResult() {
                                 <Button
                                     as={motion.button}
                                     whileTap={{ scale: 0.96 }}
-                                    variant="ghost"
+                                    variant="subtle"
                                     size="sm"
                                     onClick={downloadResult}
                                     color="var(--ink-secondary)"
@@ -697,7 +709,7 @@ export default function AnalysisResult() {
                                         <Box mb={3}>
                                             <Button
                                                 size="xs"
-                                                variant="ghost"
+                                                variant="subtle"
                                                 color="var(--ink-tertiary)"
                                                 onClick={() => {
                                                     setActiveTab("quantitative");
@@ -737,7 +749,7 @@ export default function AnalysisResult() {
                                         <Box mb={3}>
                                             <Button
                                                 size="xs"
-                                                variant="ghost"
+                                                variant="subtle"
                                                 color="var(--ink-tertiary)"
                                                 onClick={() => {
                                                     setActiveTab("qualitative");
@@ -992,7 +1004,7 @@ function QuantTable({
                             >
                                 <Button
                                     size="xs"
-                                    variant="ghost"
+                                    variant="subtle"
                                     color="var(--ink-tertiary)"
                                     onClick={toggleSort}
                                     px={1}
@@ -1397,7 +1409,7 @@ function QualCard({
                 <Box mt={2}>
                     <Button
                         size="xs"
-                        variant="ghost"
+                        variant="subtle"
                         onClick={() => toggleToolCalls(paramName)}
                         color="var(--ink-tertiary)"
                         _hover={{ color: "var(--ink-primary)" }}
@@ -1591,7 +1603,7 @@ function SourcesDetail({
                 <VStack gap={1} align="stretch" fontSize="13px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
                     {analysis.model && <Text>Model: {analysis.model}</Text>}
                     {analysis.source && <Text>Source: {analysis.source}</Text>}
-                    {analysis.agent_name && <Text>Agent: {analysis.agent_name}</Text>}
+                    {analysis.agent_name && <Text>Agent: {agentName(analysis.agent_name)}</Text>}
                     {analysis.duration != null && <Text>Duration: {formatDuration(analysis.duration)}</Text>}
                     {analysis.end_time && <Text>Ended: {new Date(analysis.end_time * 1000).toLocaleString()}</Text>}
                     {analysis.created_at && <Text>Created: {new Date(analysis.created_at).toLocaleString()}</Text>}

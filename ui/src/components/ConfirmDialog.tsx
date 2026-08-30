@@ -84,7 +84,7 @@ export default function ConfirmDialog({
                                 {title}
                             </Text>
                             <Button
-                                variant="ghost"
+                                variant="subtle"
                                 size="sm"
                                 minW="auto"
                                 h="auto"
@@ -115,7 +115,7 @@ export default function ConfirmDialog({
                             borderTop="1px solid var(--hairline)"
                         >
                             <Button
-                                variant="ghost"
+                                variant="subtle"
                                 size="sm"
                                 flex={1}
                                 h="34px"
@@ -132,9 +132,8 @@ export default function ConfirmDialog({
                                 h="34px"
                                 fontSize="13px"
                                 fontWeight={600}
-                                bg="var(--signal-negative)"
-                                color="#fff"
-                                _hover={{ opacity: 0.9 }}
+                                variant="surface"
+                                colorPalette="red"
                                 onClick={onConfirm}
                             >
                                 {confirmLabel}

@@ -485,7 +485,7 @@ export default function Agent() {
 
                     <Menu.Root>
                         <Menu.Trigger asChild>
-                            <Button variant="ghost" size="sm" color="var(--ink-secondary)" px={2} aria-label="More actions">
+                            <Button variant="subtle" size="sm" color="var(--ink-secondary)" px={2} aria-label="More actions">
                                 <MdMoreHoriz size={18} />
                             </Button>
                         </Menu.Trigger>
@@ -527,7 +527,7 @@ export default function Agent() {
                             whileHover={{ y: -1 }}
                             whileTap={{ scale: 0.96 }}
                             size="xs"
-                            variant="ghost"
+                            variant="subtle"
                             color="var(--ink-secondary)"
                             onClick={() => navigate(`/agent/builder/${agent._id || agent.id}`)}
                             fontSize="12px"
@@ -552,13 +552,9 @@ export default function Agent() {
                         whileTap={{ scale: 0.97 }}
                         whileHover={{ y: -1 }}
                         size="sm"
-                        bg="var(--accent-primary)"
-                        color="#fff"
-                        fontWeight={500}
-                        fontSize="13px"
+                        variant="surface"
+                        colorPalette="blue"
                         px={5}
-                        _hover={{ opacity: 0.92 }}
-                        borderRadius="3px"
                         loading={saving}
                         onClick={handleSave}
                     >
