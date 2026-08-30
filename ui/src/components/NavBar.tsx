@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Flex, Text, IconButton, Drawer, Separator, Menu, Popover, Box } from "@chakra-ui/react"
 import { Link, useLocation } from "react-router-dom";
-import { runHealthCheck } from "../utils"
-import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout } from "react-icons/md";
+import { runHealthCheck, hasRequiredKeys } from "../utils"
+import { SettingsService } from "@/db";
+import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout, MdWarning } from "react-icons/md";
 import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX } from "react-icons/lu";
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { useAuth } from "@/auth/useAuth";
 import { motion } from "motion/react";
+import logo from "@/assets/logo.png";
 
 const HEALTH_CHECK_INTERVAL_MS = 15000;
 
@@ -38,8 +40,19 @@ export default function NavBar() {
 
     const [navOpen, setNavOpen] = useState(false)
 
+    const [missingKeys, setMissingKeys] = useState(false)
+
     useEffect(() => {
         let cancelled = false;
+
+        SettingsService.getSettings()
+            .then((settings) => {
+                if (cancelled) return;
+                const { hasLlm, hasTavily } = hasRequiredKeys(settings);
+                setMissingKeys(!hasLlm || !hasTavily);
+            })
+            .catch(() => {});
+
         const fetchData = async () => {
             const { data, endpoints } = await runHealthCheck();
             if (!cancelled) {
@@ -85,7 +98,10 @@ export default function NavBar() {
             height="56px"
         >
             <Flex align="center" gap={8}>
-                <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
+                <Flex align="center" gap={2}>
+                    <img src={logo} alt="Relativity logo" width={20} height={20} style={{ borderRadius: 4 }} />
+                    <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
+                </Flex>
                 
                 <Flex gap={6} align="center" display={{ base: "none", md: "flex" }}>
                     {[
@@ -100,6 +116,9 @@ export default function NavBar() {
                                 <Flex gap={1.5} align="center" position="relative" py={1}>
                                     <item.icon size={16} color={active ? "var(--chakra-colors-fg)" : "var(--chakra-colors-fg-muted)"} />
                                     <Text fontSize="sm" fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{item.label}</Text>
+                                    {item.to === "/settings" && missingKeys && (
+                                        <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
+                                    )}
                                     {active && <Box as={motion.div} layoutId="nav-underline" position="absolute" bottom="-6px" left={0} right={0} h="2px" bg="var(--accent-primary)" borderRadius="1px" />}
                                 </Flex>
                             </Link>
@@ -111,7 +130,7 @@ export default function NavBar() {
             <Flex justify={"flex-end"} gap={{ base: 2, md: 4 }} align="center">
                 <IconButton
                     aria-label="Open navigation menu"
-                    variant="ghost"
+                    variant="subtle"
                     size="sm"
                     display={{ base: "flex", md: "none" }}
                     color="fg.muted"
@@ -125,7 +144,7 @@ export default function NavBar() {
                     <Popover.Trigger asChild>
                         <IconButton
                             aria-label="System status"
-                            variant="ghost"
+                            variant="subtle"
                             size="sm"
                             color={apiOk && dbOk ? "fg.muted" : "red.500"}
                             _hover={{ color: "fg" }}
@@ -236,11 +255,14 @@ export default function NavBar() {
                             px={5}
                             py={4}
                         >
-                            <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
+                            <Flex align="center" gap={2}>
+                                <img src={logo} alt="Relativity logo" width={20} height={20} style={{ borderRadius: 4 }} />
+                                <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
+                            </Flex>
                             <Drawer.CloseTrigger asChild>
                                 <IconButton
                                     aria-label="Close navigation menu"
-                                    variant="ghost"
+                                    variant="subtle"
                                     minW="44px"
                                     minH="44px"
                                     p={0}
@@ -265,6 +287,9 @@ export default function NavBar() {
                                         <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>
                                             {item.label}
                                         </Text>
+                                        {item.to === "/settings" && missingKeys && (
+                                            <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
+                                        )}
                                     </Flex>
                                 </Link>
                             ))}

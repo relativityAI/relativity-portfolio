@@ -1,0 +1,9 @@
+services:
+  - type: static
+    # name must match the existing Render service exactly, or Render creates
+    # a second service instead of updating the current one.
+    name: relativity-portfolio
+    rootDir: ./
+    buildCommand: cd ui && npm ci && npm run build
+    staticPublishPath: ./ui/dist
+    spa: true

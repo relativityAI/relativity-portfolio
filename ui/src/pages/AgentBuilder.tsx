@@ -716,7 +716,7 @@ export default function AgentBuilder() {
             whileHover={{ y: -1 }}
             whileTap={{ scale: 0.96 }}
             size="xs"
-            variant="ghost"
+            variant="subtle"
             color="var(--ink-secondary)"
             display={{ base: "inline-flex", lg: "none" }}
             onClick={() => setShowPreview((p) => !p)}
@@ -732,7 +732,7 @@ export default function AgentBuilder() {
             whileHover={{ y: -1 }}
             whileTap={{ scale: 0.96 }}
             size="xs"
-            variant="ghost"
+            variant="subtle"
             color="var(--ink-secondary)"
             onClick={handleOpenManual}
             fontSize="12px"
@@ -753,10 +753,8 @@ export default function AgentBuilder() {
             transition={isDirty ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : {}}
             whileTap={{ scale: 0.97 }}
             size="sm"
-            bg="var(--accent-primary)"
-            color="#fff"
-            fontWeight={500}
-            fontSize="13px"
+            variant="surface"
+            colorPalette="blue"
             px={5}
             _hover={{ opacity: 0.92 }}
             borderRadius="3px"
@@ -824,7 +822,7 @@ export default function AgentBuilder() {
                   as={motion.button}
                   whileTap={{ scale: 0.95 }}
                   size="sm"
-                  variant="ghost"
+                  variant="subtle"
                   color="var(--ink-secondary)"
                   onClick={() => setShowPreview(false)}
                   aria-label="Close preview"

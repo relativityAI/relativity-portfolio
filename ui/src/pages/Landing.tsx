@@ -123,7 +123,7 @@ export default function Landing() {
             </Flex>
           </motion.a>
           <Flex gap={3} align="center">
-            <Button size="sm" variant="outline" onClick={() => navigate("/login")}>
+            <Button size="sm" variant="subtle" onClick={() => navigate("/login")}>
               Log in
             </Button>
           </Flex>
@@ -191,7 +191,7 @@ export default function Landing() {
           >
             <Button
               size="lg"
-              variant="solid"
+              variant="surface"
               colorPalette="blue"
               minH="48px"
               minW="168px"

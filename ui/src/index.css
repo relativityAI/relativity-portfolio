@@ -16,6 +16,8 @@
   /* Signals */
   --signal-positive: #4C8B6B;
   --signal-caution: #B8935A;
+  --signal-warning: #FFB300;
+  --cta-green: #16A34A;
   --signal-negative: #B85C5C;
 
   /* Typography */

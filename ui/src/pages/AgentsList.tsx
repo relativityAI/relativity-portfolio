@@ -77,7 +77,7 @@ export default function AgentsList() {
     const colSpan = 4;
 
     return (
-        <Box bg="var(--surface-canvas)" minH="100vh">
+        <Box bg="var(--surface-canvas)" minH="100%">
             <Flex direction="column" gap={6} maxW="1200px" mx="auto" px={6} py={6}>
                 {/* Page header */}
                 <Flex justify="space-between" align="center">
@@ -88,10 +88,8 @@ export default function AgentsList() {
                         size="sm"
                         onClick={handleCreate}
                         loading={loading}
-                        bg="var(--accent-primary)"
-                        color="#fff"
-                        fontWeight={500}
-                        fontSize="13px"
+                        variant="surface"
+                        colorPalette="blue"
                         px={4}
                         _hover={{ opacity: 0.9 }}
                         borderRadius="3px"
@@ -287,7 +285,7 @@ export default function AgentsList() {
                                                 {/* Delete */}
                                                 <Table.Cell px={2} py={3}>
                                                     <Button
-                                                        variant="ghost"
+                                                        variant="subtle"
                                                         size="xs"
                                                         color="var(--ink-tertiary)"
                                                         _hover={{

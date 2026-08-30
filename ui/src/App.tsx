@@ -42,7 +42,7 @@ function Protected({ children }: { children: ReactNode }) {
           </Center>
         </motion.div>
       ) : (
-        <motion.div key="content" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
+        <motion.div key="content" style={{ height: "100%" }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
           {user ? children : <Navigate to="/login" replace />}
         </motion.div>
       )}
@@ -62,7 +62,7 @@ function Home() {
           </Center>
         </motion.div>
       ) : (
-        <motion.div key={user ? "analysis" : "landing"} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
+        <motion.div key={user ? "analysis" : "landing"} style={{ height: "100%" }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
           {user ? <Analysis /> : <Landing />}
         </motion.div>
       )}
@@ -117,7 +117,7 @@ function AppRoutes() {
 
   return (
     <Flex direction="column" h="100dvh" overflow="hidden">
-      {user && locationPath !== "/settings" && <ApiKeySetupDialog user={user} />}
+      {user && locationPath !== "/settings" && <ApiKeySetupDialog key={user.id} user={user} />}
       {showNav && <NavBar />}
 
         <Box w="100%" flex={1} overflowY="auto" overflowX="hidden" paddingX={isLanding || isBuilder ? 0 : { base: 4, md: 16 }} marginY={isLanding || isBuilder ? 0 : 5}>
@@ -128,7 +128,7 @@ function AppRoutes() {
             </Routes>
           ) : (
             <AnimatePresence mode="wait">
-              <motion.div key={location.pathname} variants={page} initial="initial" animate="animate" exit="exit">
+              <motion.div key={location.pathname} variants={page} style={{ height: "100%" }} initial="initial" animate="animate" exit="exit">
                 <Suspense fallback={<PageFallback />}>
                   <Routes location={location}>
                     <Route path="/login" element={<Login />} />

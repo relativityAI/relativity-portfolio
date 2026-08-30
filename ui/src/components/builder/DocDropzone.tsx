@@ -140,7 +140,7 @@ export default function DocDropzone({ onUpload, documents, onRemove, disabled }:
                     {onRemove && doc.status !== "processing" && (
                       <IconButton
                         size="2xs"
-                        variant="ghost"
+                        variant="subtle"
                         color="var(--ink-tertiary)"
                         _hover={{ color: "var(--signal-negative)" }}
                         onClick={(e) => {

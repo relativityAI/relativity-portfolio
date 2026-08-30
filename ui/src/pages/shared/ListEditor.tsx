@@ -38,7 +38,7 @@ function WeightStepper({ value, onChange }: { value: number; onChange: (v: numbe
     <Flex align="center" justify={{ base: "flex-start", md: "center" }} gap={0}>
       <IconButton
         size="xs"
-        variant="ghost"
+        variant="subtle"
         color="fg.muted"
         _hover={{ color: "fg" }}
         onClick={() => onChange(Math.max(1, value - 1))}
@@ -54,7 +54,7 @@ function WeightStepper({ value, onChange }: { value: number; onChange: (v: numbe
       </Text>
       <IconButton
         size="xs"
-        variant="ghost"
+        variant="subtle"
         color="fg.muted"
         _hover={{ color: "fg" }}
         onClick={() => onChange(Math.min(10, value + 1))}
@@ -223,7 +223,7 @@ export default function ListEditor(props: ListEditorProps) {
                 <Box width="32px" flexShrink={0} display="flex" justify="flex-start">
                   <Button
                     size="xs"
-                    variant="ghost"
+                    variant="subtle"
                     color="fg.muted"
                     _hover={{ color: "red.500", bg: "transparent" }}
                     onClick={deleteItem(index)}
@@ -245,14 +245,14 @@ export default function ListEditor(props: ListEditorProps) {
 
       <Flex gap={2} mt={3} alignSelf="flex-start">
         <Button
-          variant="outline"
+          variant="subtle"
           color="fg.subtle"
           size="sm"
           onClick={addItem}
           fontWeight="bold"
           borderStyle="dashed"
-          borderColor="border"
-          _hover={{ color: "fg", bg: "bg.muted", borderColor: "border.emphasized" }}
+          borderColor="var(--hairline)"
+          _hover={{ color: "fg", bg: "var(--surface-recessed)" }}
           px={5}
         >
           <MdAdd />
@@ -260,7 +260,7 @@ export default function ListEditor(props: ListEditorProps) {
         </Button>
         {props.onDraft && (
           <Button
-            variant="outline"
+            variant="subtle"
             color="var(--accent-primary)"
             size="sm"
             onClick={() => props.onDraft!()}

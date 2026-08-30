@@ -133,7 +133,7 @@ export default function Settings() {
     const hasSavedKeys = Object.keys(savedKeys).length > 0;
 
     return (
-        <Box bg="var(--surface-canvas)" minH="100vh">
+        <Box bg="var(--surface-canvas)" minH="100%">
             <Flex direction="column" gap={6} maxW="1240px" mx="auto" py={6}>
                 {/* Header */}
                 <Flex justify="space-between" align={{ base: "flex-start", md: "flex-end" }} gap={3}>
@@ -268,7 +268,7 @@ export default function Settings() {
                                         _focus={{ borderColor: "var(--accent-primary)" }}
                                     />
                                     <Button
-                                        variant="ghost"
+                                        variant="subtle"
                                         size="sm"
                                         color="var(--ink-tertiary)"
                                         _hover={{ color: "var(--ink-primary)" }}
@@ -285,13 +285,9 @@ export default function Settings() {
                                     as={motion.button}
                                     whileTap={{ scale: 0.97 }}
                                     size="sm"
-                                    bg="var(--accent-primary)"
-                                    color="#fff"
-                                    fontWeight={500}
-                                    fontSize="13px"
+                                    variant="surface"
+                                    colorPalette="blue"
                                     px={4}
-                                    _hover={{ opacity: 0.9 }}
-                                    borderRadius="3px"
                                     onClick={handleSaveLLM}
                                     disabled={saving}
                                 >
@@ -301,13 +297,10 @@ export default function Settings() {
                                     as={motion.button}
                                     whileTap={{ scale: 0.97 }}
                                     size="sm"
-                                    variant="outline"
-                                    color="var(--signal-negative)"
-                                    borderColor="var(--signal-negative)"
-                                    _hover={{ bg: "var(--signal-negative)", color: "#fff" }}
+                                    variant="subtle"
+                                    colorPalette="red"
                                     fontWeight={500}
                                     fontSize="13px"
-                                    borderRadius="3px"
                                     onClick={handleClear}
                                     disabled={saving}
                                 >
@@ -366,7 +359,7 @@ export default function Settings() {
                                         _focus={{ borderColor: "var(--accent-primary)" }}
                                     />
                                     <Button
-                                        variant="ghost"
+                                        variant="subtle"
                                         size="sm"
                                         color="var(--ink-tertiary)"
                                         _hover={{ color: "var(--ink-primary)" }}
@@ -382,13 +375,9 @@ export default function Settings() {
                                     as={motion.button}
                                     whileTap={{ scale: 0.97 }}
                                     size="sm"
-                                    bg="var(--accent-primary)"
-                                    color="#fff"
-                                    fontWeight={500}
-                                    fontSize="13px"
+                                    variant="surface"
+                                    colorPalette="blue"
                                     px={4}
-                                    _hover={{ opacity: 0.9 }}
-                                    borderRadius="3px"
                                     onClick={handleSaveTavily}
                                     disabled={saving}
                                 >
@@ -397,13 +386,10 @@ export default function Settings() {
                                 {savedKeys.tavily && (
                                     <Button
                                         size="sm"
-                                        variant="outline"
-                                        color="var(--signal-negative)"
-                                        borderColor="var(--signal-negative)"
-                                        _hover={{ bg: "var(--signal-negative)", color: "#fff" }}
+                                        variant="subtle"
+                                        colorPalette="red"
                                         fontWeight={500}
                                         fontSize="13px"
-                                        borderRadius="3px"
                                         onClick={() => handleDeleteKey("tavily")}
                                         disabled={deleting === "tavily"}
                                     >
@@ -466,7 +452,7 @@ export default function Settings() {
                                         </Text>
                                     </HStack>
                                     <Button
-                                        variant="ghost"
+                                        variant="subtle"
                                         size="sm"
                                         color="var(--ink-tertiary)"
                                         _hover={{ color: "var(--signal-negative)" }}

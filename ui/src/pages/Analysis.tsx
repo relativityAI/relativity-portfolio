@@ -4,11 +4,11 @@ import {
     createListCollection, Portal, HStack, VStack
 } from "@chakra-ui/react";
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from "react";
-import { MdInfoOutline, MdCheck, MdClose } from "react-icons/md";
-import { Link, useParams } from "react-router-dom";
+import { MdInfoOutline, MdCheck, MdClose, MdArrowForward } from "react-icons/md";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { AnalysisService, AgentService, DataService, SettingsService, API_BASE } from "@/db";
 import { Tooltip } from "@/components/ui/tooltip";
-import { formatSeconds } from "@/utils";
+import { formatSeconds, agentDisplayName } from "@/utils";
 import { RunSteps, type RunStep } from "./shared/RunStatus";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease, stagger, staggerItem } from "@/lib/motion";
@@ -194,7 +194,7 @@ interface RunningAnalysis {
     status?: string;
 }
 
-function RunningNow() {
+function RunningNow({ agents }: { agents?: any[] }) {
     const [running, setRunning] = useState<RunningAnalysis[]>([]);
 
     useEffect(() => {
@@ -278,7 +278,7 @@ function RunningNow() {
                                         overflow="hidden"
                                         textOverflow="ellipsis"
                                     >
-                                        {a.agent_name || a.agent}
+                                        {agentDisplayName(a.agent_name || a.agent, agents)}
                                     </Text>
                                 </Flex>
                             </HStack>
@@ -299,10 +299,12 @@ function RunningNow() {
 
 export default function Analysis() {
     const { id } = useParams();
+    const navigate = useNavigate();
 
     const [availableAgents, setAvailableAgents] = useState<any[]>([]);
     const [correlationId, setCorrelationId] = useState<string>(id || "");
     const [status, setStatus] = useState<StatusType>("EMPTY");
+    const [resultsHover, setResultsHover] = useState(false);
     const [loading, setLoading] = useState(false);
     const [analysisDuration, setAnalysisDuration] = useState<string>("");
     const [elapsedTime, setElapsedTime] = useState(0);
@@ -564,6 +566,7 @@ export default function Analysis() {
                                 setAnalysisDuration(d >= 60 ? `${Math.floor(d / 60)}m ${Math.floor(d % 60)}s` : `${d.toFixed(1)}s`);
                             }
                             clearInterval(interval);
+                            if (isComplete) navigate(`/analysis-result/${correlationId}`);
                             return;
                         }
                     }
@@ -581,7 +584,7 @@ export default function Analysis() {
                 pollRetriesRef.current = 0;
             };
         }
-    }, [status, correlationId]);
+    }, [status, correlationId, navigate]);
 
     useEffect(() => {
         if (!config.share || status !== "EMPTY" || id) {
@@ -610,7 +613,7 @@ export default function Analysis() {
     const canRunAnalysis = isConfigComplete;
 
     return (
-        <Box bg="var(--surface-canvas)" minH="100vh">
+        <Box bg="var(--surface-canvas)" minH="100%">
             <Flex direction="column" gap={7} maxW="1240px" mx="auto" py={5}>
                 {/* Header: hero + inline stepper */}
                 <Flex
@@ -997,13 +1000,9 @@ export default function Analysis() {
                                         whileHover={canRunAnalysis ? { scale: 1.02 } : undefined}
                                         whileTap={canRunAnalysis ? { scale: 0.98 } : undefined}
                                         size="sm"
-                                        bg="var(--accent-primary)"
-                                        color="#fff"
-                                        fontWeight={500}
-                                        fontSize="13px"
+                                        variant="surface"
+                                        colorPalette="blue"
                                         px={5}
-                                        _hover={{ opacity: 0.9 }}
-                                        borderRadius="3px"
                                         onClick={runAnalysis}
                                         disabled={!canRunAnalysis}
                                         loading={status === "PENDING"}
@@ -1020,20 +1019,16 @@ export default function Analysis() {
                                     <Link to={`/analysis-result/${correlationId}`}>
                                         <Button
                                             size="sm"
-                                            bg="var(--accent-primary)"
-                                            color="#fff"
-                                            fontWeight={500}
-                                            fontSize="13px"
+                                            variant="surface"
+                                            colorPalette="blue"
                                             px={4}
-                                            _hover={{ opacity: 0.9 }}
-                                            borderRadius="3px"
                                         >
                                             View Report
                                         </Button>
                                     </Link>
                                     <Button
                                         size="sm"
-                                        variant="ghost"
+                                        variant="subtle"
                                         color="var(--ink-secondary)"
                                         _hover={{ color: "var(--ink-primary)" }}
                                         fontWeight={500}
@@ -1059,7 +1054,7 @@ export default function Analysis() {
                                             <Link to={`/analysis-result/${correlationId}`}>
                                                 <Button
                                                     size="sm"
-                                                    variant="ghost"
+                                                    variant="subtle"
                                                     color="var(--ink-secondary)"
                                                     _hover={{ color: "var(--ink-primary)" }}
                                                     fontWeight={500}
@@ -1071,13 +1066,10 @@ export default function Analysis() {
                                         )}
                                         <Button
                                             size="sm"
-                                            variant="outline"
-                                            color="var(--signal-negative)"
-                                            borderColor="var(--signal-negative)"
-                                            _hover={{ bg: "var(--signal-negative)", color: "#fff" }}
+                                            variant="subtle"
+                                            colorPalette="red"
                                             fontWeight={500}
                                             fontSize="13px"
-                                            borderRadius="3px"
                                             onClick={() => {
                                                 setStatus("EMPTY");
                                                 setSteps([]);
@@ -1091,7 +1083,32 @@ export default function Analysis() {
                         </VStack>
                     </Box>
 
-                    <RunningNow />
+                    <RunningNow agents={availableAgents} />
+
+                    <Link to="/analysis-list" style={{ display: "block" }}>
+                        <Button
+                            as={motion.button}
+                            whileTap={{ scale: 0.98 }}
+                            onHoverStart={() => setResultsHover(true)}
+                            onHoverEnd={() => setResultsHover(false)}
+                            size="md"
+                            w="full"
+                            mt={4}
+                            variant="surface"
+                            colorPalette="green"
+                            px={4}
+                        >
+                            View Analysis Results
+                            <motion.span
+                                style={{ display: "inline-flex", marginLeft: 6 }}
+                                initial={false}
+                                animate={{ x: resultsHover ? 4 : 0 }}
+                                transition={{ duration: dur.base, ease }}
+                            >
+                                <MdArrowForward size={15} />
+                            </motion.span>
+                        </Button>
+                    </Link>
                 </Box>
             </Flex>
 

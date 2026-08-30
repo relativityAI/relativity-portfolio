@@ -18,7 +18,7 @@ export default function ThankYou() {
         <Text color="fg.muted" textAlign="center" maxW="400px">
           Your submission has been received. We'll get back to you shortly.
         </Text>
-        <Button asChild variant="solid" colorPalette="blue" mt={2}>
+        <Button asChild variant="surface" colorPalette="blue" mt={2}>
           <Link to="/">Back to home</Link>
         </Button>
       </Flex>

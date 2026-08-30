@@ -47,7 +47,7 @@ export default function CookieBanner() {
             By continuing to use Relativity AI, you agree to our{" "}
             <a href="/privacy" style={{ color: "var(--accent-primary)", textDecoration: "underline" }}>Privacy Policy</a>.
           </Text>
-          <Button onClick={accept} variant="solid" colorPalette="blue" size="sm" flexShrink={0}>
+          <Button onClick={accept} variant="surface" colorPalette="blue" size="sm" flexShrink={0}>
             Accept
           </Button>
         </Flex>
