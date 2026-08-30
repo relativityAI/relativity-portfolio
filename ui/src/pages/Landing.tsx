@@ -1,305 +1,447 @@
-import { useState } from "react";
 import { Box, Button, Flex, Text } from "@chakra-ui/react";
-import { FcGoogle } from "react-icons/fc";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { Helmet } from "react-helmet-async";
+import { useNavigate } from "react-router-dom";
 import { dur, ease } from "@/lib/motion";
-import { useAuth } from "@/auth/useAuth";
+import logo from "@/assets/logo.png";
+import screenshot from "@/assets/hero-screenshot.png";
+import {
+  LuFileText,
+  LuScale,
+  LuUsers,
+  LuMic,
+  LuBadgeDollarSign,
+  LuActivity,
+  LuNewspaper,
+  LuNetwork,
+  LuShieldCheck,
+  LuMegaphone,
+  LuBuilding,
+  LuTarget,
+  LuCheck,
+} from "react-icons/lu";
 
-const POINTS = [
-  { n: "01", title: "Create an agent", sub: "Capture your investing style in rules." },
-  { n: "02", title: "Agents do the digging", sub: "Filings, news, numbers — everything cited." },
-  { n: "03", title: "Judge the results", sub: "Your entire research process, done fast." },
+const STEPS = [
+  { n: "01", title: "Create your agent", sub: "Define your investment thesis in plain language." },
+  { n: "02", title: "Let it evaluate stocks", sub: "The agent screens and analyzes against your thesis." },
+  { n: "03", title: "Get a FIT Score", sub: "One score showing how well a stock matches you." },
 ];
 
-const HEADLINE: Array<{ w: string; accent?: boolean }> = [
-  { w: "Every" },
-  { w: "investor" },
-  { w: "has" },
-  { w: "a" },
-  { w: "style." },
-  { w: "We", accent: true },
-  { w: "capture", accent: true },
-  { w: "it.", accent: true },
+const SOURCES: Array<{ icon: typeof LuFileText; label: string; hint: string }> = [
+  { icon: LuFileText, label: "Financial statements", hint: "income, balance, cash flow" },
+  { icon: LuScale, label: "Ratios & metrics", hint: "valuation, profitability, leverage" },
+  { icon: LuBuilding, label: "Shareholding patterns", hint: "promoter, institutional, public" },
+  { icon: LuMegaphone, label: "Announcements & filings", hint: "corporate disclosures" },
+  { icon: LuMic, label: "Earnings call transcripts", hint: "management commentary" },
+  { icon: LuBadgeDollarSign, label: "Corporate actions", hint: "dividends, splits, bonuses" },
+  { icon: LuUsers, label: "Insider & block deals", hint: "bulk transactions" },
+  { icon: LuTarget, label: "Analyst estimates", hint: "targets & forecasts" },
+  { icon: LuActivity, label: "Price & volume history", hint: "live and historical" },
+  { icon: LuNewspaper, label: "News & sentiment", hint: "web and press coverage" },
+  { icon: LuNetwork, label: "Peer comparison", hint: "industry positioning" },
+  { icon: LuShieldCheck, label: "Credit ratings", hint: "where applicable" },
 ];
+
+const TRUST = ["Real-time filings", "Exchange-sourced", "Institutional-grade"];
 
 const stack = {
-  animate: { transition: { staggerChildren: 0.07, delayChildren: 0.08 } },
+  animate: { transition: { staggerChildren: 0.1, delayChildren: 0.08 } },
 };
 
-const rise = {
-  initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0, transition: { duration: dur.slow, ease } },
+const riseShort = {
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0, transition: { duration: dur.base, ease } },
 };
-
-const draw = {
-  initial: { scaleX: 0 },
-  animate: { scaleX: 1, transition: { duration: dur.slow, ease } },
-};
-
-function SpacetimeGrid() {
-  return (
-    <motion.svg
-      width="100%"
-      height="100%"
-      style={{ position: "absolute", inset: 0, opacity: 0.35, pointerEvents: "none" }}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 0.35, transition: { duration: 1.2, ease, delay: 0.4 } }}
-      preserveAspectRatio="none"
-      viewBox="0 0 100 100"
-    >
-      <defs>
-        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="1.5" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
-      <rect x="0" y="0" width="100" height="100" fill="var(--surface-canvas)" />
-      <g stroke="var(--accent-primary)" strokeWidth="0.35" filter="url(#glow)">
-        {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((v) => (
-          <motion.line
-            key={`v${v}`}
-            x1={v} y1={0} x2={v} y2={100}
-            initial={{ scaleY: 0, originY: 0.5 }}
-            animate={{ scaleY: 1, transition: { duration: 0.8, ease, delay: v * 0.02 + 0.2 } }}
-          />
-        ))}
-        {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((v) => (
-          <motion.line
-            key={`h${v}`}
-            x1={0} y1={v} x2={100} y2={v}
-            initial={{ scaleX: 0, originX: 0.5 }}
-            animate={{ scaleX: 1, transition: { duration: 0.8, ease, delay: v * 0.02 + 0.6 } }}
-          />
-        ))}
-      </g>
-      <motion.circle
-        cx={50} cy={50} r={0}
-        fill="var(--accent-primary)"
-        animate={{ r: [0, 18, 0], opacity: [0.6, 0, 0], transition: { duration: 4, ease: "linear", repeat: Infinity } }}
-      />
-    </motion.svg>
-  );
-}
-
-function Seam() {
-  return (
-    <motion.div
-      style={{
-        width: "100%",
-        height: 2,
-        background: "linear-gradient(90deg, transparent, var(--accent-primary) 20%, var(--accent-primary) 80%, transparent)",
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
-      <motion.div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: "linear-gradient(90deg, transparent, var(--surface-canvas), transparent)",
-        }}
-        animate={{ x: ["-100%", "100%"], transition: { duration: 3, ease: "linear", repeat: Infinity } }}
-      />
-    </motion.div>
-  );
-}
 
 export default function Landing() {
-  const { signInWithGoogle } = useAuth();
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const navigate = useNavigate();
 
-  const handleGoogle = async () => {
-    setError(null);
-    setSubmitting(true);
-    try {
-      const { error } = await signInWithGoogle();
-      if (error) setError(error);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const wordSplit = ["Customizable", "Agents", "for", "Stock", "Analysis"];
 
   return (
-    <Flex h="100dvh" direction="column" overflow="hidden" position="relative">
+    <Flex
+      h="100%"
+      direction="column"
+      overflow="hidden"
+      position="relative"
+    >
       <Helmet>
-        <title>Relativity AI — Every investor has a style. We capture it.</title>
-        <meta name="description" content="AI-powered investment research platform. Create agents that capture your investing style and dig through filings, news, and numbers — everything cited." />
-        <meta property="og:title" content="Relativity AI — Every investor has a style. We capture it." />
-        <meta property="og:description" content="AI-powered investment research platform. Create agents that capture your investing style." />
+        <title>Relativity AI — Customizable Agents for Stock Analysis</title>
+        <meta name="description" content="Create your own research agents. They screen and analyze stocks against your thesis and return a single FIT Score — no trade calls, no recommendations." />
+        <meta property="og:title" content="Relativity AI — Customizable Agents for Stock Analysis" />
+        <meta property="og:description" content="Create research agents that analyze stocks against your thesis." />
       </Helmet>
-      <Flex flex={1} minH={0} direction={{ base: "column", md: "row" }}>
-        {/* Pitch */}
-        <Flex
-          flex={1}
-          direction="column"
-          justify="center"
-          minW={0}
-          position="relative"
-          px={{ base: 6, md: 14 }}
-          pt={{ base: 5, md: 10 }}
-          pb={{ base: 3, md: 10 }}
-        >
-          <SpacetimeGrid />
-          <motion.div variants={stack} initial="initial" animate="animate" style={{ position: "relative", zIndex: 1 }}>
-            <motion.div variants={rise} style={{ marginBottom: "clamp(14px, 3vh, 24px)" }}>
-              <Text
-                fontFamily="var(--font-mono)"
-                fontWeight="bold"
-                fontSize="sm"
-                letterSpacing="0.35em"
-                color="fg"
-              >
+
+      <Box
+        position="absolute"
+        top="-20%"
+        left="-10%"
+        w="40vw"
+        h="40vw"
+        borderRadius="full"
+        background="radial-gradient(circle, var(--accent-primary) 0%, transparent 70%)"
+        opacity={0.1}
+        pointerEvents="none"
+      />
+      <Box
+        position="absolute"
+        bottom="-15%"
+        right="-8%"
+        w="34vw"
+        h="34vw"
+        borderRadius="full"
+        background="radial-gradient(circle, var(--accent-primary) 0%, transparent 70%)"
+        opacity={0.08}
+        pointerEvents="none"
+      />
+
+      <Flex
+        position="relative"
+        zIndex={1}
+        flex={1}
+        minH={0}
+        direction="column"
+        px={{ base: 4, md: 8 }}
+        py={{ base: 3, md: 3 }}
+      >
+        {/* Header / logo row */}
+        <Flex align="center" justify="space-between" minH="40px" flexShrink={0}>
+          <motion.a href="/" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0, transition: { duration: dur.base, ease } }} style={{ display: "inline-block" }}>
+            <Flex
+              align="center"
+              gap={2}
+              borderRadius="xl"
+              bg="#0B0D10"
+              border="1px solid var(--hairline)"
+              px={2}
+              py={1}
+            >
+              <img src={logo} alt="Relativity" width={22} height={22} style={{ borderRadius: 4 }} />
+              <Text fontFamily="var(--font-mono)" fontWeight="bold" fontSize="xs" letterSpacing="0.18em" color="#EDEDEC" display={{ base: "none", sm: "block" }}>
                 RELATIVITY
               </Text>
-            </motion.div>
-
-            <motion.h1
-              variants={stack}
-              style={{
-                fontSize: "clamp(1.7rem, 5.5vw + 0.4rem, 3.2rem)",
-                lineHeight: 1.08,
-                fontWeight: 700,
-                letterSpacing: "-0.03em",
-                maxWidth: 540,
-                marginBottom: "clamp(18px, 4vh, 36px)",
-                color: "var(--ink-primary)",
-              }}
-            >
-              {HEADLINE.map(({ w, accent }, i) => (
-                <motion.span
-                  key={i}
-                  variants={rise}
-                  style={{
-                    display: "inline-block",
-                    marginRight: "0.28em",
-                    color: accent ? "var(--accent-primary)" : undefined,
-                  }}
-                >
-                  {w}
-                </motion.span>
-              ))}
-            </motion.h1>
-
-            <Flex direction="column" gap={{ base: 3, md: 4 }} maxW={{ md: "440px" }}>
-              {POINTS.map((p) => (
-                <motion.div key={p.n} variants={rise} whileHover={{ x: 4 }}>
-                  <motion.div
-                    variants={draw}
-                    style={{
-                      height: 1,
-                      background: "var(--hairline)",
-                      marginBottom: 10,
-                      originX: 0,
-                    }}
-                  />
-                  <Flex gap={3} align="baseline">
-                    <Text
-                      fontFamily="var(--font-mono)"
-                      fontSize="xs"
-                      fontWeight="bold"
-                      letterSpacing="0.08em"
-                      color="var(--accent-primary)"
-                    >
-                      {p.n}
-                    </Text>
-                    <Box>
-                      <Text fontSize={{ base: "sm", md: "md" }} fontWeight="semibold">
-                        {p.title}
-                      </Text>
-                      <Text fontSize={{ base: "xs", md: "sm" }} color="fg.muted" mt={0.5}>
-                        {p.sub}
-                      </Text>
-                    </Box>
-                  </Flex>
-                </motion.div>
-              ))}
             </Flex>
-          </motion.div>
+          </motion.a>
+          <Flex gap={3} align="center">
+            <Button size="sm" variant="outline" onClick={() => navigate("/login")}>
+              Log in
+            </Button>
+          </Flex>
         </Flex>
 
-        {/* Sign in */}
-        <Flex
-          flex={1}
-          align="center"
-          justify="center"
-          minW={0}
-          px={{ base: 6, md: 12 }}
-          pt={{ base: 2, md: 10 }}
-          pb={{ base: 4, md: 10 }}
-          borderLeft={{ base: "none", md: "1px solid var(--hairline)" }}
+        <Flex flex={1} minH={0} direction="column">
+        {/* Headline block */}
+        <motion.div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            textAlign: "center",
+            paddingTop: "clamp(8px, 1.4vh, 18px)",
+            paddingBottom: "clamp(6px, 1vh, 12px)",
+          }}
         >
-          <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.4, ease, delay: 0.25 }}
-            style={{ width: "100%", maxWidth: 360 }}
+          <Text
+            as="h1"
+            fontSize="clamp(1.6rem, 4.4vw, 3.1rem)"
+            lineHeight={1.08}
+            fontWeight={800}
+            letterSpacing="-0.03em"
+            maxW="100%"
+            textAlign="center"
+            color="var(--ink-primary)"
           >
-            <Text
-              fontFamily="var(--font-mono)"
-              fontSize="10.5px"
-              fontWeight={500}
-              letterSpacing="0.14em"
-              color="fg.muted"
-              mb={1}
-              textAlign="center"
-            >
-              MEMBER ACCESS
-            </Text>
-            <Text fontWeight="bold" fontSize="lg" mb={4} textAlign="center">
-              Sign in to your workspace
-            </Text>
-
-            <AnimatePresence>
-              {error && (
-                <motion.div
-                  key="err"
-                  initial={{ opacity: 0, y: -6, height: 0 }}
-                  animate={{ opacity: 1, y: 0, height: "auto" }}
-                  exit={{ opacity: 0, y: -6, height: 0 }}
-                  transition={{ duration: dur.base, ease }}
-                  style={{ overflow: "hidden", marginBottom: 3 }}
-                >
-                  <Text fontSize="sm" color="red.400" textAlign="center">
-                    {error}
-                  </Text>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <motion.div whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
-              <Button
-                onClick={handleGoogle}
-                loading={submitting}
-                w="full"
-                size="lg"
-                variant="solid"
-                colorPalette="blue"
+            {wordSplit.map((word, wi) => (
+              <motion.span
+                key={wi}
+                style={{ display: "inline-block", whiteSpace: "nowrap", marginRight: "0.28em" }}
               >
-                <FcGoogle size={18} />
-                <Text ml={2}>Continue with Google</Text>
-              </Button>
-            </motion.div>
+                {word.split("").map((ch, ci) => (
+                  <motion.span
+                    key={ci}
+                    style={{ display: "inline-block" }}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0, transition: { duration: dur.base, ease, delay: 0.15 + (ci + wi * 12) * 0.02 } }}
+                  >
+                    {ch}
+                  </motion.span>
+                ))}
+              </motion.span>
+            ))}
+          </Text>
 
+          <motion.p
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0, transition: { duration: dur.slow, ease, delay: 0.7 } }}
+            style={{
+              fontSize: "clamp(0.9rem, 1.6vw, 1.1rem)",
+              fontWeight: 400,
+              color: "var(--ink-secondary)",
+              maxWidth: 600,
+              marginTop: "clamp(8px, 1.6vh, 16px)",
+            }}
+          >
+            Save hours and days of research.
+          </motion.p>
+
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0, transition: { duration: dur.slow, ease, delay: 0.85 } }}
+            style={{ marginTop: "clamp(14px, 2.4vh, 24px)" }}
+          >
+            <Button
+              size="lg"
+              variant="solid"
+              colorPalette="blue"
+              minH="48px"
+              minW="168px"
+              onClick={() => navigate("/login")}
+              _hover={{ transform: "scale(1.02)", boxShadow: "0 10px 30px -10px var(--accent-primary)" }}
+            >
+              Get started
+            </Button>
             <Text
-              mt={3}
+              mt={2}
               textAlign="center"
               fontFamily="var(--font-mono)"
               fontSize="10.5px"
-              letterSpacing="0.08em"
-              color="fg.muted"
+              letterSpacing="0.06em"
+              color="var(--ink-tertiary)"
             >
-              NO CARD NEEDED · YOUR KEYS STAY YOURS
+              *No investment advice · No trade calls, no recommendations
             </Text>
           </motion.div>
+        </motion.div>
+
+        {/* Desktop: flanked row + mobile: stacked. Column order via CSS order + responsive stack. */}
+        <Flex
+          minH={0}
+          align={{ base: "stretch", md: "center" }}
+          justify={{ base: "flex-start", md: "center" }}
+          gap={{ base: 3, md: 4 }}
+          marginTop="auto"
+          marginBottom="auto"
+          direction={{ base: "column", md: "row" }}
+        >
+          {/* Left column — How it works */}
+          <Box
+            width="100%"
+            maxW={{ base: "100%", md: 260 }}
+            flexShrink={1}
+            order={{ base: 3, md: 1 }}
+            mt={{ base: 3, md: 0 }}
+          >
+          <motion.div
+            initial={{ opacity: 0, x: -16 }}
+            animate={{ opacity: 1, x: 0, transition: { duration: dur.base, ease, delay: 0.3 } }}
+          >
+            <Box display={{ base: "none", md: "block" }}>
+              <Heading label="How it works" />
+              <Flex direction="column" gap={3}>
+                {STEPS.map((s, i) => (
+                  <motion.div key={s.n} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0, transition: { duration: dur.base, ease, delay: 0.35 + i * 0.06 } }}>
+                    <Flex gap={3} align="flex-start">
+                      <Text
+                        fontFamily="var(--font-mono)"
+                        fontSize="xs"
+                        fontWeight="bold"
+                        letterSpacing="0.08em"
+                        color="var(--accent-primary)"
+                        mt={0.5}
+                      >
+                        {s.n}
+                      </Text>
+                      <Box>
+                        <Text fontSize="sm" fontWeight="bold" color="var(--ink-primary)">
+                          {s.title}
+                        </Text>
+                        <Text fontSize="xs" color="var(--ink-secondary)" lineHeight="short" mt={0.5}>
+                          {s.sub}
+                        </Text>
+                      </Box>
+                    </Flex>
+                  </motion.div>
+                ))}
+              </Flex>
+            </Box>
+            {/* Mobile condensed steps */}
+            <Box display={{ base: "block", md: "none" }}>
+              <Flex direction="column" gap={1.5}>
+                {STEPS.map((s, i) => (
+                  <motion.div key={s.n} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0, transition: { duration: dur.base, ease, delay: 0.3 + i * 0.05 } }}>
+                    <Flex gap={2} align="flex-start">
+                      <Text fontFamily="var(--font-mono)" fontSize="10px" fontWeight="bold" letterSpacing="0.08em" color="var(--accent-primary)" mt={0.5}>
+                        {s.n}
+                      </Text>
+                      <Text fontSize="xs" color="var(--ink-primary)">
+                        <Box as="span" fontWeight="bold">{s.title}</Box> — {s.sub}
+                      </Text>
+                    </Flex>
+                  </motion.div>
+                ))}
+              </Flex>
+            </Box>
+          </motion.div>
+          </Box>
+
+          {/* Center: screenshot in glass panel */}
+          <Box
+            w="fit-content"
+            maxW="100%"
+            mx="auto"
+            flex={{ base: "0 0 auto", md: "0 0 auto" }}
+            borderRadius="20px"
+            border="1px solid var(--hairline)"
+            bg="var(--surface-panel)"
+            backdropFilter="blur(12px)"
+            WebkitBackdropFilter="blur(12px)"
+            boxShadow="0 20px 60px -20px rgba(0,0,0,0.25)"
+            p={2}
+            position="relative"
+            overflow="hidden"
+            order={{ base: 1, md: 2 }}
+          >
+            <Box
+              position="absolute"
+              inset={0}
+              background="radial-gradient(ellipse at 50% 0%, var(--accent-primary) 0%, transparent 70%)"
+              opacity={0.14}
+              pointerEvents="none"
+            />
+            <Box
+              as={motion.img}
+              src={screenshot}
+              alt="Relativity analysis result showing a FIT score and per-criterion evaluation"
+              maxH={{ base: "20vh", md: "58vh" }}
+              w="auto"
+              maxW="100%"
+              borderRadius={16}
+              mx="auto"
+              display="block"
+              position="relative"
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1, transition: { duration: dur.slow, ease, delay: 0.35 } }}
+            />
+          </Box>
+
+          {/* Right column — Data sources */}
+          <Box
+            width="100%"
+            maxW={{ base: "100%", md: 260 }}
+            flexShrink={1}
+            order={{ base: 2, md: 3 }}
+            mt={{ base: 4, md: 0 }}
+          >
+          <motion.div
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0, transition: { duration: dur.base, ease, delay: 0.3 } }}
+          >
+            <Box display={{ base: "none", md: "block" }}>
+              <Text
+                fontFamily="var(--font-mono)"
+                fontSize="10.5px"
+                fontWeight={500}
+                letterSpacing="0.14em"
+                textTransform="uppercase"
+                color="var(--ink-tertiary)"
+                mb={3}
+              >
+                Data sources
+              </Text>
+              <Text fontSize="sm" fontWeight="semibold" color="var(--ink-primary)" mb={3}>
+                Built on institutional-grade financial data
+              </Text>
+              <Flex gap={2} mb={4} wrap="wrap">
+                {TRUST.map((t) => (
+                  <Flex key={t} align="center" gap={1.5} borderRadius="full" border="1px solid var(--hairline)" bg="var(--surface-recessed)" px={2} py={0.5}>
+                    <LuCheck size={11} color="var(--accent-primary)" />
+                    <Text fontSize="10px" fontWeight="medium" color="var(--ink-secondary)">{t}</Text>
+                  </Flex>
+                ))}
+              </Flex>
+              <motion.div variants={stack} initial="initial" animate="animate">
+                <Box width="100%" sx={{ columnCount: 2, columnGap: 3 }}>
+                  {SOURCES.map((s) => (
+                    <motion.div key={s.label} variants={riseShort} style={{ breakInside: "avoid", marginBottom: 9 }}>
+                      <Flex gap={2} align="flex-start">
+                        <s.icon size={13} color="var(--accent-primary)" style={{ marginTop: 1, flexShrink: 0 }} />
+                        <Text fontSize="xs" fontWeight="semibold" color="var(--ink-primary)" lineHeight="short">
+                          {s.label}
+                        </Text>
+                      </Flex>
+                    </motion.div>
+                  ))}
+                </Box>
+              </motion.div>
+            </Box>
+            {/* Mobile data sources: full readability with page scroll */}
+            <Box display={{ base: "block", md: "none" }} mt={2}>
+              <Text
+                fontFamily="var(--font-mono)"
+                fontSize="10.5px"
+                fontWeight={500}
+                letterSpacing="0.14em"
+                textTransform="uppercase"
+                color="var(--ink-tertiary)"
+                mb={1.5}
+              >
+                Data sources
+              </Text>
+              <Text fontSize="sm" fontWeight="semibold" color="var(--ink-primary)" mb={2}>
+                Built on institutional-grade financial data
+              </Text>
+              <Box as="motion.div" variants={stack} initial="initial" animate="animate" mt={1}>
+                <Box width="100%" sx={{ columnCount: 2, columnGap: 3 }}>
+                  {SOURCES.map((s) => (
+                    <motion.div key={s.label} variants={riseShort} style={{ breakInside: "avoid", marginBottom: 8 }}>
+                      <Flex gap={2} align="flex-start">
+                        <s.icon size={13} color="var(--accent-primary)" style={{ marginTop: 1, flexShrink: 0 }} />
+                        <Text fontSize="xs" fontWeight="semibold" color="var(--ink-primary)" lineHeight="short">
+                          {s.label}
+                        </Text>
+                      </Flex>
+                    </motion.div>
+                  ))}
+                </Box>
+              </Box>
+            </Box>
+          </motion.div>
+          </Box>
+        </Flex>
+
+        {/* Caption below */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1, transition: { duration: dur.base, ease, delay: 0.5 } }}
+          style={{ textAlign: "center", paddingTop: "clamp(4px, 1vh, 10px)" }}
+        >
+          <Text
+            fontFamily="var(--font-mono)"
+            fontSize="10.5px"
+            letterSpacing="0.06em"
+            color="var(--ink-tertiary)"
+          >
+            *Not investment advice · No trade calls, no recommendations
+          </Text>
+        </motion.div>
         </Flex>
       </Flex>
-
-      <Seam />
     </Flex>
+  );
+}
+
+function Heading({ label }: { label: string }) {
+  return (
+    <Text
+      fontFamily="var(--font-mono)"
+      fontSize="10.5px"
+      fontWeight={500}
+      letterSpacing="0.14em"
+      textTransform="uppercase"
+      color="var(--ink-tertiary)"
+      mb={3}
+    >
+      {label}
+    </Text>
   );
 }
