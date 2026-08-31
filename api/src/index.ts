@@ -8,7 +8,7 @@ import { fetchUserKeys, ensureUserSettings } from "./provision.js";
 import { getModelIds, getAvailableModelsForUser } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
 import { getMetricsCatalog, buildFieldList, getFlatCatalog, mergeCatalogFields, normalizeQuantRules, type MetricDef } from "./metrics.js";
-import { createRun, RunRequest, DEFAULT_MODEL } from "./run.js";
+import { createRun, RunRequest, DEFAULT_MODEL, checkAndFailStaleRun } from "./run.js";
 import { draftParameters, type LlmKeys } from "./agent.js";
 import { processBuilderTurn, extractDocumentSignals, type BuilderRequest } from "./builder.js";
 import { getSchemaDescriptor } from "./schema.js";
@@ -19,6 +19,12 @@ import multer from "multer";
 import { isDataFresh, FRESHNESS_FUNDAMENTAL_MS } from "./freshness.js";
 import { requireAuth, type AuthedRequest } from "./auth.js";
 import { log, paint } from "./logger.js";
+import { initTelemetry } from "./telemetry.js";
+import { serve } from "inngest/express";
+import { inngest, analysisRunFn } from "./inngest.js";
+
+// Initialize Langfuse telemetry before any AI SDK calls.
+await initTelemetry();
 
 const METHOD_COLORS: Record<string, string> = {
   GET: "1;32",
@@ -47,6 +53,9 @@ const app = express();
 app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+
+// Inngest endpoint for durable orchestration functions
+app.use("/api/inngest", serve({ client: inngest, functions: [analysisRunFn] }));
 
 // ---- request context: id + response-body capture (for error logging) ----
 app.use((req, res, next) => {
@@ -280,17 +289,24 @@ app.post("/agents", requireAuth, async (req, res) => {
   try {
     const db = getDb();
     const userId = (req as AuthedRequest).user.id;
-    const id = randomUUID();
+    const id = req.body?.id || req.body?._id || randomUUID();
+    const body = req.body || {};
+    const phil = body.philosophy || body.persona?.philosophy_and_mindset || "";
+    const persona = {
+      ...(typeof body.persona === "object" ? body.persona : {}),
+      philosophy_and_mindset: phil,
+    };
     const doc = {
       id,
       user_id: userId,
-      name: String(req.body?.name || ""),
-      source: req.body?.source || "NSE",
-      persona: req.body?.persona || {},
-      configuration: req.body?.configuration || {},
-      asset_evaluation: normalizeEval(req.body?.asset_evaluation) || { qualitative: [], quantitative: [] },
-      macro_evaluation: normalizeEval(req.body?.macro_evaluation) || { qualitative: [], quantitative: [] },
+      name: String(body.name || "Untitled Agent"),
+      source: body.source || "NSE",
+      persona,
+      configuration: body.configuration || {},
+      asset_evaluation: normalizeEval(body.asset_evaluation) || { qualitative: [], quantitative: [] },
+      macro_evaluation: normalizeEval(body.macro_evaluation) || { qualitative: [], quantitative: [] },
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
     const { error } = await db.from("agents").insert(doc);
     if (error) throw error;
@@ -321,17 +337,29 @@ app.put("/agents/:id", requireAuth, async (req, res) => {
     const id = req.params.id;
     const { data: existing, error: fetchErr } = await db.from("agents").select("*").eq("id", id).eq("user_id", userId).single();
     if (fetchErr || !existing) return res.status(404).json({ error: "Agent not found" });
-    const { id: _id, _id: __id, user_id: _uid, created_at: _ca, ...rest } = req.body || {};
+
+    const body = req.body || {};
+    const phil = body.philosophy || body.persona?.philosophy_and_mindset || existing.persona?.philosophy_and_mindset || "";
+    const persona = {
+      ...(existing.persona || {}),
+      ...(typeof body.persona === "object" ? body.persona : {}),
+      philosophy_and_mindset: phil,
+    };
+
+    // Pick ONLY valid table columns to prevent PostgREST unknown column errors (503)
     const doc = {
-      ...existing,
-      ...rest,
       id: existing.id,
       user_id: userId,
+      name: body.name !== undefined ? String(body.name) : existing.name,
+      source: body.source || existing.source || "NSE",
+      persona,
+      configuration: body.configuration || existing.configuration || {},
+      asset_evaluation: normalizeEval(body.asset_evaluation || existing.asset_evaluation || { qualitative: [], quantitative: [] }),
+      macro_evaluation: normalizeEval(body.macro_evaluation || existing.macro_evaluation || { qualitative: [], quantitative: [] }),
       created_at: existing.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-    doc.asset_evaluation = normalizeEval(doc.asset_evaluation || { qualitative: [], quantitative: [] });
-    doc.macro_evaluation = normalizeEval(doc.macro_evaluation || { qualitative: [], quantitative: [] });
+
     const { error } = await db.from("agents").update(doc).eq("id", id).eq("user_id", userId);
     if (error) throw error;
     res.json(doc);
@@ -450,6 +478,8 @@ app.get("/analysis/:id", requireAuth, async (req, res) => {
   try {
     const db = getDb();
     const userId = (req as AuthedRequest).user.id;
+    // Fast-path staleness check on every poll
+    await checkAndFailStaleRun(String(req.params.id));
     const { data, error } = await db.from("analysis_runs").select("*").eq("id", req.params.id).eq("user_id", userId).single();
     if (error || !data) return res.status(404).json({ error: "Analysis not found" });
     res.json(data);
@@ -656,6 +686,8 @@ app.post("/builder/draft", requireAuth, async (req, res) => {
     }
 
     const builderReq: BuilderRequest = {
+      session_id: body.session_id ? String(body.session_id) : undefined,
+      user_id: userId,
       model_id: requestedModel,
       llm_keys: llmKeys as LlmKeys,
       messages: Array.isArray(body.messages) ? body.messages : [],

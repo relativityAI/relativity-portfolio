@@ -1,5 +1,6 @@
 import { VoyagerClient, type PullStatus } from "./voyager.js";
 import { findMetricId } from "./metrics.js";
+import { aggregateWeightedScores } from "./scoring.js";
 
 export interface Criterion {
   category?: string;
@@ -356,21 +357,24 @@ export function runQuantitative(
   ];
 
   const entries: Record<string, QuantEntry> = {};
-  let weighted = 0;
-  let weightSum = 0;
+  const itemsForScoring: { score: number; weightage: number; error?: string }[] = [];
 
   for (const { section, criteria } of sections) {
     criteria.forEach((c, idx) => {
       const entry = evaluateMetric(metrics, c, section, price_data);
       const metric = c.metric || c.metric_name || `criterion_${idx}`;
       entries[`${section}:${metric}`] = entry;
-      weighted += entry.score * entry.weightage;
-      weightSum += entry.weightage;
+      itemsForScoring.push({
+        score: entry.score,
+        weightage: entry.weightage,
+        error: entry.value === undefined || entry.value === null || entry.value === "" ? "missing_data" : undefined,
+      });
     });
   }
 
-  const quantitative_score =
-    weightSum > 0 ? Math.round((weighted / weightSum) * 10000) / 100 : 0;
+  const { score: quantitative_score } = aggregateWeightedScores(itemsForScoring, {
+    includeMissingAsZero: true,
+  });
 
   return { quantitative_analysis: entries, quantitative_score, price_data };
 }

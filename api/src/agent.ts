@@ -1,12 +1,18 @@
-import { generateText, stepCountIs, type LanguageModel } from "ai";
+import { generateText, isStepCount, type LanguageModel } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { aggregateWeightedScores } from "./scoring.js";
 import { config } from "./config.js";
 import { buildTools, extractToolCalls, ToolContext } from "./tools.js";
 import type { DataAdequacy } from "./quant.js";
 import { log } from "./logger.js";
+import {
+  QUALITATIVE_SCORING_SYSTEM_PROMPT,
+  buildScoreRecoveryPrompt,
+  buildDraftParametersPrompt,
+} from "./prompts.js";
 
 // Per-parameter wall-clock budget for the LLM tool loop.
 const PARAM_TIMEOUT_MS = 180_000;
@@ -71,28 +77,7 @@ export function buildModel(modelId: string, keys: LlmKeys) {
   }
 }
 
-const SYSTEM_PROMPT = `You are a strict, evidence-based checklist auditor. Your job is to score a single qualitative investment requirement for a company (asset evaluation) or for the broader market (macro evaluation).
-
-Rules:
-- Gather evidence using the available tools before concluding. Never rely on memory or assumptions.
-- Relevant tools include: financial metrics, financial statements, announcements, shareholdings, company documents (transcripts, presentations, PDFs), and optionally live web search.
-- Decompose the requirement into the smallest number of distinct, checkable criteria — one per distinct investor requirement in the guidelines.
-- Grade each criterion against gathered evidence only, using this fixed rubric:
-  - Yes: fully met -> 1 credit
-  - Partial: partially met -> 0.5 credit
-  - No: not met -> 0 credit
-  - Insufficient Data: cannot be assessed -> excluded from scoring (counts neither for nor against)
-- Score objectively: no praise, no criticism, no holistic judgment. Only "does the evidence match the checklist".
-- Prefer primary and newer sources. Treat conflicting sources as Insufficient Data.
-- If data is missing or unavailable, mark the affected criterion as Insufficient Data and say so explicitly.
-- FINAL_SCORE = (credits earned / number of assessable criteria) * 100, an integer between 0 and 100. If no criterion is assessable, FINAL_SCORE = 0.
-- Your response must be markdown with these sections in order:
-  SCORE JUSTIFICATION
-  CHECKLIST (each item with YES / PARTIAL / NO / INSUFFICIENT DATA)
-  RISKS
-  CONCLUSION
-  FINAL_SCORE: <integer between 0 and 100>
-- The FINAL_SCORE line must be the last line of your response and contain only the integer.`;
+// System prompt imported from prompts.ts
 
 export interface QualResult {
   score: number;
@@ -112,10 +97,7 @@ async function recoverScore(
   try {
     const res = await generateText({
       model,
-      prompt:
-        `The following investment analysis is missing a parsable FINAL_SCORE line. ` +
-        `Read it and reply with ONLY the final score as an integer between 0 and 100.\n\n` +
-        analysis.slice(0, 6000),
+      prompt: buildScoreRecoveryPrompt(analysis),
       temperature: 0,
       maxOutputTokens: 8,
     });
@@ -154,11 +136,7 @@ export async function draftParameters(
       : "company-level qualitative parameters for judging individual stocks";
   const result = await generateText({
     model,
-    prompt:
-      `An investor describes their philosophy:\n"""\n${persona.slice(0, 4000)}\n"""\n\n` +
-      `Draft exactly ${count} distinct qualitative evaluation parameters — ${scope} — that match this philosophy.\n` +
-      `Each item must be JSON: {"parameter": "<short name>", "content": "<1-3 sentence checklist guidance for scoring this parameter>", "weightage": <integer 1-10 importance>}.\n` +
-      `Respond with ONLY the JSON array. No markdown fences, no commentary.`,
+    prompt: buildDraftParametersPrompt(persona, count, scope),
     temperature: 0.4,
     maxOutputTokens: 1500,
   });
@@ -237,11 +215,11 @@ export async function runQualitative(
 
     const result = await generateText({
       model,
-      system: SYSTEM_PROMPT,
+      instructions: QUALITATIVE_SCORING_SYSTEM_PROMPT,
       prompt: userPrompt,
       temperature: 0.1,
       maxOutputTokens: 8192,
-      stopWhen: stepCountIs(config.maxToolSteps),
+      stopWhen: isStepCount(config.maxToolSteps),
       tools,
       abortSignal: AbortSignal.timeout(PARAM_TIMEOUT_MS),
     });
@@ -403,12 +381,9 @@ export async function runQualitativeAll(
   });
 
   const entries = Object.values(qualitative_analysis);
-  const scored = entries.filter((e) => !e.error);
-  const weightSum = scored.reduce((s, e) => s + e.weightage, 0);
-  const qualitative_score =
-    weightSum > 0
-      ? Math.round((scored.reduce((s, e) => s + e.score * e.weightage, 0) / weightSum) * 100) / 100
-      : 0;
+  const { score: qualitative_score } = aggregateWeightedScores(entries, {
+    includeMissingAsZero: false,
+  });
 
   return { qualitative_analysis, qualitative_tool_calls, qualitative_score };
 }

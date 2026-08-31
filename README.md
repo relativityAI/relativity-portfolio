@@ -14,8 +14,9 @@ The name *Relativity* draws inspiration from Einsteins Theory of Relativity. A g
 
 - **UI** (`ui/`) — React (Vite + Chakra) frontend on port 5173.
 - **API** (`api/`) — in-repo Express + Vercel AI SDK backend on port 8080. Owns agents, runs analyses (quantitative scoring + LLM-driven qualitative agent tool-loop), and exposes the curated model list and metric catalog.
-- **[Voyager](https://github.com/relativityAI/voyager)** — hosted data service (`https://voyager-1hpq.onrender.com`) that the API calls directly. The agent never sees the data endpoint. Access is read-only: the app checks availability/freshness via a GET and never submits data pulls (no POST /pull).
-- **MongoDB** — persistence for agents and analysis runs. Uses the local docker Mongo by default, or a MongoDB Atlas connection string.
+- **[Voyager](https://github.com/relativityAI/voyager)** — hosted data service (`https://voyager-1hpq.onrender.com`) that the API calls directly. The agent checks data availability/freshness and triggers data pull jobs (`POST /pull/trigger`) when data is stale, polling for status until `completed`.
+- **Inngest** — durable workflow orchestration for multi-step analysis runs, background polling, and concurrency control.
+- **Supabase / Postgres** — persistence for user agents, builder sessions, and analysis runs.
 
 The UI talks only to `/api` (proxied to 8080). LLM and Voyager API keys are held in the browser and forwarded to the API as headers — never persisted server-side. The API forwards your Voyager key to the hosted service as `X-API-Key`.
 

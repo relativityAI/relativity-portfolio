@@ -221,18 +221,6 @@ export async function ensureFreshData(
     log.warn("[freshness]", `Voyager status check failed for ${symbol}: ${e?.message}`);
   }
 
-  // Data is stale or missing — trigger a pull
-  const lockKey = `${symbol}:${source}:${userId}`;
-  const existing = activePulls.get(lockKey);
-  if (existing) {
-    // Another request for the same stock is already pulling — piggyback
-    log.info("[freshness]", `piggybacking on existing pull for ${symbol}`);
-    return existing;
-  }
-
-  const promise = triggerAndWaitForPull(voyager, symbol, country, source, userId).finally(() => {
-    activePulls.delete(lockKey);
-  });
-  activePulls.set(lockKey, promise);
-  return promise;
+  // Data is stale or missing — trigger a pull directly (concurrency handled by Inngest)
+  return triggerAndWaitForPull(voyager, symbol, country, source, userId);
 }

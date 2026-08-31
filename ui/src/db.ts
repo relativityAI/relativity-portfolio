@@ -25,8 +25,9 @@ export const AgentService = {
         return response.data;
     },
 
-    async createAgent(name?: string) {
-        const response = await axios.post(`${API_BASE}/agents`, { name });
+    async createAgent(payload?: string | Record<string, unknown>) {
+        const body = typeof payload === "string" ? { name: payload } : payload || {};
+        const response = await axios.post(`${API_BASE}/agents`, body);
         return response.data;
     },
 
