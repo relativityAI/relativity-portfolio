@@ -9,6 +9,7 @@ import { runQualitativeAll } from "./agent.js";
 import { ensureFreshData } from "./freshness.js";
 import type { LlmKeys } from "./agent.js";
 import { log } from "./logger.js";
+import { inngest } from "./inngest.js";
 
 export interface RunRequest {
   userId: string;
@@ -138,6 +139,35 @@ export function resolveWebSearch(
 
 // ── run orchestration ──────────────────────────────────────────────────
 
+// Maximum age (ms) before a RUNNING/PENDING run is considered stale and auto-failed.
+const STALE_RUN_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Check if a run is stale (stuck in RUNNING/PENDING with no progress for >10min)
+ * and mark it FAILED if so. Returns true if the run was marked stale.
+ */
+export async function checkAndFailStaleRun(runId: string): Promise<boolean> {
+  const db = getDb();
+  const { data } = await db.from("analysis_runs").select("status, updated_at, created_at, steps").eq("id", runId).single();
+  if (!data) return false;
+  const s = (data.status || "").toUpperCase();
+  if (s !== "PENDING" && s !== "RUNNING") return false;
+
+  const lastTouch = data.updated_at || data.created_at;
+  if (!lastTouch) return false;
+  const age = Date.now() - new Date(lastTouch).getTime();
+  if (age < STALE_RUN_THRESHOLD_MS) return false;
+
+  // Run is stale — mark it FAILED
+  log.warn(`[run ${runId}]`, `marking stale run as FAILED (age=${Math.round(age / 1000)}s)`);
+  await db.from("analysis_runs").update({
+    status: "FAILED",
+    error: `Analysis timed out — no progress for ${Math.round(age / 60000)} minutes. This usually means the backend execution was interrupted. Please try again.`,
+    updated_at: new Date().toISOString(),
+  }).eq("id", runId);
+  return true;
+}
+
 export async function createRun(req: RunRequest): Promise<{ analysis_id: string }> {
   const runId = randomUUID();
   const db = getDb();
@@ -171,9 +201,31 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
   };
   const { error } = await db.from("analysis_runs").insert(run);
   if (error) throw error;
-  executeRun(runId, req).catch((e) => {
-    log.error(`[run ${runId}]`, "background execution failed:", e);
-  });
+
+  // Inngest is used in production when INNGEST_EVENT_KEY is set.
+  // In development (no key), always run locally to avoid silent hangs.
+  const useInngest = !!process.env.INNGEST_EVENT_KEY;
+
+  if (useInngest) {
+    try {
+      await inngest.send({
+        name: "analysis/run.requested",
+        data: { ...req, runId },
+      });
+      log.info(`[run ${runId}]`, "dispatched event to Inngest");
+    } catch (e: any) {
+      log.warn(`[run ${runId}]`, "Inngest dispatch failed, falling back to local runner:", e?.message);
+      executeRun(runId, req).catch((err) => {
+        log.error(`[run ${runId}]`, "background execution failed:", err);
+      });
+    }
+  } else {
+    log.info(`[run ${runId}]`, "executing locally (no INNGEST_EVENT_KEY)");
+    executeRun(runId, req).catch((err) => {
+      log.error(`[run ${runId}]`, "background execution failed:", err);
+    });
+  }
+
   return { analysis_id: runId };
 }
 

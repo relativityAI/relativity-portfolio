@@ -3,7 +3,7 @@ import {
 } from "@chakra-ui/react"
 import { MdOutlineFileDownload, MdOutlineFileUpload, MdSave, MdDeleteForever, MdMoreHoriz, MdOutlineAutoAwesome, MdEdit } from "react-icons/md"
 
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { useState, useEffect, useMemo, useRef } from "react"
 import { AgentService, VoyagerService } from "@/db"
 
@@ -110,6 +110,7 @@ function computeOverviewSections(agent: any): { id: string; label: string; summa
 export default function Agent() {
     const urlParams = useParams()
     const navigate = useNavigate()
+    const location = useLocation()
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [saved, setSaved] = useState(false)
@@ -145,7 +146,26 @@ export default function Agent() {
 
     const fetchAgent = async () => {
         try {
-            if (urlParams.id && !isNew) {
+            const passedDraft = (location.state as any)?.agentDraft
+            if (passedDraft) {
+                const phil = passedDraft.persona?.philosophy_and_mindset || passedDraft.philosophy || ""
+                setAgent({
+                    ...DEFAULT_AGENT,
+                    ...passedDraft,
+                    persona: { philosophy_and_mindset: phil },
+                    configuration: { ...DEFAULT_AGENT.configuration, ...(passedDraft.configuration || {}) },
+                    asset_evaluation: {
+                        qualitative: passedDraft.asset_evaluation?.qualitative ?? [],
+                        quantitative: passedDraft.asset_evaluation?.quantitative ?? [],
+                    },
+                    macro_evaluation: {
+                        qualitative: passedDraft.macro_evaluation?.qualitative ?? [],
+                        quantitative: passedDraft.macro_evaluation?.quantitative ?? [],
+                    },
+                })
+                setIsDirty((location.state as any)?.isDirty ?? false)
+                setStep("overview")
+            } else if (urlParams.id && !isNew) {
                 const data = await AgentService.readAgent(urlParams.id)
                 if (data) {
                     setAgent({
@@ -211,15 +231,10 @@ export default function Agent() {
         try {
             setSaving(true)
             let agentId = agent.id || agent._id
-            if (!agentId) {
-                const created = await AgentService.createAgent()
-                agentId = created.id || created._id
-            }
             const stripIds = (items: any[]) => items?.map(({ id, ...rest }: any) => rest) ?? []
             const dataToSave = {
-                _id: agentId,
                 name: agent.name,
-                source: agent.source,
+                source: agent.source || "NSE",
                 persona: agent.persona,
                 configuration: agent.configuration,
                 asset_evaluation: {
@@ -231,22 +246,25 @@ export default function Agent() {
                     quantitative: normalizeMetrics(agent.macro_evaluation?.quantitative),
                 },
             }
-            await AgentService.updateAgent(dataToSave)
-            const savedData = await AgentService.readAgent(agentId)
-            if (savedData) {
+
+            if (agentId) {
+                await AgentService.updateAgent({ ...dataToSave, id: agentId, _id: agentId })
+            } else {
+                const created = await AgentService.createAgent(dataToSave)
+                agentId = created.id || created._id
+            }
+
+            if (agentId) {
                 setAgent((prev: any) => ({
                     ...prev,
-                    id: savedData.id || savedData._id || agentId,
-                    _id: savedData._id || savedData.id || agentId,
-                    name: savedData.name || prev.name,
-                    source: savedData.source || prev.source,
-                    created_at: savedData.created_at || prev.created_at,
+                    id: agentId,
+                    _id: agentId,
                 }))
-            }
-            setSaved(true)
-            setIsDirty(false)
-            if (isNew) {
-                navigate("/agent/" + agentId, { replace: true })
+                setSaved(true)
+                setIsDirty(false)
+                if (isNew) {
+                    navigate("/agent/" + agentId, { replace: true })
+                }
             }
             setTimeout(() => setSaved(false), 3000)
         } catch (error) {

@@ -68,7 +68,7 @@ function QuantRuleItem({ rule }: { rule: { metric_name?: string; metric?: string
 
 export default function AgentPreviewPanel({ agentDraft, isDirty }: AgentPreviewPanelProps) {
   const name = agentDraft.name || "Untitled Agent";
-  const philosophy = agentDraft.persona?.philosophy_and_mindset || "";
+  const philosophy = (agentDraft.persona as any)?.philosophy_and_mindset || (agentDraft as any).philosophy || "";
   const horizon = agentDraft.configuration?.investment_horizon || "";
   const risk = agentDraft.configuration?.risk_appetite;
   const assetQual = agentDraft.asset_evaluation?.qualitative || [];

@@ -3,6 +3,7 @@ import { MdCheck, MdClose } from "react-icons/md";
 import { formatSeconds } from "@/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease } from "@/lib/motion";
+import { useEffect, useState } from "react";
 
 export type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 
@@ -80,10 +81,11 @@ function StepIcon({ status }: { status: StepStatus }) {
 }
 
 function StepRow({ step, now }: { step: RunStep; now: number }) {
-    const elapsedMs =
+    let elapsedMs =
         step.status === "running" && step.started_at
             ? now - +new Date(step.started_at)
             : step.duration_ms;
+    if (elapsedMs && elapsedMs < 0) elapsedMs = 0;
     const timeLabel =
         step.status === "running" || step.status === "completed" || step.status === "failed"
             ? formatMs(elapsedMs)
@@ -135,7 +137,16 @@ function StepRow({ step, now }: { step: RunStep; now: number }) {
     );
 }
 
-export function RunSteps({ steps, now }: { steps: RunStep[]; now: number }) {
+export function RunSteps({ steps, now: externalNow }: { steps: RunStep[]; now: number }) {
+    const [now, setNow] = useState(externalNow);
+
+    useEffect(() => {
+        const hasRunning = steps.some(s => s.status === "running");
+        if (!hasRunning) return;
+        const interval = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(interval);
+    }, [steps]);
+
     return (
         <AnimatePresence mode="wait" initial={false}>
         {!steps || steps.length === 0 ? (

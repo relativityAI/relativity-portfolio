@@ -1,3 +1,10 @@
+import { circuitBreaker, ConsecutiveBreaker, handleAll } from "cockatiel";
+
+export const voyagerCircuitBreaker = circuitBreaker(handleAll, {
+  halfOpenAfter: 10_000,
+  breaker: new ConsecutiveBreaker(5),
+});
+
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1_000;
@@ -82,6 +89,18 @@ export class VoyagerClient {
     body?: unknown,
     attempt = 0,
   ): Promise<any> {
+    return voyagerCircuitBreaker.execute(() =>
+      this.requestDirect(path, params, method, body, attempt)
+    );
+  }
+
+  private async requestDirect(
+    path: string,
+    params: Record<string, unknown>,
+    method: "GET" | "POST",
+    body?: unknown,
+    attempt = 0,
+  ): Promise<any> {
     await this.throttle();
     this.lastCallAt = Date.now();
 
@@ -102,7 +121,7 @@ export class VoyagerClient {
     } catch (e: any) {
       if (attempt < MAX_RETRIES) {
         await sleep(BASE_DELAY_MS * 2 ** attempt);
-        return this.request(path, params, method, body, attempt + 1);
+        return this.requestDirect(path, params, method, body, attempt + 1);
       }
       throw new VoyagerError(0, `${method} ${path} network error: ${e.message}`);
     }
@@ -127,7 +146,7 @@ export class VoyagerClient {
             ? retryAfter * 1000
             : BASE_DELAY_MS * 2 ** attempt;
         await sleep(delay);
-        return this.request(path, params, method, body, attempt + 1);
+        return this.requestDirect(path, params, method, body, attempt + 1);
       }
 
       throw new VoyagerError(res.status, message, detail);

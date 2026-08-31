@@ -4,12 +4,82 @@
  * Session state lives on the client.
  */
 
-import { generateText } from "ai";
+import { generateText, Output, isStepCount } from "ai";
+import { z } from "zod";
 import { buildModel, type LlmKeys } from "./agent.js";
 import { getSchemaDescriptor, type SchemaDescriptor } from "./schema.js";
 import type { MetricDef } from "./metrics.js";
 import { normalizeQuantRules } from "./metrics.js";
+import { buildAgentBuilderSystemPrompt, buildBuilderRecoveryPrompt, buildDocumentExtractionPrompt } from "./prompts.js";
 import { buildWebSearchTool } from "./tools.js";
+import { getDb } from "./db.js";
+
+const qualitativeParamSchema = z.object({
+  parameter: z.string().describe("Short parameter name, e.g., Market Leadership"),
+  content: z.string().describe("Scoring checklist or criteria rules (1-3 sentences)"),
+  weightage: z.number().describe("Weightage 1 to 10"),
+});
+
+const quantitativeRuleSchema = z.object({
+  metric: z.string().describe("Metric ID from available catalog, e.g. return_on_equity"),
+  metric_name: z.string().optional().describe("Human readable metric name"),
+  metric_type: z.string().optional().describe("Metric type: number, percentage, currency, ratio"),
+  operator: z.enum(["gt", "gte", "lt", "lte", "eq", "between"]).describe("Comparison operator"),
+  value: z.any().describe("Target threshold value"),
+  value_upper: z.any().optional().describe("Upper bound if operator is between"),
+  weightage: z.number().describe("Weightage 1 to 10"),
+});
+
+export const agentDraftSchema = z.object({
+  name: z.string().optional().describe("Short name for the agent"),
+  style: z.string().optional().describe("Investment style identifier (value, growth, momentum, etc)"),
+  philosophy: z.string().optional().describe("Comprehensive 2-3 paragraph investment philosophy"),
+  configuration: z
+    .object({
+      investment_horizon: z.string().optional().describe("e.g. Long-term (years)"),
+      risk_appetite: z.string().optional().describe("e.g. Aggressive (7)"),
+    })
+    .optional(),
+  asset_evaluation: z
+    .object({
+      qualitative: z.array(qualitativeParamSchema).optional().describe("Qualitative asset evaluation checklist parameters"),
+      quantitative: z.array(quantitativeRuleSchema).optional().describe("Quantitative asset evaluation metrics"),
+    })
+    .optional(),
+  macro_evaluation: z
+    .object({
+      qualitative: z.array(qualitativeParamSchema).optional().describe("Qualitative macro evaluation checklist parameters"),
+      quantitative: z.array(quantitativeRuleSchema).optional().describe("Quantitative macro evaluation metrics"),
+    })
+    .optional(),
+});
+
+export const builderResponseSchema = z.object({
+  message: z.string().describe("Conversational response to the user"),
+  options: z
+    .array(
+      z.object({
+        id: z.string(),
+        label: z.string(),
+        description: z.string().optional(),
+      })
+    )
+    .optional()
+    .describe("4-7 interactive option choices for the user"),
+  agent_draft_update: agentDraftSchema
+    .optional()
+    .describe("Updates or additions to the agent draft configuration. ALWAYS include when drafting or updating the agent configuration."),
+  thinking: z.string().optional().describe("Internal reasoning or evaluation notes"),
+  annotations: z
+    .array(
+      z.object({
+        what: z.string().describe("The agent setting chosen"),
+        basis: z.string().describe("The exact source basis for this decision"),
+      })
+    )
+    .optional()
+    .describe("Citations mapping agent configuration choices to sources"),
+});
 
 export interface BuilderMessage {
   role: "assistant" | "user";
@@ -18,6 +88,8 @@ export interface BuilderMessage {
 }
 
 export interface BuilderRequest {
+  session_id?: string;
+  user_id?: string;
   model_id: string;
   llm_keys: LlmKeys;
   messages: BuilderMessage[];
@@ -37,49 +109,30 @@ export interface BuilderResponse {
   annotations?: { what: string; basis: string }[];
 }
 
-function buildSystemPrompt(schema: SchemaDescriptor, metrics: MetricDef[]): string {
-  const metricList = metrics
-    .slice(0, 60)
-    .map((m) => `  - ${m.id}: ${m.name} (${m.type})`)
-    .join("\n");
-
-  return `You are an investment agent builder. Your job is to help users create investment analysis agents by conversationally gathering their preferences and generating a complete agent configuration.
-
-## Agent Schema
-The agent document has these sections:
-${schema.sections.map((s) => {
-  let desc = `- ${s.key} (${s.label}): ${s.description || ""}`;
-  if (s.fields) {
-    desc += "\n  Fields: " + s.fields.map((f) => `${f.key} (${f.type})`).join(", ");
+/** Audit trail persistence for builder session turns */
+async function persistBuilderSessionTurn(
+  req: BuilderRequest,
+  res: BuilderResponse
+): Promise<void> {
+  if (!req.session_id || !req.user_id) return;
+  try {
+    const db = getDb();
+    await db.from("builder_sessions").insert({
+      session_id: req.session_id,
+      user_id: req.user_id,
+      turn_index: req.messages.length,
+      user_message: req.user_response || "",
+      agent_draft_snapshot: res.agent_draft_update || req.agent_draft || {},
+      annotations: res.annotations || [],
+      sources: res.sources || [],
+      created_at: new Date().toISOString(),
+    });
+  } catch (e: any) {
+    console.warn(`[builder] failed to persist session turn: ${e?.message}`);
   }
-  if (s.subsections) {
-    desc += "\n  Subsections: " + s.subsections.map((sub) => `${sub.key} (${sub.type})`).join(", ");
-  }
-  return desc;
-}).join("\n")}
-
-## Available Quantitative Metrics
-${metricList}
-
-## Rules
-1. Be conversational and concise. Ask one question at a time.
-2. When offering options, provide 4-7 choices as JSON options array.
-3. When the user provides enough information, generate the full agent draft.
-4. For qualitative parameters: include a "parameter" (short name), "content" (1-3 sentence scoring checklist), and "weightage" (1-10).
-5. For quantitative criteria: use metric IDs from the available list. Include "metric", "metric_name", "metric_type", "operator" (gt/gte/lt/lte/eq/between), "value", "value_upper" (required when operator is "between"), and "weightage" (1-10). Prefer simple operators (gt, lt, gte, lte) over "between" unless a range is clearly needed.
-6. Always generate a reasonable philosophy even if the user provides minimal input.
-7. When documents are provided, extract investment style, criteria, and preferences from them.
-8. You have a web_search tool. Call it when the user asks you to search the web or says anything like "search online", "look it up", "research X", or "find out about X". Base your draft ONLY on the search results plus the user's own input — not on general knowledge. In your "message", say in one line what the top sources showed (e.g. "The sources emphasize CAN SLIM's C: current quarterly earnings up 20%+"). Only claim facts the sources actually state.
-9. Cite EVERY decision. Your response MUST be valid JSON: {"message": "text", "options": [...optional], "agent_draft_update": {...optional}, "annotations": [{"what": "<the agent setting you chose>", "basis": "<the EXACT source it came from>"}]}. The basis must name the actual source — never a principle, paraphrase, or "known practice": use the exact article title + URL from the web search results you actually retrieved, or "File: <uploaded filename>" for uploaded documents, or "user input" when it came from the conversation. Add one annotation for every meaningful value in agent_draft_update (philosophy themes, each quantitative rule, each qualitative parameter, horizon, risk appetite). Never invent a URL, fact, or source.
-10. Never use markdown fences in your response — just raw JSON.
-
-## Conversation Flow
-1. First, understand what the user wants to build (investment style, philosophy).
-2. If they selected a preset or uploaded documents, acknowledge and present the draft.
-3. If custom, ask about their philosophy, then generate the draft.
-4. After presenting a draft, offer to refine specific sections.
-5. When the user says it's good, confirm and stop generating options.`;
 }
+
+// System prompt logic moved to prompts.ts
 
 // Extract web_search tool calls into readable "query → sources" strings.
 function extractWebSources(steps: any[]): string[] {
@@ -131,10 +184,31 @@ export function extractSearchResults(steps: any[]): { query: string; title: stri
   return out;
 }
 
-// Map display-name-only quantitative rules back to catalog metric ids.
+// Map display-name-only quantitative rules back to catalog metric ids and sync schema fields.
 function normalizeDraft(update: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!update) return update;
   const next: Record<string, unknown> = { ...update };
+
+  // Sync top-level philosophy and persona.philosophy_and_mindset
+  const phil = (next.philosophy as string) || (next.persona as any)?.philosophy_and_mindset;
+  if (phil) {
+    next.philosophy = phil;
+    next.persona = {
+      ...(typeof next.persona === "object" && next.persona ? (next.persona as any) : {}),
+      philosophy_and_mindset: phil,
+    };
+  }
+
+  // Normalize risk_appetite if expressed as string like "Aggressive (7)"
+  if (next.configuration && typeof next.configuration === "object") {
+    const cfg = { ...(next.configuration as Record<string, unknown>) };
+    if (typeof cfg.risk_appetite === "string") {
+      const match = cfg.risk_appetite.match(/\d+/);
+      if (match) cfg.risk_appetite = Number(match[0]);
+    }
+    next.configuration = cfg;
+  }
+
   for (const key of ["asset_evaluation", "macro_evaluation"]) {
     const sec = next[key];
     if (sec && typeof sec === "object" && !Array.isArray(sec)) {
@@ -145,15 +219,28 @@ function normalizeDraft(update: Record<string, unknown> | undefined): Record<str
   return next;
 }
 
+export function getTextFromSteps(result: any): string {
+  if (result?.text && result.text.trim()) return result.text;
+  if (Array.isArray(result?.steps)) {
+    for (let i = result.steps.length - 1; i >= 0; i--) {
+      const stepText = result.steps[i]?.text;
+      if (stepText && stepText.trim()) return stepText;
+    }
+  }
+  return "";
+}
+
 // Pull and parse the first balanced {...} JSON object out of arbitrary model text.
 export function parseJsonObject(text: string): any | null {
-  const start = text.indexOf("{");
+  if (!text) return null;
+  const cleaned = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "");
+  const start = cleaned.indexOf("{");
   if (start < 0) return null;
   let depth = 0;
   let inString = false;
   let escaped = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
+  for (let i = start; i < cleaned.length; i++) {
+    const ch = cleaned[i];
     if (escaped) {
       escaped = false;
     } else if (ch === "\\") {
@@ -168,7 +255,7 @@ export function parseJsonObject(text: string): any | null {
       depth--;
       if (depth === 0) {
         try {
-          return JSON.parse(text.slice(start, i + 1));
+          return JSON.parse(cleaned.slice(start, i + 1));
         } catch {
           return null;
         }
@@ -233,7 +320,14 @@ export async function processBuilderTurn(req: BuilderRequest): Promise<BuilderRe
         "Web search needs a Tavily API key — add it in Settings, then try again.",
     };
   }
-  const session = { model, system: buildSystemPrompt(schema, req.metrics), prompt, temperature: 0.4, maxRetries: 0 };
+  const session = {
+    model,
+    instructions: buildAgentBuilderSystemPrompt(schema, req.metrics),
+    prompt,
+    temperature: 0.4,
+    stopWhen: isStepCount(3),
+    maxRetries: 0,
+  };
   // Search is best-effort: forced on explicit request, but if the provider chokes
   // (free-tier models often lack tool support) fall back to answering without tools.
   const attempts: Array<Record<string, unknown>> = tools
@@ -245,36 +339,77 @@ export async function processBuilderTurn(req: BuilderRequest): Promise<BuilderRe
   let result: Awaited<ReturnType<typeof generateText>> | undefined;
   for (const attempt of attempts) {
     try {
-      result = await generateText({ ...session, ...attempt });
+      result = await generateText({ ...session, ...attempt } as any);
       break;
     } catch (e: any) {
       console.warn(`[builder] attempt ${JSON.stringify(attempt)} failed: ${e?.message}`);
     }
   }
+
+  // Fallback attempt without output constraint if structured output fails
+  if (!result) {
+    try {
+      result = await generateText(session as any);
+    } catch (e: any) {
+      console.warn(`[builder] unconstrained attempt failed: ${e?.message}`);
+    }
+  }
+
   if (!result) throw new Error("All model attempts failed");
 
   const sources = extractWebSources(result.steps);
   const searchResults = extractSearchResults(result.steps);
-  let parsed = parseJsonObject(result.text || "");
+  const rawText = getTextFromSteps(result);
+  let parsed: any = (result as any).output || parseJsonObject(rawText);
 
-  // One focused recovery call (no tools, hard JSON-only instruction) before giving up.
-  if (!parsed) {
+  // If parsing failed OR agent_draft_update is missing, run a focused recovery pass
+  if (!parsed || !parsed.agent_draft_update) {
     try {
       const retry = await generateText({
-        ...session,
-        prompt: `${prompt}\n\nREMINDER: your entire reply must be ONE valid JSON object: {"message": string, "options"?: string[], "agent_draft_update"?: object}. No prose, no markdown, no backticks.`,
-      });
-      parsed = parseJsonObject(retry.text || "");
+        model,
+        instructions: buildAgentBuilderSystemPrompt(schema, req.metrics),
+        prompt: buildBuilderRecoveryPrompt(prompt, rawText),
+        temperature: 0.3,
+      } as any);
+      const retryText = getTextFromSteps(retry);
+      const retryParsed = parseJsonObject(retryText);
+      if (retryParsed) {
+        parsed = {
+          ...parsed,
+          ...retryParsed,
+          agent_draft_update: retryParsed.agent_draft_update || parsed?.agent_draft_update,
+        };
+      }
     } catch (e: any) {
       console.warn(`[builder] JSON recovery failed: ${e?.message}`);
     }
   }
 
   if (!parsed) {
-    return {
+    const fallbackRes: BuilderResponse = {
       message: "I had trouble processing that. Could you try again?",
       sources: sources.length ? sources : undefined,
       search_results: searchResults.length ? searchResults : undefined,
+    };
+    await persistBuilderSessionTurn(req, fallbackRes);
+    return fallbackRes;
+  }
+
+  // Fallback synthesis: If agent_draft_update is still missing, build one from existing draft or prompt context
+  if (!parsed.agent_draft_update) {
+    const existing = req.agent_draft || {};
+    const name = (existing.name as string) || (req.user_response?.slice(0, 30) ? `${req.user_response.slice(0, 30)} Agent` : "Investment Agent");
+    const philosophy = (existing.philosophy as string) || (existing.persona as any)?.philosophy_and_mindset || (parsed.message ? parsed.message.slice(0, 300) : "Growth oriented investment strategy focusing on long-term compounders.");
+    parsed.agent_draft_update = {
+      name,
+      philosophy,
+      persona: { philosophy_and_mindset: philosophy },
+      configuration: {
+        investment_horizon: (existing.configuration as any)?.investment_horizon || "Long-term (3+ years)",
+        risk_appetite: (existing.configuration as any)?.risk_appetite || 5,
+      },
+      asset_evaluation: existing.asset_evaluation || { qualitative: [], quantitative: [] },
+      macro_evaluation: existing.macro_evaluation || { qualitative: [], quantitative: [] },
     };
   }
 
@@ -299,7 +434,7 @@ export async function processBuilderTurn(req: BuilderRequest): Promise<BuilderRe
     return [...knownHosts].some((h) => h && b.includes(h));
   };
 
-  return {
+  const response: BuilderResponse = {
     message: parsed.message || "Let me know if you'd like to adjust anything.",
     options: Array.isArray(parsed.options) ? parsed.options : undefined,
     agent_draft_update: normalizeDraft(parsed.agent_draft_update || undefined),
@@ -310,6 +445,9 @@ export async function processBuilderTurn(req: BuilderRequest): Promise<BuilderRe
       ? parsed.annotations.filter((a: any) => a?.what && a?.basis && isRealBasis(a.basis)).slice(0, 40)
       : undefined,
   };
+
+  await persistBuilderSessionTurn(req, response);
+  return response;
 }
 
 /**
@@ -336,16 +474,7 @@ export async function extractDocumentSignals(
 
   const result = await generateText({
     model,
-    prompt:
-      `Analyze the following documents and extract investment preferences, philosophy, and criteria.\n\n` +
-      docContent + `\n\n` +
-      `Respond with JSON only:\n` +
-      `{"style": "value|growth|momentum|quantitative|contrarian|income|macro|custom",` +
-      ` "philosophy": "2-3 paragraph investment philosophy text",` +
-      ` "horizon": "Intraday|Swing|Positional|Long-term (years)",` +
-      ` "risk": <1-10 integer>,` +
-      ` "qualitative_params": [{"parameter": "name", "content": "checklist text", "weightage": 1-10}],` +
-       ` "quantitative_rules": [{"metric": "metric_id", "metric_name": "display name", "metric_type": "number|percentage|currency", "operator": "gt|lt|gte|lte|eq|between", "value": <number>, "value_upper": <number|null>, "weightage": 1-10}]}`,
+    prompt: buildDocumentExtractionPrompt(docContent),
     temperature: 0.3,
     maxOutputTokens: 2000,
   });

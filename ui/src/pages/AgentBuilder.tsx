@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Box, Flex, Text, Button, Input } from "@chakra-ui/react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 import { BuilderService, AgentService, VoyagerService, AnalysisService, SettingsService } from "@/db";
@@ -33,9 +33,14 @@ interface DocFile {
 export default function AgentBuilder() {
   const { id: urlAgentId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  
+  const passedDraft = (location.state as any)?.agentDraft;
+  const passedIsDirty = (location.state as any)?.isDirty ?? false;
+
   const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [agentDraft, setAgentDraft] = useState<Record<string, unknown>>({ ...DEFAULT_AGENT });
-  const [isDirty, setIsDirty] = useState(false);
+  const [agentDraft, setAgentDraft] = useState<Record<string, unknown>>(passedDraft || { ...DEFAULT_AGENT });
+  const [isDirty, setIsDirty] = useState(passedIsDirty);
   const [isProcessing, setIsProcessing] = useState(false);
   const [documents, setDocuments] = useState<DocFile[]>([]);
   const [documentTexts, setDocumentTexts] = useState<{ filename: string; text: string }[]>([]);
@@ -112,37 +117,56 @@ export default function AgentBuilder() {
 
     // If URL has an agent ID, load it into the builder
     if (urlAgentId) {
-      AgentService.readAgent(urlAgentId).then((agent) => {
-        setAgentDraft(agent);
-        setAgentId(agent.id || agent._id);
+      if (passedDraft) {
+        setAgentId(urlAgentId);
         setInitialized(true);
         setMessages([{
           id: nextMsgId(),
           role: "assistant",
-          content: `Loaded "${agent.name || "Untitled"}". What would you like to change?`,
+          content: `Resumed editing "${passedDraft.name || "Untitled"}". What would you like to change?`,
           options: [
+            { id: "save", label: "Looks good, save it", description: "Save the agent with these settings" },
             { id: "refine", label: "I want to adjust something", description: "Tweak philosophy, criteria, or configuration" },
-            { id: "more_docs", label: "Upload documents to refine", description: "Upload research docs to improve the agent" },
           ],
           timestamp: Date.now(),
         }]);
-      }).catch(() => {
-        setInitialized(true);
-        setMessages([{
-          id: nextMsgId(),
-          role: "assistant",
-          content: "Couldn't load that agent. Starting fresh.",
-          timestamp: Date.now(),
-        }]);
-      });
+      } else {
+        AgentService.readAgent(urlAgentId).then((agent) => {
+          setAgentDraft(agent);
+          setAgentId(agent.id || agent._id);
+          setInitialized(true);
+          setMessages([{
+            id: nextMsgId(),
+            role: "assistant",
+            content: `Loaded "${agent.name || "Untitled"}". What would you like to change?`,
+            options: [
+              { id: "refine", label: "I want to adjust something", description: "Tweak philosophy, criteria, or configuration" },
+              { id: "more_docs", label: "Upload documents to refine", description: "Upload research docs to improve the agent" },
+            ],
+            timestamp: Date.now(),
+          }]);
+        }).catch(() => {
+          setInitialized(true);
+          setMessages([{
+            id: nextMsgId(),
+            role: "assistant",
+            content: "Couldn't load that agent. Starting fresh.",
+            timestamp: Date.now(),
+          }]);
+        });
+      }
     }
   }, [urlAgentId]);
+
+  const [presetKeys, setPresetKeys] = useState<string[]>([]);
 
   // Initial greeting from builder (only if not loading existing agent)
   useEffect(() => {
     if (initialized) return;
     setInitialized(true);
     BuilderService.getPresets().then((presets) => {
+      const keys = presets.map((p: { key: string }) => p.key);
+      setPresetKeys(keys);
       const options = presets.map((p: { key: string; name: string; description: string }) => ({
         id: p.key,
         label: p.name,
@@ -239,13 +263,15 @@ export default function AgentBuilder() {
 
       if (response.agent_draft_update) {
         setAgentDraft((prev) => {
-          const next = { ...prev };
-          for (const [key, val] of Object.entries(response.agent_draft_update!)) {
-            if (typeof val === "object" && val !== null && !Array.isArray(val) && typeof prev[key] === "object" && prev[key] !== null) {
-              next[key] = { ...prev[key], ...val };
-            } else {
-              next[key] = val;
-            }
+          const update = response.agent_draft_update!;
+          const next: Record<string, unknown> = { ...prev, ...update };
+          const phil = (update.philosophy as string) || (update.persona as any)?.philosophy_and_mindset || (prev.persona as any)?.philosophy_and_mindset || (prev.philosophy as string);
+          if (phil) {
+            next.persona = { ...(prev.persona as any), ...(update.persona as any), philosophy_and_mindset: phil };
+            next.philosophy = phil;
+          }
+          if (update.configuration) {
+            next.configuration = { ...(prev.configuration as any), ...(update.configuration as any) };
           }
           return next;
         });
@@ -300,10 +326,10 @@ export default function AgentBuilder() {
       if (agentId) {
         await AgentService.updateAgent({ ...agentDraft, id: agentId, _id: agentId });
       } else {
-        const created = await AgentService.createAgent(agentDraft.name);
+        const created = await AgentService.createAgent(agentDraft);
         const newId = created.id || created._id;
-        await AgentService.updateAgent({ ...agentDraft, id: newId, _id: newId });
         setAgentId(newId);
+        navigate(`/agent/builder/${newId}`, { replace: true, state: { agentDraft } });
       }
       setIsDirty(false);
       setSaved(true);
@@ -321,7 +347,7 @@ export default function AgentBuilder() {
       savingRef.current = false;
       setSaving(false);
     }
-  }, [agentDraft, agentId]);
+  }, [agentDraft, agentId, navigate]);
 
   const handleOptionSelect = useCallback((option: { id: string; label: string; description?: string }) => {
     const userMsg: ChatMsg = {
@@ -350,7 +376,7 @@ export default function AgentBuilder() {
     }
 
     // If it's a preset, fetch and apply it
-    if (option.id !== "custom" && option.id !== "more_docs") {
+    if (presetKeys.includes(option.id)) {
       setMessages((prev) => {
         const next = [...prev, userMsg];
         setTimeout(async () => {
@@ -440,7 +466,7 @@ export default function AgentBuilder() {
       setTimeout(() => callBuilder(option.label, next), 0);
       return next;
     });
-  }, [callBuilder, documentTexts, handleSave]);
+  }, [callBuilder, documentTexts, handleSave, presetKeys]);
 
   const handleUploadFiles = useCallback(async (files: File[]) => {
     const newDocs: DocFile[] = files.map((f) => ({
@@ -593,11 +619,11 @@ export default function AgentBuilder() {
 
   const handleOpenManual = useCallback(() => {
     if (agentId) {
-      navigate(`/agent/${agentId}`);
+      navigate(`/agent/${agentId}`, { state: { agentDraft, isDirty } });
     } else {
-      navigate("/agent/new");
+      navigate("/agent/new", { state: { agentDraft, isDirty } });
     }
-  }, [agentId, navigate]);
+  }, [agentId, agentDraft, isDirty, navigate]);
 
   return (
     <Box bg="var(--surface-canvas)" h="100%" overflow="hidden" display="flex" flexDirection="column">
