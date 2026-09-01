@@ -6,6 +6,7 @@ import {
 import { MdCheck, MdClose, MdVisibility, MdVisibilityOff, MdWeb, MdDelete } from "react-icons/md";
 import { toaster } from "@/components/ui/toaster";
 import { SettingsService } from "@/db";
+import PageHero from "@/components/PageHero";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 
@@ -136,24 +137,26 @@ export default function Settings() {
         <Box bg="var(--surface-canvas)" minH="100%">
             <Flex direction="column" gap={6} maxW="1240px" mx="auto" py={6}>
                 {/* Header */}
-                <Flex justify="space-between" align={{ base: "flex-start", md: "flex-end" }} gap={3}>
-                    <Flex direction="column" gap={1}>
-                        <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
-                            Settings
-                        </Text>
-                        <Text fontSize="13px" color="var(--ink-secondary)">
-                            Manage the API keys used to run analyses.
+                <PageHero>
+                    <Flex justify="space-between" align={{ base: "flex-start", md: "flex-end" }} gap={3}>
+                        <Flex direction="column" gap={1}>
+                            <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
+                                Settings
+                            </Text>
+                            <Text fontSize="13px" color="var(--ink-secondary)">
+                                Manage the API keys used to run analyses.
+                            </Text>
+                        </Flex>
+                        <Text
+                            fontSize="11.5px"
+                            fontFamily="var(--font-mono)"
+                            color="var(--ink-tertiary)"
+                            whiteSpace="nowrap"
+                        >
+                            {Object.keys(savedKeys).length} KEY{Object.keys(savedKeys).length === 1 ? "" : "S"} STORED
                         </Text>
                     </Flex>
-                    <Text
-                        fontSize="11.5px"
-                        fontFamily="var(--font-mono)"
-                        color="var(--ink-tertiary)"
-                        whiteSpace="nowrap"
-                    >
-                        {Object.keys(savedKeys).length} KEY{Object.keys(savedKeys).length === 1 ? "" : "S"} STORED
-                    </Text>
-                </Flex>
+                </PageHero>
 
                 <Flex direction={{ base: "column", lg: "row" }} gap={6} align="stretch">
                     {/* Panel: Model Provider */}

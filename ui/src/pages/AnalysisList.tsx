@@ -5,8 +5,9 @@ import { MdArrowUpward, MdArrowDownward } from "react-icons/md";
 import { AnalysisService, AgentService } from "@/db";
 import { agentDisplayName } from "@/utils";
 import { motion, AnimatePresence } from "motion/react";
-import { dur, ease, stagger, staggerItem, CountUp } from "@/lib/motion";
+import { ease, stagger, staggerItem, CountUp } from "@/lib/motion";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import PageHero from "@/components/PageHero";
 
 type SortKey = "share" | "created_at" | "score" | "status" | "agent" | "model" | "duration";
 
@@ -385,37 +386,34 @@ export default function AnalysisList() {
         <Box bg="var(--surface-canvas)" minH="100%">
             <Flex direction="column" gap={6} maxW="1600px" mx="auto" py={6}>
                 {/* Page header */}
-                <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} wrap="wrap"
-                    as={motion.div}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: dur.base, ease }}
-                >
-                    <Flex direction="column" gap={0.5}>
-                        <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
-                            Share Analysis
-                        </Text>
-                        <Text fontSize="11.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
-                            {total} RUN{total === 1 ? "" : "S"}
-                            {completed.length > 0 && ` · ${completed.length} COMPLETED`}
-                            {avgScore != null && ` · AVG ${avgScore.toFixed(1)}`}
-                        </Text>
+                <PageHero>
+                    <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} wrap="wrap">
+                        <Flex direction="column" gap={0.5}>
+                            <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
+                                Share Analysis
+                            </Text>
+                            <Text fontSize="11.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
+                                {total} RUN{total === 1 ? "" : "S"}
+                                {completed.length > 0 && ` · ${completed.length} COMPLETED`}
+                                {avgScore != null && ` · AVG ${avgScore.toFixed(1)}`}
+                            </Text>
+                        </Flex>
+                        <Button
+                            as={motion.button}
+                            whileHover={{ y: -1 }}
+                            whileTap={{ scale: 0.97 }}
+                            size="sm"
+                            onClick={() => navigate("/")}
+                            variant="surface"
+                            colorPalette="blue"
+                            px={4}
+                            _hover={{ opacity: 0.9 }}
+                            borderRadius="3px"
+                        >
+                            + New Analysis
+                        </Button>
                     </Flex>
-                    <Button
-                        as={motion.button}
-                        whileHover={{ y: -1 }}
-                        whileTap={{ scale: 0.97 }}
-                        size="sm"
-                        onClick={() => navigate("/")}
-                        variant="surface"
-                        colorPalette="blue"
-                        px={4}
-                        _hover={{ opacity: 0.9 }}
-                        borderRadius="3px"
-                    >
-                        + New Analysis
-                    </Button>
-                </Flex>
+                </PageHero>
 
                 {/* Body: sidebar + table */}
                 <Flex gap={6} align="flex-start" wrap={{ base: "wrap", lg: "nowrap" }}>

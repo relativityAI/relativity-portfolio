@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { Flex, Text, IconButton, Drawer, Separator, Menu, Popover, Box } from "@chakra-ui/react"
 import { Link, useLocation } from "react-router-dom";
 import { runHealthCheck, hasRequiredKeys } from "../utils"
-import { SettingsService } from "@/db";
-import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout, MdWarning } from "react-icons/md";
-import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX } from "react-icons/lu";
+import { SettingsService, AnalysisService, AgentService } from "@/db";
+import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout, MdWarning, MdArrowForward, MdHistory } from "react-icons/md";
+import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX, LuArrowUpRight } from "react-icons/lu";
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { useAuth } from "@/auth/useAuth";
 import { motion } from "motion/react";
@@ -42,8 +42,30 @@ export default function NavBar() {
 
     const [missingKeys, setMissingKeys] = useState(false)
 
+    const [latestAnalysis, setLatestAnalysis] = useState<any>(null)
+
+    const [agentCount, setAgentCount] = useState<number | null>(null)
+    const [analysisCount, setAnalysisCount] = useState<number | null>(null)
+
     useEffect(() => {
         let cancelled = false;
+
+        AnalysisService.listAnalyses()
+            .then((data) => {
+                if (cancelled || !Array.isArray(data)) return;
+                setAnalysisCount(data.length);
+                if (data.length === 0) return;
+                setLatestAnalysis(data.reduce((a, b) =>
+                    +new Date(a.created_at ?? 0) > +new Date(b.created_at ?? 0) ? a : b
+                ));
+            })
+            .catch(() => {});
+
+        AgentService.listAgents()
+            .then((data) => {
+                if (!cancelled && Array.isArray(data)) setAgentCount(data.length);
+            })
+            .catch(() => {});
 
         SettingsService.getSettings()
             .then((settings) => {
@@ -82,6 +104,17 @@ export default function NavBar() {
         { to: "/settings", icon: MdOutlineSettings, label: "Settings" },
     ]
 
+    const navCount = (to: string) => {
+        if (to === "/agents") return agentCount;
+        if (to === "/analysis-list") return analysisCount;
+        return null;
+    }
+
+    const navLabel = (item: { to: string; label: string }) => {
+        const count = navCount(item.to);
+        return count !== null && count > 0 ? `${item.label} (${count})` : item.label;
+    }
+
     const apiOk = !!systemStatus.api;
     const dbOk = !!systemStatus.db;
     const voyagerOk = !!systemStatus.voyagerApi;
@@ -115,7 +148,7 @@ export default function NavBar() {
                             <Link key={item.to} to={item.to}>
                                 <Flex gap={1.5} align="center" position="relative" py={1}>
                                     <item.icon size={16} color={active ? "var(--chakra-colors-fg)" : "var(--chakra-colors-fg-muted)"} />
-                                    <Text fontSize="sm" fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{item.label}</Text>
+                                    <Text fontSize="sm" fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{navLabel(item)}</Text>
                                     {item.to === "/settings" && missingKeys && (
                                         <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
                                     )}
@@ -139,6 +172,25 @@ export default function NavBar() {
                 >
                     <LuMenu size={16} />
                 </IconButton>
+                {latestAnalysis && (
+                    <Box display={{ base: "none", md: "block" }}>
+                        <Link
+                            to={`/analysis-result/${latestAnalysis.analysis_id || latestAnalysis._id || latestAnalysis.id}`}
+                        >
+                            <Flex align="center" gap={1.5} color="fg.muted" title={`Latest analysis: ${latestAnalysis.share_name || latestAnalysis.symbol || ""}`}>
+                                <MdHistory size={13} color="var(--accent-primary)" />
+                                <Text fontSize="11px" fontWeight={400}>
+                                    Latest{" "}
+                                    <Text as="span" fontFamily="var(--font-tabular)" color="fg">
+                                        {new Date(latestAnalysis.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                                    </Text>{" "}
+                                    <Text as="span">{latestAnalysis.symbol || latestAnalysis.share_name}</Text>
+                                </Text>
+                                <LuArrowUpRight size={13} />
+                            </Flex>
+                        </Link>
+                    </Box>
+                )}
                 <ColorModeButton />
                 <Popover.Root>
                     <Popover.Trigger asChild>
@@ -285,7 +337,7 @@ export default function NavBar() {
                                     >
                                         <item.icon size={16} color="var(--chakra-colors-fg-muted)" />
                                         <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>
-                                            {item.label}
+                                            {navLabel(item)}
                                         </Text>
                                         {item.to === "/settings" && missingKeys && (
                                             <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
