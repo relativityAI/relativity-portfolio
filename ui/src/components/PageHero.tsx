@@ -10,7 +10,7 @@ export default function PageHero({ children }: { children: ReactNode }) {
             border="1px solid var(--hairline)"
             bg="var(--surface-panel)"
             px={{ base: 4, md: 6 }}
-            py={{ base: 5, md: 6 }}
+            py={{ base: 4, md: 5 }}
         >
             <Box
                 position="absolute"
@@ -20,10 +20,10 @@ export default function PageHero({ children }: { children: ReactNode }) {
                 style={{
                     backgroundImage:
                         "linear-gradient(to right, var(--hairline) 1px, transparent 1px), linear-gradient(to bottom, var(--hairline) 1px, transparent 1px)",
-                    backgroundSize: "28px 28px",
-                    opacity: 0.4,
-                    maskImage: "radial-gradient(ellipse at 50% 0%, rgba(0,0,0,0.85), transparent 72%)",
-                    WebkitMaskImage: "radial-gradient(ellipse at 50% 0%, rgba(0,0,0,0.85), transparent 72%)",
+                    backgroundSize: "26px 26px",
+                    opacity: 0.7,
+                    maskImage: "radial-gradient(ellipse at 50% 0%, rgba(0,0,0,1), transparent 80%)",
+                    WebkitMaskImage: "radial-gradient(ellipse at 50% 0%, rgba(0,0,0,1), transparent 80%)",
                 }}
             />
             <Box position="relative">{children}</Box>

@@ -3,8 +3,8 @@ import { Flex, Text, IconButton, Drawer, Separator, Menu, Popover, Box } from "@
 import { Link, useLocation } from "react-router-dom";
 import { runHealthCheck, hasRequiredKeys } from "../utils"
 import { SettingsService, AnalysisService, AgentService } from "@/db";
-import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout, MdWarning, MdArrowForward, MdHistory } from "react-icons/md";
-import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX, LuArrowUpRight } from "react-icons/lu";
+import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout, MdWarning } from "react-icons/md";
+import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX } from "react-icons/lu";
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { useAuth } from "@/auth/useAuth";
 import { motion } from "motion/react";
@@ -42,8 +42,6 @@ export default function NavBar() {
 
     const [missingKeys, setMissingKeys] = useState(false)
 
-    const [latestAnalysis, setLatestAnalysis] = useState<any>(null)
-
     const [agentCount, setAgentCount] = useState<number | null>(null)
     const [analysisCount, setAnalysisCount] = useState<number | null>(null)
 
@@ -54,10 +52,6 @@ export default function NavBar() {
             .then((data) => {
                 if (cancelled || !Array.isArray(data)) return;
                 setAnalysisCount(data.length);
-                if (data.length === 0) return;
-                setLatestAnalysis(data.reduce((a, b) =>
-                    +new Date(a.created_at ?? 0) > +new Date(b.created_at ?? 0) ? a : b
-                ));
             })
             .catch(() => {});
 
@@ -130,13 +124,13 @@ export default function NavBar() {
             bg="bg.subtle"
             height="56px"
         >
-            <Flex align="center" gap={8}>
+            <Flex align="center" gap={{ base: 8, md: 4, lg: 8 }}>
                 <Flex align="center" gap={2}>
                     <img src={logo} alt="Relativity logo" width={20} height={20} style={{ borderRadius: 4 }} />
                     <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
                 </Flex>
                 
-                <Flex gap={6} align="center" display={{ base: "none", md: "flex" }}>
+                <Flex gap={{ base: 6, md: 3, lg: 6 }} align="center" display={{ base: "none", md: "flex" }}>
                     {[
                         { to: "/", icon: MdAddCircleOutline, label: "New Analysis" },
                         { to: "/agents", icon: MdOutlinePeople, label: "Agents" },
@@ -148,7 +142,7 @@ export default function NavBar() {
                             <Link key={item.to} to={item.to}>
                                 <Flex gap={1.5} align="center" position="relative" py={1}>
                                     <item.icon size={16} color={active ? "var(--chakra-colors-fg)" : "var(--chakra-colors-fg-muted)"} />
-                                    <Text fontSize="sm" fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{navLabel(item)}</Text>
+                                    <Text fontSize={{ md: "xs", lg: "sm" }} whiteSpace="nowrap" flexShrink={0} fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{navLabel(item)}</Text>
                                     {item.to === "/settings" && missingKeys && (
                                         <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
                                     )}
@@ -160,7 +154,7 @@ export default function NavBar() {
                 </Flex>
             </Flex>
 
-            <Flex justify={"flex-end"} gap={{ base: 2, md: 4 }} align="center">
+            <Flex justify={"flex-end"} gap={{ base: 2, md: 2, lg: 4 }} align="center">
                 <IconButton
                     aria-label="Open navigation menu"
                     variant="subtle"
@@ -172,25 +166,6 @@ export default function NavBar() {
                 >
                     <LuMenu size={16} />
                 </IconButton>
-                {latestAnalysis && (
-                    <Box display={{ base: "none", md: "block" }}>
-                        <Link
-                            to={`/analysis-result/${latestAnalysis.analysis_id || latestAnalysis._id || latestAnalysis.id}`}
-                        >
-                            <Flex align="center" gap={1.5} color="fg.muted" title={`Latest analysis: ${latestAnalysis.share_name || latestAnalysis.symbol || ""}`}>
-                                <MdHistory size={13} color="var(--accent-primary)" />
-                                <Text fontSize="11px" fontWeight={400}>
-                                    Latest{" "}
-                                    <Text as="span" fontFamily="var(--font-tabular)" color="fg">
-                                        {new Date(latestAnalysis.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
-                                    </Text>{" "}
-                                    <Text as="span">{latestAnalysis.symbol || latestAnalysis.share_name}</Text>
-                                </Text>
-                                <LuArrowUpRight size={13} />
-                            </Flex>
-                        </Link>
-                    </Box>
-                )}
                 <ColorModeButton />
                 <Popover.Root>
                     <Popover.Trigger asChild>

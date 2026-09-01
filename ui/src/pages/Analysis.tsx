@@ -129,7 +129,7 @@ function RunningNow({ agents }: { agents?: any[] }) {
 
 function StepSection({ n, title, done, children }: { n: string; title: string; done: boolean; children: any }) {
     return (
-        <Box as={motion.div} variants={staggerItem} py={{ base: 5, md: 6 }}>
+        <Box as={motion.div} variants={staggerItem} py={{ base: 4, md: 5 }}>
             <Flex align="center" gap={2.5} mb={4}>
                 <Text
                     fontSize="12px"
@@ -168,47 +168,6 @@ function FieldLabel({ children }: { children: any }) {
         >
             {children}
         </Text>
-    );
-}
-
-function ParamCount({ label, value }: { label: string; value: number }) {
-    return (
-        <Flex
-            direction="column"
-            gap={0.5}
-            flex={1}
-            minW="76px"
-            px={3}
-            py={2}
-            borderRadius="2px"
-            border="1px solid var(--hairline)"
-            bg="var(--surface-panel)"
-        >
-            <Text fontSize="16px" fontWeight={600} fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" color="var(--ink-primary)" lineHeight="1">
-                {value}
-            </Text>
-            <Text fontSize="10px" fontWeight={500} textTransform="uppercase" letterSpacing="0.06em" color="var(--ink-tertiary)">
-                {label} params
-            </Text>
-        </Flex>
-    );
-}
-
-function EmptyHint({ text }: { text: string }) {
-    return (
-        <Flex
-            align="center"
-            justify="center"
-            border="1px dashed var(--hairline)"
-            borderRadius="2px"
-            minH="108px"
-            p={4}
-            color="var(--ink-tertiary)"
-        >
-            <Text fontSize="12px" textAlign="center">
-                {text}
-            </Text>
-        </Flex>
     );
 }
 
@@ -256,6 +215,7 @@ export default function Analysis() {
     const { id } = useParams();
     const navigate = useNavigate();
 
+    const [latestAnalysis, setLatestAnalysis] = useState<any>(null);
     const [availableAgents, setAvailableAgents] = useState<any[]>([]);
     const [correlationId, setCorrelationId] = useState<string>(id || "");
     const [status, setStatus] = useState<StatusType>("EMPTY");
@@ -277,6 +237,19 @@ export default function Analysis() {
             return () => clearInterval(interval);
         }
     }, [status]);
+
+    useEffect(() => {
+        let cancelled = false;
+        AnalysisService.listAnalyses()
+            .then((data) => {
+                if (cancelled || !Array.isArray(data) || data.length === 0) return;
+                setLatestAnalysis(data.reduce((a, b) =>
+                    +new Date(a.created_at ?? 0) > +new Date(b.created_at ?? 0) ? a : b
+                ));
+            })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, []);
 
     const [config, setConfig] = useState({
         source: "NSE",
@@ -560,9 +533,9 @@ export default function Analysis() {
             my="-5"
         >
             <Box flex={1} w="full" minW={0}>
-                <Flex direction="column" maxW="1240px" mx="auto" px={{ base: 4, md: 8 }} py={{ base: 4, md: 8 }}>
+                <Flex direction="column" maxW="1240px" mx="auto" px={{ base: 4, md: 8 }} py={{ base: 4, md: 6 }}>
                     {/* Header */}
-                    <Box w="full" mb={{ base: 3, md: 5 }}>
+                    <Box w="full" mb={{ base: 3, md: 4 }}>
                         <PageHero>
                             <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={4} wrap="wrap">
                                 <Flex direction="column" gap={1}>
@@ -582,20 +555,41 @@ export default function Analysis() {
                                         Configure the market, company, agent, and model — then start the run.
                                     </Text>
                                 </Flex>
-                                <Link to="/analysis-list" style={{ display: "block" }}>
-                                    <Flex
-                                        align="center"
-                                        gap={1.5}
-                                        fontSize="13px"
-                                        fontWeight={500}
-                                        color="var(--ink-secondary)"
-                                        _hover={{ color: "var(--ink-primary)" }}
-                                        cursor="pointer"
-                                    >
-                                        View past analyses
-                                        <MdArrowForward size={15} color="var(--ink-tertiary)" />
-                                    </Flex>
-                                </Link>
+                                <Flex direction={{ base: "row", md: "column" }} align={{ base: "center", md: "flex-end" }} gap={{ base: 4, md: 1.5 }}>
+                                    <Link to="/analysis-list" style={{ display: "block" }}>
+                                        <Flex
+                                            align="center"
+                                            gap={1.5}
+                                            fontSize="13px"
+                                            fontWeight={500}
+                                            color="var(--ink-secondary)"
+                                            _hover={{ color: "var(--ink-primary)" }}
+                                            cursor="pointer"
+                                        >
+                                            View past analyses
+                                            <MdArrowForward size={15} color="var(--ink-tertiary)" />
+                                        </Flex>
+                                    </Link>
+                                    {latestAnalysis && (
+                                        <Link
+                                            to={`/analysis-result/${latestAnalysis.analysis_id || latestAnalysis._id || latestAnalysis.id}`}
+                                            title={`Latest analysis: ${latestAnalysis.share_name || latestAnalysis.symbol || ""}`}
+                                            style={{ display: "block", whiteSpace: "nowrap" }}
+                                        >
+                                            <Flex align="center" gap={1}>
+                                                <Text fontSize="11px" fontFamily="var(--font-tabular)" color="var(--ink-tertiary)" _hover={{ color: "var(--ink-secondary)" }}>
+                                                    Latest{" "}
+                                                    <Text as="span" color="var(--ink-secondary)">
+                                                        {new Date(latestAnalysis.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                                                    </Text>{" "}
+                                                    ·{" "}
+                                                    <Text as="span" display="inline-block" maxW="80px" overflow="hidden" textOverflow="ellipsis" verticalAlign="bottom">{latestAnalysis.symbol || latestAnalysis.share_name}</Text>
+                                                </Text>
+                                                <MdArrowForward size={12} color="var(--ink-tertiary)" />
+                                            </Flex>
+                                        </Link>
+                                    )}
+                                </Flex>
                             </Flex>
                         </PageHero>
                     </Box>
@@ -709,26 +703,35 @@ export default function Analysis() {
                                     </Text>
                                 </Flex>
                                 </Box>
-                                <Box flex={1} minW={0}>
+                                <Box flex={1} minW={0} pt={{ base: 1, md: 5 }}>
                                     {selectedAgent ? (
-                                        <Box border="1px solid var(--hairline)" borderRadius="2px" bg="var(--surface-recessed)" p={4}>
-                                            <Flex align="center" justify="space-between" gap={2} wrap="wrap">
-                                                <Text fontSize="18px" fontWeight={600} color="var(--ink-primary)">
+                                        <Flex direction="column" gap={1}>
+                                            <Flex align="baseline" gap={2} flexWrap="wrap">
+                                                <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)">
                                                     {selectedAgent.name}
                                                 </Text>
-                                            </Flex>
-                                            <Flex gap={3} mt={4} flexWrap="wrap">
-                                                <ParamCount label="qual" value={selectedAgent.asset_evaluation?.qualitative?.length || 0} />
-                                                <ParamCount label="quant" value={selectedAgent.asset_evaluation?.quantitative?.length || 0} />
+                                                <Text fontSize="12px" color="var(--ink-tertiary)" whiteSpace="nowrap">
+                                                    <Text as="span" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" fontWeight={600} color="var(--ink-secondary)">
+                                                        {selectedAgent.asset_evaluation?.qualitative?.length || 0}
+                                                    </Text>{" "}
+                                                    qual
+                                                    <Text as="span" color="var(--ink-tertiary)" mx={1.5}>·</Text>
+                                                    <Text as="span" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" fontWeight={600} color="var(--ink-secondary)">
+                                                        {selectedAgent.asset_evaluation?.quantitative?.length || 0}
+                                                    </Text>{" "}
+                                                    quant
+                                                </Text>
                                             </Flex>
                                             {(selectedAgent.philosophy || selectedAgent.persona?.philosophy_and_mindset) && (
-                                                <Text fontSize="12.5px" color="var(--ink-secondary)" mt={4} lineHeight="short">
+                                                <Text fontSize="12px" color="var(--ink-tertiary)" whiteSpace="nowrap" overflow="hidden" textOverflow="ellipsis">
                                                     {selectedAgent.philosophy || selectedAgent.persona?.philosophy_and_mindset}
                                                 </Text>
                                             )}
-                                        </Box>
+                                        </Flex>
                                     ) : (
-                                        <EmptyHint text="Select an agent to see its parameters" />
+                                        <Text fontSize="12px" color="var(--ink-tertiary)">
+                                            Select an agent to see its parameters
+                                        </Text>
                                     )}
                                 </Box>
                             </Flex>
@@ -825,10 +828,10 @@ export default function Analysis() {
                                     </Text>
                                 </Flex>
                                 </Box>
-                                <Box flex={1} minW={0}>
+                                <Box flex={1} minW={0} pt={{ base: 1, md: 5 }}>
                                     {selectedModel ? (
-                                        <Box border="1px solid var(--hairline)" borderRadius="2px" bg="var(--surface-recessed)" p={4}>
-                                            <Flex align="center" gap={2} wrap="wrap">
+                                        <Flex direction="column" gap={0.5}>
+                                            <Flex align="center" gap={2}>
                                                 <Text
                                                     fontSize="10.5px"
                                                     fontWeight={600}
@@ -840,18 +843,20 @@ export default function Analysis() {
                                                 </Text>
                                                 <MdCheck size={13} color="var(--signal-positive)" />
                                             </Flex>
-                                            <Text mt={2} fontSize="16px" fontWeight={600} color="var(--ink-primary)" lineHeight="short" wordBreak="break-word">
+                                            <Text mt={0.5} fontSize="16px" fontWeight={600} color="var(--ink-primary)" lineHeight="short" wordBreak="break-word">
                                                 {modelName(selectedModel)}
                                             </Text>
-                                            <Text mt={0.5} fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
+                                            <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
                                                 {selectedModel}
                                             </Text>
-                                            <Text mt={2.5} fontSize="11.5px" color="var(--ink-secondary)">
+                                            <Text fontSize="12px" color="var(--ink-secondary)">
                                                 {siblingModelCount(selectedModel)} other model{siblingModelCount(selectedModel) === 1 ? "" : "s"} from {providerLabel(modelPrefix(selectedModel))} · checked when the run starts
                                             </Text>
-                                        </Box>
+                                        </Flex>
                                     ) : (
-                                        <EmptyHint text="Select a model to see its details" />
+                                        <Text fontSize="12px" color="var(--ink-tertiary)">
+                                            Select a model to see its details
+                                        </Text>
                                     )}
                                 </Box>
                             </Flex>
@@ -886,7 +891,7 @@ export default function Analysis() {
                     )}
 
                     {/* Launch */}
-                    <Flex direction="column" gap={4} mt={5} pt={{ base: 6, md: 7 }} pb={2} borderTop="1px solid var(--hairline)">
+                    <Flex direction="column" gap={4} mt={4} pt={5} pb={2} borderTop="1px solid var(--hairline)">
                         {/* Run spec */}
                         <Flex align="center" justify="center" flexWrap="wrap" columnGap={1.5} rowGap={1}>
                             {[
