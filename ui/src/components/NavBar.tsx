@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Flex, Text, IconButton, Drawer, Separator, Menu, Popover, Box } from "@chakra-ui/react"
 import { Link, useLocation } from "react-router-dom";
 import { runHealthCheck, hasRequiredKeys } from "../utils"
-import { SettingsService } from "@/db";
+import { SettingsService, AnalysisService, AgentService } from "@/db";
 import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout, MdWarning } from "react-icons/md";
 import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX } from "react-icons/lu";
 import { ColorModeButton } from "@/components/ui/color-mode";
@@ -42,8 +42,24 @@ export default function NavBar() {
 
     const [missingKeys, setMissingKeys] = useState(false)
 
+    const [agentCount, setAgentCount] = useState<number | null>(null)
+    const [analysisCount, setAnalysisCount] = useState<number | null>(null)
+
     useEffect(() => {
         let cancelled = false;
+
+        AnalysisService.listAnalyses()
+            .then((data) => {
+                if (cancelled || !Array.isArray(data)) return;
+                setAnalysisCount(data.length);
+            })
+            .catch(() => {});
+
+        AgentService.listAgents()
+            .then((data) => {
+                if (!cancelled && Array.isArray(data)) setAgentCount(data.length);
+            })
+            .catch(() => {});
 
         SettingsService.getSettings()
             .then((settings) => {
@@ -82,6 +98,17 @@ export default function NavBar() {
         { to: "/settings", icon: MdOutlineSettings, label: "Settings" },
     ]
 
+    const navCount = (to: string) => {
+        if (to === "/agents") return agentCount;
+        if (to === "/analysis-list") return analysisCount;
+        return null;
+    }
+
+    const navLabel = (item: { to: string; label: string }) => {
+        const count = navCount(item.to);
+        return count !== null && count > 0 ? `${item.label} (${count})` : item.label;
+    }
+
     const apiOk = !!systemStatus.api;
     const dbOk = !!systemStatus.db;
     const voyagerOk = !!systemStatus.voyagerApi;
@@ -97,13 +124,13 @@ export default function NavBar() {
             bg="bg.subtle"
             height="56px"
         >
-            <Flex align="center" gap={8}>
+            <Flex align="center" gap={{ base: 8, md: 4, lg: 8 }}>
                 <Flex align="center" gap={2}>
                     <img src={logo} alt="Relativity logo" width={20} height={20} style={{ borderRadius: 4 }} />
                     <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
                 </Flex>
                 
-                <Flex gap={6} align="center" display={{ base: "none", md: "flex" }}>
+                <Flex gap={{ base: 6, md: 3, lg: 6 }} align="center" display={{ base: "none", md: "flex" }}>
                     {[
                         { to: "/", icon: MdAddCircleOutline, label: "New Analysis" },
                         { to: "/agents", icon: MdOutlinePeople, label: "Agents" },
@@ -115,7 +142,7 @@ export default function NavBar() {
                             <Link key={item.to} to={item.to}>
                                 <Flex gap={1.5} align="center" position="relative" py={1}>
                                     <item.icon size={16} color={active ? "var(--chakra-colors-fg)" : "var(--chakra-colors-fg-muted)"} />
-                                    <Text fontSize="sm" fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{item.label}</Text>
+                                    <Text fontSize={{ md: "xs", lg: "sm" }} whiteSpace="nowrap" flexShrink={0} fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{navLabel(item)}</Text>
                                     {item.to === "/settings" && missingKeys && (
                                         <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
                                     )}
@@ -127,7 +154,7 @@ export default function NavBar() {
                 </Flex>
             </Flex>
 
-            <Flex justify={"flex-end"} gap={{ base: 2, md: 4 }} align="center">
+            <Flex justify={"flex-end"} gap={{ base: 2, md: 2, lg: 4 }} align="center">
                 <IconButton
                     aria-label="Open navigation menu"
                     variant="subtle"
@@ -285,7 +312,7 @@ export default function NavBar() {
                                     >
                                         <item.icon size={16} color="var(--chakra-colors-fg-muted)" />
                                         <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>
-                                            {item.label}
+                                            {navLabel(item)}
                                         </Text>
                                         {item.to === "/settings" && missingKeys && (
                                             <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />

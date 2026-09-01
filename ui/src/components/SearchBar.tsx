@@ -98,7 +98,7 @@ export default function SearchBar(props) {
             }
 
             <Combobox.Control>
-                <Combobox.Input placeholder="Type to search" />
+                <Combobox.Input placeholder={props.placeholder || "Type to search"} />
                 <Combobox.IndicatorGroup>
                     <Combobox.ClearTrigger />
                     <Combobox.Trigger />

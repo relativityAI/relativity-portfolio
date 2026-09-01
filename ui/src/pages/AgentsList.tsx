@@ -10,6 +10,7 @@ import {
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AgentService } from "@/db";
+import PageHero from "@/components/PageHero";
 import { motion, AnimatePresence } from "motion/react";
 import { stagger, staggerItem } from "@/lib/motion";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -80,23 +81,25 @@ export default function AgentsList() {
         <Box bg="var(--surface-canvas)" minH="100%">
             <Flex direction="column" gap={6} maxW="1200px" mx="auto" px={6} py={6}>
                 {/* Page header */}
-                <Flex justify="space-between" align="center">
-                    <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
-                        Agents
-                    </Text>
-                    <Button
-                        size="sm"
-                        onClick={handleCreate}
-                        loading={loading}
-                        variant="surface"
-                        colorPalette="blue"
-                        px={4}
-                        _hover={{ opacity: 0.9 }}
-                        borderRadius="3px"
-                    >
-                        + Create Agent
-                    </Button>
-                </Flex>
+                <PageHero>
+                    <Flex justify="space-between" align="center">
+                        <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
+                            Agents
+                        </Text>
+                        <Button
+                            size="sm"
+                            onClick={handleCreate}
+                            loading={loading}
+                            variant="surface"
+                            colorPalette="blue"
+                            px={4}
+                            _hover={{ opacity: 0.9 }}
+                            borderRadius="3px"
+                        >
+                            + Create Agent
+                        </Button>
+                    </Flex>
+                </PageHero>
 
                 {/* Table */}
                 <Box
