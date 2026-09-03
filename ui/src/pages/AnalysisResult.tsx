@@ -11,12 +11,13 @@ import {
     HStack,
     VStack,
     Tabs,
+    Menu,
 } from "@chakra-ui/react";
 import { AnalysisService, AgentService } from "@/db";
 import { formatSeconds, agentDisplayName } from "@/utils";
 import { RunSteps } from "./shared/RunStatus";
 import ReactMarkdown from "react-markdown";
-import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
+import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess, MdOutlineNotes, MdOutlineFileDownload } from "react-icons/md";
 import { motion, AnimatePresence } from "motion/react";
 import { CountUp, dur, ease, swap } from "@/lib/motion";
 
@@ -296,6 +297,153 @@ export default function AnalysisResult() {
         URL.revokeObjectURL(url);
     };
 
+    const downloadMarkdown = () => {
+        if (!analysis) return;
+        const assetQuant = Object.entries(quantAnalysis)
+            .filter(([, d]) => !isMacroSection(d?.section));
+        const macroQuant = Object.entries(quantAnalysis)
+            .filter(([, d]) => isMacroSection(d?.section));
+        const assetQual = Object.entries(qualAnalysis).filter(([, d]) => !isMacroSection(d?.section));
+        const macroQual = Object.entries(qualAnalysis).filter(([, d]) => isMacroSection(d?.section));
+        const shareName = analysis.share_name || analysis.symbol || "Analysis";
+        const md: string[] = [];
+
+        // Header + summary
+        md.push(`# ${shareName} — FIT Score`, ``);
+        md.push(`**${totalScore != null ? totalScore.toFixed(1) : "—"} / 100**`, ``);
+        const summary = [
+            `> ${verdictSentence}`,
+            ``,
+            `## Scores`,
+            ``,
+            `| Component | Score |`,
+            `| --- | --- |`,
+            `| **Fit Score** | ${totalScore != null ? `${totalScore.toFixed(1)} / 100` : "—"} |`,
+            `| Quantitative | ${quantScore != null ? `${quantScore.toFixed(1)} / 100` : "—"} |`,
+            `| Qualitative | ${qualScore != null ? `${qualScore.toFixed(1)} / 100` : "—"} |`,
+            ``,
+            `## Run Details`,
+            ``,
+            `| Field | Value |`,
+            `| --- | --- |`,
+            `| Symbol | ${analysis.symbol || "—"} |`,
+            `| Company | ${analysis.share_name || "—"} |`,
+            `| Agent | ${analysis.agent_name ? agentName(analysis.agent_name) : "—"} |`,
+            `| Model | ${analysis.model || "—"} |`,
+            `| Source | ${analysis.source || "—"} |`,
+            `| Duration | ${analysis.duration != null ? formatDuration(analysis.duration) : "—"} |`,
+            `| Created | ${analysis.created_at ? new Date(analysis.created_at).toLocaleString() : "—"} |`,
+            `| Ended | ${analysis.end_time ? new Date(analysis.end_time * 1000).toLocaleString() : "—"} |`,
+            ``,
+        ];
+        md.push(...summary);
+
+        // Run steps trace
+        const steps = analysis.steps || [];
+        if (steps.length) {
+            md.push(`## Run Steps`, ``);
+            steps.forEach((st: any) => {
+                const status = st?.status || "pending";
+                const icon = status === "completed" ? "✓" : status === "failed" ? "✗" : status === "running" ? "•" : status === "skipped" ? "–" : "•";
+                const dur = typeof st?.duration_ms === "number" ? ` (${formatSeconds(Math.round(st.duration_ms / 1000))})` : "";
+                md.push(`- ${icon} **${st?.label || st?.key || "step"}** — ${status}${dur}`);
+                if (st?.detail) md.push(`  ${st.detail}`);
+            });
+            md.push(``);
+        }
+
+        // Quantitative
+        const opSymbol: Record<string, string> = { gt: ">", gte: ">=", lt: "<", lte: "<=", eq: "=", between: "between" };
+        if (quantAnalysis && Object.keys(quantAnalysis).length) {
+            md.push(`## Quantitative`, ``);
+            const rowsFor = (rows: [string, any][]) => rows.map(([key, d]) => {
+                const score = typeof d?.score === "number" ? d.score * 100 : 0;
+                const sig = scoreSignal(score);
+                const criterion = d ? `${opSymbol[d.operator] || d.operator} ${d.threshold ?? ""}`.trim() : "—";
+                const actual = d?.value != null ? formatValue(d.value, d?.metric_type) : "—";
+                const name = d?.metric_name || key;
+                return `| ${name} | ${criterion} | ${actual} | ${d?.weightage ?? "—"} | ${score.toFixed(1)} (${sig}) |`;
+            });
+            if (assetQuant.length) {
+                md.push(`### Asset`, "", `| Metric | Criterion | Actual | Wgt | Score |`, `| --- | --- | --- | --- | --- |`, ...rowsFor(assetQuant), ``);
+            }
+            if (macroQuant.length) {
+                md.push(`### Macro`, "", `| Metric | Criterion | Actual | Wgt | Score |`, `| --- | --- | --- | --- | --- |`, ...rowsFor(macroQuant), ``);
+            }
+        }
+
+        // Qualitative
+        if (qualAnalysis && Object.keys(qualAnalysis).length) {
+            md.push(`## Qualitative`, ``);
+            const qualRows = (rows: [string, any][]) => rows.map(([key, d]: [string, any]) => {
+                const score = typeof d?.score === "number" ? d.score : 0;
+                const sig = scoreSignal(score);
+                const blocks: string[] = [];
+                const header = `### ${d?.parameter || key}${d?.weightage != null ? ` — wgt ${d.weightage}` : ""}`;
+                blocks.push(header);
+                blocks.push(`**Score: ${score.toFixed(1)} / 100** (_${sig}_)`);
+                if (d?.error) {
+                    blocks.push(`**Error:** ${String(d.error)}`);
+                }
+                const body = d?.analysis || d?.content || "_No analysis available_";
+                blocks.push(``, body);
+                const calls = toolCalls?.[key] || [];
+                if (calls.length) {
+                    const names = calls.map((c: any) => c?.tool_name || "tool").filter(Boolean);
+                    blocks.push(``, `**Tool calls:** ${names.join(", ")}`);
+                }
+                return blocks.join("\n");
+            });
+            if (assetQual.length) {
+                md.push(`### Asset`, ``);
+                qualRows(assetQual).forEach((r) => md.push(r, ``, `---`, ``));
+            }
+            if (macroQual.length) {
+                md.push(`### Macro`, ``);
+                qualRows(macroQual).forEach((r) => md.push(r, ``, `---`, ``));
+            }
+        }
+
+        // Sources
+        const hasSources = docs.length > 0 || webSrc.length > 0;
+        const webNote =
+            analysis.web_search_effective === "user" || analysis.web_search
+                ? "Web search enabled"
+                : analysis.web_search_effective === "auto"
+                ? `Web search auto-enabled (internal data ${analysis.data_adequacy || "sparse"})`
+                : "";
+        if (hasSources || webNote) {
+            md.push(`## Sources`, ``);
+            if (docs.length) {
+                md.push(`**Documents (${docs.length})**`, ``);
+                docs.forEach((doc: any) => {
+                    const name = typeof doc === "string" ? doc : doc.name || doc.title || JSON.stringify(doc);
+                    md.push(`- ${name}`);
+                });
+                md.push(``);
+            }
+            if (webSrc.length) {
+                md.push(`**Web Sources (${webSrc.length})**`, ``);
+                webSrc.forEach((src: string) => md.push(`- ${src}`));
+                md.push(``);
+            }
+            if (webNote) {
+                md.push(`_${webNote}_`, ``);
+            }
+        }
+
+        const filename = `${analysis.symbol || analysis.share_name || "analysis"}-${id?.slice(0, 8) || "result"}.md`;
+        const blob = new Blob([md.join("\n")], { type: "text/markdown" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
     const totalScore: number | null = analysis.total_score;
     const quantScore: number | null = analysis.quantitative_score;
     const qualScore: number | null = analysis.qualitative_score;
@@ -395,17 +543,32 @@ export default function AnalysisResult() {
                                 </Text>
                             </HStack>
                             {isComplete && (
-                                <Button
-                                    as={motion.button}
-                                    whileTap={{ scale: 0.96 }}
-                                    variant="subtle"
-                                    size="sm"
-                                    onClick={downloadResult}
-                                    color="var(--ink-secondary)"
-                                    _hover={{ color: "var(--ink-primary)" }}
-                                >
-                                    <MdDownload style={{ marginRight: 4 }} /> Export
-                                </Button>
+                                <Menu.Root>
+                                    <Menu.Trigger asChild>
+                                        <Button
+                                            as={motion.button}
+                                            whileTap={{ scale: 0.96 }}
+                                            variant="subtle"
+                                            size="sm"
+                                            color="var(--ink-secondary)"
+                                            _hover={{ color: "var(--ink-primary)" }}
+                                        >
+                                            <MdDownload style={{ marginRight: 4 }} /> Export
+                                        </Button>
+                                    </Menu.Trigger>
+                                    <Menu.Positioner>
+                                        <Menu.Content minWidth="220px">
+                                            <Menu.Item value="json" onClick={downloadResult}>
+                                                <MdOutlineFileDownload />
+                                                Download as JSON
+                                            </Menu.Item>
+                                            <Menu.Item value="md" onClick={downloadMarkdown}>
+                                                <MdOutlineNotes />
+                                                Download as Markdown
+                                            </Menu.Item>
+                                        </Menu.Content>
+                                    </Menu.Positioner>
+                                </Menu.Root>
                             )}
                         </HStack>
                     </Flex>
@@ -657,7 +820,7 @@ export default function AnalysisResult() {
                 {isComplete && (
                     <Box key="report" as={motion.div} variants={swap} initial="initial" animate="animate" exit="exit">
                     <Tabs.Root
-                        defaultValue="overview"
+                        value={activeTab}
                         onValueChange={handleTabChange}
                         variant="line"
                         size="sm"
@@ -713,7 +876,7 @@ export default function AnalysisResult() {
                                                 color="var(--ink-tertiary)"
                                                 onClick={() => {
                                                     setActiveTab("quantitative");
-                                                    sectionRefs.current["quantitative"]?.scrollIntoView({ behavior: "smooth", block: "start" });
+                                                    requestAnimationFrame(() => sectionRefs.current["quantitative"]?.scrollIntoView({ behavior: "smooth", block: "start" }));
                                                 }}
                                                 px={1}
                                                 _hover={{ color: "var(--ink-primary)" }}
@@ -753,7 +916,7 @@ export default function AnalysisResult() {
                                                 color="var(--ink-tertiary)"
                                                 onClick={() => {
                                                     setActiveTab("qualitative");
-                                                    sectionRefs.current["qualitative"]?.scrollIntoView({ behavior: "smooth", block: "start" });
+                                                    requestAnimationFrame(() => sectionRefs.current["qualitative"]?.scrollIntoView({ behavior: "smooth", block: "start" }));
                                                 }}
                                                 px={1}
                                                 _hover={{ color: "var(--ink-primary)" }}

@@ -818,11 +818,20 @@ export default function AgentBuilder() {
           transition={{ duration: dur.base, ease }}
           flex="0 0 60%"
           p={4}
-          bg="var(--surface-panel)"
           borderLeft="1px solid var(--hairline)"
           overflow="hidden"
         >
-          <AgentPreviewPanel agentDraft={agentDraft} isDirty={isDirty} />
+          <Box
+            flex={1}
+            minW={0}
+            bg="var(--surface-panel)"
+            border="1px solid var(--hairline)"
+            borderRadius="8px"
+            p={2}
+            overflow="hidden"
+          >
+            <AgentPreviewPanel agentDraft={agentDraft} isDirty={isDirty} />
+          </Box>
         </Box>
 
         {/* Preview panel — mobile overlay */}
@@ -856,8 +865,10 @@ export default function AgentBuilder() {
                   <MdClose size={18} />
                 </Button>
               </Flex>
-              <Box p={4} overflowY="auto" h="calc(100% - 49px)">
-                <AgentPreviewPanel agentDraft={agentDraft} isDirty={isDirty} />
+              <Box p={2} overflowY="auto" h="calc(100% - 49px)">
+                <Box bg="var(--surface-panel)" border="1px solid var(--hairline)" borderRadius="8px" p={2} overflow="hidden">
+                  <AgentPreviewPanel agentDraft={agentDraft} isDirty={isDirty} />
+                </Box>
               </Box>
             </Box>
           )}

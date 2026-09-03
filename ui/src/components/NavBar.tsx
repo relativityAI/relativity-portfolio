@@ -126,7 +126,7 @@ export default function NavBar() {
         >
             <Flex align="center" gap={{ base: 8, md: 4, lg: 8 }}>
                 <Flex align="center" gap={2}>
-                    <img src={logo} alt="Relativity logo" width={20} height={20} style={{ borderRadius: 4 }} />
+                    <img src={logo} alt="Relativity logo" width={30} height={30} style={{ borderRadius: 6 }} />
                     <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
                 </Flex>
                 
@@ -283,7 +283,7 @@ export default function NavBar() {
                             py={4}
                         >
                             <Flex align="center" gap={2}>
-                                <img src={logo} alt="Relativity logo" width={20} height={20} style={{ borderRadius: 4 }} />
+                                <img src={logo} alt="Relativity logo" width={30} height={30} style={{ borderRadius: 6 }} />
                                 <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
                             </Flex>
                             <Drawer.CloseTrigger asChild>
