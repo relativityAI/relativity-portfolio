@@ -218,7 +218,7 @@ export default function Landing() {
           minH={0}
           align={{ base: "stretch", md: "center" }}
           justify={{ base: "flex-start", md: "center" }}
-          gap={{ base: 3, md: 4 }}
+          gap={{ base: 3, md: 1 }}
           marginTop="auto"
           marginBottom="auto"
           direction={{ base: "column", md: "row" }}
@@ -226,7 +226,7 @@ export default function Landing() {
           {/* Left column — How it works */}
           <Box
             width="100%"
-            maxW={{ base: "100%", md: 260 }}
+            maxW={{ base: "100%", md: 190 }}
             flexShrink={1}
             order={{ base: 3, md: 1 }}
             mt={{ base: 3, md: 0 }}
@@ -327,7 +327,7 @@ export default function Landing() {
           {/* Right column — Data sources */}
           <Box
             width="100%"
-            maxW={{ base: "100%", md: 260 }}
+            maxW={{ base: "100%", md: 190 }}
             flexShrink={1}
             order={{ base: 2, md: 3 }}
             mt={{ base: 4, md: 0 }}

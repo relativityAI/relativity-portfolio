@@ -84,7 +84,7 @@ export default function AgentPreviewPanel({ agentDraft, isDirty }: AgentPreviewP
       transition={{ duration: dur.base, ease }}
       style={{ height: "100%", display: "flex", flexDirection: "column" }}
     >
-      <Flex justify="space-between" align="center" mb={3} px={1}>
+      <Flex justify="space-between" align="center" mb={2} px={0.5}>
         <Text fontSize="11px" fontWeight={600} color="var(--ink-tertiary)" letterSpacing="0.06em" textTransform="uppercase">
           Agent Preview
         </Text>

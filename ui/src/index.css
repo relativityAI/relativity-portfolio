@@ -3,7 +3,8 @@
   --surface-canvas: #FAFAF9;
   --surface-panel: #FFFFFF;
   --surface-recessed: #F4F4F3;
-  --hairline: #E4E4E1;
+  --hairline: #D9D9D5;
+  --grid-line: #C7C7C2;
 
   /* Ink */
   --ink-primary: #16181B;
@@ -31,7 +32,8 @@
     --surface-canvas: #0B0D10;
     --surface-panel: #14171B;
     --surface-recessed: #0F1114;
-    --hairline: #262B31;
+    --hairline: #343B43;
+    --grid-line: #414A54;
 
     --ink-primary: #EDEDEC;
     --ink-secondary: #9AA0A6;
@@ -44,7 +46,8 @@ html.dark {
   --surface-canvas: #0B0D10;
   --surface-panel: #14171B;
   --surface-recessed: #0F1114;
-  --hairline: #262B31;
+  --hairline: #343B43;
+  --grid-line: #414A54;
 
   --ink-primary: #EDEDEC;
   --ink-secondary: #9AA0A6;
@@ -55,6 +58,13 @@ html.dark {
 html,
 body {
   background: var(--surface-canvas);
+}
+
+/* Make Chakra table grid lines clearly visible (line variant sets width but
+   relies on the default border color, which renders too faint). */
+.chakra-table th,
+.chakra-table td {
+  border-color: var(--grid-line);
 }
 
 /* Global focus ring */

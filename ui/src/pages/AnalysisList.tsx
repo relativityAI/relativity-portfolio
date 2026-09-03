@@ -379,7 +379,7 @@ export default function AnalysisList() {
     const colSpan = 8;
 
     const onRowClick = (id: string) => {
-        window.open("/analysis-result/" + id, "_blank");
+        navigate("/analysis-result/" + id);
     };
 
     return (
