@@ -1,4 +1,4 @@
-import { generateText, isStepCount, type LanguageModel } from "ai";
+import { generateText, isStepCount, streamText, type LanguageModel } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
@@ -89,6 +89,18 @@ export interface QualResult {
   tokens?: { input?: number; output?: number };
 }
 
+/** Emitted live while a qualitative parameter is being scored. */
+export type TraceCallback = (event: {
+  type: "thought" | "tool_call" | "tool_result" | "decision";
+  text?: string;
+  tool?: string;
+  args?: unknown;
+  result?: unknown;
+  status?: string;
+  duration_ms?: number;
+  score?: number;
+}) => void;
+
 // Last-resort score recovery: ask the model to restate just the integer.
 async function recoverScore(
   model: LanguageModel,
@@ -169,6 +181,7 @@ export async function runQualitative(
   webSearch: boolean,
   adequacy: DataAdequacy,
   investorContext = "",
+  onTrace?: TraceCallback,
 ): Promise<QualResult> {
   const started = Date.now();
   try {
@@ -213,7 +226,7 @@ export async function runQualitative(
       .filter(Boolean)
       .join("\n");
 
-    const result = await generateText({
+    const result = await streamText({
       model,
       instructions: QUALITATIVE_SCORING_SYSTEM_PROMPT,
       prompt: userPrompt,
@@ -224,20 +237,53 @@ export async function runQualitative(
       abortSignal: AbortSignal.timeout(PARAM_TIMEOUT_MS),
     });
 
-    const text = result.text || "";
+    // Consume the full stream so each reasoning/tool part is surfaced live.
+    for await (const part of result.fullStream) {
+      switch (part.type) {
+        case "reasoning-delta":
+          onTrace?.({ type: "thought", text: part.text });
+          break;
+        case "tool-call":
+          onTrace?.({ type: "tool_call", tool: part.toolName, args: part.input ?? {} });
+          break;
+        case "tool-result":
+          onTrace?.({
+            type: "tool_result",
+            tool: part.toolName,
+            result: part.output,
+            status: "OK",
+            duration_ms: typeof (part as any).duration === "number" ? (part as any).duration : undefined,
+          });
+          break;
+        case "tool-error":
+          onTrace?.({
+            type: "tool_result",
+            tool: part.toolName,
+            status: "ERR",
+            result: String((part as any).error ?? ""),
+          });
+          break;
+        default:
+          break;
+      }
+    }
+
+    const st = await result.steps;
+    const text = (await result.text) || "";
     let { score, found } = parseFinalScoreResult(text);
     if (!found && text.trim()) {
       ({ score, found } = await recoverScore(model, text));
     }
-    const calls = extractToolCalls(result.steps as any);
+    onTrace?.({ type: "decision", score: found ? score : undefined, text: found ? undefined : "FINAL_SCORE not found" });
+    const calls = extractToolCalls(st as any);
 
-    const steps = result.steps || [];
+    const steps = st || [];
     const lastStep = steps[steps.length - 1] as any;
     const maxTurnsReached =
       steps.length >= config.maxToolSteps && !!lastStep && lastStep.finishReason === "tool-calls";
     const error = found ? undefined : maxTurnsReached ? "Max tool-call turns reached" : "FINAL_SCORE not found";
 
-    const usage: any = result.usage;
+    const usage: any = await result.usage;
     log.info(
       "[agent]",
       `${modelId} "${parameter.parameter}" -> score=${score} toolCalls=${calls.length} steps=${steps.length} in ${((Date.now() - started) / 1000).toFixed(1)}s`,
@@ -319,6 +365,7 @@ export async function runQualitativeAll(
   webSearch: boolean,
   adequacy: DataAdequacy,
   onProgress?: (done: number, total: number, label: string) => void,
+  onTrace?: (key: string, event: Parameters<TraceCallback>[0]) => void,
 ): Promise<{
   qualitative_analysis: Record<string, QualParamEntry>;
   qualitative_tool_calls: Record<string, Record<string, unknown>[]>;
@@ -344,6 +391,7 @@ export async function runQualitativeAll(
 
   await mapWithConcurrency(params, QUAL_CONCURRENCY, async (p) => {
     const label = p.parameter || "Qualitative Parameter";
+    const trace = (ev: Parameters<TraceCallback>[0]) => onTrace?.(label, ev);
     let res = await runQualitative(
       modelId,
       keys,
@@ -353,6 +401,7 @@ export async function runQualitativeAll(
       webSearch,
       adequacy,
       investorContext,
+      trace,
     );
     if (res.error && res.retryable) {
       log.warn("[agent]", `${modelId} "${label}" retrying once after: ${res.error}`);
@@ -365,6 +414,7 @@ export async function runQualitativeAll(
         webSearch,
         adequacy,
         investorContext,
+        trace,
       );
     }
     qualitative_analysis[label] = {

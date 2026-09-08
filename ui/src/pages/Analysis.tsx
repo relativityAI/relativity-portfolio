@@ -10,6 +10,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AnalysisService, AgentService, DataService, SettingsService, API_BASE } from "@/db";
 import { formatSeconds, agentDisplayName } from "@/utils";
 import { RunSteps, type RunStep } from "./shared/RunStatus";
+import { TracePanel } from "./shared/TracePanel";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease, stagger, staggerItem } from "@/lib/motion";
 
@@ -879,6 +880,12 @@ export default function Analysis() {
                         >
                             <FieldLabel>Progress</FieldLabel>
                             <RunSteps steps={steps} now={Date.now()} />
+                            {correlationId && (
+                                <Box mt={4}>
+                                    <FieldLabel>Model Reasoning</FieldLabel>
+                                    <TracePanel runId={correlationId} />
+                                </Box>
+                            )}
                         </Box>
                     )}
                     </AnimatePresence>

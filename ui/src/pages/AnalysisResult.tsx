@@ -11,13 +11,14 @@ import {
     HStack,
     VStack,
     Tabs,
-    Menu,
 } from "@chakra-ui/react";
 import { AnalysisService, AgentService } from "@/db";
 import { formatSeconds, agentDisplayName } from "@/utils";
 import { RunSteps } from "./shared/RunStatus";
+import { TracePanel, type TraceEvent } from "./shared/TracePanel";
 import ReactMarkdown from "react-markdown";
-import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess, MdOutlineNotes, MdOutlineFileDownload } from "react-icons/md";
+import { jsPDF } from "jspdf";
+import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
 import { motion, AnimatePresence } from "motion/react";
 import { CountUp, dur, ease, swap } from "@/lib/motion";
 
@@ -283,125 +284,173 @@ export default function AnalysisResult() {
         setExpandedTools((prev) => ({ ...prev, [param]: !prev[param] }));
     };
 
-    const downloadResult = () => {
+    const downloadPdf = () => {
         if (!analysis) return;
-        const json = JSON.stringify(analysis, null, 2);
-        const blob = new Blob([json], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${analysis.symbol || analysis.share_name || "analysis"}-${id?.slice(0, 8) || "result"}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    };
+        const doc = new jsPDF({ unit: "mm", format: "a4" });
+        const W = doc.internal.pageSize.getWidth();
+        const M = 14;
+        let y = 16;
 
-    const downloadMarkdown = () => {
-        if (!analysis) return;
-        const assetQuant = Object.entries(quantAnalysis)
-            .filter(([, d]) => !isMacroSection(d?.section));
-        const macroQuant = Object.entries(quantAnalysis)
-            .filter(([, d]) => isMacroSection(d?.section));
-        const assetQual = Object.entries(qualAnalysis).filter(([, d]) => !isMacroSection(d?.section));
-        const macroQual = Object.entries(qualAnalysis).filter(([, d]) => isMacroSection(d?.section));
+        const ensure = (needed: number) => {
+            if (y + needed > doc.internal.pageSize.getHeight() - 14) {
+                doc.addPage();
+                y = 16;
+            }
+        };
+        const body = (text: string, size = 9.5, style: string | null = null, mx = 0) => {
+            doc.setFont("helvetica", style || "normal");
+            doc.setFontSize(size);
+            const lines = doc.splitTextToSize(text, W - M * 2 - mx);
+            ensure(lines.length * size * 0.3528);
+            doc.text(lines, M + mx, y);
+            y += lines.length * size * 0.3528 + (size >= 10 ? 1.5 : 0);
+        };
+        const label = (text: string) => {
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(8);
+            doc.setTextColor(120);
+            doc.text(text.toUpperCase(), M, y);
+            y += 3.5;
+            doc.setTextColor(0);
+        };
+        const spacer = (h = 4) => { y += h; };
+
         const shareName = analysis.share_name || analysis.symbol || "Analysis";
-        const md: string[] = [];
 
-        // Header + summary
-        md.push(`# ${shareName} — FIT Score`, ``);
-        md.push(`**${totalScore != null ? totalScore.toFixed(1) : "—"} / 100**`, ``);
-        const summary = [
-            `> ${verdictSentence}`,
-            ``,
-            `## Scores`,
-            ``,
-            `| Component | Score |`,
-            `| --- | --- |`,
-            `| **Fit Score** | ${totalScore != null ? `${totalScore.toFixed(1)} / 100` : "—"} |`,
-            `| Quantitative | ${quantScore != null ? `${quantScore.toFixed(1)} / 100` : "—"} |`,
-            `| Qualitative | ${qualScore != null ? `${qualScore.toFixed(1)} / 100` : "—"} |`,
-            ``,
-            `## Run Details`,
-            ``,
-            `| Field | Value |`,
-            `| --- | --- |`,
-            `| Symbol | ${analysis.symbol || "—"} |`,
-            `| Company | ${analysis.share_name || "—"} |`,
-            `| Agent | ${analysis.agent_name ? agentName(analysis.agent_name) : "—"} |`,
-            `| Model | ${analysis.model || "—"} |`,
-            `| Source | ${analysis.source || "—"} |`,
-            `| Duration | ${analysis.duration != null ? formatDuration(analysis.duration) : "—"} |`,
-            `| Created | ${analysis.created_at ? new Date(analysis.created_at).toLocaleString() : "—"} |`,
-            `| Ended | ${analysis.end_time ? new Date(analysis.end_time * 1000).toLocaleString() : "—"} |`,
-            ``,
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(18);
+        doc.text(`${shareName} — FIT Score`, M, y);
+        y += 8;
+        ensure(20);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(11);
+        const verdictLines = doc.splitTextToSize(verdictSentence, W - M * 2);
+        ensure(verdictLines.length * 4);
+        doc.text(verdictLines, M, y);
+        y += verdictLines.length * 4 + 6;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.text(`${totalScore != null ? totalScore.toFixed(1) : "—"} / 100`, M, y);
+        y += 6;
+
+        // Run details
+        label("Run Details");
+        const runRows = [
+            ["Symbol", analysis.symbol || "—"],
+            ["Agent", analysis.agent_name ? agentName(analysis.agent_name) : "—"],
+            ["Model", analysis.model || "—"],
+            ["Source", analysis.source || "—"],
+            ["Duration", analysis.duration != null ? formatDuration(analysis.duration) : "—"],
+            ["Created", analysis.created_at ? new Date(analysis.created_at).toLocaleString() : "—"],
         ];
-        md.push(...summary);
+        ensure(runRows.length * 6);
+        runRows.forEach(([k, v]) => {
+            body(`${k}:  ${v}`, 9.5);
+        });
+        spacer();
 
-        // Run steps trace
+        // Scores
+        label("Scores");
+        const scoreRows = [
+            ["Fit Score", totalScore != null ? `${totalScore.toFixed(1)} / 100` : "—"],
+            ["Quantitative", quantScore != null ? `${quantScore.toFixed(1)} / 100` : "—"],
+            ["Qualitative", qualScore != null ? `${qualScore.toFixed(1)} / 100` : "—"],
+        ];
+        ensure(scoreRows.length * 6);
+        scoreRows.forEach(([k, v]) => body(`${k}:  ${v}`, 9.5));
+        spacer();
+
+        // Run steps
         const steps = analysis.steps || [];
         if (steps.length) {
-            md.push(`## Run Steps`, ``);
-            steps.forEach((st: any) => {
+            label("Run Steps");
+            steps.forEach((st) => {
                 const status = st?.status || "pending";
-                const icon = status === "completed" ? "✓" : status === "failed" ? "✗" : status === "running" ? "•" : status === "skipped" ? "–" : "•";
+                const mark = status === "completed" ? "✓" : status === "failed" ? "✗" : status === "running" ? "•" : status === "skipped" ? "–" : "•";
                 const dur = typeof st?.duration_ms === "number" ? ` (${formatSeconds(Math.round(st.duration_ms / 1000))})` : "";
-                md.push(`- ${icon} **${st?.label || st?.key || "step"}** — ${status}${dur}`);
-                if (st?.detail) md.push(`  ${st.detail}`);
+                body(`${mark} ${st?.label || st?.key || "step"} — ${status}${dur}`, 9, null, 2);
             });
-            md.push(``);
+            spacer();
         }
 
         // Quantitative
         const opSymbol: Record<string, string> = { gt: ">", gte: ">=", lt: "<", lte: "<=", eq: "=", between: "between" };
+        const section = (title: string, rows: typeof assetQuant, scoreScale: number) => {
+            if (!rows.length) return;
+            label(title);
+            for (const item of rows) {
+                const score = typeof item?.score === "number" ? item.score * scoreScale : 0;
+                const criterion = item ? `${opSymbol[item.operator] || item.operator} ${item.threshold ?? ""}`.trim() : "—";
+                const actual = item?.value != null ? formatValue(item.value, item?.metric_type) : "—";
+                body(`${item?.metric_name || item.key}`, 9.5, "bold", 2);
+                body(`Criterion ${criterion} · Actual ${actual} · Wgt ${item?.weightage ?? "—"} · Score ${score.toFixed(1)} (${scoreSignal(score)})`, 8.5, null, 4);
+            }
+            spacer(2);
+        };
         if (quantAnalysis && Object.keys(quantAnalysis).length) {
-            md.push(`## Quantitative`, ``);
-            const rowsFor = (rows: [string, any][]) => rows.map(([key, d]) => {
-                const score = typeof d?.score === "number" ? d.score * 100 : 0;
-                const sig = scoreSignal(score);
-                const criterion = d ? `${opSymbol[d.operator] || d.operator} ${d.threshold ?? ""}`.trim() : "—";
-                const actual = d?.value != null ? formatValue(d.value, d?.metric_type) : "—";
-                const name = d?.metric_name || key;
-                return `| ${name} | ${criterion} | ${actual} | ${d?.weightage ?? "—"} | ${score.toFixed(1)} (${sig}) |`;
-            });
-            if (assetQuant.length) {
-                md.push(`### Asset`, "", `| Metric | Criterion | Actual | Wgt | Score |`, `| --- | --- | --- | --- | --- |`, ...rowsFor(assetQuant), ``);
-            }
-            if (macroQuant.length) {
-                md.push(`### Macro`, "", `| Metric | Criterion | Actual | Wgt | Score |`, `| --- | --- | --- | --- | --- |`, ...rowsFor(macroQuant), ``);
-            }
+            label("Quantitative");
+            section("Asset", assetQuant, 100);
+            section("Macro", macroQuant, 100);
         }
 
         // Qualitative
         if (qualAnalysis && Object.keys(qualAnalysis).length) {
-            md.push(`## Qualitative`, ``);
-            const qualRows = (rows: [string, any][]) => rows.map(([key, d]: [string, any]) => {
-                const score = typeof d?.score === "number" ? d.score : 0;
-                const sig = scoreSignal(score);
-                const blocks: string[] = [];
-                const header = `### ${d?.parameter || key}${d?.weightage != null ? ` — wgt ${d.weightage}` : ""}`;
-                blocks.push(header);
-                blocks.push(`**Score: ${score.toFixed(1)} / 100** (_${sig}_)`);
-                if (d?.error) {
-                    blocks.push(`**Error:** ${String(d.error)}`);
+            label("Qualitative");
+            const qualSection = (rows: typeof assetQual) => {
+                for (const [key, d] of rows) {
+                    const score = typeof d?.score === "number" ? d.score : 0;
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(10);
+                    ensure(8);
+                    doc.text(`${d?.parameter || key}${d?.weightage != null ? `  (wgt ${d.weightage})` : ""}`, M + 2, y);
+                    y += 4;
+                    const scoreLine = `Score: ${score.toFixed(1)} / 100 (${scoreSignal(score)})`;
+                    body(scoreLine, 8.5, null, 4);
+                    doc.setFont("helvetica", "normal");
+                    const analysisText = d?.error ? `Error: ${String(d.error)}` : d?.analysis || d?.content || "No analysis available.";
+                    body(analysisText, 9, null, 4);
+                    const calls = toolCalls?.[key] || [];
+                    if (calls.length) {
+                        const names = calls.map((c) => c?.tool_name || "tool").filter(Boolean);
+                        body(`Tool calls: ${names.join(", ")}`, 8, null, 4);
+                    }
+                    spacer(2);
                 }
-                const body = d?.analysis || d?.content || "_No analysis available_";
-                blocks.push(``, body);
-                const calls = toolCalls?.[key] || [];
-                if (calls.length) {
-                    const names = calls.map((c: any) => c?.tool_name || "tool").filter(Boolean);
-                    blocks.push(``, `**Tool calls:** ${names.join(", ")}`);
-                }
-                return blocks.join("\n");
+            };
+            qualSection(assetQual);
+            qualSection(macroQual);
+        }
+
+        // Trace summary
+        const trace: TraceEvent[] = analysis.trace || [];
+        if (trace.length) {
+            label("Model Reasoning Trace");
+            body(`${trace.length} events`, 8, null, 2);
+            const byParam: Record<string, TraceEvent[]> = {};
+            for (const ev of trace) {
+                const k = ev?.key || "—";
+                (byParam[k] = byParam[k] || []).push(ev);
+            }
+            Object.entries(byParam).forEach(([param, evs]) => {
+                const thoughts = evs.filter((e) => e.type === "thought").map((e) => e.text || "").join("");
+                const toolCallsCount = evs.filter((e) => e.type === "tool_call").length;
+                const toolErrors = evs.filter((e) => e.type === "tool_result" && e.status === "ERR").length;
+                const decision = [...evs].reverse().find((e) => e.type === "decision");
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(9.5);
+                ensure(6);
+                doc.text(param, M + 2, y);
+                y += 4;
+                doc.setFont("helvetica", "normal");
+                const summaryBits = [
+                    toolCallsCount ? `${toolCallsCount} tool call${toolCallsCount > 1 ? "s" : ""}` : null,
+                    toolErrors ? `${toolErrors} error${toolErrors > 1 ? "s" : ""}` : null,
+                    decision?.score != null ? `final score ${Number(decision.score).toFixed(1)}` : null,
+                ].filter(Boolean);
+                if (summaryBits.length) body(summaryBits.join(" · "), 8, null, 4);
+                if (thoughts) body(thoughts.slice(0, 700) + (thoughts.length > 700 ? "…" : ""), 8, null, 4);
+                spacer(2);
             });
-            if (assetQual.length) {
-                md.push(`### Asset`, ``);
-                qualRows(assetQual).forEach((r) => md.push(r, ``, `---`, ``));
-            }
-            if (macroQual.length) {
-                md.push(`### Macro`, ``);
-                qualRows(macroQual).forEach((r) => md.push(r, ``, `---`, ``));
-            }
         }
 
         // Sources
@@ -413,35 +462,23 @@ export default function AnalysisResult() {
                 ? `Web search auto-enabled (internal data ${analysis.data_adequacy || "sparse"})`
                 : "";
         if (hasSources || webNote) {
-            md.push(`## Sources`, ``);
+            label("Sources");
             if (docs.length) {
-                md.push(`**Documents (${docs.length})**`, ``);
-                docs.forEach((doc: any) => {
+                body(`Documents (${docs.length})`, 9, "bold", 2);
+                docs.forEach((doc) => {
                     const name = typeof doc === "string" ? doc : doc.name || doc.title || JSON.stringify(doc);
-                    md.push(`- ${name}`);
+                    body(`- ${name}`, 8.5, null, 4);
                 });
-                md.push(``);
             }
             if (webSrc.length) {
-                md.push(`**Web Sources (${webSrc.length})**`, ``);
-                webSrc.forEach((src: string) => md.push(`- ${src}`));
-                md.push(``);
+                body(`Web Sources (${webSrc.length})`, 9, "bold", 2);
+                webSrc.forEach((src: string) => body(`- ${src}`, 8.5, null, 4));
             }
-            if (webNote) {
-                md.push(`_${webNote}_`, ``);
-            }
+            if (webNote) body(webNote, 8.5, "italic", 2);
         }
 
-        const filename = `${analysis.symbol || analysis.share_name || "analysis"}-${id?.slice(0, 8) || "result"}.md`;
-        const blob = new Blob([md.join("\n")], { type: "text/markdown" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const filename = `${analysis.symbol || analysis.share_name || "analysis"}-${id?.slice(0, 8) || "result"}.pdf`;
+        doc.save(filename);
     };
 
     const totalScore: number | null = analysis.total_score;
@@ -543,32 +580,17 @@ export default function AnalysisResult() {
                                 </Text>
                             </HStack>
                             {isComplete && (
-                                <Menu.Root>
-                                    <Menu.Trigger asChild>
-                                        <Button
-                                            as={motion.button}
-                                            whileTap={{ scale: 0.96 }}
-                                            variant="subtle"
-                                            size="sm"
-                                            color="var(--ink-secondary)"
-                                            _hover={{ color: "var(--ink-primary)" }}
-                                        >
-                                            <MdDownload style={{ marginRight: 4 }} /> Export
-                                        </Button>
-                                    </Menu.Trigger>
-                                    <Menu.Positioner>
-                                        <Menu.Content minWidth="220px">
-                                            <Menu.Item value="json" onClick={downloadResult}>
-                                                <MdOutlineFileDownload />
-                                                Download as JSON
-                                            </Menu.Item>
-                                            <Menu.Item value="md" onClick={downloadMarkdown}>
-                                                <MdOutlineNotes />
-                                                Download as Markdown
-                                            </Menu.Item>
-                                        </Menu.Content>
-                                    </Menu.Positioner>
-                                </Menu.Root>
+                                <Button
+                                    as={motion.button}
+                                    whileTap={{ scale: 0.96 }}
+                                    variant="subtle"
+                                    size="sm"
+                                    color="var(--ink-secondary)"
+                                    _hover={{ color: "var(--ink-primary)" }}
+                                    onClick={downloadPdf}
+                                >
+                                    <MdDownload style={{ marginRight: 4 }} /> Download as PDF
+                                </Button>
                             )}
                         </HStack>
                     </Flex>
@@ -812,6 +834,26 @@ export default function AnalysisResult() {
                                 Steps
                             </Text>
                             <RunSteps steps={analysis.steps || []} now={Date.now()} />
+                        </Box>
+
+                        <Box
+                            border="1px solid var(--hairline)"
+                            borderRadius="2px"
+                            bg="var(--surface-panel)"
+                            p={5}
+                            mt={4}
+                        >
+                            <Text
+                                fontSize="10.5px"
+                                fontWeight={500}
+                                color="var(--ink-tertiary)"
+                                letterSpacing="0.06em"
+                                textTransform="uppercase"
+                                mb={2}
+                            >
+                                Model Reasoning
+                            </Text>
+                            <TracePanel runId={id} />
                         </Box>
                     </Box>
                 )}

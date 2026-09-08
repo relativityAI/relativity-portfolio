@@ -7,9 +7,10 @@ import { VoyagerClient, toCountrySource, type PullStatus } from "./voyager.js";
 import { runQuantitative, fetchMetricsSnapshot, assessDataAdequacy, type DataAdequacy } from "./quant.js";
 import { runQualitativeAll } from "./agent.js";
 import { ensureFreshData } from "./freshness.js";
-import type { LlmKeys } from "./agent.js";
+import type { LlmKeys, TraceCallback } from "./agent.js";
 import { log } from "./logger.js";
 import { inngest } from "./inngest.js";
+import { TraceCollector, traceHub } from "./trace.js";
 
 export interface RunRequest {
   userId: string;
@@ -90,15 +91,20 @@ function failRunningStep(steps: RunStep[]): RunStep[] {
 class StepTracker {
   steps: RunStep[] = initialSteps();
 
-  constructor(private readonly save: () => Promise<void>) {}
+  constructor(
+    private readonly save: () => Promise<void>,
+    private readonly onChange?: (key: string, s: RunStep) => void,
+  ) {}
 
   async begin(key: string): Promise<void> {
     this.steps = startStep(this.steps, key);
+    this.onChange?.(key, this.steps.find((s) => s.key === key)!);
     await this.save();
   }
 
   async end(key: string, status: StepStatus, detail?: string): Promise<void> {
     this.steps = finishStep(this.steps, key, status, detail);
+    this.onChange?.(key, this.steps.find((s) => s.key === key)!);
     await this.save();
   }
 
@@ -198,6 +204,7 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
     quantitative_score: null,
     qualitative_score: null,
     total_score: null,
+    trace: [],
   };
   const { error } = await db.from("analysis_runs").insert(run);
   if (error) throw error;
@@ -266,7 +273,34 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     return next;
   };
   const saveSteps = (): Promise<void> => write(() => updateRun(runId, { steps: tracker.steps }));
-  const tracker = new StepTracker(saveSteps);
+
+  // Live trace: publish every event to SSE subscribers, persist throttled.
+  const collector = new TraceCollector(runId, (events) => write(() => updateRun(runId, { trace: events })));
+  traceHub.reset(runId);
+  const traceStep = (key: string, s: RunStep) =>
+    collector.push("step", key, {
+      label: s.label,
+      status: s.status,
+      duration_ms: s.duration_ms ?? undefined,
+    });
+
+  const tracker = new StepTracker(saveSteps, traceStep);
+  const traceQual = (key: string, ev: Parameters<TraceCallback>[0]) => {
+    switch (ev.type) {
+      case "thought":
+        collector.push("thought", key, { text: ev.text });
+        break;
+      case "tool_call":
+        collector.push("tool_call", key, { tool: ev.tool, args: ev.args });
+        break;
+      case "tool_result":
+        collector.push("tool_result", key, { tool: ev.tool, result: ev.result, status: ev.status === "ERR" ? "ERR" : "OK", duration_ms: ev.duration_ms });
+        break;
+      case "decision":
+        collector.push("decision", key, { score: ev.score, text: ev.text });
+        break;
+    }
+  };
 
   try {
     // ---- agent ----
@@ -397,6 +431,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
         (done, total, label) => {
           tracker.setDetail("qualitative", `${done} of ${total} parameters scored — ${label}`);
         },
+        traceQual,
       );
       qualErrors = Object.entries(qual.qualitative_analysis)
         .filter(([, e]) => !!(e as any)?.error)
@@ -445,10 +480,14 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
         steps: finishStep(tracker.steps, "finalize", "completed"),
       }),
     );
+    collector.push("log", "finalize", { text: `${finalStatus} — total score ${total}` });
+    await collector.flush();
     log.info(runTag, `${finalStatus} total=${total} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
   } catch (e) {
     tracker.steps = failRunningStep(tracker.steps);
     await write(() => updateRun(runId, { steps: tracker.steps })).catch(() => {});
+    collector.push("log", "finalize", { text: `FAILED — ${e instanceof Error ? e.message : String(e)}` });
+    await collector.flush().catch(() => {});
     log.error(runTag, "execution failed:", e);
     await markFailed(runId, e, started);
   }

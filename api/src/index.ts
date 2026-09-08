@@ -22,6 +22,7 @@ import { log, paint } from "./logger.js";
 import { initTelemetry } from "./telemetry.js";
 import { serve } from "inngest/express";
 import { inngest, analysisRunFn } from "./inngest.js";
+import { traceHub } from "./trace.js";
 
 // Initialize Langfuse telemetry before any AI SDK calls.
 await initTelemetry();
@@ -498,6 +499,33 @@ app.delete("/analysis/:id", requireAuth, async (req, res) => {
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
+});
+
+// Live SSE stream of the analysis trace (reasoning thoughts, tool calls,
+// decisions) for a single run. Also replays events already buffered.
+app.get("/analysis/:id/stream", requireAuth, async (req, res) => {
+  const runId = String(req.params.id);
+  const db = getDb();
+  const { data, error } = await db.from("analysis_runs").select("id").eq("id", runId).eq("user_id", (req as AuthedRequest).user.id).single();
+  if (error || !data) return res.status(404).json({ error: "Analysis not found" });
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+  const heartbeat = setInterval(() => res.write(": ping\n\n"), 15000);
+
+  const unsubscribe = traceHub.subscribe(runId, (event) => send({ type: "trace", event }));
+  send({ type: "ready", runId });
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  });
 });
 
 // ---- reference data ----
