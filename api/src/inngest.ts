@@ -5,11 +5,12 @@ import { config } from "./config.js";
 import { getModelIds } from "./models.js";
 import { VoyagerClient, toCountrySource, type PullStatus } from "./voyager.js";
 import { runQuantitative, fetchMetricsSnapshot, assessDataAdequacy } from "./quant.js";
-import { runQualitative, parseFinalScoreResult, investorProfileLine, type QualParamEntry } from "./agent.js";
+import { runQualitative, parseFinalScoreResult, investorProfileLine, type QualParamEntry, type TraceCallback } from "./agent.js";
 import { ensureFreshData } from "./freshness.js";
 import { resolveWebSearch, DEFAULT_MODEL, type RunRequest } from "./run.js";
 import { aggregateWeightedScores } from "./scoring.js";
 import { log } from "./logger.js";
+import { TraceCollector, traceHub } from "./trace.js";
 
 export const inngest = new Inngest({ id: "relativity-portfolio" });
 
@@ -32,6 +33,28 @@ export const analysisRunFn = inngest.createFunction(
     const req = event.data as AnalysisRunEventData;
     const runId = req.runId;
     const db = getDb();
+
+    // Live trace: publish every event to SSE subscribers, persist throttled.
+    traceHub.reset(runId);
+    const collector = new TraceCollector(runId, async (events) => {
+      await updateRunStatus({ trace: events });
+    });
+    const traceQual = (key: string, ev: Parameters<TraceCallback>[0]) => {
+      switch (ev.type) {
+        case "thought":
+          collector.push("thought", key, { text: ev.text });
+          break;
+        case "tool_call":
+          collector.push("tool_call", key, { tool: ev.tool, args: ev.args });
+          break;
+        case "tool_result":
+          collector.push("tool_result", key, { tool: ev.tool, result: ev.result, status: ev.status === "ERR" ? "ERR" : "OK", duration_ms: ev.duration_ms });
+          break;
+        case "decision":
+          collector.push("decision", key, { score: ev.score, text: ev.text });
+          break;
+      }
+    };
 
     const updateRunStatus = async (patch: Record<string, unknown>) => {
       await db.from("analysis_runs").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", runId);
@@ -157,7 +180,8 @@ export const analysisRunFn = inngest.createFunction(
           req.documents || [],
           quantResult.web.effective !== "off",
           quantResult.adequacy,
-          investorContext
+          investorContext,
+          (ev) => traceQual(label, ev)
         );
 
         if (res.error && res.retryable) {
@@ -169,7 +193,8 @@ export const analysisRunFn = inngest.createFunction(
             req.documents || [],
             quantResult.web.effective !== "off",
             quantResult.adequacy,
-            investorContext
+            investorContext,
+            (ev) => traceQual(label, ev)
           );
         }
 
@@ -220,6 +245,8 @@ export const analysisRunFn = inngest.createFunction(
         qualitative_score: qualScore,
         total_score: total,
       });
+      collector.push("log", "finalize", { text: `${finalStatus} — total score ${total}` });
+      await collector.flush();
 
       return { total, status: finalStatus };
     });

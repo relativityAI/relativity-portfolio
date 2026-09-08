@@ -27,13 +27,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user: session?.user ?? null,
     session,
     loading,
-    async signInWithGoogle() {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: `${window.location.origin}/auth/callback` },
-      });
-      return { error: error?.message ?? null };
-    },
     async signOut() {
       await supabase.auth.signOut();
     },

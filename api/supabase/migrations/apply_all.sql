@@ -31,3 +31,7 @@ ALTER TABLE analysis_runs
   ADD COLUMN IF NOT EXISTS data_adequacy TEXT,
   ADD COLUMN IF NOT EXISTS web_search_effective TEXT,
   ADD COLUMN IF NOT EXISTS web_search_note TEXT;
+
+-- ─── 005: reasoning trace on analysis_runs ────────────────────────────────
+ALTER TABLE analysis_runs
+  ADD COLUMN IF NOT EXISTS trace JSONB DEFAULT '[]';

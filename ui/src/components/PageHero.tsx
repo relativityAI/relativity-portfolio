@@ -14,7 +14,10 @@ export default function PageHero({ children }: { children: ReactNode }) {
         >
             <Box
                 position="absolute"
-                inset={0}
+                top={4}
+                right={4}
+                bottom={4}
+                left={4}
                 pointerEvents="none"
                 aria-hidden
                 style={{
