@@ -12,7 +12,7 @@ import { createRun, RunRequest, DEFAULT_MODEL, checkAndFailStaleRun } from "./ru
 import { draftParameters, type LlmKeys } from "./agent.js";
 import { processBuilderTurn, extractDocumentSignals, type BuilderRequest } from "./builder.js";
 import { getSchemaDescriptor } from "./schema.js";
-import { getPreset, listPresets } from "./presets.js";
+import { getPreset, listPresets, buildSeedAgents } from "./presets.js";
 import { extractText } from "./upload.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
 import multer from "multer";
@@ -266,7 +266,17 @@ app.get("/agents", requireAuth, async (req, res) => {
     const userId = (req as AuthedRequest).user.id;
     const { data, error } = await db.from("agents").select("*").eq("user_id", userId);
     if (error) throw error;
-    const docs = (data || []).sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
+    let docs = data || [];
+
+    // First visit: plant the default built-in profiles so a fresh user sees
+    // them immediately and can edit/delete them like any other agent.
+    if (docs.length === 0) {
+      const seeds = buildSeedAgents(userId);
+      await db.from("agents").insert(seeds);
+      docs = seeds;
+    }
+
+    docs = docs.sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
     res.json(docs);
   } catch (e: any) {
     res.status(503).json({ error: e.message });

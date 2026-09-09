@@ -1,5 +1,7 @@
-# Curated model priority list. The UI dropdown shows exactly these, in priority order.
-# Verified against provider docs as of Aug 2026.
+# Curated model priority list — displayed first in the UI dropdown.
+# Live model discovery happens via provider /v1/models APIs (models.ts).
+# Models here get nice display names and priority ordering; any model not
+# here still appears if a provider's live API returns it.
 models:
   - id: "gemini/gemini-3.5-flash-lite"
     provider: google

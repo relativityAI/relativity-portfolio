@@ -164,29 +164,16 @@ export default function AgentBuilder() {
   useEffect(() => {
     if (initialized) return;
     setInitialized(true);
+    // Load preset keys in background for option card matching
     BuilderService.getPresets().then((presets) => {
-      const keys = presets.map((p: { key: string }) => p.key);
-      setPresetKeys(keys);
-      const options = presets.map((p: { key: string; name: string; description: string }) => ({
-        id: p.key,
-        label: p.name,
-        description: p.description,
-      }));
-      setMessages([{
-        id: nextMsgId(),
-        role: "assistant",
-        content: "What kind of investment agent are you building?",
-        options: [...options, { id: "custom", label: "Custom / I'll describe it", description: "Start from scratch with your own philosophy" }],
-        timestamp: Date.now(),
-      }]);
-    }).catch(() => {
-      setMessages([{
-        id: nextMsgId(),
-        role: "assistant",
-        content: "What kind of investment agent are you building? Describe your investment style, or choose a preset.",
-        timestamp: Date.now(),
-      }]);
-    });
+      setPresetKeys(presets.map((p: { key: string }) => p.key));
+    }).catch(() => {});
+    setMessages([{
+      id: nextMsgId(),
+      role: "assistant",
+      content: "What kind of investment agent are you building? Describe your investment style, philosophy, or the kind of investor you are — and I'll help you build it.",
+      timestamp: Date.now(),
+    }]);
   }, [initialized]);
 
   const callBuilder = useCallback(async (userResponse: string, messagesSnapshot: ChatMsg[]) => {

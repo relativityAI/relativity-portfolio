@@ -1,5 +1,6 @@
 import { Box, Flex, Text } from "@chakra-ui/react";
 import { motion } from "motion/react";
+import { useState, useEffect } from "react";
 import { dur, ease } from "@/lib/motion";
 import OptionCards from "./OptionCards";
 
@@ -18,8 +19,35 @@ interface ChatBubbleProps {
   isLatest?: boolean;
 }
 
+// Reveal assistant text char-by-char for a smooth "typing" effect.
+const TYPING_CPS = 35; // chars per second
+function useTypewriter(text: string, animate: boolean, isLatest: boolean) {
+  const [len, setLen] = useState(animate ? 0 : text.length);
+  useEffect(() => {
+    if (!animate || !isLatest) {
+      setLen(text.length);
+      return;
+    }
+    let i = 0;
+    const id = setInterval(() => {
+      i += 3;
+      if (i >= text.length) {
+        setLen(text.length);
+        clearInterval(id);
+      } else {
+        setLen(i);
+      }
+    }, 1000 / TYPING_CPS);
+    return () => clearInterval(id);
+  }, [text, animate, isLatest]);
+  return len;
+}
+
 export default function ChatBubble({ message, onOptionSelect, isLatest }: ChatBubbleProps) {
   const isAssistant = message.role === "assistant";
+  const typed = useTypewriter(message.content, isAssistant && !!isLatest, !!isLatest);
+  const isTyping = typed < message.content.length;
+  const showOptions = isAssistant && !isTyping && message.options && message.options.length > 0;
 
   return (
     <motion.div
@@ -46,9 +74,10 @@ export default function ChatBubble({ message, onOptionSelect, isLatest }: ChatBu
           whiteSpace="pre-wrap"
           border={isAssistant ? "1px solid var(--hairline)" : "none"}
         >
-          {message.content}
+          {message.content.slice(0, typed)}
+          {isTyping && <Box as="span" display="inline-block" w="6px" h="14px" ml={0.5} verticalAlign="text-bottom" bg="var(--accent-primary)" sx={{ animation: "blink 0.8s step-start infinite" }} />}
         </Box>
-        {isAssistant && message.options && message.options.length > 0 && onOptionSelect && (
+        {showOptions && onOptionSelect && (
           <Box maxW="85%">
             <OptionCards options={message.options} onSelect={onOptionSelect} disabled={!isLatest} />
           </Box>
