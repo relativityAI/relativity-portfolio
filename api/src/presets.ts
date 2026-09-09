@@ -141,6 +141,36 @@ export function listPresets(): { key: string; name: string; description: string 
   }));
 }
 
+// ── Default profile seeding ────────────────────────────────────────────
+// On a new user's first agent fetch, plant the built-in presets as their
+// own DB rows so they appear in the agent list and are fully CRUD-able.
+// `source="default"` marks them; renaming/delig doesn't lose that marker,
+// so re-seeding only ever happens when the user has zero agents.
+
+const DEFAULT_SOURCE = "default";
+
+export interface SeededAgent {
+  id: string;
+  name: string;
+  source: string;
+  persona: PresetTemplate["persona"];
+  configuration: PresetTemplate["configuration"];
+  asset_evaluation: PresetTemplate["asset_evaluation"];
+  macro_evaluation: PresetTemplate["macro_evaluation"];
+}
+
+export function buildSeedAgents(userId: string): SeededAgent[] {
+  return Object.entries(PRESETS).map(([key, p]) => ({
+    id: `${key}-${userId}`,
+    name: p.name,
+    source: DEFAULT_SOURCE,
+    persona: p.persona,
+    configuration: p.configuration,
+    asset_evaluation: p.asset_evaluation,
+    macro_evaluation: p.macro_evaluation,
+  }));
+}
+
 // Self-check: npx tsx src/presets.ts
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   const expected = ["buffett", "oneil", "growth"];
