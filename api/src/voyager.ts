@@ -51,7 +51,6 @@ export class VoyagerClient {
     this.minIntervalMs = rpm > 0 ? Math.max(0, Math.ceil(60_000 / rpm)) : 0;
   }
 
-  // Space out requests so we don't trip the per-key rpm limit.
   private throttle(): Promise<void> {
     if (this.minIntervalMs <= 0) return Promise.resolve();
     const wait = this.lastCallAt + this.minIntervalMs - Date.now();
@@ -90,7 +89,7 @@ export class VoyagerClient {
     attempt = 0,
   ): Promise<any> {
     return voyagerCircuitBreaker.execute(() =>
-      this.requestDirect(path, params, method, body, attempt)
+      this.requestDirect(path, params, method, body, attempt),
     );
   }
 
@@ -159,13 +158,13 @@ export class VoyagerClient {
     }
   }
 
-  // Read-only pull status / data availability for a stock. Never submits a pull.
+  // ── Pull status & jobs ──────────────────────────────────────────────
+
   async getPullStatus(symbol: string, country: string, source: string): Promise<PullStatus> {
     const data = await this.get("/pull", { symbol, country, source });
     return (data ?? {}) as PullStatus;
   }
 
-  // Trigger an async data pull. Returns a job_id for polling.
   async triggerPull(
     symbol: string,
     country: string,
@@ -176,11 +175,87 @@ export class VoyagerClient {
     return this.post("/pull", { symbol, country, source, filing_type: filingType, refresh });
   }
 
-  // Check the status of an async pull job.
   async getPullJobStatus(
     jobId: string,
   ): Promise<{ job_id: string; status: string; error?: string; duration_ms?: number }> {
     return this.get(`/pull/jobs/${jobId}`);
+  }
+
+  async listPullJobs(limit = 20): Promise<any> {
+    return this.get("/pull/jobs", { limit });
+  }
+
+  // ── DCF valuation ───────────────────────────────────────────────────
+
+  async getDcfValuation(
+    symbol: string,
+    source: string,
+    params: {
+      growth_rate?: number;
+      terminal_growth_rate?: number;
+      discount_rate?: number;
+      years?: number;
+      beta?: number;
+    } = {},
+  ): Promise<any> {
+    return this.get("/dcf", { symbol, source, ...params });
+  }
+
+  // ── News ────────────────────────────────────────────────────────────
+
+  async getMarketNews(params: {
+    country?: string;
+    days?: number;
+    limit?: number;
+  } = {}): Promise<any> {
+    return this.get("/news/stories", params);
+  }
+
+  async getTickerNews(
+    symbol: string,
+    params: {
+      country?: string;
+      days?: number;
+      limit?: number;
+    } = {},
+  ): Promise<any> {
+    return this.get("/news/ticker", { symbol, ...params });
+  }
+
+  // ── Social ──────────────────────────────────────────────────────────
+
+  async searchReddit(query: string, limit = 10): Promise<any> {
+    return this.get("/social/reddit", { query, limit });
+  }
+
+  async searchYouTube(query: string, limit = 15): Promise<any> {
+    return this.get("/social/youtube/search", { query, limit });
+  }
+
+  async getYouTubeTranscript(videoId: string): Promise<any> {
+    return this.get("/social/youtube/transcript", { video_id: videoId });
+  }
+
+  // ── Documents ───────────────────────────────────────────────────────
+
+  async parseDocument(url: string, symbol?: string, source?: string): Promise<any> {
+    return this.post("/documents/parse", { url, symbol, source });
+  }
+
+  async getDocumentIndex(documentId: number): Promise<any> {
+    return this.get(`/documents/${documentId}/index`);
+  }
+
+  // ── Sentiment ───────────────────────────────────────────────────────
+
+  async analyzeManagementSentiment(params: {
+    url?: string;
+    text?: string;
+    symbol?: string;
+    source?: string;
+    model?: string;
+  }): Promise<any> {
+    return this.post("/sentiment/management", params);
   }
 }
 
