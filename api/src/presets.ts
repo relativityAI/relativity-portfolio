@@ -4,6 +4,7 @@
  * as a starting point when the user selects an investment style.
  */
 
+import { randomUUID } from "node:crypto";
 import { getFlatCatalog, findMetricId } from "./metrics.js";
 
 export interface PresetTemplate {
@@ -157,17 +158,25 @@ export interface SeededAgent {
   configuration: PresetTemplate["configuration"];
   asset_evaluation: PresetTemplate["asset_evaluation"];
   macro_evaluation: PresetTemplate["macro_evaluation"];
+  created_at?: string;
+  updated_at?: string;
 }
 
 export function buildSeedAgents(userId: string): SeededAgent[] {
+  const now = new Date().toISOString();
+  // NB: agents.id is a Postgres uuid column — any non-uuid string (e.g.
+  // `${key}-${userId}`) makes PostgREST reject the whole insert, so a new
+  // user would never see their default agents. Always use real UUIDs here.
   return Object.entries(PRESETS).map(([key, p]) => ({
-    id: `${key}-${userId}`,
+    id: randomUUID(),
     name: p.name,
     source: DEFAULT_SOURCE,
     persona: p.persona,
     configuration: p.configuration,
     asset_evaluation: p.asset_evaluation,
     macro_evaluation: p.macro_evaluation,
+    created_at: now,
+    updated_at: now,
   }));
 }
 
@@ -185,6 +194,14 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
       const id = findMetricId(r.metric || r.metric_name) || r.metric;
       if (!known.has(id)) throw new Error(`presets[${key}]: unknown metric "${r.metric || r.metric_name}"`);
     }
+  }
+
+  // Seed rows must carry a real uuid id or a fresh user's default agents won't
+  // insert (PostgREST rejects non-uuid ids against the agents.id column).
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  for (const seed of buildSeedAgents("00000000-0000-4000-8000-000000000000")) {
+    if (!UUID.test(seed.id)) throw new Error(`presets: seed id not a uuid: "${seed.id}"`);
+    if (!seed.name || !seed.persona) throw new Error("presets: seed row missing required fields");
   }
   console.log("presets OK:", keys.join(", "));
 }

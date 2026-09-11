@@ -22,7 +22,7 @@ import { log, paint } from "./logger.js";
 import { initTelemetry } from "./telemetry.js";
 import { serve } from "inngest/express";
 import { inngest, analysisRunFn } from "./inngest.js";
-import { traceHub } from "./trace.js";
+import { traceHub, nextSeq, type TraceEvent } from "./trace.js";
 
 // Initialize Langfuse telemetry before any AI SDK calls.
 await initTelemetry();
@@ -735,7 +735,36 @@ app.post("/builder/draft", requireAuth, async (req, res) => {
       user_response: body.user_response || undefined,
     };
 
-    const response = await processBuilderTurn(builderReq);
+    // Stream the turn's trace events (thinking, tool calls) to the same SSE hub
+    // the analysis pipeline uses, so the builder UI shows live agent activity.
+    const builderSessionKey = builderReq.session_id ? `builder:${builderReq.session_id}` : undefined;
+    if (builderSessionKey) traceHub.reset(builderSessionKey);
+    const response = await processBuilderTurn(builderReq, {
+      onTrace: (ev) => {
+        if (!builderSessionKey) return;
+        const base = { seq: nextSeq(), ts: Date.now(), key: "builder" } as const;
+        const emit = (event: TraceEvent) => traceHub.publish(builderSessionKey, event);
+        switch (ev.type) {
+          case "thought":
+            emit({ ...base, type: "thought", text: ev.text });
+            break;
+          case "tool_call":
+            emit({ ...base, type: "tool_call", tool: ev.tool, args: ev.args });
+            break;
+          case "tool_result":
+            emit({ ...base, type: "tool_result", tool: ev.tool, status: ev.status, result: ev.result, duration_ms: ev.duration_ms });
+            break;
+          case "decision":
+            emit({ ...base, type: "decision", score: ev.score, text: ev.text });
+            break;
+        }
+      },
+    });
+    if (builderSessionKey) {
+      traceHub.publish(builderSessionKey, {
+        seq: nextSeq(), ts: Date.now(), type: "log", key: "builder", text: "turn complete",
+      });
+    }
     res.json(response);
   } catch (e: any) {
     console.error("[builder/draft] FAILED:", e?.name, e?.message);
@@ -744,6 +773,30 @@ app.post("/builder/draft", requireAuth, async (req, res) => {
     const detail = e?.message || "Builder draft failed";
     res.status(502).json({ error: `Model "${requestedModel}": ${detail}` });
   }
+});
+
+// Live SSE stream of the builder agent's trace events (thinking, tool calls)
+// for one conversational session. Replays events already buffered.
+app.get("/builder/:sessionId/stream", requireAuth, async (req, res) => {
+  const sessionId = String(req.params.sessionId);
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  const key = `builder:${sessionId}`;
+  const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+  const heartbeat = setInterval(() => res.write(": ping\n\n"), 15000);
+
+  const unsubscribe = traceHub.subscribe(key, (event) => send({ type: "trace", event }));
+  send({ type: "ready", sessionId });
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  });
 });
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
