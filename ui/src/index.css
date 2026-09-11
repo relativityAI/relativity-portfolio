@@ -3,6 +3,7 @@
   --surface-canvas: #FAFAF9;
   --surface-panel: #FFFFFF;
   --surface-recessed: #F4F4F3;
+  --surface-inverse: #101215;
   --hairline: #D9D9D5;
   --grid-line: #C7C7C2;
 
@@ -11,8 +12,16 @@
   --ink-secondary: #6B7280;
   --ink-tertiary: #9CA3AF;
 
+  /* Inverse surface ink (always used against --surface-inverse, near-black) */
+  --ink-inverse-primary: #EDEDEC;
+  --ink-inverse-secondary: #9AA0A6;
+  --ink-inverse-tertiary: #6B7280;
+
   /* Accent */
   --accent-primary: #5B7FDE;
+
+  /* Ambient blobs — light value (dark overrides below) */
+  --blob-opacity: 0.2;
 
   /* Signals */
   --signal-positive: #4C8B6B;
@@ -32,12 +41,15 @@
     --surface-canvas: #0B0D10;
     --surface-panel: #14171B;
     --surface-recessed: #0F1114;
+    --surface-inverse: #060709;
     --hairline: #343B43;
     --grid-line: #414A54;
 
     --ink-primary: #EDEDEC;
     --ink-secondary: #9AA0A6;
     --ink-tertiary: #5B6167;
+
+    --blob-opacity: 0.22;
   }
 }
 
@@ -46,12 +58,15 @@ html.dark {
   --surface-canvas: #0B0D10;
   --surface-panel: #14171B;
   --surface-recessed: #0F1114;
+  --surface-inverse: #060709;
   --hairline: #343B43;
   --grid-line: #414A54;
 
   --ink-primary: #EDEDEC;
   --ink-secondary: #9AA0A6;
   --ink-tertiary: #5B6167;
+
+  --blob-opacity: 0.22;
 }
 
 /* Base canvas */
@@ -100,4 +115,42 @@ body {
 /* Builder typing cursor */
 @keyframes blink {
   50% { opacity: 0; }
+}
+
+/* Data-source marquee */
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee 30s linear infinite;
+}
+
+.marquee-track:hover,
+.marquee-track:focus-within {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
+}
+
+/* Ambient color blobs — light mode only, so dark mode keeps its clean
+   recessed-surface depth. One accent, large and soft, never animated. */
+.ambient-blob {
+  position: absolute;
+  width: 48vw;
+  height: 48vw;
+  min-width: 360px;
+  min-height: 360px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-primary) 0%, var(--accent-primary) 22%, transparent 70%);
+  opacity: var(--blob-opacity, 0);
+  pointer-events: none;
+  z-index: 0;
 }

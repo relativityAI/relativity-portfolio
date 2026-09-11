@@ -8,7 +8,7 @@ import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX } from "react-icons/lu"
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { useAuth } from "@/auth/useAuth";
 import { motion } from "motion/react";
-import logo from "@/assets/logo.png";
+import logoMark from "@/assets/logo-mark.png";
 
 const HEALTH_CHECK_INTERVAL_MS = 15000;
 
@@ -126,7 +126,7 @@ export default function NavBar() {
         >
             <Flex align="center" gap={{ base: 8, md: 4, lg: 8 }}>
                 <Flex align="center" gap={2}>
-                    <img src={logo} alt="Relativity logo" width={30} height={30} style={{ borderRadius: 6 }} />
+                    <img src={logoMark} alt="Relativity logo" style={{ height: "30px", width: "auto", borderRadius: 8 }} />
                     <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
                 </Flex>
                 
@@ -283,7 +283,7 @@ export default function NavBar() {
                             py={4}
                         >
                             <Flex align="center" gap={2}>
-                                <img src={logo} alt="Relativity logo" width={30} height={30} style={{ borderRadius: 6 }} />
+                                <img src={logoMark} alt="Relativity logo" style={{ height: "30px", width: "auto", borderRadius: 8 }} />
                                 <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
                             </Flex>
                             <Drawer.CloseTrigger asChild>
