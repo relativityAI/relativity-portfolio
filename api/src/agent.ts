@@ -1,17 +1,20 @@
-import { generateText, isStepCount, streamText, type LanguageModel } from "ai";
+import { generateText, type LanguageModel } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { aggregateWeightedScores } from "./scoring.js";
 import { config } from "./config.js";
-import { buildTools, extractToolCalls, ToolContext } from "./tools.js";
+import { buildTools, ToolContext } from "./tools.js";
 import type { DataAdequacy } from "./quant.js";
 import { log } from "./logger.js";
+import { runAgentTurn, type HarnessOptions } from "./harness.js";
 import {
   QUALITATIVE_SCORING_SYSTEM_PROMPT,
+  QUALITATIVE_VERDICT_SYSTEM_PROMPT,
   buildScoreRecoveryPrompt,
   buildDraftParametersPrompt,
+  buildVerdictRecoveryPrompt,
 } from "./prompts.js";
 
 // Per-parameter wall-clock budget for the LLM tool loop.
@@ -121,6 +124,44 @@ async function recoverScore(
   }
 }
 
+const RECOVERY_RETRIES = 2;
+const RECOVERY_RETRY_DELAY_MS = 3000;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// No-tools verdict pass used when the tool loop ended without a FINAL_SCORE
+// line. Retried a couple times with a short wait for empty/no-output replies.
+async function verdictRecovery(
+  model: LanguageModel,
+  parameter: { parameter: string; content?: string; section?: string },
+  researchText: string,
+  context = "",
+): Promise<{ text: string; score: number; found: boolean }> {
+  const prompt = buildVerdictRecoveryPrompt(parameter, researchText, context);
+  for (let attempt = 0; attempt < RECOVERY_RETRIES; attempt++) {
+    if (attempt > 0) await sleep(RECOVERY_RETRY_DELAY_MS);
+    try {
+      const turn = await runAgentTurn({
+        model,
+        system: QUALITATIVE_VERDICT_SYSTEM_PROMPT,
+        prompt,
+        temperature: 0.2,
+        maxOutputTokens: 2048,
+        maxToolSteps: 1,
+        abortSignal: AbortSignal.timeout(60_000),
+      });
+      const text = turn.text || "";
+      if (text.trim()) {
+        const { score, found } = parseFinalScoreResult(text);
+        return { text, score, found };
+      }
+      log.warn("[agent]", "verdict recovery returned no output; retrying");
+    } catch (e: any) {
+      log.warn("[agent]", "verdict recovery failed:", String(e?.message || e));
+    }
+  }
+  return { text: "", score: 0, found: false };
+}
+
 // One context line from the agent's Configuration section (horizon + risk).
 export function investorProfileLine(configuration: any): string {
   const h = configuration?.investment_horizon;
@@ -205,6 +246,9 @@ export async function runQualitative(
     const userPrompt = [
       ...contextLines,
       ``,
+      isMacro
+        ? `The subject of this analysis is the ${toolCtx.source.toUpperCase()} market (${toolCtx.country}) — every criterion below refers to that market, not to a specific company.`
+        : `The subject of this analysis is the company ${toolCtx.shareName || toolCtx.symbol} (${toolCtx.symbol}) on ${toolCtx.source.toUpperCase()} (${toolCtx.country}). Every criterion below refers to THIS company and no other.`,
       `Qualitative parameter: ${parameter.parameter}`,
       parameter.content ? `Guidelines for this parameter:\n${parameter.content}` : "",
       ``,
@@ -226,76 +270,100 @@ export async function runQualitative(
       .filter(Boolean)
       .join("\n");
 
-    const result = await streamText({
+    const onEvent: HarnessOptions["onEvent"] = (ev) => {
+      switch (ev.type) {
+        case "thought":
+          onTrace?.({ type: "thought", text: ev.text });
+          break;
+        case "tool_call":
+          onTrace?.({ type: "tool_call", tool: ev.tool, args: ev.args });
+          break;
+        case "tool_result":
+          onTrace?.({
+            type: "tool_result",
+            tool: ev.tool,
+            result: ev.result,
+            status: ev.status,
+            duration_ms: ev.duration_ms,
+          });
+          break;
+      }
+    };
+
+    const turn = await runAgentTurn({
       model,
-      instructions: QUALITATIVE_SCORING_SYSTEM_PROMPT,
+      system: QUALITATIVE_SCORING_SYSTEM_PROMPT,
       prompt: userPrompt,
       temperature: 0.1,
       maxOutputTokens: 8192,
-      stopWhen: isStepCount(config.maxToolSteps),
       tools,
+      forceTools: true,
+      maxToolSteps: config.maxToolSteps,
       abortSignal: AbortSignal.timeout(PARAM_TIMEOUT_MS),
+      onEvent,
     });
 
-    // Consume the full stream so each reasoning/tool part is surfaced live.
-    for await (const part of result.fullStream) {
-      switch (part.type) {
-        case "reasoning-delta":
-          onTrace?.({ type: "thought", text: part.text });
-          break;
-        case "tool-call":
-          onTrace?.({ type: "tool_call", tool: part.toolName, args: part.input ?? {} });
-          break;
-        case "tool-result":
-          onTrace?.({
-            type: "tool_result",
-            tool: part.toolName,
-            result: part.output,
-            status: "OK",
-            duration_ms: typeof (part as any).duration === "number" ? (part as any).duration : undefined,
-          });
-          break;
-        case "tool-error":
-          onTrace?.({
-            type: "tool_result",
-            tool: part.toolName,
-            status: "ERR",
-            result: String((part as any).error ?? ""),
-          });
-          break;
-        default:
-          break;
-      }
+    if (turn.error) {
+      const userMessage = turn.userMessage;
+      log.error("[agent]", `${modelId} "${parameter.parameter}" harness error:`, turn.error);
+      return {
+        score: 0,
+        analysis: "",
+        toolCalls: turn.toolCalls,
+        error: userMessage || turn.error,
+        retryable: turn.retryable,
+      };
     }
 
-    const st = await result.steps;
-    const text = (await result.text) || "";
+    const text = turn.text || "";
+    let analysis = text;
     let { score, found } = parseFinalScoreResult(text);
     if (!found && text.trim()) {
       ({ score, found } = await recoverScore(model, text));
     }
-    onTrace?.({ type: "decision", score: found ? score : undefined, text: found ? undefined : "FINAL_SCORE not found" });
-    const calls = extractToolCalls(st as any);
 
-    const steps = st || [];
+    // The tool loop can end (step cap or an empty stream/short retries) before
+    // the model writes its closing FINAL_SCORE verdict. Recover with a fresh
+    // no-tools pass that is guaranteed to terminate in text, retried once.
+    // The company/market context lines are re-sent so the recovered verdict can
+    // never claim the subject is unknown.
+    if (!found) {
+      const verdict = await verdictRecovery(model, parameter, text, [...contextLines, investorContext].filter(Boolean).join("\n\n"));
+      if (verdict.text.trim() && verdict.text.trim() !== text.trim()) {
+        analysis = [text.trim(), verdict.text.trim()].filter(Boolean).join("\n\n");
+      }
+      if (verdict.found) {
+        score = verdict.score;
+        found = true;
+      } else if (verdict.text.trim()) {
+        const recovered = await recoverScore(model, verdict.text);
+        if (recovered.found) {
+          score = recovered.score;
+          found = true;
+        }
+      }
+    }
+
+    onTrace?.({ type: "decision", score: found ? score : undefined, text: found ? undefined : "FINAL_SCORE not found" });
+    const calls = turn.toolCalls;
+
+    const steps = turn.steps || [];
     const lastStep = steps[steps.length - 1] as any;
     const maxTurnsReached =
       steps.length >= config.maxToolSteps && !!lastStep && lastStep.finishReason === "tool-calls";
     const error = found ? undefined : maxTurnsReached ? "Max tool-call turns reached" : "FINAL_SCORE not found";
 
-    const usage: any = await result.usage;
     log.info(
       "[agent]",
       `${modelId} "${parameter.parameter}" -> score=${score} toolCalls=${calls.length} steps=${steps.length} in ${((Date.now() - started) / 1000).toFixed(1)}s`,
     );
     return {
       score: error ? 0 : score,
-      analysis: text,
+      analysis,
       toolCalls: calls,
       error,
-      tokens: usage
-        ? { input: usage.inputTokens ?? undefined, output: usage.outputTokens ?? undefined }
-        : undefined,
+      retryable: error === "FINAL_SCORE not found" ? true : undefined,
+      tokens: turn.usage,
     };
   } catch (e: any) {
     const timedOut = e?.name === "TimeoutError" || /abort/i.test(String(e?.name));

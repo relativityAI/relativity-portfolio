@@ -4,7 +4,7 @@
  * Session state lives on the client.
  */
 
-import { generateText, Output, isStepCount } from "ai";
+import { generateText } from "ai";
 import { z } from "zod";
 import { buildModel, type LlmKeys } from "./agent.js";
 import { getSchemaDescriptor, type SchemaDescriptor } from "./schema.js";
@@ -13,6 +13,7 @@ import { normalizeQuantRules } from "./metrics.js";
 import { buildAgentBuilderSystemPrompt, buildBuilderRecoveryPrompt, buildDocumentExtractionPrompt } from "./prompts.js";
 import { buildWebSearchTool } from "./tools.js";
 import { getDb } from "./db.js";
+import { runAgentTurn, type HarnessTraceEvent } from "./harness.js";
 
 const qualitativeParamSchema = z.object({
   parameter: z.string().describe("Short parameter name, e.g., Market Leadership"),
@@ -107,6 +108,8 @@ export interface BuilderResponse {
   sources?: string[];
   search_results?: { query: string; title: string; url: string }[];
   annotations?: { what: string; basis: string }[];
+  /** Live trace of this turn's model operations (thinking, tool calls). */
+  trace?: HarnessTraceEvent[];
 }
 
 /** Audit trail persistence for builder session turns */
@@ -269,7 +272,11 @@ export function parseJsonObject(text: string): any | null {
  * Process a builder conversation turn.
  * Returns the LLM's response with conversation text, options, and/or agent draft updates.
  */
-export async function processBuilderTurn(req: BuilderRequest): Promise<BuilderResponse> {
+export async function processBuilderTurn(
+  req: BuilderRequest,
+  opts: { onTrace?: (ev: HarnessTraceEvent) => void } = {},
+): Promise<BuilderResponse> {
+  const { onTrace } = opts;
   const schema = getSchemaDescriptor();
   const model = buildModel(req.model_id, req.llm_keys);
   console.log(`[builder] model_id=${req.model_id} keys=${Object.keys(req.llm_keys).join(",")}`);
@@ -280,11 +287,11 @@ export async function processBuilderTurn(req: BuilderRequest): Promise<BuilderRe
     .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
     .join("\n\n");
 
-  // Build document context
+  // Build document context (extracted text only — never present filenames as readable input)
   let docContext = "";
   if (req.document_texts.length > 0) {
     docContext =
-      "\n\n## Uploaded Documents\n" +
+      "\n\n## Uploaded Documents (extracted text only — you cannot read the original PDF/file)\n" +
       req.document_texts
         .map((d) => `### ${d.filename}\n${d.text.slice(0, 8000)}`)
         .join("\n\n");
@@ -320,47 +327,40 @@ export async function processBuilderTurn(req: BuilderRequest): Promise<BuilderRe
         "Web search needs a Tavily API key — add it in Settings, then try again.",
     };
   }
-  const session = {
+
+  // Run through the shared harness so the builder streams the same trace
+  // events (thinking, tool calls) as the analysis pipeline.
+  const trace: HarnessTraceEvent[] = [];
+  const onEvent = (ev: HarnessTraceEvent) => {
+    trace.push(ev);
+    onTrace?.(ev);
+  };
+
+  const turn = await runAgentTurn({
     model,
-    instructions: buildAgentBuilderSystemPrompt(schema, req.metrics),
+    system: buildAgentBuilderSystemPrompt(schema, req.metrics),
     prompt,
     temperature: 0.4,
-    stopWhen: isStepCount(3),
-    maxRetries: 0,
-  };
-  // Search is best-effort: forced on explicit request, but if the provider chokes
-  // (free-tier models often lack tool support) fall back to answering without tools.
-  const attempts: Array<Record<string, unknown>> = tools
-    ? explicitSearch
-      ? [{ tools, toolChoice: "required" }, { tools, toolChoice: "auto" }, {}]
-      : [{ tools, toolChoice: "auto" }]
-    : [{}];
+    maxOutputTokens: 4096,
+    tools,
+    forceTools: !!tools && explicitSearch,
+    maxToolSteps: 3,
+    onEvent,
+  });
 
-  let result: Awaited<ReturnType<typeof generateText>> | undefined;
-  for (const attempt of attempts) {
-    try {
-      result = await generateText({ ...session, ...attempt } as any);
-      break;
-    } catch (e: any) {
-      console.warn(`[builder] attempt ${JSON.stringify(attempt)} failed: ${e?.message}`);
-    }
+  // A forced-tool refusal (model answered with zero tool calls) is best-effort
+  // here: answer from context. Provider/network failures propagate to the route.
+  if (turn.error && !/without calling any data tools/i.test(turn.error)) {
+    throw new Error(turn.userMessage ? `${turn.userMessage} ${turn.error}` : turn.error);
+  }
+  if (turn.error) {
+    console.warn(`[builder] forced tool use not honored: ${turn.error}`);
   }
 
-  // Fallback attempt without output constraint if structured output fails
-  if (!result) {
-    try {
-      result = await generateText(session as any);
-    } catch (e: any) {
-      console.warn(`[builder] unconstrained attempt failed: ${e?.message}`);
-    }
-  }
-
-  if (!result) throw new Error("All model attempts failed");
-
-  const sources = extractWebSources(result.steps);
-  const searchResults = extractSearchResults(result.steps);
-  const rawText = getTextFromSteps(result);
-  let parsed: any = (result as any).output || parseJsonObject(rawText);
+  const sources = extractWebSources(turn.steps);
+  const searchResults = extractSearchResults(turn.steps);
+  const rawText = turn.text || "";
+  let parsed: any = parseJsonObject(rawText);
 
   // If parsing failed OR agent_draft_update is missing, run a focused recovery pass
   if (!parsed || !parsed.agent_draft_update) {
@@ -390,6 +390,7 @@ export async function processBuilderTurn(req: BuilderRequest): Promise<BuilderRe
       message: "I had trouble processing that. Could you try again?",
       sources: sources.length ? sources : undefined,
       search_results: searchResults.length ? searchResults : undefined,
+      trace: trace.length ? trace : undefined,
     };
     await persistBuilderSessionTurn(req, fallbackRes);
     return fallbackRes;
@@ -444,6 +445,7 @@ export async function processBuilderTurn(req: BuilderRequest): Promise<BuilderRe
     annotations: Array.isArray(parsed.annotations)
       ? parsed.annotations.filter((a: any) => a?.what && a?.basis && isRealBasis(a.basis)).slice(0, 40)
       : undefined,
+    trace: trace.length ? trace : undefined,
   };
 
   await persistBuilderSessionTurn(req, response);

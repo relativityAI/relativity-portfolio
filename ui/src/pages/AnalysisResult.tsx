@@ -14,15 +14,15 @@ import {
 } from "@chakra-ui/react";
 import { AnalysisService, AgentService } from "@/db";
 import { formatSeconds, agentDisplayName } from "@/utils";
-import { RunSteps } from "./shared/RunStatus";
-import { TracePanel, type TraceEvent } from "./shared/TracePanel";
+import type { TraceEvent } from "./shared/TracePanel";
+import AgentActivity from "../components/shared/AgentActivity";
 import ReactMarkdown from "react-markdown";
 import { jsPDF } from "jspdf";
 import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
 import { motion, AnimatePresence } from "motion/react";
-import { CountUp, dur, ease, swap } from "@/lib/motion";
+import { CountUp, dur, ease } from "@/lib/motion";
 
-const TABS = ["overview", "quantitative", "qualitative"] as const;
+const TABS = ["overview", "quantitative", "qualitative", "reasoning"] as const;
 type Tab = (typeof TABS)[number];
 
 function scoreSignal(score: number): "positive" | "caution" | "negative" {
@@ -126,6 +126,25 @@ function generateVerdict(totalScore: number | null, quant: Record<string, any>, 
     return sentence;
 }
 
+export function tokensUsed(qualAnalysis: Record<string, any>): { input: number; output: number; total: number } | null {
+    let input = 0;
+    let output = 0;
+    for (const entry of Object.values(qualAnalysis)) {
+        const t = entry?.tokens;
+        if (!t) continue;
+        input += typeof t.input === "number" ? t.input : 0;
+        output += typeof t.output === "number" ? t.output : 0;
+    }
+    if (input + output === 0) return null;
+    return { input, output, total: input + output };
+}
+
+export function formatTokens(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+    return String(n);
+}
+
 export default function AnalysisResult() {
     const { id } = useParams();
     const [analysis, setAnalysis] = useState<any>(null);
@@ -191,6 +210,11 @@ export default function AnalysisResult() {
     useEffect(() => {
         fetchResult();
     }, [id]);
+
+    // While a run is ongoing, the only populated tab is the live reasoning view.
+    useEffect(() => {
+        if (isRunning) setActiveTab("reasoning");
+    }, [isRunning]);
 
     const handleTabChange = useCallback((details: { value: string }) => {
         const tab = details.value as Tab;
@@ -271,6 +295,9 @@ export default function AnalysisResult() {
     const docs: any[] = analysis.documents || [];
     const webSrc: string[] = analysis.web_sources || [];
 
+    const tokenUse = tokensUsed(qualAnalysis);
+    const traceCount = Array.isArray(analysis.trace) ? analysis.trace.length : 0;
+
     const assetQuant = Object.entries(quantAnalysis)
         .filter(([, d]) => !isMacroSection(d?.section))
         .map(([key, d]) => ({ key, ...d, _score: d.score ?? 0 }));
@@ -287,51 +314,207 @@ export default function AnalysisResult() {
     const downloadPdf = () => {
         if (!analysis) return;
         const doc = new jsPDF({ unit: "mm", format: "a4" });
+
+        // ---- Relativity brand tokens (mirror ui/src/index.css) ----
+        const INK = "#16181B"; // display + masthead ink
+        const INK2 = "#6B7280"; // secondary text
+        const HAIR = "#D9D9D5"; // hairline rules
+        const ACCENT = "#5B7FDE"; // brand accent, used sparingly
+        const GOOD = "#4C8B6B",
+            CAUTION = "#B8935A",
+            BAD = "#B85C5C";
+
         const W = doc.internal.pageSize.getWidth();
-        const M = 14;
-        let y = 16;
+        const H = doc.internal.pageSize.getHeight();
+        const M = 16;
+        const FOOT = 22; // reserve room for the running footer
+        const CW = W - M * 2;
+        let y = 60;
+
+        const signalFor = (s: number | null): string =>
+            s == null ? INK2 : s >= 70 ? GOOD : s >= 40 ? CAUTION : BAD;
+        const font = (style: string) => doc.setFont("helvetica", style);
+        const ink = (color: string) => doc.setTextColor(color);
+        const caps = (text: string, x: number, cy: number, color: string, size = 7, spacing = 0.9, align?: "left" | "right" | "center") => {
+            font("bold");
+            doc.setFontSize(size);
+            ink(color);
+            doc.text(text.toUpperCase(), x, cy, { charSpace: spacing, align });
+        };
 
         const ensure = (needed: number) => {
-            if (y + needed > doc.internal.pageSize.getHeight() - 14) {
+            if (y + needed > H - FOOT) {
                 doc.addPage();
-                y = 16;
+                y = M;
             }
         };
         const body = (text: string, size = 9.5, style: string | null = null, mx = 0) => {
-            doc.setFont("helvetica", style || "normal");
+            font(style || "normal");
+            ink(INK);
             doc.setFontSize(size);
-            const lines = doc.splitTextToSize(text, W - M * 2 - mx);
-            ensure(lines.length * size * 0.3528);
+            const lines = doc.splitTextToSize(text, CW - mx);
+            ensure(lines.length * size * 0.3528 + 2);
             doc.text(lines, M + mx, y);
-            y += lines.length * size * 0.3528 + (size >= 10 ? 1.5 : 0);
+            y += lines.length * size * 0.3528 + (size >= 10 ? 1.6 : 0.5);
         };
+        const spacer = (h = 2) => { y += h; };
+        const rule = (x1: number, cy: number, w: number, color = HAIR, lw = 0.3) => {
+            doc.setDrawColor(color);
+            doc.setLineWidth(lw);
+            doc.line(x1, cy, x1 + w, cy);
+        };
+
+        // Section kicker: hairline + accent tick + tracked small-caps label.
+        // The tick marks the start of a block, not a step — these are sections.
         const label = (text: string) => {
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(8);
-            doc.setTextColor(120);
-            doc.text(text.toUpperCase(), M, y);
-            y += 3.5;
-            doc.setTextColor(0);
+            rule(M, y, CW);
+            y += 3.4;
+            ink(ACCENT);
+            doc.setFillColor(ACCENT);
+            doc.rect(M, y - 2.4, 1.3, 3.2, "F");
+            caps(text, M + 4, y + 0.6, INK, 7.5, 1.1);
+            y += 6;
         };
-        const spacer = (h = 4) => { y += h; };
+
+        // Page-1 signature: dark masthead with R mark + RELATIVITY wordmark.
+        const band = () => {
+            doc.setFillColor(INK);
+            doc.rect(0, 0, W, 34, "F");
+            doc.setFillColor(INK);
+            doc.roundedRect(M, 8, 11, 11, 2.6, 2.6, "F");
+            ink("#FFFFFF");
+            font("bold");
+            doc.setFontSize(10);
+            doc.text("R", M + 5.5, 15.8, { align: "center" });
+            font("bold");
+            doc.setFontSize(12.5);
+            ink("#FFFFFF");
+            doc.text("RELATIVITY", M + 15.5, 16.5, { charSpace: 1.8 });
+            caps("FIT SCORE REPORT", W - M, 14.8, "#8FA0C8", 8, 1.4, "right");
+            rule(M, 33.4, CW, "#3A3E46");
+        };
+        const scoreBar = (x: number, cy: number, w: number, ratio: number, color: string) => {
+            doc.setFillColor(HAIR);
+            doc.roundedRect(x, cy, w, 1.4, 0.7, 0.7, "F");
+            if (ratio > 0) {
+                doc.setFillColor(color);
+                doc.roundedRect(x, cy, Math.max(w * ratio, 1.6), 1.4, 0.7, 0.7, "F");
+            }
+        };
 
         const shareName = analysis.share_name || analysis.symbol || "Analysis";
 
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(18);
-        doc.text(`${shareName} — FIT Score`, M, y);
-        y += 8;
-        ensure(20);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(11);
-        const verdictLines = doc.splitTextToSize(verdictSentence, W - M * 2);
-        ensure(verdictLines.length * 4);
-        doc.text(verdictLines, M, y);
-        y += verdictLines.length * 4 + 6;
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(12);
-        doc.text(`${totalScore != null ? totalScore.toFixed(1) : "—"} / 100`, M, y);
-        y += 6;
+        // ---- Masthead + verdict + score band (the one bold moment) ----
+        band();
+        y = 50;
+        font("bold");
+        ink(INK);
+        doc.setFontSize(24);
+        const shareLines = doc.splitTextToSize(shareName, CW);
+        doc.text(shareLines, M, y);
+        y += shareLines.length * 9 + 7;
+        if (verdictSentence) {
+            font("normal");
+            doc.setFontSize(11.5);
+            ink(INK2);
+            const vLines = doc.splitTextToSize(verdictSentence, CW);
+            ensure(vLines.length * 5.1 + 2);
+            doc.text(vLines, M, y);
+            y += vLines.length * 5.1 + 8;
+        }
+        const cellLabel = ["Fit Score", "Quantitative", "Qualitative"];
+        const cellVal = [
+            totalScore != null ? totalScore.toFixed(1) : "—",
+            quantScore != null ? quantScore.toFixed(1) : "—",
+            qualScore != null ? qualScore.toFixed(1) : "—",
+        ];
+        const cellCol = [signalFor(totalScore), signalFor(quantScore), signalFor(qualScore)];
+        const cellW = CW / 3;
+        for (let i = 0; i < 3; i++) {
+            const x = M + i * cellW;
+            caps(cellLabel[i], x, y, INK2, 7, 0.9);
+            font("bold");
+            doc.setFontSize(22);
+            ink(cellCol[i]);
+            doc.text(cellVal[i], x, y + 9.5);
+            font("normal");
+            doc.setFontSize(8.5);
+            ink(INK2);
+            doc.text("/100", x + doc.getTextWidth(cellVal[i]) + 2.5, y + 9.5);
+            const n = Number(cellVal[i]);
+            scoreBar(x, y + 13.5, cellW - 6, Number.isFinite(n) ? Math.min(n, 100) / 100 : 0, cellCol[i]);
+            if (i < 2) {
+                doc.setDrawColor(HAIR);
+                doc.setLineWidth(0.3);
+                doc.line(x + cellW, y - 6, x + cellW, y + 17);
+            }
+        }
+        y += 30;
+
+        // Draw a run of inline text supporting **bold** markers with word-wrap.
+        // Returns the wrapped fragment width it consumed on the last visual row.
+        const drawRich = (raw: string, size: number, indent: number, weight: "normal" | "bold") => {
+            const maxW = W - M * 2 - indent;
+            const lineH = size * 0.3528 + (size >= 10 ? 1.5 : 0.5);
+            const words: { text: string; bold: boolean }[] = [];
+            const tokens = raw.split(/\*\*(.+?)\*\*/g);
+            for (let i = 0; i < tokens.length; i++) {
+                const bold = i % 2 === 1;
+                for (const w of tokens[i].split(/\s+/).filter(Boolean)) words.push({ text: w, bold });
+            }
+            let cx = M + indent;
+            for (let i = 0; i < words.length; i++) {
+                const w = words[i];
+                doc.setFont("helvetica", w.bold ? "bold" : weight);
+                doc.setFontSize(size);
+                const sep = i === 0 || cx === M + indent ? "" : " ";
+                const addW = doc.getTextWidth(sep + w.text);
+                if (cx - (M + indent) + addW > maxW) {
+                    y += lineH;
+                    ensure(lineH + 1);
+                    cx = M + indent;
+                    doc.setFont("helvetica", w.bold ? "bold" : weight);
+                    doc.setFontSize(size);
+                    doc.text(w.text, cx, y);
+                    cx += doc.getTextWidth(w.text);
+                } else {
+                    doc.text(sep + w.text, cx, y);
+                    cx += addW;
+                }
+            }
+            y += lineH;
+        };
+
+        // Markdown-aware block renderer: headings, **bold**, bullets, numbered
+        // lists, FINAL_SCORE emphasis. Fixes the cramped raw-text layout.
+        const mdBody = (text: string, baseSize = 9, indent = 0) => {
+            for (const raw of String(text || "").split("\n")) {
+                const line = raw.replace(/\s+$/, "");
+                if (!line.trim()) {
+                    y += baseSize >= 10 ? 1.5 : 1;
+                    continue;
+                }
+                const heading = line.match(/^(#{1,6})\s+(.*)/);
+                if (heading) {
+                    const size = baseSize + (heading[1].length <= 1 ? 3 : heading[1].length === 2 ? 2 : 1);
+                    ensure(size + 1);
+                    drawRich(heading[2], size, indent, "bold");
+                    y += 0.5;
+                    continue;
+                }
+                const bullet = line.match(/^[-•*]\s+(.*)/);
+                const numbered = line.match(/^(\d+)[.)]\s+(.*)/);
+                if (bullet || numbered) {
+                    const marker = numbered ? `${numbered[1]}.` : "•";
+                    drawRich(`${marker}  ${(bullet || numbered)![1]}`, baseSize, indent + 2, "normal");
+                    continue;
+                }
+                const isFinalScore = /^FINAL_SCORE\s*[:：=]/.test(line);
+                doc.setTextColor(isFinalScore ? 20 : 0);
+                drawRich(line, isFinalScore ? baseSize + 1 : baseSize, indent, isFinalScore ? "bold" : "normal");
+                doc.setTextColor(0);
+            }
+        };
 
         // Run details
         label("Run Details");
@@ -342,6 +525,11 @@ export default function AnalysisResult() {
             ["Source", analysis.source || "—"],
             ["Duration", analysis.duration != null ? formatDuration(analysis.duration) : "—"],
             ["Created", analysis.created_at ? new Date(analysis.created_at).toLocaleString() : "—"],
+            ...(tokenUse
+                ? [
+                    ["Tokens Used", `${formatTokens(tokenUse.total)} net (${formatTokens(tokenUse.input)} in / ${formatTokens(tokenUse.output)} out)`],
+                ]
+                : []),
         ];
         ensure(runRows.length * 6);
         runRows.forEach(([k, v]) => {
@@ -408,7 +596,7 @@ export default function AnalysisResult() {
                     body(scoreLine, 8.5, null, 4);
                     doc.setFont("helvetica", "normal");
                     const analysisText = d?.error ? `Error: ${String(d.error)}` : d?.analysis || d?.content || "No analysis available.";
-                    body(analysisText, 9, null, 4);
+                    mdBody(analysisText, 9, 4);
                     const calls = toolCalls?.[key] || [];
                     if (calls.length) {
                         const names = calls.map((c) => c?.tool_name || "tool").filter(Boolean);
@@ -475,6 +663,21 @@ export default function AnalysisResult() {
                 webSrc.forEach((src: string) => body(`- ${src}`, 8.5, null, 4));
             }
             if (webNote) body(webNote, 8.5, "italic", 2);
+        }
+
+        // Running footer + page numbers on every page.
+        const pageCount = doc.getNumberOfPages();
+        for (let p = 1; p <= pageCount; p++) {
+            doc.setPage(p);
+            const fy = H - 8.5;
+            rule(M, fy - 3, CW);
+            caps(`${shareName} · FIT SCORE`, M, fy, INK2, 6.5, 0.8);
+            font("normal");
+            doc.setFontSize(6.8);
+            ink(INK2);
+            doc.text(`Relativity · page ${p} of ${pageCount}`, W - M, fy, { align: "right" });
+            ink("#B9BEC7");
+            doc.text("Research aid — not investment advice", M, fy + 2.6);
         }
 
         const filename = `${analysis.symbol || analysis.share_name || "analysis"}-${id?.slice(0, 8) || "result"}.pdf`;
@@ -604,6 +807,19 @@ export default function AnalysisResult() {
                             display={{ base: "none", md: "block" }}
                         >
                             {metaLine}
+                        </Text>
+                    )}
+                    {tokenUse && isComplete && (
+                        <Text
+                            fontSize="11px"
+                            fontFamily="var(--font-mono)"
+                            color="var(--ink-tertiary)"
+                            mt={1}
+                        >
+                            Tokens · {formatTokens(tokenUse.total)} net
+                            <Text as="span" color="var(--ink-tertiary)" opacity={0.75}>
+                                {`  (${formatTokens(tokenUse.input)} in / ${formatTokens(tokenUse.output)} out)`}
+                            </Text>
                         </Text>
                     )}
                 </Box>
@@ -795,11 +1011,10 @@ export default function AnalysisResult() {
                     </Box>
                 )}
 
-                {/* Running state ↔ completed report crossfade */}
-                <AnimatePresence mode="wait">
+                {/* Running status line */}
                 {isRunning && (
-                    <Box key="running" as={motion.div} variants={swap} initial="initial" animate="animate" exit="exit" mb={6}>
-                        <Flex justify="space-between" align="center" mb={3}>
+                    <Box key="running" mb={4}>
+                        <Flex justify="space-between" align="center">
                             <HStack gap={3} color="var(--ink-secondary)">
                                 <Spinner size="sm" borderWidth="2px" />
                                 <Text fontSize="13px">Analysis in progress — this page updates automatically.</Text>
@@ -816,51 +1031,11 @@ export default function AnalysisResult() {
                                 </Text>
                             )}
                         </Flex>
-
-                        <Box
-                            border="1px solid var(--hairline)"
-                            borderRadius="2px"
-                            bg="var(--surface-panel)"
-                            p={5}
-                        >
-                            <Text
-                                fontSize="10.5px"
-                                fontWeight={500}
-                                color="var(--ink-tertiary)"
-                                letterSpacing="0.06em"
-                                textTransform="uppercase"
-                                mb={4}
-                            >
-                                Steps
-                            </Text>
-                            <RunSteps steps={analysis.steps || []} now={Date.now()} />
-                        </Box>
-
-                        <Box
-                            border="1px solid var(--hairline)"
-                            borderRadius="2px"
-                            bg="var(--surface-panel)"
-                            p={5}
-                            mt={4}
-                        >
-                            <Text
-                                fontSize="10.5px"
-                                fontWeight={500}
-                                color="var(--ink-tertiary)"
-                                letterSpacing="0.06em"
-                                textTransform="uppercase"
-                                mb={2}
-                            >
-                                Model Reasoning
-                            </Text>
-                            <TracePanel runId={id} />
-                        </Box>
                     </Box>
                 )}
 
-                {/* Section nav */}
-                {isComplete && (
-                    <Box key="report" as={motion.div} variants={swap} initial="initial" animate="animate" exit="exit">
+                {/* Report tabs (live reasoning tab while running) */}
+                <Box key="report">
                     <Tabs.Root
                         value={activeTab}
                         onValueChange={handleTabChange}
@@ -907,6 +1082,8 @@ export default function AnalysisResult() {
                         {/* ── Overview ── */}
                         <Tabs.Content value="overview">
                             <Box ref={(el) => registerSection("overview", el)} data-section="overview">
+                                {isComplete ? (
+                                    <>
                                 {/* Quantitative preview */}
                                 {quantEntries.length > 0 && (
                                     <Box mb={8}>
@@ -984,6 +1161,10 @@ export default function AnalysisResult() {
                                         <SourcesStrip docs={docs} webSrc={webSrc} analysis={analysis} />
                                     </Box>
                                 )}
+                                    </>
+                                ) : (
+                                    <EmptyState message="Waiting for the analysis to complete — the report appears here when it's done." />
+                                )}
                             </Box>
                         </Tabs.Content>
 
@@ -993,6 +1174,8 @@ export default function AnalysisResult() {
                                 ref={(el) => registerSection("quantitative", el)}
                                 data-section="quantitative"
                             >
+                                {isComplete ? (
+                                    <>
                                 <SectionHeader label="Quantitative" count={quantEntries.length} />
                                 {quantEntries.length > 0 ? (
                                     <>
@@ -1022,6 +1205,10 @@ export default function AnalysisResult() {
                                 ) : (
                                     <EmptyState message="No quantitative data available." />
                                 )}
+                                    </>
+                                ) : (
+                                    <EmptyState message="Waiting for the analysis to complete — the report appears here when it's done." />
+                                )}
                             </Box>
                         </Tabs.Content>
 
@@ -1031,6 +1218,8 @@ export default function AnalysisResult() {
                                 ref={(el) => registerSection("qualitative", el)}
                                 data-section="qualitative"
                             >
+                                {isComplete ? (
+                                    <>
                                 <SectionHeader label="Qualitative" count={Object.keys(qualAnalysis).length} />
                                 {Object.keys(qualAnalysis).length > 0 ? (
                                     <>
@@ -1066,14 +1255,42 @@ export default function AnalysisResult() {
                                 ) : (
                                     <EmptyState message="No qualitative findings available." />
                                 )}
+                                    </>
+                                ) : (
+                                    <EmptyState message="Waiting for the analysis to complete — the report appears here when it's done." />
+                                )}
                             </Box>
                         </Tabs.Content>
 
+                        {/* ── Reasoning (full agent trace, live while running) ── */}
+                        <Tabs.Content value="reasoning">
+                            <Box>
+                                <SectionHeader label="Agent Reasoning" count={traceCount} />
+                                {isRunning ? (
+                                    <AgentActivity
+                                        title={`Analyzing ${analysis.share_name || analysis.symbol || "…"} with ${agentName(analysis.agent_name)}`}
+                                        subtitle={`${analysis.model || "default model"} · gathering data, searching, scoring`}
+                                        streamUrl={`/analysis/${id}/stream`}
+                                        steps={analysis.steps || []}
+                                        startedAt={analysis.created_at ? +new Date(analysis.created_at) : undefined}
+                                        active
+                                        maxHeight={480}
+                                    />
+                                ) : (
+                                    <AgentActivity
+                                        title={`Reasoning history — ${analysis.share_name || analysis.symbol || "…"} with ${agentName(analysis.agent_name)}`}
+                                        subtitle={`${analysis.model || "default model"} · full tool and thought trace`}
+                                        events={analysis.trace || []}
+                                        steps={analysis.steps || []}
+                                        active={false}
+                                        maxHeight={480}
+                                    />
+                                )}
+                            </Box>
+                        </Tabs.Content>
 
                     </Tabs.Root>
                     </Box>
-                )}
-                </AnimatePresence>
             </Container>
         </Box>
     );

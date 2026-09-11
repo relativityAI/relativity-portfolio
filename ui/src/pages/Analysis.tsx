@@ -9,8 +9,8 @@ import { MdInfoOutline, MdCheck, MdClose, MdArrowForward } from "react-icons/md"
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AnalysisService, AgentService, DataService, SettingsService, API_BASE } from "@/db";
 import { formatSeconds, agentDisplayName } from "@/utils";
-import { RunSteps, type RunStep } from "./shared/RunStatus";
-import { TracePanel } from "./shared/TracePanel";
+import { type RunStep } from "./shared/RunStatus";
+import AgentActivity from "@/components/shared/AgentActivity";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease, stagger, staggerItem } from "@/lib/motion";
 
@@ -227,6 +227,7 @@ export default function Analysis() {
 
     const [dataStatus, setDataStatus] = useState<any>(null);
     const [dataStatusLoading, setDataStatusLoading] = useState(false);
+    const [startedAt, setStartedAt] = useState<number | undefined>(undefined);
 
     useEffect(() => {
         if (status === "PENDING") {
@@ -396,6 +397,7 @@ export default function Analysis() {
             if (result && (result.corr_id || result.analysis_id)) {
                 setSteps([]);
                 setCorrelationId(result.corr_id || result.analysis_id);
+                setStartedAt(Date.now());
                 setStatus("PENDING");
             }
         } catch (error) {
@@ -422,6 +424,7 @@ export default function Analysis() {
                 setCorrelationId(analysisId);
 
                 if (Array.isArray(data.steps)) setSteps(data.steps);
+                if (data.created_at) setStartedAt(+new Date(data.created_at));
 
                 const s = (data.status || "").toLowerCase();
                 if (s === "complete" || s === "completed" || s === "error" || s === "failed" || s === "success") {
@@ -864,9 +867,9 @@ export default function Analysis() {
                         </StepSection>
                     </Flex>
 
-                    {/* Live progress while running */}
+                    {/* Live progress while running — same view as the report page during a run */}
                     <AnimatePresence mode="wait" initial={false}>
-                    {status === "PENDING" && (
+                    {status === "PENDING" && correlationId && (
                         <Box
                             key="progress"
                             as={motion.div}
@@ -878,14 +881,31 @@ export default function Analysis() {
                             borderTop="1px solid var(--hairline)"
                             py={5}
                         >
-                            <FieldLabel>Progress</FieldLabel>
-                            <RunSteps steps={steps} now={Date.now()} />
-                            {correlationId && (
-                                <Box mt={4}>
-                                    <FieldLabel>Model Reasoning</FieldLabel>
-                                    <TracePanel runId={correlationId} />
-                                </Box>
-                            )}
+                            <Flex justify="space-between" align="center" mb={3}>
+                                <HStack gap={3} color="var(--ink-secondary)">
+                                    <Spinner size="sm" borderWidth="2px" />
+                                    <Text fontSize="13px">Analysis in progress — this page updates automatically.</Text>
+                                </HStack>
+                                {elapsedTime > 0 && (
+                                    <Text
+                                        fontSize="12px"
+                                        color="var(--ink-tertiary)"
+                                        fontFamily="var(--font-tabular)"
+                                        fontVariantNumeric="tabular-nums"
+                                        whiteSpace="nowrap"
+                                    >
+                                        {formatSeconds(elapsedTime)}
+                                    </Text>
+                                )}
+                            </Flex>
+                            <AgentActivity
+                                title={`Analyzing ${config.shareName || config.share} with ${agentDisplayName(config.agent, availableAgents) || config.agent}`}
+                                subtitle={`${selectedModel || "default model"} · gathering data, searching, scoring`}
+                                streamUrl={`/analysis/${correlationId}/stream`}
+                                steps={steps}
+                                startedAt={startedAt}
+                                active
+                            />
                         </Box>
                     )}
                     </AnimatePresence>

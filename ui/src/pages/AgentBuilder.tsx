@@ -6,6 +6,7 @@ import { dur, ease } from "@/lib/motion";
 import { BuilderService, AgentService, VoyagerService, AnalysisService, SettingsService } from "@/db";
 import ChatPanel from "@/components/builder/ChatPanel";
 import AgentPreviewPanel from "@/components/builder/AgentPreviewPanel";
+import AgentActivity from "@/components/shared/AgentActivity";
 import type { BuilderStep } from "@/components/builder/StepsTrace";
 import type { ChatMsg } from "@/components/builder/ChatBubble";
 import { MdSave, MdOutlineEdit, MdEdit, MdPreview, MdClose } from "react-icons/md";
@@ -58,6 +59,12 @@ export default function AgentBuilder() {
   const savingRef = useRef(false);
   const [steps, setSteps] = useState<BuilderStep[] | null>(null);
   const stepTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [activityVisible, setActivityVisible] = useState(false);
+  const sessionIdRef = useRef<string>(
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `builder-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
 
   const clearStepTimers = useCallback(() => {
     stepTimers.current.forEach(clearTimeout);
@@ -180,6 +187,7 @@ export default function AgentBuilder() {
     if (processingRef.current) return;
     processingRef.current = true;
     setIsProcessing(true);
+    setActivityVisible(true);
 
     try {
       // Validate model access first
@@ -221,6 +229,7 @@ export default function AgentBuilder() {
       beginSteps(stepTitles);
 
       const response = await BuilderService.draft({
+        session_id: sessionIdRef.current,
         messages: messagesSnapshot.map((m) => ({ role: m.role, content: m.content })),
         agent_draft: draftRef.current,
         metrics,
@@ -783,18 +792,32 @@ export default function AgentBuilder() {
       {/* Two-column layout */}
       <Flex flex={1} overflow="hidden" px={{ base: 0, md: 0 }} position="relative">
         {/* Chat panel */}
-        <Box flex={{ base: 1, lg: "0 0 40%" }} borderRight={{ base: "none", lg: "1px solid var(--hairline)" }} overflow="hidden">
-          <ChatPanel
-            messages={messages}
-            onSendMessage={handleSendMessage}
-            onOptionSelect={handleOptionSelect}
-            onUploadFiles={handleUploadFiles}
-            documents={documents}
-            onRemoveDocument={handleRemoveDocument}
-            isProcessing={isProcessing}
-            steps={steps}
-          />
-        </Box>
+        <Flex direction="column" h="100%" flex={{ base: 1, lg: "0 0 40%" }} borderRight={{ base: "none", lg: "1px solid var(--hairline)" }} overflow="hidden" minW={0}>
+          <AnimatePresence initial={false}>
+            {activityVisible && (
+              <Box px={3} pt={3} as={motion.div} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: dur.base, ease }}>
+                <AgentActivity
+                  title="Building your agent"
+                  subtitle={selectedModel ? `Model: ${selectedModel}` : "Researching and drafting your configuration"}
+                  streamUrl={`/builder/${sessionIdRef.current}/stream`}
+                  active={isProcessing}
+                />
+              </Box>
+            )}
+          </AnimatePresence>
+          <Box flex={1} minH={0} display="flex">
+            <ChatPanel
+              messages={messages}
+              onSendMessage={handleSendMessage}
+              onOptionSelect={handleOptionSelect}
+              onUploadFiles={handleUploadFiles}
+              documents={documents}
+              onRemoveDocument={handleRemoveDocument}
+              isProcessing={isProcessing}
+              steps={steps}
+            />
+          </Box>
+        </Flex>
 
         {/* Preview panel — desktop */}
         <Box

@@ -9,8 +9,9 @@ import type { MetricDef } from "./metrics.js";
 export const QUALITATIVE_SCORING_SYSTEM_PROMPT = `You are a strict, evidence-based checklist auditor. Your job is to score a single qualitative investment requirement for a company (asset evaluation) or for the broader market (macro evaluation).
 
 Rules:
-- Gather evidence using the available tools before concluding. Never rely on memory or assumptions.
+- Gather evidence using the available tools before concluding. Never rely on memory or assumptions. You MUST call at least two data tools (e.g. get_financial_metrics plus one of the statements / news / DCF / web tools) before writing the SCORE JUSTIFICATION section. Do not write any section until you have called tools. If a tool returns an empty or error result, try another tool rather than concluding from memory.
 - Relevant tools include: financial metrics, financial statements, announcements, shareholdings, DCF valuation, company documents (transcripts, presentations, parsed PDF indexes), market and ticker news, Reddit/YouTube social signals, earnings-call transcript analysis, management commentary/sentiment analysis, data-availability checks and pulls, and optionally live web search.
+- Documents are referred to by NAME ONLY. The full text of documents is NOT embedded in this prompt, and file attachments (including PDFs) cannot be read by this model. Never claim to have read a file; if you need document content, call the document index / parse tools.
 - Decompose the requirement into the smallest number of distinct, checkable criteria — one per distinct investor requirement in the guidelines.
 - Grade each criterion against gathered evidence only, using this fixed rubric:
   - Yes: fully met -> 1 credit
@@ -31,6 +32,31 @@ Rules:
 
 export function buildScoreRecoveryPrompt(analysis: string): string {
   return `The following investment analysis is missing a parsable FINAL_SCORE line. Read it and reply with ONLY the final score as an integer between 0 and 100.\n\n${analysis.slice(0, 6000)}`;
+}
+
+// No-tools follow-up pass: the tool loop may end (step cap / empty stream)
+// before the model writes its closing verdict, so we hand it back a fresh,
+// tool-less turn whose only job is to produce the FINAL_SCORE verdict.
+export const QUALITATIVE_VERDICT_SYSTEM_PROMPT = `You are a concise equity researcher writing the FINAL verdict for a single qualitative requirement. No tools are available, so base the verdict on the research notes supplied plus your own reasoning about the company and market.
+
+Write a short, well-structured markdown verdict (a few sentences, optionally a couple of bullets). Your response MUST end with a single line in exactly this format, nothing after it:
+
+FINAL_SCORE: NN
+
+where NN is an integer from 0 to 100 reflecting how well the requirement is met by the available evidence (0 = not met, 100 = fully met; mark genuinely unverifiable items as neither, weighting a lower score).`;
+
+export function buildVerdictRecoveryPrompt(
+  parameter: { parameter: string; content?: string; section?: string },
+  researchText: string,
+  context = "",
+): string {
+  const parts = [
+    context.trim() || "",
+    `Qualitative requirement: ${parameter.parameter}`,
+    parameter.content ? `Checklist guidance:\n${parameter.content}` : "",
+    researchText.trim() ? `\nResearch notes already gathered for this requirement:\n${researchText.trim().slice(0, 9000)}` : "\nNo research notes were captured — reason from the subject context provided and well-established fact, and say explicitly what could not be verified.",
+  ].filter(Boolean);
+  return [...parts, `\nWrite the FINAL verdict for "${parameter.parameter}" and end with the FINAL_SCORE line.`].join("\n\n");
 }
 
 export function buildDraftParametersPrompt(persona: string, count: number, scope: string): string {
@@ -90,7 +116,8 @@ ${metricList}
 5. For quantitative criteria: use metric IDs from the available list. Include "metric", "metric_name", "metric_type", "operator" (gt/gte/lt/lte/eq/between), "value", "value_upper" (required when operator is "between"), and "weightage" (1-10). Prefer simple operators (gt, lt, gte, lte) over "between" unless a range is clearly needed.
 6. Always generate a reasonable philosophy even if the user provides minimal input.
 7. When documents are provided, extract investment style, criteria, and preferences from them.
-8. You have a web_search tool. Call it when the user asks you to search the web or says anything like "search online", "look it up", "research X", or "find out about X". Base your draft ONLY on the search results plus the user's own input — not on general knowledge. In your "message", say in one line what the top sources showed (e.g. "The sources emphasize CAN SLIM's C: current quarterly earnings up 20%+"). Only claim facts the sources actually state.
+8. You have a web_search tool. Call it whenever the user asks you to research or clarify anything about a stock, sector, style, or the market — words like "search", "research", "look up", "find out", "latest", "current" are triggers — and base your draft ONLY on the search results plus the user's own input, not on general knowledge. If web_search is available it MUST be your first action on research-type requests. If your draft does not use any search results, say so plainly. In your "message", say in one line what the top sources showed (e.g. "The sources emphasize CAN SLIM's C: current quarterly earnings up 20%+"). Only claim facts the sources actually state.
+8b. Uploaded documents are provided as extracted TEXT ONLY, below. Never claim to have read a PDF or file directly — file attachments (including PDFs) cannot be read as model input. Only use the extracted {filename}: {text} content shown in the prompt.
 9. Cite EVERY decision. Your response MUST be valid JSON: {"message": "text", "options": [...optional], "agent_draft_update": {...optional}, "annotations": [{"what": "<the agent setting you chose>", "basis": "<the EXACT source it came from>"}]}. The basis must name the actual source — never a principle, paraphrase, or "known practice": use the exact article title + URL from the web search results you actually retrieved, or "File: <uploaded filename>" for uploaded documents, or "user input" when it came from the conversation. Add one annotation for every meaningful value in agent_draft_update (philosophy themes, each quantitative rule, each qualitative parameter, horizon, risk appetite). Never invent a URL, fact, or source.
 10. Never use markdown fences in your response — just raw JSON.
 
@@ -107,7 +134,7 @@ export function buildBuilderRecoveryPrompt(prompt: string, rawText: string): str
 }
 
 export function buildDocumentExtractionPrompt(docContent: string): string {
-  return `Analyze the following documents and extract investment preferences, philosophy, and criteria.\n\n` +
+  return `The documents below are EXTRACTED TEXT ONLY. This model cannot read PDFs or file attachments directly — never claim to have read a file; use only the text shown.\n\n` +
     docContent + `\n\n` +
     `Respond with JSON only:\n` +
     `{"style": "value|growth|momentum|quantitative|contrarian|income|macro|custom",` +
