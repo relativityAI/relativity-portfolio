@@ -5,9 +5,18 @@ export const voyagerCircuitBreaker = circuitBreaker(handleAll, {
   breaker: new ConsecutiveBreaker(5),
 });
 
-const DEFAULT_TIMEOUT_MS = 120_000;
+// Voyager runs on Render's free tier, which cold-sleeps: the first call after
+// idle can drop with 000/timeout/503. Retries are mandatory, not optional.
+// 30s per attempt: short timeouts converge faster on a booting instance (each
+// retry rides the boot that the previous abort already kicked off).
+const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 3;
-const BASE_DELAY_MS = 1_000;
+const BASE_DELAY_MS = 700;
+
+// HTTP statuses worth retrying after (transient upstream unavailability).
+// Voyager surfaces 503 for: rate-limit reached on pulls, unreachable price
+// feed, temp DB issues, and free-tier cold starts.
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 /** Error raised when Voyager responds with a non-2xx status. */
 export class VoyagerError extends Error {
@@ -22,17 +31,60 @@ export class VoyagerError extends Error {
   }
 }
 
-export interface CollectionStatus {
-  records?: number;
+// Shape of GET /pull — the pull status / data availability endpoint.
+// Verified against the live API + source (src/services/nse.py, sec.py):
+// it returns `last_pull`, `total_records`, `record_counts`, etc. NOT
+// `collections`/`last_pulled` (old clients read fields that never existed,
+// which made every stock look empty and re-triggered pulls endlessly).
+export interface PullStatus {
+  symbol?: string;
+  source?: string;
+  available?: boolean;
+  last_pull?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  total_pulls?: number;
+  total_records?: number;
+  previous_pulls_count?: number;
+  /** Record count per collection, e.g. {"income_statements": 11, ...}. */
+  record_counts?: Record<string, number>;
+  /** Period coverage per statement, e.g. consolidated vs standalone ranges. */
+  financial_breakdown?: Record<string, unknown>;
+  // Legacy/stored shapes (analysis_runs.data_availability rows written by old
+  // clients) — kept so assessDataAdequacy doesn't choke on historical data.
+  collections?: Record<string, { records?: number }>;
   last_pulled?: string | null;
 }
 
-export interface PullStatus {
+export interface PullJobStatus {
+  job_id?: string;
   symbol?: string;
-  available?: boolean;
-  collections?: Record<string, CollectionStatus>;
-  last_pulled?: string | null;
-  history?: unknown[];
+  source?: string;
+  task?: string | null;
+  status?: string;
+  result?: Record<string, any> | null;
+  error?: string | null;
+  created_at?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+/** Total stored records for a symbol, tolerant of legacy shapes. */
+export function pullRecordCount(status: PullStatus | null | undefined): number {
+  if (!status) return 0;
+  if (typeof status.total_records === "number" && Number.isFinite(status.total_records)) {
+    return status.total_records;
+  }
+  const counts = Object.values(status.record_counts ?? {});
+  if (counts.length > 0) return counts.reduce((n, c) => n + (c ?? 0), 0);
+  // Legacy `collections` rows persisted by older clients.
+  return Object.values(status.collections ?? {}).reduce((n, c) => n + (c?.records || 0), 0);
+}
+
+/** Most recent pull time for a symbol, tolerant of legacy shapes. */
+export function pullLastPulled(status: PullStatus | null | undefined): string | null | undefined {
+  if (!status) return undefined;
+  return status.last_pull ?? status.last_pulled;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -81,16 +133,13 @@ export class VoyagerClient {
     return this.request(path, params, "POST", body);
   }
 
-  private async request(
+  private request(
     path: string,
     params: Record<string, unknown>,
     method: "GET" | "POST",
     body?: unknown,
-    attempt = 0,
   ): Promise<any> {
-    return voyagerCircuitBreaker.execute(() =>
-      this.requestDirect(path, params, method, body, attempt),
-    );
+    return voyagerCircuitBreaker.execute(() => this.requestDirect(path, params, method, body, 0));
   }
 
   private async requestDirect(
@@ -103,7 +152,6 @@ export class VoyagerClient {
     await this.throttle();
     this.lastCallAt = Date.now();
 
-    const url = this.url(path, params);
     const headers = {
       ...this.headers(),
       ...(body ? { "Content-Type": "application/json" } : {}),
@@ -111,22 +159,19 @@ export class VoyagerClient {
 
     let res: Response;
     try {
-      res = await fetch(url, {
+      res = await fetch(this.url(path, params), {
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
       });
     } catch (e: any) {
-      if (attempt < MAX_RETRIES) {
-        await sleep(BASE_DELAY_MS * 2 ** attempt);
-        return this.requestDirect(path, params, method, body, attempt + 1);
-      }
-      throw new VoyagerError(0, `${method} ${path} network error: ${e.message}`);
+      // Network drop, DNS failure, or timeout from a cold-sleeping container.
+      return this.retry(path, params, method, body, attempt, 0, `network error: ${e.message}`);
     }
 
-    const text = await res.text();
     if (!res.ok) {
+      const text = await res.text();
       let detail: unknown = undefined;
       try {
         detail = JSON.parse(text);
@@ -138,50 +183,69 @@ export class VoyagerClient {
           ? (detail as any).detail
           : text.slice(0, 500);
 
-      if (res.status === 429 && attempt < MAX_RETRIES) {
+      if (RETRYABLE_STATUSES.has(res.status)) {
+        // Respect Retry-After when the server asks, else back off exponentially.
         const retryAfter = Number(res.headers.get("retry-after") || 0);
         const delay =
           Number.isFinite(retryAfter) && retryAfter > 0
             ? retryAfter * 1000
             : BASE_DELAY_MS * 2 ** attempt;
-        await sleep(delay);
-        return this.requestDirect(path, params, method, body, attempt + 1);
+        return this.retry(path, params, method, body, attempt, res.status, message, delay);
       }
 
       throw new VoyagerError(res.status, message, detail);
     }
 
     try {
-      return JSON.parse(text);
+      return await res.json();
     } catch {
-      return { detail: text };
+      return { detail: await res.text() };
     }
+  }
+
+  private async retry(
+    path: string,
+    params: Record<string, unknown>,
+    method: "GET" | "POST",
+    body: unknown | undefined,
+    attempt: number,
+    status: number,
+    message: string,
+    delayOverrideMs?: number,
+  ): Promise<any> {
+    if (attempt < MAX_RETRIES) {
+      // 409 on POST is NOT retried here: it means a job for this key is already
+      // running. Callers (freshness.ts) adopt the existing job instead.
+      const delay = delayOverrideMs ?? BASE_DELAY_MS * 2 ** attempt;
+      await sleep(delay);
+      return this.requestDirect(path, params, method, body, attempt + 1);
+    }
+    throw new VoyagerError(status, `${method} ${path} ${message} (after ${MAX_RETRIES + 1} attempts)`);
   }
 
   // ── Pull status & jobs ──────────────────────────────────────────────
 
-  async getPullStatus(symbol: string, country: string, source: string): Promise<PullStatus> {
-    const data = await this.get("/pull", { symbol, country, source });
+  async getPullStatus(symbol: string, _country: string, source: string): Promise<PullStatus> {
+    // GET /pull accepts symbol + source only; country is derived server-side.
+    const data = await this.get("/pull", { symbol, source });
     return (data ?? {}) as PullStatus;
   }
 
   async triggerPull(
     symbol: string,
-    country: string,
+    _country: string,
     source: string,
     filingType = "quarterly",
     refresh = false,
   ): Promise<{ job_id: string; status: string; status_url: string }> {
-    return this.post("/pull", { symbol, country, source, filing_type: filingType, refresh });
+    return this.post("/pull", { symbol, source, filing_type: filingType, refresh });
   }
 
-  async getPullJobStatus(
-    jobId: string,
-  ): Promise<{ job_id: string; status: string; error?: string; duration_ms?: number }> {
+  async getPullJobStatus(jobId: string): Promise<PullJobStatus> {
     return this.get(`/pull/jobs/${jobId}`);
   }
 
-  async listPullJobs(limit = 20): Promise<any> {
+  async listPullJobs(limit = 20): Promise<PullJobStatus[]> {
     return this.get("/pull/jobs", { limit });
   }
 
@@ -201,7 +265,7 @@ export class VoyagerClient {
     return this.get("/dcf", { symbol, source, ...params });
   }
 
-  // ── News ────────────────────────────────────────────────────────────
+  // ── News (these accept an explicit country param) ───────────────────
 
   async getMarketNews(params: {
     country?: string;

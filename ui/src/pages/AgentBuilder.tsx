@@ -10,6 +10,7 @@ import AgentActivity from "@/components/shared/AgentActivity";
 import type { BuilderStep } from "@/components/builder/StepsTrace";
 import type { ChatMsg } from "@/components/builder/ChatBubble";
 import { MdSave, MdOutlineEdit, MdEdit, MdPreview, MdClose } from "react-icons/md";
+import { diffDraft, type ChangeItem } from "@/lib/draftDiff";
 
 const DEFAULT_AGENT = {
   name: "",
@@ -48,6 +49,7 @@ export default function AgentBuilder() {
   const [metrics, setMetrics] = useState<{ id: string; name: string; type: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [draftChanges, setDraftChanges] = useState<ChangeItem[]>([]);
   const [initialized, setInitialized] = useState(false);
   const [agentId, setAgentId] = useState<string | null>(urlAgentId || null);
   const [showPreview, setShowPreview] = useState(false);
@@ -59,13 +61,11 @@ export default function AgentBuilder() {
   const savingRef = useRef(false);
   const [steps, setSteps] = useState<BuilderStep[] | null>(null);
   const stepTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const [activityVisible, setActivityVisible] = useState(false);
   const sessionIdRef = useRef<string>(
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `builder-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
-
   const clearStepTimers = useCallback(() => {
     stepTimers.current.forEach(clearTimeout);
     stepTimers.current = [];
@@ -96,6 +96,19 @@ export default function AgentBuilder() {
       return extra ? [...base, { ...extra, status: "done" as const }] : base;
     });
   }, [clearStepTimers]);
+
+  // Merge an incremental diff into the accumulated "since last save" list.
+  // Same label = same field; the newest detail wins. Returns true if anything changed.
+  const recordChanges = useCallback((prev: Record<string, unknown>, next: Record<string, unknown>): boolean => {
+    const fresh = diffDraft(prev, next);
+    if (!fresh.length) return false;
+    setDraftChanges((old) => {
+      const map = new Map(old.map((c) => [c.label, c] as const));
+      for (const c of fresh) map.set(c.label, c);
+      return [...map.values()];
+    });
+    return true;
+  }, []);
 
   // Fetch metrics + available models + load existing agent on mount
   useEffect(() => {
@@ -187,7 +200,6 @@ export default function AgentBuilder() {
     if (processingRef.current) return;
     processingRef.current = true;
     setIsProcessing(true);
-    setActivityVisible(true);
 
     try {
       // Validate model access first
@@ -258,20 +270,32 @@ export default function AgentBuilder() {
       setMessages((prev) => [...prev, assistantMsg]);
 
       if (response.agent_draft_update) {
-        setAgentDraft((prev) => {
-          const update = response.agent_draft_update!;
-          const next: Record<string, unknown> = { ...prev, ...update };
-          const phil = (update.philosophy as string) || (update.persona as any)?.philosophy_and_mindset || (prev.persona as any)?.philosophy_and_mindset || (prev.philosophy as string);
-          if (phil) {
-            next.persona = { ...(prev.persona as any), ...(update.persona as any), philosophy_and_mindset: phil };
-            next.philosophy = phil;
+        const prev = draftRef.current;
+        const update = response.agent_draft_update!;
+        const next: Record<string, unknown> = { ...prev, ...update };
+        const phil = (update.philosophy as string) || (update.persona as any)?.philosophy_and_mindset || (prev.persona as any)?.philosophy_and_mindset || (prev.philosophy as string);
+        if (phil) {
+          next.persona = { ...(prev.persona as any), ...(update.persona as any), philosophy_and_mindset: phil };
+          next.philosophy = phil;
+        }
+        if (update.configuration) {
+          next.configuration = { ...(prev.configuration as any), ...(update.configuration as any) };
+        }
+        // Deep-merge evaluation sections so a patch that touches only one
+        // subsection (e.g. qualitative) can't silently wipe the other (quantitative).
+        for (const key of ["asset_evaluation", "macro_evaluation"]) {
+          if (update[key]) {
+            next[key] = { ...(prev[key] as any), ...(update[key] as any) };
           }
-          if (update.configuration) {
-            next.configuration = { ...(prev.configuration as any), ...(update.configuration as any) };
-          }
-          return next;
-        });
-        setIsDirty(true);
+        }
+        // A turn that didn't actually change the draft (e.g. a plain question)
+        // must not mark it dirty.
+        const changed = Object.keys(update).some((k) => JSON.stringify(update[k]) !== JSON.stringify(prev[k]));
+        if (changed) {
+          setAgentDraft(next);
+          recordChanges(prev, next);
+          setIsDirty(true);
+        }
       }
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { error?: string } } };
@@ -288,7 +312,7 @@ export default function AgentBuilder() {
       resolveSteps(searched);
       setIsProcessing(false);
     }
-  }, [metrics, documentTexts, selectedModel, beginSteps, resolveSteps]);
+  }, [metrics, documentTexts, selectedModel, beginSteps, resolveSteps, recordChanges]);
 
   const handleSendMessage = useCallback((text: string) => {
     const userMsg: ChatMsg = {
@@ -328,6 +352,7 @@ export default function AgentBuilder() {
         navigate(`/agent/builder/${newId}`, { replace: true, state: { agentDraft } });
       }
       setIsDirty(false);
+      setDraftChanges([]);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err: unknown) {
@@ -418,8 +443,12 @@ export default function AgentBuilder() {
               }
             }
 
-            setAgentDraft((prev) => ({ ...prev, ...merged, name: merged.name || option.label }));
-            setIsDirty(true);
+            const prevDraft = draftRef.current;
+            const mergedDraft = { ...prevDraft, ...merged, name: merged.name || option.label };
+            if (recordChanges(prevDraft, mergedDraft)) {
+              setAgentDraft(mergedDraft);
+              setIsDirty(true);
+            }
 
             const summary = `I've set up a "${merged.name}" agent.\n\n` +
               `Philosophy: ${merged.persona.philosophy_and_mindset.slice(0, 150)}...\n\n` +
@@ -639,15 +668,15 @@ export default function AgentBuilder() {
           align={{ base: "stretch", md: "center" }}
           gap={{ base: 1.5, md: 4 }}
           minW={0}
-          flex="1 1 auto"
+          flex={{ base: "1 1 auto", md: "0 1 auto" }}
           direction={{ base: "column", md: "row" }}
           w={{ base: "100%", md: "auto" }}
         >
-          <Flex direction={{ base: "row", md: "column" }} align={{ base: "center", md: "flex-start" }} justify="space-between" minW={0} w={{ base: "100%", md: "auto" }}>
+          <Flex direction={{ base: "row", md: "column" }} align={{ base: "center", md: "flex-start" }} justify="space-between" minW={0} w={{ base: "100%", md: "auto" }} maxW={{ base: "none", md: "300px" }} flexShrink={1}>
             <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)" whiteSpace="nowrap">
               Agent Builder
             </Text>
-            <Text fontSize="11px" color="var(--ink-tertiary)" whiteSpace="nowrap" display={{ base: "none", md: "block" }}>
+            <Text fontSize="11px" color="var(--ink-tertiary)" whiteSpace="nowrap" display={{ base: "none", md: "block" }} truncate>
               Use our Agent Builder to create your research agent — configured to your needs
             </Text>
           </Flex>
@@ -663,7 +692,10 @@ export default function AgentBuilder() {
             <Input
               value={(agentDraft.name as string) || ""}
               onChange={(e) => {
-                setAgentDraft((prev) => ({ ...prev, name: e.target.value }));
+                const nextName = e.target.value;
+                const prev = draftRef.current;
+                setAgentDraft((d) => ({ ...d, name: nextName }));
+                recordChanges(prev, { ...prev, name: nextName });
                 setIsDirty(true);
               }}
               placeholder="Agent name..."
@@ -791,10 +823,10 @@ export default function AgentBuilder() {
 
       {/* Two-column layout */}
       <Flex flex={1} overflow="hidden" px={{ base: 0, md: 0 }} position="relative">
-        {/* Chat panel */}
-        <Flex direction="column" h="100%" flex={{ base: 1, lg: "0 0 40%" }} borderRight={{ base: "none", lg: "1px solid var(--hairline)" }} overflow="hidden" minW={0}>
+        {/* Chat panel — full width; preview opens as an overlay */}
+        <Flex direction="column" h="100%" flex={1} overflow="hidden" minW={0}>
           <AnimatePresence initial={false}>
-            {activityVisible && (
+            {isProcessing && (
               <Box px={3} pt={3} as={motion.div} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: dur.base, ease }}>
                 <AgentActivity
                   title="Building your agent"
@@ -840,7 +872,7 @@ export default function AgentBuilder() {
             p={2}
             overflow="hidden"
           >
-            <AgentPreviewPanel agentDraft={agentDraft} isDirty={isDirty} />
+            <AgentPreviewPanel agentDraft={agentDraft} isDirty={isDirty} changes={draftChanges} />
           </Box>
         </Box>
 
@@ -877,7 +909,7 @@ export default function AgentBuilder() {
               </Flex>
               <Box p={2} overflowY="auto" h="calc(100% - 49px)">
                 <Box bg="var(--surface-panel)" border="1px solid var(--hairline)" borderRadius="8px" p={2} overflow="hidden">
-                  <AgentPreviewPanel agentDraft={agentDraft} isDirty={isDirty} />
+                  <AgentPreviewPanel agentDraft={agentDraft} isDirty={isDirty} changes={draftChanges} />
                 </Box>
               </Box>
             </Box>

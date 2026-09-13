@@ -1,9 +1,19 @@
-import { describe, it, expect } from "vitest";
-import { parseFinalScoreResult, investorProfileLine } from "../src/agent.js";
+import { describe, it, expect, vi } from "vitest";
+import { parseFinalScoreResult, investorProfileLine, summarizeToolEvidence, runQualitative, buildModel } from "../src/agent.js";
+import { runAgentTurn } from "../src/harness.js";
+import { VoyagerClient } from "../src/voyager.js";
 import { assessDataAdequacy, evaluateMetric, runQuantitative } from "../src/quant.js";
-import { resolveWebSearch } from "../src/run.js";
+import { resolveWebSearch, withDeadline } from "../src/run.js";
 import { buildFieldList, getFlatCatalog } from "../src/metrics.js";
 import { parseJsonObject } from "../src/builder.js";
+import { getToolCatalog } from "../src/tools.js";
+import { buildAgentBuilderSystemPrompt, buildDraftParametersPrompt, buildDocumentExtractionPrompt } from "../src/prompts.js";
+import { getSchemaDescriptor } from "../src/schema.js";
+
+vi.mock("../src/harness.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/harness.js")>();
+  return { ...actual, runAgentTurn: vi.fn() };
+});
 
 describe("parseJsonObject", () => {
   it("parses a bare JSON object", () => {
@@ -60,20 +70,28 @@ describe("parseFinalScoreResult", () => {
 describe("assessDataAdequacy", () => {
   it("inadequate when no records and no metrics", () => {
     expect(assessDataAdequacy(null, {})).toBe("inadequate");
-    expect(assessDataAdequacy({ collections: {} }, { price_data: "unavailable" })).toBe("inadequate");
+    expect(assessDataAdequacy({}, { price_data: "unavailable" })).toBe("inadequate");
   });
 
-  it("sparse below thresholds", () => {
-    const collections = { financials: { records: 10 }, announcements: { records: 5 } };
-    expect(assessDataAdequacy({ collections }, { roe: 1, pe: 2 })).toBe("sparse");
+  it("reads real GET /pull shape (total_records + record_counts)", () => {
+    const status = {
+      total_records: 15,
+      record_counts: { income_statements: 10, announcements: 5 },
+    };
+    expect(assessDataAdequacy(status, { roe: 1, pe: 2 })).toBe("sparse");
   });
 
-  it("adequate above thresholds", () => {
-    const collections: Record<string, { records: number }> = {};
-    for (let i = 0; i < 6; i++) collections[`c${i}`] = { records: 20 };
+  it("reads real shape as adequate above thresholds", () => {
+    const record_counts: Record<string, number> = {};
+    for (let i = 0; i < 6; i++) record_counts[`c${i}`] = 20;
     const metrics: Record<string, number> = {};
     for (let i = 0; i < 12; i++) metrics[`m${i}`] = i;
-    expect(assessDataAdequacy({ collections }, metrics)).toBe("adequate");
+    expect(assessDataAdequacy({ total_records: 120, record_counts }, metrics)).toBe("adequate");
+  });
+
+  it("falls back to legacy collections shape for old stored rows", () => {
+    const legacy = { collections: { financials: { records: 10 }, announcements: { records: 5 } } };
+    expect(assessDataAdequacy(legacy, { roe: 1, pe: 2 })).toBe("sparse");
   });
 });
 
@@ -209,5 +227,167 @@ describe("resolveWebSearch", () => {
 
   it("adequate data stays off", () => {
     expect(resolveWebSearch(undefined, "adequate", "tk").effective).toBe("off");
+  });
+});
+
+describe("getToolCatalog", () => {
+  const cat = getToolCatalog();
+
+  it("lists every tool as name + description, no duplicates", () => {
+    const names = new Set(cat.map((t) => t.name));
+    expect(names.size).toBe(cat.length);
+    expect(cat.length).toBeGreaterThan(20);
+    for (const t of cat) {
+      expect(t.name.length).toBeGreaterThan(0);
+      expect(t.description.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("includes the core analysis and data-pull tools", () => {
+    const names = new Set(cat.map((t) => t.name));
+    for (const expected of [
+      "get_financial_metrics",
+      "get_income_statements",
+      "get_cash_flows",
+      "trigger_data_pull",
+      "get_pull_status",
+      "read_latest_transcript",
+      "get_ticker_news",
+      "web_search",
+    ]) {
+      expect(names.has(expected)).toBe(true);
+    }
+  });
+});
+
+describe("builder prompt tool guidance", () => {
+  const system = buildAgentBuilderSystemPrompt(getSchemaDescriptor(), getFlatCatalog(), getToolCatalog());
+  const draft = buildDraftParametersPrompt("legacy investor", 3, "company-level qualitative parameters", getToolCatalog());
+  const doc = buildDocumentExtractionPrompt("## doc\ncontent", getToolCatalog());
+
+  it("lists available data tools and recommends independent judgment", () => {
+    expect(system).toContain("Available Data Tools");
+    expect(system).toContain("- get_financial_metrics:");
+    expect(system.toLowerCase()).toContain("use your own decision-making");
+  });
+
+  it("directs the builder to name tools inside qualitative content", () => {
+    expect(system.toLowerCase()).toContain("name the specific data tools");
+    expect(draft).toContain("data tools the scorer should look at");
+    expect(doc).toContain("data tools to consult for this aspect");
+  });
+});
+
+describe("withDeadline", () => {
+  it("resolves when the promise wins the race", async () => {
+    await expect(withDeadline(Promise.resolve(42), 1000, "too slow")).resolves.toBe(42);
+  });
+
+  it("rejects with the deadline message when the promise is too slow", async () => {
+    vi.useFakeTimers();
+    const slow = new Promise<string>((resolve) => setTimeout(() => resolve("done"), 10_000));
+    const assertion = expect(withDeadline(slow, 1_000, "too slow")).rejects.toThrow("too slow");
+    vi.advanceTimersByTime(1_001);
+    await assertion;
+    vi.useRealTimers();
+  });
+});
+
+describe("summarizeToolEvidence", () => {
+  it("renders tool calls with results and truncates long outputs", () => {
+    const long = "x".repeat(1200);
+    const steps = [
+      {
+        toolCalls: [{ toolCallId: "c1", toolName: "get_financial_metrics", input: { symbol: "RELI" } }],
+        toolResults: [{ toolCallId: "c1", output: { gross_margin: 0.4 } }],
+      },
+      {
+        toolCalls: [{ toolCallId: "c2", toolName: "read_pdf", input: { url: "https://x/y.pdf" } }],
+        toolResults: [{ toolCallId: "c2", output: long }],
+      },
+    ];
+    const out = summarizeToolEvidence(steps);
+    expect(out).toContain("get_financial_metrics");
+    expect(out).toContain("gross_margin");
+    expect(out).toContain("read_pdf");
+    expect(out.length).toBeLessThan(1200);
+    expect(out).not.toContain(long);
+  });
+
+  it("returns empty when no tool calls exist", () => {
+    expect(summarizeToolEvidence([])).toBe("");
+    expect(summarizeToolEvidence([{ toolCalls: [] }])).toBe("");
+  });
+});
+
+describe("runQualitative recovery", () => {
+  function qualContext() {
+    return {
+      keys: { openai: "sk-test" },
+      ctx: {
+        voyager: new VoyagerClient("http://localhost:8001", "test-key"),
+        symbol: "TEST",
+        country: "in",
+        source: "nse",
+        shareName: "Test Ltd",
+      },
+      parameter: {
+        parameter: "Moat",
+        content: "check the moat",
+        weightage: 5,
+        section: "asset_evaluation",
+      },
+    };
+  }
+
+  it("recovers a score via the no-tools verdict pass when the harness errors", async () => {
+    vi.mocked(runAgentTurn)
+      .mockResolvedValueOnce({
+        text: "",
+        steps: [],
+        toolCalls: [],
+        error: "No output generated. Check the stream for errors.",
+        retryable: true,
+        finishReason: "error",
+      })
+      .mockResolvedValueOnce({
+        text: "Stable moat verdict.\nFINAL_SCORE: 72",
+        steps: [],
+        toolCalls: [],
+        finishReason: "stop",
+      });
+    const { keys, ctx, parameter } = qualContext();
+    const res = await runQualitative("openai/gpt-4o-mini", keys, ctx, parameter, [], false, "sparse", "Investor profile.", () => {});
+    expect(res.error).toBeUndefined();
+    expect(res.score).toBe(72);
+    expect(res.analysis).toContain("FINAL_SCORE: 72");
+  });
+
+  it("surfaces gathered tool evidence when the turn and every recovery attempt fail", async () => {
+    const steps = [
+      {
+        toolCalls: [{ toolCallId: "c1", toolName: "web_search", input: { query: "moat" } }],
+        toolResults: [{ toolCallId: "c1", output: { count: 1, results: [{ title: "Deep moat", url: "https://x" }] } }],
+      },
+    ];
+    const errorTurn = {
+      text: "",
+      steps,
+      toolCalls: [{ tool_name: "web_search", args: { query: "moat" }, status: "OK" }],
+      error: "No output generated. Check the stream for errors.",
+      retryable: true,
+      finishReason: "error",
+    };
+    const emptyRecovery = { text: "", steps: [], toolCalls: [], finishReason: "error" };
+    vi.mocked(runAgentTurn)
+      .mockResolvedValueOnce(errorTurn)
+      .mockResolvedValueOnce(emptyRecovery)
+      .mockResolvedValueOnce(emptyRecovery);
+    const { keys, ctx, parameter } = qualContext();
+    const res = await runQualitative("openai/gpt-4o-mini", keys, ctx, parameter, [], false, "sparse", "Investor profile.", () => {});
+    expect(res.error).toBeTruthy();
+    expect(res.score).toBe(0);
+    expect(res.analysis).toContain("Research gathered by the tools");
+    expect(res.analysis).toContain("web_search");
   });
 });

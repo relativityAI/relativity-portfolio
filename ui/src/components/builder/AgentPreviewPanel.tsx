@@ -1,10 +1,12 @@
 import { Box, Flex, Text, Badge } from "@chakra-ui/react";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease } from "@/lib/motion";
+import type { ChangeItem } from "@/lib/draftDiff";
 
 interface AgentPreviewPanelProps {
   agentDraft: Record<string, unknown>;
   isDirty: boolean;
+  changes?: ChangeItem[];
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
@@ -66,7 +68,7 @@ function QuantRuleItem({ rule }: { rule: { metric_name?: string; metric?: string
   );
 }
 
-export default function AgentPreviewPanel({ agentDraft, isDirty }: AgentPreviewPanelProps) {
+export default function AgentPreviewPanel({ agentDraft, isDirty, changes = [] }: AgentPreviewPanelProps) {
   const name = agentDraft.name || "Untitled Agent";
   const philosophy = (agentDraft.persona as any)?.philosophy_and_mindset || (agentDraft as any).philosophy || "";
   const horizon = agentDraft.configuration?.investment_horizon || "";
@@ -100,6 +102,36 @@ export default function AgentPreviewPanel({ agentDraft, isDirty }: AgentPreviewP
       </Flex>
 
       <Box flex={1} overflowY="auto" px={1}>
+        <AnimatePresence initial={false}>
+          {changes.length > 0 && (
+            <motion.div
+              key="changes"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: dur.base, ease }}
+              style={{ overflow: "hidden" }}
+            >
+              <Box mb={3} p={2.5} borderRadius="4px" border="1px solid var(--hairline)" bg="var(--surface-recessed)">
+                <Text fontSize="10px" fontWeight={600} color="var(--signal-caution)" letterSpacing="0.06em" textTransform="uppercase" mb={1}>
+                  Changes since last save
+                </Text>
+                <Flex direction="column">
+                  {changes.map((c, i) => (
+                    <Flex key={`${c.label}-${i}`} gap={2} py={0.5} align="flex-start">
+                      <Box flexShrink={0} mt="5px" w="4px" h="4px" borderRadius="50%" bg="var(--signal-caution)" />
+                      <Text fontSize="11px" lineHeight="1.4" color="var(--ink-secondary)">
+                        <Text as="span" fontWeight={500} color="var(--ink-primary)">{c.label}</Text>
+                        {" — "}
+                        {c.detail}
+                      </Text>
+                    </Flex>
+                  ))}
+                </Flex>
+              </Box>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <AnimatePresence mode="wait" initial={false}>
         {!hasContent ? (
           <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }} style={{ height: "100%" }}>
