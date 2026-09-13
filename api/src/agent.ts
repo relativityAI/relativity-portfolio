@@ -5,7 +5,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { aggregateWeightedScores } from "./scoring.js";
 import { config } from "./config.js";
-import { buildTools, ToolContext } from "./tools.js";
+import { buildTools, getToolCatalog, ToolContext } from "./tools.js";
 import type { DataAdequacy } from "./quant.js";
 import { log } from "./logger.js";
 import { runAgentTurn, type HarnessOptions } from "./harness.js";
@@ -128,6 +128,36 @@ const RECOVERY_RETRIES = 2;
 const RECOVERY_RETRY_DELAY_MS = 3000;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// Compact log of what the research tools actually returned. Recovery verdicts
+// are fresh completions with NO tool context, so without this they end up
+// thin — or blank — and the concrete findings from the tool loop are lost.
+export function summarizeToolEvidence(steps: any[], maxChars = 12000): string {
+  const lines: string[] = [];
+  const size = () => lines.join("\n").length;
+  for (const step of steps || []) {
+    for (const tc of step?.toolCalls || []) {
+      const res = (step?.toolResults || []).find((tr: any) => tr.toolCallId === tc.toolCallId)?.output;
+      let resultText = "";
+      try {
+        const s = typeof res === "string" ? res : JSON.stringify(res);
+        resultText = (s || "").length > 800 ? s.slice(0, 800) + "…" : s || "";
+      } catch {
+        resultText = "";
+      }
+      let argsText = "";
+      try {
+        const s = JSON.stringify(tc.input ?? {}) || "";
+        argsText = s.length > 200 ? s.slice(0, 200) + "…" : s;
+      } catch {
+        argsText = "";
+      }
+      lines.push(`Tool call: ${tc.toolName}\n  args: ${argsText}\n  result: ${resultText}`);
+      if (size() >= maxChars) return lines.join("\n");
+    }
+  }
+  return lines.join("\n");
+}
+
 // No-tools verdict pass used when the tool loop ended without a FINAL_SCORE
 // line. Retried a couple times with a short wait for empty/no-output replies.
 async function verdictRecovery(
@@ -145,7 +175,7 @@ async function verdictRecovery(
         system: QUALITATIVE_VERDICT_SYSTEM_PROMPT,
         prompt,
         temperature: 0.2,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 4096,
         maxToolSteps: 1,
         abortSignal: AbortSignal.timeout(60_000),
       });
@@ -189,7 +219,7 @@ export async function draftParameters(
       : "company-level qualitative parameters for judging individual stocks";
   const result = await generateText({
     model,
-    prompt: buildDraftParametersPrompt(persona, count, scope),
+    prompt: buildDraftParametersPrompt(persona, count, scope, getToolCatalog()),
     temperature: 0.4,
     maxOutputTokens: 1500,
   });
@@ -304,33 +334,33 @@ export async function runQualitative(
     });
 
     if (turn.error) {
-      const userMessage = turn.userMessage;
-      log.error("[agent]", `${modelId} "${parameter.parameter}" harness error:`, turn.error);
-      return {
-        score: 0,
-        analysis: "",
-        toolCalls: turn.toolCalls,
-        error: userMessage || turn.error,
-        retryable: turn.retryable,
-      };
+      log.warn("[agent]", `${modelId} "${parameter.parameter}" harness error (will attempt verdict recovery):`, turn.error);
     }
 
-    const text = turn.text || "";
+    const text = (turn.text || "").trim();
     let analysis = text;
+    const toolEvidence = summarizeToolEvidence(turn.steps);
+    const research = [text, toolEvidence].filter(Boolean).join("\n\n");
     let { score, found } = parseFinalScoreResult(text);
-    if (!found && text.trim()) {
+    if (!found && text) {
       ({ score, found } = await recoverScore(model, text));
     }
 
-    // The tool loop can end (step cap or an empty stream/short retries) before
-    // the model writes its closing FINAL_SCORE verdict. Recover with a fresh
-    // no-tools pass that is guaranteed to terminate in text, retried once.
-    // The company/market context lines are re-sent so the recovered verdict can
-    // never claim the subject is unknown.
+    // The tool loop can end (step cap, empty stream, forced-tool refusal, or a
+    // provider error) before the model writes its closing FINAL_SCORE verdict.
+    // Recover with a fresh NO-TOOLS pass — it must never depend on the flaky
+    // tools-enabled request, so it succeeds even when the main turn errored.
+    // Company/market context is re-sent so the verdict can never claim the
+    // subject is unknown, and tool results are included so it reflects reality.
     if (!found) {
-      const verdict = await verdictRecovery(model, parameter, text, [...contextLines, investorContext].filter(Boolean).join("\n\n"));
-      if (verdict.text.trim() && verdict.text.trim() !== text.trim()) {
-        analysis = [text.trim(), verdict.text.trim()].filter(Boolean).join("\n\n");
+      const verdict = await verdictRecovery(
+        model,
+        parameter,
+        research,
+        [...contextLines, investorContext].filter(Boolean).join("\n\n"),
+      );
+      if (verdict.text.trim() && verdict.text.trim() !== text) {
+        analysis = [text, verdict.text.trim()].filter(Boolean).join("\n\n");
       }
       if (verdict.found) {
         score = verdict.score;
@@ -344,6 +374,14 @@ export async function runQualitative(
       }
     }
 
+    // Never hand back a blank result: surface the tool evidence (or a note) so
+    // the user always has something to see even when every recovery failed.
+    if (!analysis) {
+      analysis = toolEvidence
+        ? `The model finished without writing a verdict for this parameter. Research gathered by the tools:\n\n${toolEvidence}`
+        : "No model output was produced for this parameter — neither text nor tool results.";
+    }
+
     onTrace?.({ type: "decision", score: found ? score : undefined, text: found ? undefined : "FINAL_SCORE not found" });
     const calls = turn.toolCalls;
 
@@ -351,7 +389,15 @@ export async function runQualitative(
     const lastStep = steps[steps.length - 1] as any;
     const maxTurnsReached =
       steps.length >= config.maxToolSteps && !!lastStep && lastStep.finishReason === "tool-calls";
-    const error = found ? undefined : maxTurnsReached ? "Max tool-call turns reached" : "FINAL_SCORE not found";
+
+    let error: string | undefined;
+    if (!found) {
+      error = turn.error
+        ? turn.userMessage || turn.error
+        : maxTurnsReached
+          ? "Max tool-call turns reached"
+          : "FINAL_SCORE not found";
+    }
 
     log.info(
       "[agent]",
@@ -362,7 +408,7 @@ export async function runQualitative(
       analysis,
       toolCalls: calls,
       error,
-      retryable: error === "FINAL_SCORE not found" ? true : undefined,
+      retryable: !!error && !!turn.error && turn.retryable === true,
       tokens: turn.usage,
     };
   } catch (e: any) {
@@ -370,7 +416,7 @@ export async function runQualitative(
     log.error("[agent]", `${modelId} "${parameter.parameter}" failed:`, e?.message || e);
     return {
       score: 0,
-      analysis: "",
+      analysis: `The analysis for this parameter was interrupted by an error: ${String(e?.message || e)}`,
       toolCalls: [],
       error: String(e?.message || e),
       retryable: !timedOut,

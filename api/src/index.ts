@@ -650,11 +650,10 @@ async function loadMetricFields(sourceLower: string, userId: string): Promise<Me
   const { voyagerKey } = await fetchUserKeys(userId);
   if (voyagerKey) {
     const voyager = new VoyagerClient(config.voyagerUrl, voyagerKey, config.voyagerRpm);
-    for (const { symbol, country } of REPRESENTATIVE_SYMBOLS[sourceLower] || []) {
+    for (const { symbol } of REPRESENTATIVE_SYMBOLS[sourceLower] || []) {
       try {
         const sample = await voyager.get("/financial-metrics", {
           symbol,
-          country,
           source: sourceLower,
           consolidated: true,
           filing_type: "ttm",

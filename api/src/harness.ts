@@ -110,7 +110,15 @@ export async function runAgentTurn(opts: HarnessOptions): Promise<HarnessResult>
             sawOutputPart = true;
             break;
           case "reasoning-delta":
+            // A thinking model streams reasoning before any text. Count the step
+            // as output so `steps` resolves instead of throwing
+            // AI_NoOutputGeneratedError and burning retries.
             onEvent?.({ type: "thought", text: part.text });
+            sawOutputPart = true;
+            break;
+          case "reasoning-start":
+          case "reasoning-end":
+            sawOutputPart = true;
             break;
           case "tool-call":
             observedToolCalls.push({ name: part.toolName, input: part.input ?? {} });

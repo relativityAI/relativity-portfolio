@@ -3,7 +3,7 @@ import { getDb } from "./db.js";
 import { fetchUserKeys } from "./provision.js";
 import { config } from "./config.js";
 import { getModelIds } from "./models.js";
-import { VoyagerClient, toCountrySource, type PullStatus } from "./voyager.js";
+import { VoyagerClient, toCountrySource, pullLastPulled, pullRecordCount, type PullStatus } from "./voyager.js";
 import { runQuantitative, fetchMetricsSnapshot, assessDataAdequacy, type DataAdequacy } from "./quant.js";
 import { runQualitativeAll } from "./agent.js";
 import { ensureFreshData } from "./freshness.js";
@@ -27,6 +27,25 @@ export interface RunRequest {
 }
 
 export const DEFAULT_MODEL = "gemini/gemini-3.5-flash-lite";
+
+// Hard cap on the data-availability check. Voyager cold-sleeps on Render's free
+// tier; the first call can take minutes to boot + retry. The check is advisory
+// (the pull step re-confirms), so past this budget we record it as unconfirmed
+// and move the run on instead of visibly hanging on this step.
+const DATA_CHECK_TIMEOUT_MS = 60_000;
+
+/** Resolve with the promise's value, or reject if it takes longer than `ms`. */
+export async function withDeadline<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, rej) => {
+    timer = setTimeout(() => rej(new Error(msg)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 
@@ -336,14 +355,15 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     await tracker.begin("data");
     let dataAvailability: PullStatus | null = null;
     try {
-      dataAvailability = await voyager.getPullStatus(req.symbol, cs.country, cs.source);
+      dataAvailability = await withDeadline(
+        voyager.getPullStatus(req.symbol, cs.country, cs.source),
+        DATA_CHECK_TIMEOUT_MS,
+        "Data availability check timed out (Voyager cold start) — continuing unconfirmed",
+      );
       await write(() => updateRun(runId, { data_availability: dataAvailability }));
       await tracker.end("data", "completed");
-      const total = Object.values(dataAvailability?.collections ?? {}).reduce(
-        (n, c) => n + (c?.records || 0),
-        0,
-      );
-      log.info(runTag, `data availability records=${total} last_pulled=${dataAvailability?.last_pulled || "never"}`);
+      const total = pullRecordCount(dataAvailability);
+      log.info(runTag, `data availability records=${total} last_pulled=${pullLastPulled(dataAvailability) || "never"}`);
     } catch (e: any) {
       const detail = e?.message || String(e);
       await write(() => updateRun(runId, { data_availability: { error: detail } }));

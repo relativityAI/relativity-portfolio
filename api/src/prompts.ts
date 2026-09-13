@@ -54,15 +54,26 @@ export function buildVerdictRecoveryPrompt(
     context.trim() || "",
     `Qualitative requirement: ${parameter.parameter}`,
     parameter.content ? `Checklist guidance:\n${parameter.content}` : "",
-    researchText.trim() ? `\nResearch notes already gathered for this requirement:\n${researchText.trim().slice(0, 9000)}` : "\nNo research notes were captured — reason from the subject context provided and well-established fact, and say explicitly what could not be verified.",
+    researchText.trim() ? `\nResearch notes already gathered for this requirement:\n${researchText.trim().slice(0, 16000)}` : "\nNo research notes were captured — reason from the subject context provided and well-established fact, and say explicitly what could not be verified.",
   ].filter(Boolean);
   return [...parts, `\nWrite the FINAL verdict for "${parameter.parameter}" and end with the FINAL_SCORE line.`].join("\n\n");
 }
 
-export function buildDraftParametersPrompt(persona: string, count: number, scope: string): string {
+export function buildDraftParametersPrompt(
+  persona: string,
+  count: number,
+  scope: string,
+  toolCatalog: { name: string; description: string }[] = [],
+): string {
+  const tools = toolCatalog.length
+    ? `\n\nThe evaluator will have these data tools available. Name the relevant ones inside each item's "content" so the scorer knows which data sources to look for while researching that aspect:\n` +
+      toolCatalog.map((t) => `- ${t.name}: ${t.description}`).join("\n") +
+      `\nThese tools are recommended — use your own judgment to reference only the tools that genuinely fit each aspect.`
+    : "";
   return `An investor describes their philosophy:\n"""\n${persona.slice(0, 4000)}\n"""\n\n` +
+         tools + `\n\n` +
          `Draft exactly ${count} distinct qualitative evaluation parameters — ${scope} — that match this philosophy.\n` +
-         `Each item must be JSON: {"parameter": "<short name>", "content": "<1-3 sentence checklist guidance for scoring this parameter>", "weightage": <integer 1-10 importance>}.\n` +
+         `Each item must be JSON: {"parameter": "<short name>", "content": "<1-3 sentence checklist guidance for scoring this parameter, listing which data tools the scorer should look at>", "weightage": <integer 1-10 importance>}.\n` +
          `Respond with ONLY the JSON array. No markdown fences, no commentary.`;
 }
 
@@ -71,7 +82,11 @@ export function buildDraftParametersPrompt(persona: string, count: number, scope
 // Used by the interactive Agent Builder to construct configurations.
 // ============================================================================
 
-export function buildAgentBuilderSystemPrompt(schema: SchemaDescriptor, metrics: MetricDef[]): string {
+export function buildAgentBuilderSystemPrompt(
+  schema: SchemaDescriptor,
+  metrics: MetricDef[],
+  toolCatalog: { name: string; description: string }[] = [],
+): string {
   const metricList = metrics
     .slice(0, 60)
     .map((m) => `  - ${m.id}: ${m.name} (${m.type})`)
@@ -88,6 +103,13 @@ export function buildAgentBuilderSystemPrompt(schema: SchemaDescriptor, metrics:
     return desc;
   }).join("\n");
 
+  const toolSection = toolCatalog.length
+    ? `\n## Available Data Tools\n` +
+      `The analysis agent will have these tools to gather evidence. Only each tool's name and purpose are listed here — not how to call it. When writing qualitative parameter content, name the specific tools the evaluator should look at while researching that aspect.\n` +
+      toolCatalog.map((t) => `- ${t.name}: ${t.description}`).join("\n") +
+      `\n\nThese tools are recommended — use your own decision-making to use other tools or data sources if needed.`
+    : "";
+
   return `You are an investment agent builder. Your job is to help users create investment analysis agents by conversationally gathering their preferences and generating a complete agent configuration.
 
 ## Agent Schema
@@ -96,23 +118,20 @@ ${schemaDesc}
 
 ## Available Quantitative Metrics
 ${metricList}
+${toolSection}
 
 ## Rules
 1. Be conversational and concise. Ask one question at a time.
 2. When offering options, provide 4-7 choices as JSON options array.
-3. ALWAYS include "agent_draft_update" in your JSON response whenever the user specifies preferences, style, horizon, risk, or criteria. "agent_draft_update" MUST contain:
-   {
-     "name": "<short agent name>",
-     "style": "<growth|value|momentum|custom>",
-     "philosophy": "<2-3 paragraph philosophy text>",
-     "configuration": { "investment_horizon": "<horizon text>", "risk_appetite": <1-10 number> },
-     "asset_evaluation": {
-       "qualitative": [{"parameter": "<name>", "content": "<checklist>", "weightage": 1-10}],
-       "quantitative": [{"metric": "<metric_id>", "metric_name": "<display name>", "operator": "gt|lt|gte|lte|eq|between", "value": <number>, "weightage": 1-10}]
-     }
-   }
+3. When the user specifies preferences, style, horizon, risk, or criteria, include "agent_draft_update" in your JSON response. It is a PARTIAL PATCH, not a full resend of the agent:
+   - First build / empty draft: include the complete draft.
+   - Later turns: include ONLY the top-level sections that changed (any of: "name", "style", "philosophy", "configuration", "asset_evaluation", "macro_evaluation"). Inside a changed section, include its FULL array of items. Omit untouched sections entirely — do not echo the philosophy, name, or evaluation sections back unchanged.
+   - Inside "asset_evaluation"/"macro_evaluation", a "qualitative" param is: {"parameter": "<name>", "content": "<checklist>", "weightage": 1-10}; a "quantitative" rule is: {"metric": "<metric_id>", "metric_name": "<display name>", "operator": "gt|lt|gte|lte|eq|between", "value": <number>, "weightage": 1-10}.
+   - An evaluation section has BOTH a "qualitative" and a "quantitative" key (each an array). When you change anything inside "asset_evaluation" or "macro_evaluation", include BOTH keys with their full arrays — copying the unchanged items verbatim from the current draft — so you never drop rules or parameters you didn't intend to touch.
    NEVER respond saying you set up, added, or updated criteria without returning the populated fields inside "agent_draft_update".
-4. For qualitative parameters: include a "parameter" (short name), "content" (1-3 sentence scoring checklist), and "weightage" (1-10).
+3b. Distinguish change requests from informational questions. If the user only asks a question about you or how you work — such as "what tools do you have access to?", "how do you evaluate stocks?", "what can you do?" — answer in "message" and DO NOT include "agent_draft_update". Never rewrite, annotate, or resave the user's configuration because of a question; that would surprise and annoy them. Only include "agent_draft_update" when the user actually specifies or asks to change their agent.
+4. For qualitative parameters: include a "parameter" (short name), "content" (1-3 sentence scoring checklist), and "weightage" (1-10). In "content", name the specific data tools (from ## Available Data Tools) the evaluator should consult while researching that aspect. Think about which tools are genuinely relevant before adding them — pick tools that actually bear on the aspect, not a blanket list.
+4b. The tools in ## Available Data Tools are recommendations, not a fixed set — the evaluator can use its own judgment to call other tools or data sources as needed. Only reference tools that genuinely fit the aspect you are describing.
 5. For quantitative criteria: use metric IDs from the available list. Include "metric", "metric_name", "metric_type", "operator" (gt/gte/lt/lte/eq/between), "value", "value_upper" (required when operator is "between"), and "weightage" (1-10). Prefer simple operators (gt, lt, gte, lte) over "between" unless a range is clearly needed.
 6. Always generate a reasonable philosophy even if the user provides minimal input.
 7. When documents are provided, extract investment style, criteria, and preferences from them.
@@ -126,21 +145,30 @@ ${metricList}
 2. If they selected a preset or uploaded documents, acknowledge and present the draft.
 3. If custom, ask about their philosophy, then generate the draft.
 4. After presenting a draft, offer to refine specific sections.
-5. When the user says it's good, confirm and stop generating options.`;
+5. When the user says it's good, confirm and stop generating options.
+6. Answer informational questions plainly in the conversation; never edit the agent because of them.`;
 }
 
 export function buildBuilderRecoveryPrompt(prompt: string, rawText: string): string {
-  return `${prompt}\n\n## PREVIOUS RESPONSE TEXT\n${rawText}\n\nREMINDER: Output ONLY a valid JSON object. You MUST include "agent_draft_update" containing { "name": string, "philosophy": string, "configuration": { "investment_horizon": string, "risk_appetite": number }, "asset_evaluation": { "qualitative": [], "quantitative": [] }, "macro_evaluation": { "qualitative": [], "quantitative": [] } }.`;
+  return `${prompt}\n\n## PREVIOUS RESPONSE TEXT\n${rawText}\n\nREMINDER: Output ONLY a valid JSON object: {"message": string, "options": [{id,label,description}], "agent_draft_update": {...}, "annotations": [{"what","basis"}]}. Include "agent_draft_update" ONLY if the user's request specified or changed agent configuration (name, philosophy/style, horizon, risk, or evaluation criteria). For a question or small talk, omit it entirely.`;
 }
 
-export function buildDocumentExtractionPrompt(docContent: string): string {
+export function buildDocumentExtractionPrompt(
+  docContent: string,
+  toolCatalog: { name: string; description: string }[] = [],
+): string {
+  const tools = toolCatalog.length
+    ? `\n\nThe evaluator will have these data tools. Name the relevant ones in each qualitative parameter's content so the scorer knows which data sources to look for while researching that aspect:\n` +
+      toolCatalog.map((t) => `- ${t.name}: ${t.description}`).join("\n") +
+      `\nThese tools are recommended — use your own judgment to reference only the tools that genuinely fit each aspect.`
+    : "";
   return `The documents below are EXTRACTED TEXT ONLY. This model cannot read PDFs or file attachments directly — never claim to have read a file; use only the text shown.\n\n` +
-    docContent + `\n\n` +
+    docContent + tools + `\n\n` +
     `Respond with JSON only:\n` +
     `{"style": "value|growth|momentum|quantitative|contrarian|income|macro|custom",` +
     ` "philosophy": "2-3 paragraph investment philosophy text",` +
     ` "horizon": "Intraday|Swing|Positional|Long-term (years)",` +
     ` "risk": <1-10 integer>,` +
-    ` "qualitative_params": [{"parameter": "name", "content": "checklist text", "weightage": 1-10}],` +
+    ` "qualitative_params": [{"parameter": "name", "content": "checklist text naming the data tools to consult for this aspect", "weightage": 1-10}],` +
     ` "quantitative_rules": [{"metric": "metric_id", "metric_name": "display name", "metric_type": "number|percentage|currency", "operator": "gt|lt|gte|lte|eq|between", "value": <number>, "value_upper": <number|null>, "weightage": 1-10}]}`;
 }

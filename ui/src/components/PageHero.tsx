@@ -14,10 +14,7 @@ export default function PageHero({ children }: { children: ReactNode }) {
         >
             <Box
                 position="absolute"
-                top={4}
-                right={4}
-                bottom={4}
-                left={4}
+                inset={0}
                 pointerEvents="none"
                 aria-hidden
                 style={{
@@ -25,8 +22,10 @@ export default function PageHero({ children }: { children: ReactNode }) {
                         "linear-gradient(to right, var(--hairline) 1px, transparent 1px), linear-gradient(to bottom, var(--hairline) 1px, transparent 1px)",
                     backgroundSize: "26px 26px",
                     opacity: 0.7,
-                    maskImage: "radial-gradient(ellipse at 50% 0%, rgba(0,0,0,1), transparent 80%)",
-                    WebkitMaskImage: "radial-gradient(ellipse at 50% 0%, rgba(0,0,0,1), transparent 80%)",
+                    maskImage:
+                        "radial-gradient(ellipse at center, black 35%, rgba(0,0,0,0) 80%)",
+                    WebkitMaskImage:
+                        "radial-gradient(ellipse at center, black 35%, rgba(0,0,0,0) 80%)",
                 }}
             />
             <Box position="relative">{children}</Box>

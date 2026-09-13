@@ -20,6 +20,23 @@ function truncate(text: string, max = MAX_PDF_CHARS): string {
   return text.length > max ? text.slice(0, max) + "\n...[truncated]" : text;
 }
 
+// Voyager data tools: turn a "no data yet" 400/404 into a clean message the
+// model can act on (e.g. trigger a pull), but let real failures (5xx after
+// retries, 401/403/429) throw so the tool loop records them and the model may
+// retry the call.
+function guard<T>(run: () => Promise<T>): Promise<T | { message: string }> {
+  return (async () => {
+    try {
+      return await run();
+    } catch (e: any) {
+      if (e?.name === "VoyagerError" && (e?.status === 400 || e?.status === 404)) {
+        return { message: String(e?.message || "") || "No data available for this request." };
+      }
+      throw e;
+    }
+  })();
+}
+
 async function fetchPdfText(url: string): Promise<string> {
   const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
   if (!res.ok) throw new Error(`read_pdf status ${res.status}: ${url}`);
@@ -84,9 +101,7 @@ export function buildWebSearchTool(tavilyKey?: string, querySuffix?: string, web
 }
 
 export function buildTools(ctx: ToolContext) {
-  const { voyager, symbol, country, source, shareName } = ctx;
-
-  const cs = { country, source };
+  const { voyager, symbol, source, shareName } = ctx;
 
   return {
     get_financial_metrics: tool({
@@ -94,19 +109,19 @@ export function buildTools(ctx: ToolContext) {
         "Fetch a single-period financial metrics snapshot (ratios, margins, growth, valuation, per-share figures) for a company. Use filing_type=ttm for trailing-twelve-months figures, quarterly/annual for point-in-time statements. Note: if the response has price_data=\"unavailable\", price-derived fields (current_price, market cap, PE/PB/PS, EV, technicals) are omitted and only filings-based ratios are present.",
       inputSchema: z.object({
         symbol: z.string().describe("Stock symbol, e.g. RELIANCE or NVDA."),
-        country: z.enum(["in", "us"]).optional().describe("Defaults to the analyzed company's country."),
         source: z.enum(["nse", "sec"]).optional().describe("Defaults to the analyzed company's source."),
         consolidated: z.boolean().optional(),
         filing_type: z.enum(["ttm", "annual", "quarterly"]).optional(),
       }),
       execute: async (args) => {
-        const data = await voyager.get("/financial-metrics", {
-          symbol: args.symbol || symbol,
-          country: args.country || country,
-          source: args.source || source,
-          consolidated: args.consolidated ?? true,
-          filing_type: args.filing_type || "ttm",
-        });
+        const data = await guard(() =>
+          voyager.get("/financial-metrics", {
+            symbol: args.symbol || symbol,
+            source: args.source || source,
+            consolidated: args.consolidated ?? true,
+            filing_type: args.filing_type || "ttm",
+          }),
+        );
         if (!data || Object.keys(data).length <= 3) {
           return { message: "No financial metrics available for this symbol.", data: {} };
         }
@@ -116,24 +131,24 @@ export function buildTools(ctx: ToolContext) {
 
     get_financials: tool({
       description:
-        "Fetch a company's financial statements (income statement, balance sheet, cash flow). Returns rows keyed by XBRL-style field names for each reporting period.",
+        "Fetch a company's financial statements (income statement, balance sheet, cash flow). Returns rows keyed by XBRL-style field names for each reporting period. If the response is a message saying no data is available, call trigger_data_pull first.",
       inputSchema: z.object({
         symbol: z.string().optional().describe("Defaults to the analyzed company."),
-        country: z.enum(["in", "us"]).optional(),
         source: z.enum(["nse", "sec"]).optional(),
         consolidated: z.boolean().optional(),
         filing_type: z.enum(["annual", "quarterly"]).optional(),
         all_fields: z.boolean().optional(),
       }),
       execute: async (args) => {
-        return voyager.get("/financials", {
-          symbol: args.symbol || symbol,
-          country: args.country || country,
-          source: args.source || source,
-          consolidated: args.consolidated ?? true,
-          filing_type: args.filing_type || "annual",
-          all_fields: args.all_fields ?? false,
-        });
+        return guard(() =>
+          voyager.get("/financials", {
+            symbol: args.symbol || symbol,
+            source: args.source || source,
+            consolidated: args.consolidated ?? true,
+            filing_type: args.filing_type || "annual",
+            all_fields: args.all_fields ?? false,
+          }),
+        );
       },
     }),
 
@@ -141,19 +156,19 @@ export function buildTools(ctx: ToolContext) {
       description: "Fetch income statement rows for a company across reporting periods.",
       inputSchema: z.object({
         symbol: z.string().optional(),
-        country: z.enum(["in", "us"]).optional(),
         source: z.enum(["nse", "sec"]).optional(),
         consolidated: z.boolean().optional(),
         all_fields: z.boolean().optional(),
       }),
       execute: async (args) => {
-        return voyager.get("/financials/income-statements", {
-          symbol: args.symbol || symbol,
-          country: args.country || country,
-          source: args.source || source,
-          consolidated: args.consolidated ?? true,
-          all_fields: args.all_fields ?? false,
-        });
+        return guard(() =>
+          voyager.get("/financials/income-statements", {
+            symbol: args.symbol || symbol,
+            source: args.source || source,
+            consolidated: args.consolidated ?? true,
+            all_fields: args.all_fields ?? false,
+          }),
+        );
       },
     }),
 
@@ -161,19 +176,19 @@ export function buildTools(ctx: ToolContext) {
       description: "Fetch balance sheet rows for a company across reporting periods.",
       inputSchema: z.object({
         symbol: z.string().optional(),
-        country: z.enum(["in", "us"]).optional(),
         source: z.enum(["nse", "sec"]).optional(),
         consolidated: z.boolean().optional(),
         all_fields: z.boolean().optional(),
       }),
       execute: async (args) => {
-        return voyager.get("/financials/balance-sheets", {
-          symbol: args.symbol || symbol,
-          country: args.country || country,
-          source: args.source || source,
-          consolidated: args.consolidated ?? true,
-          all_fields: args.all_fields ?? false,
-        });
+        return guard(() =>
+          voyager.get("/financials/balance-sheets", {
+            symbol: args.symbol || symbol,
+            source: args.source || source,
+            consolidated: args.consolidated ?? true,
+            all_fields: args.all_fields ?? false,
+          }),
+        );
       },
     }),
 
@@ -181,19 +196,19 @@ export function buildTools(ctx: ToolContext) {
       description: "Fetch cash flow statement rows for a company across reporting periods.",
       inputSchema: z.object({
         symbol: z.string().optional(),
-        country: z.enum(["in", "us"]).optional(),
         source: z.enum(["nse", "sec"]).optional(),
         consolidated: z.boolean().optional(),
         all_fields: z.boolean().optional(),
       }),
       execute: async (args) => {
-        return voyager.get("/financials/cash-flows", {
-          symbol: args.symbol || symbol,
-          country: args.country || country,
-          source: args.source || source,
-          consolidated: args.consolidated ?? true,
-          all_fields: args.all_fields ?? false,
-        });
+        return guard(() =>
+          voyager.get("/financials/cash-flows", {
+            symbol: args.symbol || symbol,
+            source: args.source || source,
+            consolidated: args.consolidated ?? true,
+            all_fields: args.all_fields ?? false,
+          }),
+        );
       },
     }),
 
@@ -202,20 +217,20 @@ export function buildTools(ctx: ToolContext) {
         "Fetch recent exchange announcements for a company (earnings calls, board meetings, dividends, investor meets).",
       inputSchema: z.object({
         symbol: z.string().optional(),
-        country: z.enum(["in", "us"]).optional(),
         source: z.enum(["nse", "sec"]).optional(),
         market: z.string().optional(),
       }),
       execute: async (args) => {
-        const data = await voyager.get("/announcements", {
-          symbol: args.symbol || symbol,
-          country: args.country || country,
-          source: args.source || source,
-          market: args.market,
-        });
-        const announcements = data?.announcements || [];
+        const data = await guard(() =>
+          voyager.get("/announcements", {
+            symbol: args.symbol || symbol,
+            source: args.source || source,
+            market: args.market,
+          }),
+        );
+        const announcements = (data as any)?.announcements || [];
         return {
-          symbol: data?.symbol || symbol,
+          symbol: (data as any)?.symbol || symbol,
           count: announcements.length,
           announcements: announcements.slice(0, MAX_ANNOUNCEMENTS).map((a: any) => ({
             date: a.date,
@@ -233,16 +248,16 @@ export function buildTools(ctx: ToolContext) {
         "Fetch the latest shareholding pattern for a company (promoter, institutional, foreign institutional, and public ownership percentages).",
       inputSchema: z.object({
         symbol: z.string().optional(),
-        country: z.enum(["in", "us"]).optional(),
         source: z.enum(["nse", "sec"]).optional(),
       }),
       execute: async (args) => {
-        const data = await voyager.get("/shareholdings", {
-          symbol: args.symbol || symbol,
-          country: args.country || country,
-          source: args.source || source,
-        });
-        return data?.shareholdings || { message: "No shareholding data available." };
+        const data = await guard(() =>
+          voyager.get("/shareholdings", {
+            symbol: args.symbol || symbol,
+            source: args.source || source,
+          }),
+        );
+        return (data as any)?.shareholdings || { message: "No shareholding data available." };
       },
     }),
 
@@ -250,15 +265,15 @@ export function buildTools(ctx: ToolContext) {
       description: "List available market categories: sources, countries, industries, sectors, indices.",
       inputSchema: z.object({
         category: z.string(),
-        country: z.string().optional(),
         source: z.string().optional(),
       }),
       execute: async (args) => {
-        return voyager.get("/list", {
-          category: args.category,
-          country: args.country || country,
-          source: args.source || source,
-        });
+        return guard(() =>
+          voyager.get("/list", {
+            category: args.category,
+            source: args.source || source,
+          }),
+        );
       },
     }),
 
@@ -268,16 +283,16 @@ export function buildTools(ctx: ToolContext) {
       inputSchema: z.object({
         keyword: z.string(),
         symbol: z.string().optional(),
-        country: z.enum(["in", "us"]).optional(),
         source: z.enum(["nse", "sec"]).optional(),
       }),
       execute: async (args) => {
-        const data = await voyager.get("/announcements", {
-          symbol: args.symbol || symbol,
-          country: args.country || country,
-          source: args.source || source,
-        });
-        const announcements = (data?.announcements || []) as any[];
+        const data = await guard(() =>
+          voyager.get("/announcements", {
+            symbol: args.symbol || symbol,
+            source: args.source || source,
+          }),
+        );
+        const announcements = ((data as any)?.announcements || []) as any[];
         const matched = announcementFilter(announcements, [args.keyword]);
         return {
           keyword: args.keyword,
@@ -297,16 +312,16 @@ export function buildTools(ctx: ToolContext) {
         "Find and read the text of the company's most recent earnings call transcript / investors meet PDF.",
       inputSchema: z.object({
         symbol: z.string().optional(),
-        country: z.enum(["in", "us"]).optional(),
         source: z.enum(["nse", "sec"]).optional(),
       }),
       execute: async (args) => {
-        const data = await voyager.get("/announcements", {
-          symbol: args.symbol || symbol,
-          country: args.country || country,
-          source: args.source || source,
-        });
-        const announcements = (data?.announcements || []) as any[];
+        const data = await guard(() =>
+          voyager.get("/announcements", {
+            symbol: args.symbol || symbol,
+            source: args.source || source,
+          }),
+        );
+        const announcements = ((data as any)?.announcements || []) as any[];
         const matched = announcementFilter(
           announcements,
           ["transcript", "conference call", "analysts meet"],
@@ -342,16 +357,16 @@ export function buildTools(ctx: ToolContext) {
         "Find and read the text of the company's most recent investor presentation / results presentation PDF.",
       inputSchema: z.object({
         symbol: z.string().optional(),
-        country: z.enum(["in", "us"]).optional(),
         source: z.enum(["nse", "sec"]).optional(),
       }),
       execute: async (args) => {
-        const data = await voyager.get("/announcements", {
-          symbol: args.symbol || symbol,
-          country: args.country || country,
-          source: args.source || source,
-        });
-        const announcements = (data?.announcements || []) as any[];
+        const data = await guard(() =>
+          voyager.get("/announcements", {
+            symbol: args.symbol || symbol,
+            source: args.source || source,
+          }),
+        );
+        const announcements = ((data as any)?.announcements || []) as any[];
         const matched = announcementFilter(
           announcements,
           ["presentation", "investor presentation", "earnings presentation"],
@@ -413,17 +428,15 @@ export function buildTools(ctx: ToolContext) {
         beta: z.number().describe("Beta used for the CAPM discount rate (default 1.0).").optional(),
       }),
       execute: async (args) => {
-        const data = await voyager.getDcfValuation(args.symbol || symbol, args.source || source, {
-          growth_rate: args.growth_rate,
-          terminal_growth_rate: args.terminal_growth_rate,
-          discount_rate: args.discount_rate,
-          years: args.years,
-          beta: args.beta,
-        });
-        if (data && data.detail && data.detail.includes("No free cash flow")) {
-          return { message: data.detail };
-        }
-        return data;
+        return guard(() =>
+          voyager.getDcfValuation(args.symbol || symbol, args.source || source, {
+            growth_rate: args.growth_rate,
+            terminal_growth_rate: args.terminal_growth_rate,
+            discount_rate: args.discount_rate,
+            years: args.years,
+            beta: args.beta,
+          }),
+        );
       },
     }),
 
@@ -436,11 +449,11 @@ export function buildTools(ctx: ToolContext) {
         limit: z.number().int().min(1).max(50).describe("Number of stories (default 20).").optional(),
       }),
       execute: async (args) => {
-        return voyager.getMarketNews({
-          country: args.country || country,
+        return guard(() => voyager.getMarketNews({
+          country: args.country || ctx.country,
           days: args.days,
           limit: args.limit,
-        });
+        }));
       },
     }),
 
@@ -453,10 +466,12 @@ export function buildTools(ctx: ToolContext) {
         days: z.number().int().min(1).max(30).describe("Look-back window in days (default 7).").optional(),
       }),
       execute: async (args) => {
-        return voyager.getTickerNews(args.symbol || symbol, {
-          country: args.country || country,
-          days: args.days,
-        });
+        return guard(() =>
+          voyager.getTickerNews(args.symbol || symbol, {
+            country: args.country || ctx.country,
+            days: args.days,
+          }),
+        );
       },
     }),
 
@@ -468,7 +483,8 @@ export function buildTools(ctx: ToolContext) {
         limit: z.number().int().min(1).max(50).describe("Number of posts to return (default 10).").optional(),
       }),
       execute: async (args) => {
-        return voyager.searchReddit(args.query, args.limit ?? 10);
+        const data = await guard(() => voyager.searchReddit(args.query, args.limit ?? 10));
+        return data;
       },
     }),
 
@@ -480,7 +496,8 @@ export function buildTools(ctx: ToolContext) {
         limit: z.number().int().min(1).max(50).describe("Number of videos (default 15).").optional(),
       }),
       execute: async (args) => {
-        return voyager.searchYouTube(args.query, args.limit ?? 15);
+        const data = await guard(() => voyager.searchYouTube(args.query, args.limit ?? 15));
+        return data;
       },
     }),
 
@@ -491,9 +508,11 @@ export function buildTools(ctx: ToolContext) {
         video_id: z.string().describe("YouTube video ID, e.g. 'JInWssm6M80'."),
       }),
       execute: async (args) => {
-        const data = await voyager.getYouTubeTranscript(args.video_id);
-        if (typeof data?.transcript === "string") {
-          return { ...data, transcript: truncate(data.transcript) };
+        const data = await guard(() => voyager.getYouTubeTranscript(args.video_id));
+        // Voyager returns the captions under `text` (not `transcript`).
+        const text = (data as any)?.text ?? (data as any)?.transcript;
+        if (typeof text === "string") {
+          return { ...(data as any), text: truncate(text) };
         }
         return data;
       },
@@ -508,7 +527,9 @@ export function buildTools(ctx: ToolContext) {
         source: z.enum(["nse", "sec"]).optional().describe("Defaults to the analyzed company's source."),
       }),
       execute: async (args) => {
-        return voyager.parseDocument(args.url, args.symbol || symbol, args.source || source);
+        return guard(() =>
+          voyager.parseDocument(args.url, args.symbol || symbol, args.source || source),
+        );
       },
     }),
 
@@ -519,7 +540,7 @@ export function buildTools(ctx: ToolContext) {
         document_id: z.number().int().describe("Document ID returned by parse_pdf_document or get_pull_job_status."),
       }),
       execute: async (args) => {
-        return voyager.getDocumentIndex(args.document_id);
+        return guard(() => voyager.getDocumentIndex(args.document_id));
       },
     }),
 
@@ -537,13 +558,15 @@ export function buildTools(ctx: ToolContext) {
         if (!args.url && !args.text) {
           return { message: "Provide either 'url' or 'text' for management sentiment analysis." };
         }
-        return voyager.analyzeManagementSentiment({
-          url: args.url,
-          text: args.text,
-          symbol: args.symbol || symbol,
-          source: args.source || source,
-          model: args.model,
-        });
+        return guard(() =>
+          voyager.analyzeManagementSentiment({
+            url: args.url,
+            text: args.text,
+            symbol: args.symbol || symbol,
+            source: args.source || source,
+            model: args.model,
+          }),
+        );
       },
     }),
 
@@ -559,7 +582,7 @@ export function buildTools(ctx: ToolContext) {
       execute: async (args) => {
         const s = args.source || source;
         const c = s === "sec" ? "us" : "in";
-        return voyager.getPullStatus(args.symbol || symbol, c, s);
+        return guard(() => voyager.getPullStatus(args.symbol || symbol, c, s));
       },
     }),
 
@@ -575,7 +598,15 @@ export function buildTools(ctx: ToolContext) {
       execute: async (args) => {
         const s = args.source || source;
         const c = s === "sec" ? "us" : "in";
-        return voyager.triggerPull(args.symbol || symbol, c, s, args.filing_type || "quarterly", args.refresh ?? false);
+        return guard(() =>
+          voyager.triggerPull(
+            args.symbol || symbol,
+            c,
+            s,
+            args.filing_type || "quarterly",
+            args.refresh ?? false,
+          ),
+        );
       },
     }),
 
@@ -586,7 +617,7 @@ export function buildTools(ctx: ToolContext) {
         job_id: z.string().describe("Job ID returned by trigger_data_pull, parse_pdf_document, or analyze_management_sentiment."),
       }),
       execute: async (args) => {
-        return voyager.getPullJobStatus(args.job_id);
+        return guard(() => voyager.getPullJobStatus(args.job_id));
       },
     }),
 
@@ -597,7 +628,7 @@ export function buildTools(ctx: ToolContext) {
         limit: z.number().int().min(1).max(100).describe("Number of jobs (default 20).").optional(),
       }),
       execute: async (args) => {
-        return voyager.listPullJobs(args.limit ?? 20);
+        return guard(() => voyager.listPullJobs(args.limit ?? 20));
       },
     }),
 
@@ -606,6 +637,24 @@ export function buildTools(ctx: ToolContext) {
 }
 
 export type Tools = ReturnType<typeof buildTools>;
+
+// Name + description catalog of every tool, for consumers (e.g. the agent
+// builder) that need to know which tools exist without executing them.
+// Reuses the real tool definitions so descriptions can't drift from usage.
+export function getToolCatalog(): { name: string; description: string }[] {
+  const tools = buildTools({
+    voyager: {} as unknown as VoyagerClient,
+    symbol: "",
+    country: "",
+    source: "sec",
+    shareName: "",
+  });
+  return Object.keys(tools).map((name) => {
+    const t = tools[name as keyof typeof tools];
+    const desc = t?.description;
+    return { name, description: typeof desc === "string" ? desc : "" };
+  });
+}
 
 export function extractToolCalls(steps: any[]): Record<string, unknown>[] {
   const calls: Record<string, unknown>[] = [];

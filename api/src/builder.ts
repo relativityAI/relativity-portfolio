@@ -11,7 +11,7 @@ import { getSchemaDescriptor, type SchemaDescriptor } from "./schema.js";
 import type { MetricDef } from "./metrics.js";
 import { normalizeQuantRules } from "./metrics.js";
 import { buildAgentBuilderSystemPrompt, buildBuilderRecoveryPrompt, buildDocumentExtractionPrompt } from "./prompts.js";
-import { buildWebSearchTool } from "./tools.js";
+import { buildWebSearchTool, getToolCatalog } from "./tools.js";
 import { getDb } from "./db.js";
 import { runAgentTurn, type HarnessTraceEvent } from "./harness.js";
 
@@ -69,7 +69,7 @@ export const builderResponseSchema = z.object({
     .describe("4-7 interactive option choices for the user"),
   agent_draft_update: agentDraftSchema
     .optional()
-    .describe("Updates or additions to the agent draft configuration. ALWAYS include when drafting or updating the agent configuration."),
+    .describe("PARTIAL PATCH of the agent draft: only the top-level sections that changed. Omit untouched sections. First build includes the complete draft."),
   thinking: z.string().optional().describe("Internal reasoning or evaluation notes"),
   annotations: z
     .array(
@@ -279,6 +279,7 @@ export async function processBuilderTurn(
   const { onTrace } = opts;
   const schema = getSchemaDescriptor();
   const model = buildModel(req.model_id, req.llm_keys);
+  const toolCatalog = getToolCatalog();
   console.log(`[builder] model_id=${req.model_id} keys=${Object.keys(req.llm_keys).join(",")}`);
 
   // Build conversation context for the LLM
@@ -338,7 +339,7 @@ export async function processBuilderTurn(
 
   const turn = await runAgentTurn({
     model,
-    system: buildAgentBuilderSystemPrompt(schema, req.metrics),
+    system: buildAgentBuilderSystemPrompt(schema, req.metrics, toolCatalog),
     prompt,
     temperature: 0.4,
     maxOutputTokens: 4096,
@@ -362,24 +363,20 @@ export async function processBuilderTurn(
   const rawText = turn.text || "";
   let parsed: any = parseJsonObject(rawText);
 
-  // If parsing failed OR agent_draft_update is missing, run a focused recovery pass
-  if (!parsed || !parsed.agent_draft_update) {
+  // Only recover when JSON parsing failed outright. A valid response without
+  // agent_draft_update means the model decided nothing changed (e.g. a question);
+  // forcing or fabricating one marks the draft dirty with junk values.
+  if (!parsed) {
     try {
       const retry = await generateText({
         model,
-        instructions: buildAgentBuilderSystemPrompt(schema, req.metrics),
+        instructions: buildAgentBuilderSystemPrompt(schema, req.metrics, toolCatalog),
         prompt: buildBuilderRecoveryPrompt(prompt, rawText),
         temperature: 0.3,
       } as any);
       const retryText = getTextFromSteps(retry);
       const retryParsed = parseJsonObject(retryText);
-      if (retryParsed) {
-        parsed = {
-          ...parsed,
-          ...retryParsed,
-          agent_draft_update: retryParsed.agent_draft_update || parsed?.agent_draft_update,
-        };
-      }
+      if (retryParsed) parsed = retryParsed;
     } catch (e: any) {
       console.warn(`[builder] JSON recovery failed: ${e?.message}`);
     }
@@ -394,24 +391,6 @@ export async function processBuilderTurn(
     };
     await persistBuilderSessionTurn(req, fallbackRes);
     return fallbackRes;
-  }
-
-  // Fallback synthesis: If agent_draft_update is still missing, build one from existing draft or prompt context
-  if (!parsed.agent_draft_update) {
-    const existing = req.agent_draft || {};
-    const name = (existing.name as string) || (req.user_response?.slice(0, 30) ? `${req.user_response.slice(0, 30)} Agent` : "Investment Agent");
-    const philosophy = (existing.philosophy as string) || (existing.persona as any)?.philosophy_and_mindset || (parsed.message ? parsed.message.slice(0, 300) : "Growth oriented investment strategy focusing on long-term compounders.");
-    parsed.agent_draft_update = {
-      name,
-      philosophy,
-      persona: { philosophy_and_mindset: philosophy },
-      configuration: {
-        investment_horizon: (existing.configuration as any)?.investment_horizon || "Long-term (3+ years)",
-        risk_appetite: (existing.configuration as any)?.risk_appetite || 5,
-      },
-      asset_evaluation: existing.asset_evaluation || { qualitative: [], quantitative: [] },
-      macro_evaluation: existing.macro_evaluation || { qualitative: [], quantitative: [] },
-    };
   }
 
   // Annotations must cite only sources that actually exist in this turn:
@@ -435,9 +414,28 @@ export async function processBuilderTurn(
     return [...knownHosts].some((h) => h && b.includes(h));
   };
 
+  // Drop junk options (blank labels, duplicate ids) at the trust boundary; only
+  // meaningful choices render as option cards.
+  const seenOpts = new Set<string>();
+  const options = Array.isArray(parsed.options)
+    ? parsed.options
+        .filter((o: any) => o && typeof o.label === "string" && o.label.trim())
+        .map((o: any, i: number) => ({
+          id: o && typeof o.id === "string" && o.id.trim() ? o.id.trim() : `opt-${i}`,
+          label: o.label.trim(),
+          description: o && typeof o.description === "string" && o.description.trim() ? o.description.trim() : undefined,
+        }))
+        .filter((o: { id: string }) => {
+          if (seenOpts.has(o.id)) return false;
+          seenOpts.add(o.id);
+          return true;
+        })
+        .slice(0, 7)
+    : undefined;
+
   const response: BuilderResponse = {
     message: parsed.message || "Let me know if you'd like to adjust anything.",
-    options: Array.isArray(parsed.options) ? parsed.options : undefined,
+    options: options?.length ? options : undefined,
     agent_draft_update: normalizeDraft(parsed.agent_draft_update || undefined),
     thinking: parsed.thinking || undefined,
     sources: sources.length ? sources : undefined,
@@ -476,7 +474,7 @@ export async function extractDocumentSignals(
 
   const result = await generateText({
     model,
-    prompt: buildDocumentExtractionPrompt(docContent),
+    prompt: buildDocumentExtractionPrompt(docContent, getToolCatalog()),
     temperature: 0.3,
     maxOutputTokens: 2000,
   });

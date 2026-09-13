@@ -1,4 +1,4 @@
-import { VoyagerClient, type PullStatus } from "./voyager.js";
+import { VoyagerClient, pullRecordCount, type PullStatus } from "./voyager.js";
 import { findMetricId } from "./metrics.js";
 import { aggregateWeightedScores } from "./scoring.js";
 
@@ -147,7 +147,7 @@ function isPriceDerived(category?: string): boolean {
 export async function fetchMetricsSnapshot(
   voyager: VoyagerClient,
   symbol: string,
-  country: string,
+  _country: string,
   source: string,
 ): Promise<{ metrics: Record<string, any>; price_data: "live" | "unavailable" | "unknown" }> {
   let metrics: Record<string, any> = {};
@@ -155,7 +155,6 @@ export async function fetchMetricsSnapshot(
   try {
     const data = await voyager.get("/financial-metrics", {
       symbol,
-      country,
       source,
       consolidated: true,
       filing_type: "ttm",
@@ -184,10 +183,7 @@ export function assessDataAdequacy(
   pullStatus: PullStatus | null,
   metrics: Record<string, any>,
 ): DataAdequacy {
-  const records = Object.values(pullStatus?.collections ?? {}).reduce(
-    (n, c) => n + (c?.records || 0),
-    0,
-  );
+  const records = pullRecordCount(pullStatus);
   const metricKeys = Object.keys(metrics || {}).filter((k) => k !== "price_data").length;
   if (records === 0 && metricKeys === 0) return "inadequate";
   if (records < 50 || metricKeys < 10) return "sparse";
