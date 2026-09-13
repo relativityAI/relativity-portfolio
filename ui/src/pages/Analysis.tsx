@@ -2,7 +2,7 @@ import SearchBar from "@/components/SearchBar";
 import PageHero from "@/components/PageHero";
 import {
     Button, Flex, Text, Spinner, Box, Select, Input,
-    createListCollection, Portal, HStack
+    createListCollection, Portal, HStack, VStack, Switch
 } from "@chakra-ui/react";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { MdInfoOutline, MdCheck, MdClose, MdArrowForward } from "react-icons/md";
@@ -81,49 +81,49 @@ function RunningNow({ agents }: { agents?: any[] }) {
 
     return (
         <AnimatePresence initial={false}>
-        <Flex
-            as={motion.div}
-            key="runningnow"
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-            transition={{ duration: dur.base, ease }}
-            overflow="hidden"
-            align="center"
-            gap={3}
-            wrap="wrap"
-            py={2.5}
-            mb={1}
-        >
-            <HStack gap={1.5} flexShrink={0}>
-                <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />
-                <Text
-                    fontSize="10.5px"
-                    fontWeight={500}
-                    color="var(--ink-tertiary)"
-                    textTransform="uppercase"
-                    letterSpacing="0.06em"
-                >
-                    Running now
-                </Text>
-            </HStack>
-            {running.map((a) => {
-                const rid = a.analysis_id || a._id || a.id;
-                return (
-                    <Link key={rid} to={`/analysis-result/${rid}`}>
-                        <Flex align="center" gap={1.5} _hover={{ color: "var(--ink-primary)" }}>
-                            <Text fontSize="12.5px" fontWeight={500} color="var(--ink-secondary)">
-                                {a.share_name || a.symbol}
-                            </Text>
-                            <Text fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
-                                {agentDisplayName(a.agent_name || a.agent, agents || [])}
-                            </Text>
-                            <MdArrowForward size={12} color="var(--ink-tertiary)" />
-                        </Flex>
-                    </Link>
-                );
-            })}
-        </Flex>
+            <Flex
+                as={motion.div}
+                key="runningnow"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                transition={{ duration: dur.base, ease }}
+                overflow="hidden"
+                align="center"
+                gap={3}
+                wrap="wrap"
+                py={2.5}
+                mb={1}
+            >
+                <HStack gap={1.5} flexShrink={0}>
+                    <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />
+                    <Text
+                        fontSize="10.5px"
+                        fontWeight={500}
+                        color="var(--ink-tertiary)"
+                        textTransform="uppercase"
+                        letterSpacing="0.06em"
+                    >
+                        Running now
+                    </Text>
+                </HStack>
+                {running.map((a) => {
+                    const rid = a.analysis_id || a._id || a.id;
+                    return (
+                        <Link key={rid} to={`/analysis-result/${rid}`}>
+                            <Flex align="center" gap={1.5} _hover={{ color: "var(--ink-primary)" }}>
+                                <Text fontSize="12.5px" fontWeight={500} color="var(--ink-secondary)">
+                                    {a.share_name || a.symbol}
+                                </Text>
+                                <Text fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
+                                    {agentDisplayName(a.agent_name || a.agent, agents || [])}
+                                </Text>
+                                <MdArrowForward size={12} color="var(--ink-tertiary)" />
+                            </Flex>
+                        </Link>
+                    );
+                })}
+            </Flex>
         </AnimatePresence>
     );
 }
@@ -249,7 +249,7 @@ export default function Analysis() {
                     +new Date(a.created_at ?? 0) > +new Date(b.created_at ?? 0) ? a : b
                 ));
             })
-            .catch(() => {});
+            .catch(() => { });
         return () => { cancelled = true; };
     }, []);
 
@@ -280,6 +280,8 @@ export default function Analysis() {
     const [providerCount, setProviderCount] = useState(0);
     const [selectedModel, setSelectedModel] = useState("");
     const [modelQuery, setModelQuery] = useState("");
+    const [hasTavily, setHasTavily] = useState(false);
+    const [webSearch, setWebSearch] = useState(true);
     const debouncedModelQuery = useDebounce(modelQuery, 200);
     const [showModelList, setShowModelList] = useState(false);
     const modelRef = useRef<HTMLDivElement>(null);
@@ -308,6 +310,9 @@ export default function Analysis() {
             ]);
             const allModels = Array.isArray(modelsData) ? modelsData : [];
             const keys = Object.keys(settings?.llm_keys || {});
+            const hasTv = keys.includes("tavily");
+            setHasTavily(hasTv);
+            setWebSearch(hasTv);
             setProviderCount(keys.filter((k) => k !== "tavily").length);
             const models = keys.length > 0
                 ? allModels.filter((m: string) => {
@@ -392,6 +397,7 @@ export default function Analysis() {
                 agent_name: config.agent,
                 model: selectedModel || undefined,
                 source: config.source,
+                web_search: webSearch,
             });
 
             if (result && (result.corr_id || result.analysis_id)) {
@@ -667,45 +673,45 @@ export default function Analysis() {
                         <StepSection n="02" title="Agent" done={!!config.agent}>
                             <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
                                 <Box w={{ base: "full", md: "380px" }} flexShrink={0}>
-                                <FieldLabel>Agent</FieldLabel>
-                                <Select.Root
-                                    collection={agentOptions}
-                                    value={config.agent ? [config.agent] : []}
-                                    onValueChange={(e) => {
-                                        setConfig({ ...config, agent: e.value[0] });
-                                    }}
-                                >
-                                    <Select.HiddenSelect />
-                                    <Select.Control>
-                                        <Select.Trigger borderColor="var(--hairline)">
-                                            <Select.ValueText placeholder="Select Agent" />
-                                        </Select.Trigger>
-                                        <Select.IndicatorGroup>
-                                            <Select.Indicator />
-                                        </Select.IndicatorGroup>
-                                    </Select.Control>
-                                    <Portal>
-                                        <Select.Positioner>
-                                            <Select.Content>
-                                                {agentOptions.items.map((item: any) => (
-                                                    <Select.Item item={item} key={item.value}>
-                                                        {item.label}
-                                                        <Select.ItemIndicator />
-                                                    </Select.Item>
-                                                ))}
-                                            </Select.Content>
-                                        </Select.Positioner>
-                                    </Portal>
-                                </Select.Root>
-                                <Flex align="center" gap={1.5} mt={1.5}>
-                                    <MdInfoOutline size={12} color="var(--ink-tertiary)" />
-                                    <Text fontSize="11px" color="var(--ink-tertiary)">
-                                        Create or edit agents in the{" "}
-                                        <Link to="/agent/builder" style={{ color: "var(--accent-primary)" }}>
-                                            Agent Builder
-                                        </Link>
-                                    </Text>
-                                </Flex>
+                                    <FieldLabel>Agent</FieldLabel>
+                                    <Select.Root
+                                        collection={agentOptions}
+                                        value={config.agent ? [config.agent] : []}
+                                        onValueChange={(e) => {
+                                            setConfig({ ...config, agent: e.value[0] });
+                                        }}
+                                    >
+                                        <Select.HiddenSelect />
+                                        <Select.Control>
+                                            <Select.Trigger borderColor="var(--hairline)">
+                                                <Select.ValueText placeholder="Select Agent" />
+                                            </Select.Trigger>
+                                            <Select.IndicatorGroup>
+                                                <Select.Indicator />
+                                            </Select.IndicatorGroup>
+                                        </Select.Control>
+                                        <Portal>
+                                            <Select.Positioner>
+                                                <Select.Content>
+                                                    {agentOptions.items.map((item: any) => (
+                                                        <Select.Item item={item} key={item.value}>
+                                                            {item.label}
+                                                            <Select.ItemIndicator />
+                                                        </Select.Item>
+                                                    ))}
+                                                </Select.Content>
+                                            </Select.Positioner>
+                                        </Portal>
+                                    </Select.Root>
+                                    <Flex align="center" gap={1.5} mt={1.5}>
+                                        <MdInfoOutline size={12} color="var(--ink-tertiary)" />
+                                        <Text fontSize="11px" color="var(--ink-tertiary)">
+                                            Create or edit agents in the{" "}
+                                            <Link to="/agent/builder" style={{ color: "var(--accent-primary)" }}>
+                                                Agent Builder
+                                            </Link>
+                                        </Text>
+                                    </Flex>
                                 </Box>
                                 <Box flex={1} minW={0} pt={{ base: 1, md: 5 }}>
                                     {selectedAgent ? (
@@ -745,92 +751,117 @@ export default function Analysis() {
                         <StepSection n="03" title="Model" done={!!selectedModel}>
                             <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
                                 <Box w={{ base: "full", md: "380px" }} flexShrink={0}>
-                                <FieldLabel>Model</FieldLabel>
-                                <Box width="full" position="relative" ref={modelRef}>
-                                    <Input
-                                        placeholder="Search model (e.g., qwen, gpt, claude)..."
-                                        value={showModelList ? modelQuery : selectedModel}
-                                        onChange={(e) => {
-                                            setModelQuery(e.target.value);
-                                            setShowModelList(true);
-                                        }}
-                                        onFocus={() => {
-                                            setModelQuery(selectedModel);
-                                            setShowModelList(true);
-                                        }}
-                                        size="sm"
-                                        borderColor="var(--hairline)"
-                                        borderRadius="2px"
-                                        _focus={{ borderColor: "var(--accent-primary)" }}
-                                    />
-                                    <AnimatePresence>
-                                    {showModelList && (
-                                        <Box
-                                            as={motion.div}
-                                            initial={{ opacity: 0, y: -4, height: 0 }}
-                                            animate={{ opacity: 1, y: 0, height: "auto" }}
-                                            exit={{ opacity: 0, y: -4, height: 0 }}
-                                            transition={{ duration: dur.base, ease }}
-                                            position="absolute"
-                                            top="100%"
-                                            left={0}
-                                            right={0}
-                                            zIndex={10}
-                                            mt={1}
-                                            maxH="200px"
-                                            overflowY="auto"
-                                            border="1px solid var(--hairline)"
+                                    <FieldLabel>Model</FieldLabel>
+                                    <Box width="full" position="relative" ref={modelRef}>
+                                        <Input
+                                            placeholder="Search model (e.g., qwen, gpt, claude)..."
+                                            value={showModelList ? modelQuery : selectedModel}
+                                            onChange={(e) => {
+                                                setModelQuery(e.target.value);
+                                                setShowModelList(true);
+                                            }}
+                                            onFocus={() => {
+                                                setModelQuery(selectedModel);
+                                                setShowModelList(true);
+                                            }}
+                                            size="sm"
+                                            borderColor="var(--hairline)"
                                             borderRadius="2px"
-                                            bg="var(--surface-panel)"
-                                        >
-                                            {filteredModels.length > 0 ? (
-                                                filteredModels.map(m => (
-                                                    <Flex
-                                                        key={m}
-                                                        p={2}
-                                                        fontSize="12px"
-                                                        cursor="pointer"
-                                                        _hover={{ bg: "var(--surface-recessed)" }}
-                                                        transition="background 160ms"
-                                                        onClick={() => {
-                                                            setSelectedModel(m);
-                                                            setModelError(null);
-                                                            setModelQuery("");
-                                                            setShowModelList(false);
-                                                        }}
-                                                    >
-                                                        {m}
-                                                    </Flex>
-                                                ))
-                                            ) : (
-                                                <Text p={2} fontSize="12px" color="var(--ink-tertiary)">
-                                                    No models found
-                                                </Text>
+                                            _focus={{ borderColor: "var(--accent-primary)" }}
+                                        />
+                                        <AnimatePresence>
+                                            {showModelList && (
+                                                <Box
+                                                    as={motion.div}
+                                                    initial={{ opacity: 0, y: -4, height: 0 }}
+                                                    animate={{ opacity: 1, y: 0, height: "auto" }}
+                                                    exit={{ opacity: 0, y: -4, height: 0 }}
+                                                    transition={{ duration: dur.base, ease }}
+                                                    position="absolute"
+                                                    top="100%"
+                                                    left={0}
+                                                    right={0}
+                                                    zIndex={10}
+                                                    mt={1}
+                                                    maxH="200px"
+                                                    overflowY="auto"
+                                                    border="1px solid var(--hairline)"
+                                                    borderRadius="2px"
+                                                    bg="var(--surface-panel)"
+                                                >
+                                                    {filteredModels.length > 0 ? (
+                                                        filteredModels.map(m => (
+                                                            <Flex
+                                                                key={m}
+                                                                p={2}
+                                                                fontSize="12px"
+                                                                cursor="pointer"
+                                                                _hover={{ bg: "var(--surface-recessed)" }}
+                                                                transition="background 160ms"
+                                                                onClick={() => {
+                                                                    setSelectedModel(m);
+                                                                    setModelError(null);
+                                                                    setModelQuery("");
+                                                                    setShowModelList(false);
+                                                                }}
+                                                            >
+                                                                {m}
+                                                            </Flex>
+                                                        ))
+                                                    ) : (
+                                                        <Text p={2} fontSize="12px" color="var(--ink-tertiary)">
+                                                            No models found
+                                                        </Text>
+                                                    )}
+                                                </Box>
                                             )}
-                                        </Box>
+                                        </AnimatePresence>
+                                    </Box>
+                                    {modelError && (
+                                        <Text mt={1.5} fontSize="11.5px" color="var(--signal-negative)">
+                                            {modelError}
+                                        </Text>
                                     )}
-                                    </AnimatePresence>
-                                </Box>
-                                {modelError && (
-                                    <Text mt={1.5} fontSize="11.5px" color="var(--signal-negative)">
-                                        {modelError}
-                                    </Text>
-                                )}
-                                {validatingModel && (
-                                    <Flex align="center" gap={1.5} mt={1.5}>
-                                        <Spinner size="xs" color="var(--ink-secondary)" />
-                                        <Text fontSize="11px" color="var(--ink-secondary)">Checking model access...</Text>
+                                    {validatingModel && (
+                                        <Flex align="center" gap={1.5} mt={1.5}>
+                                            <Spinner size="xs" color="var(--ink-secondary)" />
+                                            <Text fontSize="11px" color="var(--ink-secondary)">Checking model access...</Text>
+                                        </Flex>
+                                    )}
+                                    <Flex align="center" justify="space-between" gap={1.5} mt={2}>
+                                        <Flex align="center" gap={1.5}>
+                                            <MdInfoOutline size={12} color="var(--ink-tertiary)" />
+                                            <Text fontSize="11px" color="var(--ink-tertiary)">
+                                                {providerCount > 0 ? `${providerCount} provider${providerCount === 1 ? "" : "s"} configured · add more in ` : "No API keys configured · add "}
+                                                <Link to="/settings" style={{ color: "var(--accent-primary)" }}>
+                                                    Settings
+                                                </Link>
+                                            </Text>
+                                        </Flex>
+
+                                        {hasTavily ? (
+                                            <HStack gap={1.5}>
+                                                <Text fontSize="11px" color="var(--ink-tertiary)" whiteSpace="nowrap">
+                                                    Web search
+                                                </Text>
+                                                <Switch.Root
+                                                    checked={webSearch}
+                                                    onCheckedChange={(e) => setWebSearch(e.checked)}
+                                                    colorPalette="blue"
+                                                    size="sm"
+                                                >
+                                                    <Switch.HiddenInput />
+                                                    <Switch.Control>
+                                                        <Switch.Thumb />
+                                                    </Switch.Control>
+                                                </Switch.Root>
+                                            </HStack>
+                                        ) : (
+                                            <Text fontSize="10.5px" color="var(--ink-tertiary)" whiteSpace="nowrap">
+                                                <Link to="/settings" style={{ color: "var(--accent-primary)" }}>Add Tavily</Link> for web search
+                                            </Text>
+                                        )}
                                     </Flex>
-                                )}
-                                <Flex align="center" gap={1.5} mt={2}>
-                                    <MdInfoOutline size={12} color="var(--ink-tertiary)" />
-                                    <Text fontSize="11px" color="var(--ink-tertiary)">
-                                        {providerCount > 0 ? `${providerCount} provider${providerCount === 1 ? "" : "s"} configured · add more in ` : "No API keys configured · add "}
-                                        <Link to="/settings" style={{ color: "var(--accent-primary)" }}>
-                                            Settings
-                                        </Link>
-                                    </Text>
-                                </Flex>
                                 </Box>
                                 <Box flex={1} minW={0} pt={{ base: 1, md: 5 }}>
                                     {selectedModel ? (
@@ -867,47 +898,48 @@ export default function Analysis() {
                         </StepSection>
                     </Flex>
 
-                    {/* Live progress while running — same view as the report page during a run */}
+                    {/* Web Search toggle */}
+
                     <AnimatePresence mode="wait" initial={false}>
-                    {status === "PENDING" && correlationId && (
-                        <Box
-                            key="progress"
-                            as={motion.div}
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: dur.base, ease }}
-                            overflow="hidden"
-                            borderTop="1px solid var(--hairline)"
-                            py={5}
-                        >
-                            <Flex justify="space-between" align="center" mb={3}>
-                                <HStack gap={3} color="var(--ink-secondary)">
-                                    <Spinner size="sm" borderWidth="2px" />
-                                    <Text fontSize="13px">Analysis in progress — this page updates automatically.</Text>
-                                </HStack>
-                                {elapsedTime > 0 && (
-                                    <Text
-                                        fontSize="12px"
-                                        color="var(--ink-tertiary)"
-                                        fontFamily="var(--font-tabular)"
-                                        fontVariantNumeric="tabular-nums"
-                                        whiteSpace="nowrap"
-                                    >
-                                        {formatSeconds(elapsedTime)}
-                                    </Text>
-                                )}
-                            </Flex>
-                            <AgentActivity
-                                title={`Analyzing ${config.shareName || config.share} with ${agentDisplayName(config.agent, availableAgents) || config.agent}`}
-                                subtitle={`${selectedModel || "default model"} · gathering data, searching, scoring`}
-                                streamUrl={`/analysis/${correlationId}/stream`}
-                                steps={steps}
-                                startedAt={startedAt}
-                                active
-                            />
-                        </Box>
-                    )}
+                        {status === "PENDING" && correlationId && (
+                            <Box
+                                key="progress"
+                                as={motion.div}
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                transition={{ duration: dur.base, ease }}
+                                overflow="hidden"
+                                borderTop="1px solid var(--hairline)"
+                                py={5}
+                            >
+                                <Flex justify="space-between" align="center" mb={3}>
+                                    <HStack gap={3} color="var(--ink-secondary)">
+                                        <Spinner size="sm" borderWidth="2px" />
+                                        <Text fontSize="13px">Analysis in progress — this page updates automatically.</Text>
+                                    </HStack>
+                                    {elapsedTime > 0 && (
+                                        <Text
+                                            fontSize="12px"
+                                            color="var(--ink-tertiary)"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                            whiteSpace="nowrap"
+                                        >
+                                            {formatSeconds(elapsedTime)}
+                                        </Text>
+                                    )}
+                                </Flex>
+                                <AgentActivity
+                                    title={`Analyzing ${config.shareName || config.share} with ${agentDisplayName(config.agent, availableAgents) || config.agent}`}
+                                    subtitle={`${selectedModel || "default model"} · gathering data, searching, scoring`}
+                                    streamUrl={`/analysis/${correlationId}/stream`}
+                                    steps={steps}
+                                    startedAt={startedAt}
+                                    active
+                                />
+                            </Box>
+                        )}
                     </AnimatePresence>
 
                     {loading && (
@@ -951,111 +983,111 @@ export default function Analysis() {
                                 exit={{ opacity: 0, y: -6 }}
                                 transition={{ duration: dur.fast, ease }}
                             >
-                            {status === "PENDING" ? (
-                                <Button size="lg" w="full" variant="surface" colorPalette="blue" disabled>
-                                    <HStack gap={2}>
-                                        <Spinner size="sm" borderWidth="2px" color="var(--accent-primary)" />
-                                        <Text fontSize="14px" fontWeight={600} color="var(--ink-primary)">
-                                            {id ? "Resuming" : "Running"}
-                                        </Text>
-                                        {elapsedTime > 0 && (
-                                            <Text fontSize="12px" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" color="var(--ink-tertiary)">
-                                                {formatSeconds(elapsedTime)}
-                                            </Text>
-                                        )}
-                                    </HStack>
-                                </Button>
-                            ) : status === "COMPLETED" ? (
-                                <Box border="1px solid var(--hairline)" borderRadius="2px" bg="var(--surface-recessed)" p={{ base: 4, md: 5 }}>
-                                    <Flex direction={{ base: "column", md: "row" }} align={{ md: "center" }} justify="center" gap={3} wrap="wrap">
+                                {status === "PENDING" ? (
+                                    <Button size="lg" w="full" variant="surface" colorPalette="blue" disabled>
                                         <HStack gap={2}>
-                                            <MdCheck size={16} color="var(--signal-positive)" />
-                                            <Text fontSize="14px" fontWeight={600} color="var(--ink-primary)">Complete</Text>
-                                            {analysisDuration && (
+                                            <Spinner size="sm" borderWidth="2px" color="var(--accent-primary)" />
+                                            <Text fontSize="14px" fontWeight={600} color="var(--ink-primary)">
+                                                {id ? "Resuming" : "Running"}
+                                            </Text>
+                                            {elapsedTime > 0 && (
                                                 <Text fontSize="12px" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" color="var(--ink-tertiary)">
-                                                    {analysisDuration}
+                                                    {formatSeconds(elapsedTime)}
                                                 </Text>
                                             )}
                                         </HStack>
-                                        {correlationId && (
-                                            <Link to={`/analysis-result/${correlationId}`}>
-                                                <Button size="lg" variant="surface" colorPalette="blue" px={8}>View report</Button>
-                                            </Link>
-                                        )}
-                                        <Button
-                                            size="lg"
-                                            variant="subtle"
-                                            color="var(--ink-secondary)"
-                                            _hover={{ color: "var(--ink-primary)" }}
-                                            fontWeight={500}
-                                            onClick={() => {
-                                                setStatus("EMPTY");
-                                                setSteps([]);
-                                            }}
-                                        >
-                                            Run again
-                                        </Button>
-                                    </Flex>
-                                </Box>
-                            ) : status === "ERROR" ? (
-                                <Box border="1px solid var(--hairline)" borderRadius="2px" bg="var(--surface-recessed)" p={{ base: 4, md: 5 }}>
-                                    <Flex direction={{ base: "column", md: "row" }} align={{ md: "center" }} justify="center" gap={3} wrap="wrap">
-                                        <HStack gap={2}>
-                                            <MdClose size={16} color="var(--signal-negative)" />
-                                            <Text fontSize="14px" fontWeight={600} color="var(--signal-negative)">Failed</Text>
-                                        </HStack>
-                                        {correlationId && (
-                                            <Link to={`/analysis-result/${correlationId}`}>
-                                                <Button size="lg" variant="subtle" color="var(--ink-secondary)" _hover={{ color: "var(--ink-primary)" }} fontWeight={500}>View report</Button>
-                                            </Link>
-                                        )}
-                                        <Button
-                                            size="lg"
-                                            variant="subtle"
-                                            colorPalette="red"
-                                            fontWeight={500}
-                                            onClick={() => {
-                                                setStatus("EMPTY");
-                                                setSteps([]);
-                                            }}
-                                        >
-                                            Try again
-                                        </Button>
-                                    </Flex>
-                                </Box>
-                            ) : status === "EMPTY" && id ? (
-                                <Button size="lg" w="full" variant="surface" colorPalette="blue" disabled>
-                                    <HStack gap={2}>
-                                        <Spinner size="sm" borderWidth="2px" />
-                                        <Text fontSize="14px" fontWeight={600}>Resuming analysis…</Text>
-                                    </HStack>
-                                </Button>
-                            ) : (
-                                <Box>
-                                    <Button
-                                        as={motion.button}
-                                        whileHover={canRunAnalysis ? { scale: 1.01 } : undefined}
-                                        whileTap={canRunAnalysis ? { scale: 0.99 } : undefined}
-                                        size="lg"
-                                        w="full"
-                                        variant="surface"
-                                        colorPalette="blue"
-                                        fontWeight={600}
-                                        fontSize="15px"
-                                        onClick={runAnalysis}
-                                        disabled={!canRunAnalysis}
-                                        loading={status === "PENDING"}
-                                        loadingText="Running…"
-                                    >
-                                        Start Analysis
                                     </Button>
-                                    {!canRunAnalysis && (
-                                        <Text mt={2} fontSize="11.5px" color="var(--ink-tertiary)" textAlign="center">
-                                            Choose a company and an agent to enable the run
-                                        </Text>
-                                    )}
-                                </Box>
-                            )}
+                                ) : status === "COMPLETED" ? (
+                                    <Box border="1px solid var(--hairline)" borderRadius="2px" bg="var(--surface-recessed)" p={{ base: 4, md: 5 }}>
+                                        <Flex direction={{ base: "column", md: "row" }} align={{ md: "center" }} justify="center" gap={3} wrap="wrap">
+                                            <HStack gap={2}>
+                                                <MdCheck size={16} color="var(--signal-positive)" />
+                                                <Text fontSize="14px" fontWeight={600} color="var(--ink-primary)">Complete</Text>
+                                                {analysisDuration && (
+                                                    <Text fontSize="12px" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" color="var(--ink-tertiary)">
+                                                        {analysisDuration}
+                                                    </Text>
+                                                )}
+                                            </HStack>
+                                            {correlationId && (
+                                                <Link to={`/analysis-result/${correlationId}`}>
+                                                    <Button size="lg" variant="surface" colorPalette="blue" px={8}>View report</Button>
+                                                </Link>
+                                            )}
+                                            <Button
+                                                size="lg"
+                                                variant="subtle"
+                                                color="var(--ink-secondary)"
+                                                _hover={{ color: "var(--ink-primary)" }}
+                                                fontWeight={500}
+                                                onClick={() => {
+                                                    setStatus("EMPTY");
+                                                    setSteps([]);
+                                                }}
+                                            >
+                                                Run again
+                                            </Button>
+                                        </Flex>
+                                    </Box>
+                                ) : status === "ERROR" ? (
+                                    <Box border="1px solid var(--hairline)" borderRadius="2px" bg="var(--surface-recessed)" p={{ base: 4, md: 5 }}>
+                                        <Flex direction={{ base: "column", md: "row" }} align={{ md: "center" }} justify="center" gap={3} wrap="wrap">
+                                            <HStack gap={2}>
+                                                <MdClose size={16} color="var(--signal-negative)" />
+                                                <Text fontSize="14px" fontWeight={600} color="var(--signal-negative)">Failed</Text>
+                                            </HStack>
+                                            {correlationId && (
+                                                <Link to={`/analysis-result/${correlationId}`}>
+                                                    <Button size="lg" variant="subtle" color="var(--ink-secondary)" _hover={{ color: "var(--ink-primary)" }} fontWeight={500}>View report</Button>
+                                                </Link>
+                                            )}
+                                            <Button
+                                                size="lg"
+                                                variant="subtle"
+                                                colorPalette="red"
+                                                fontWeight={500}
+                                                onClick={() => {
+                                                    setStatus("EMPTY");
+                                                    setSteps([]);
+                                                }}
+                                            >
+                                                Try again
+                                            </Button>
+                                        </Flex>
+                                    </Box>
+                                ) : status === "EMPTY" && id ? (
+                                    <Button size="lg" w="full" variant="surface" colorPalette="blue" disabled>
+                                        <HStack gap={2}>
+                                            <Spinner size="sm" borderWidth="2px" />
+                                            <Text fontSize="14px" fontWeight={600}>Resuming analysis…</Text>
+                                        </HStack>
+                                    </Button>
+                                ) : (
+                                    <Box>
+                                        <Button
+                                            as={motion.button}
+                                            whileHover={canRunAnalysis ? { scale: 1.01 } : undefined}
+                                            whileTap={canRunAnalysis ? { scale: 0.99 } : undefined}
+                                            size="lg"
+                                            w="full"
+                                            variant="surface"
+                                            colorPalette="blue"
+                                            fontWeight={600}
+                                            fontSize="15px"
+                                            onClick={runAnalysis}
+                                            disabled={!canRunAnalysis}
+                                            loading={status === "PENDING"}
+                                            loadingText="Running…"
+                                        >
+                                            Start Analysis
+                                        </Button>
+                                        {!canRunAnalysis && (
+                                            <Text mt={2} fontSize="11.5px" color="var(--ink-tertiary)" textAlign="center">
+                                                Choose a company and an agent to enable the run
+                                            </Text>
+                                        )}
+                                    </Box>
+                                )}
                             </motion.div>
                         </AnimatePresence>
                     </Flex>
