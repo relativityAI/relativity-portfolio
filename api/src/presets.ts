@@ -152,6 +152,7 @@ const DEFAULT_SOURCE = "default";
 
 export interface SeededAgent {
   id: string;
+  user_id: string;
   name: string;
   source: string;
   persona: PresetTemplate["persona"];
@@ -164,11 +165,12 @@ export interface SeededAgent {
 
 export function buildSeedAgents(userId: string): SeededAgent[] {
   const now = new Date().toISOString();
-  // NB: agents.id is a Postgres uuid column — any non-uuid string (e.g.
-  // `${key}-${userId}`) makes PostgREST reject the whole insert, so a new
-  // user would never see their default agents. Always use real UUIDs here.
+  // NB: agents.user_id is NOT NULL, so every seed MUST carry it — otherwise
+  // PostgREST rejects the whole insert and a fresh user's default profiles
+  // never persist (the list only *appeared* to have them).
   return Object.entries(PRESETS).map(([key, p]) => ({
     id: randomUUID(),
+    user_id: userId,
     name: p.name,
     source: DEFAULT_SOURCE,
     persona: p.persona,
@@ -196,11 +198,13 @@ if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
     }
   }
 
-  // Seed rows must carry a real uuid id or a fresh user's default agents won't
-  // insert (PostgREST rejects non-uuid ids against the agents.id column).
+  // Seed rows must carry a real uuid id AND the target user_id, or a fresh
+  // user's default agents won't insert (PostgREST rejects null user_id /
+  // non-uuid ids against the agents table).
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   for (const seed of buildSeedAgents("00000000-0000-4000-8000-000000000000")) {
     if (!UUID.test(seed.id)) throw new Error(`presets: seed id not a uuid: "${seed.id}"`);
+    if (!seed.user_id) throw new Error("presets: seed row missing user_id");
     if (!seed.name || !seed.persona) throw new Error("presets: seed row missing required fields");
   }
   console.log("presets OK:", keys.join(", "));

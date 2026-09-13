@@ -266,17 +266,32 @@ app.get("/agents", requireAuth, async (req, res) => {
     const userId = (req as AuthedRequest).user.id;
     const { data, error } = await db.from("agents").select("*").eq("user_id", userId);
     if (error) throw error;
-    let docs = data || [];
+    const docs = data || [];
 
-    // First visit: plant the default built-in profiles so a fresh user sees
-    // them immediately and can edit/delete them like any other agent.
-    if (docs.length === 0) {
-      const seeds = buildSeedAgents(userId);
-      await db.from("agents").insert(seeds);
-      docs = seeds;
+    // Plant the built-in default profiles for anyone who doesn't have them yet
+    // (unless they deliberately deleted a default). Check the insert error so
+    // we never return rows that didn't actually persist — a phantom seed list
+    // made fresh accounts show defaults that 404'd on open/save.
+    const hasDefault = docs.some((a: any) => a.source === "default");
+    if (!hasDefault) {
+      const { data: settings } = await db
+        .from("user_settings")
+        .select("defaults_deleted")
+        .eq("user_id", userId)
+        .single();
+      const defaultsDeleted = settings?.defaults_deleted === true;
+      if (!defaultsDeleted) {
+        const seeds = buildSeedAgents(userId);
+        const { error: insErr } = await db.from("agents").insert(seeds);
+        if (insErr) {
+          log.error("[agents]", `default agent seeding failed for ${userId}: ${insErr.message}`);
+        } else {
+          docs.push(...seeds);
+        }
+      }
     }
 
-    docs = docs.sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
+    docs.sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
     res.json(docs);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
@@ -383,8 +398,20 @@ app.delete("/agents/:id", requireAuth, async (req, res) => {
   try {
     const db = getDb();
     const userId = (req as AuthedRequest).user.id;
-    const { error } = await db.from("agents").delete().eq("id", req.params.id).eq("user_id", userId);
+    const id = req.params.id;
+    // Remember if the user deletes a default profile so it doesn't get
+    // re-seeded on the next list fetch ("unless they chose to delete it").
+    const { data: existing } = await db.from("agents").select("source").eq("id", id).eq("user_id", userId).single();
+    const { error } = await db.from("agents").delete().eq("id", id).eq("user_id", userId);
     if (error) throw error;
+    if (existing?.source === "default") {
+      const { data: hasRow } = await db.from("user_settings").select("user_id").eq("user_id", userId).single();
+      const q = hasRow
+        ? db.from("user_settings").update({ defaults_deleted: true }).eq("user_id", userId)
+        : db.from("user_settings").insert({ user_id: userId, defaults_deleted: true });
+      const { error: setErr } = await q;
+      if (setErr) log.error("[agents]", `failed to mark defaults_deleted for ${userId}: ${setErr.message}`);
+    }
     res.json({ deleted: true });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
