@@ -35,3 +35,6 @@ ALTER TABLE analysis_runs
 -- ─── 005: reasoning trace on analysis_runs ────────────────────────────────
 ALTER TABLE analysis_runs
   ADD COLUMN IF NOT EXISTS trace JSONB DEFAULT '[]';
+
+-- ─── 006: defaults_deleted flag on user_settings ──────────────────────────
+ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS defaults_deleted BOOLEAN NOT NULL DEFAULT FALSE;
