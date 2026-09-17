@@ -14,6 +14,7 @@ import { buildAgentBuilderSystemPrompt, buildBuilderRecoveryPrompt, buildDocumen
 import { buildWebSearchTool, getToolCatalog } from "./tools.js";
 import { getDb } from "./db.js";
 import { runAgentTurn, type HarnessTraceEvent } from "./harness.js";
+import { keyPool } from "./keypool.js";
 
 const qualitativeParamSchema = z.object({
   parameter: z.string().describe("Short parameter name, e.g., Market Leadership"),
@@ -278,7 +279,9 @@ export async function processBuilderTurn(
 ): Promise<BuilderResponse> {
   const { onTrace } = opts;
   const schema = getSchemaDescriptor();
-  const model = buildModel(req.model_id, req.llm_keys);
+  const { apiKey, keyRef } = keyPool.pickKey(req.model_id, req.llm_keys as Record<string, string | undefined>);
+  const provider = req.model_id.split("/")[0];
+  const model = buildModel(req.model_id, req.llm_keys, apiKey);
   const toolCatalog = getToolCatalog();
   console.log(`[builder] model_id=${req.model_id} keys=${Object.keys(req.llm_keys).join(",")}`);
 
@@ -347,6 +350,16 @@ export async function processBuilderTurn(
     forceTools: !!tools && explicitSearch,
     maxToolSteps: 3,
     onEvent,
+  });
+
+  if (turn.retryable) keyPool.markFailure(provider, keyRef);
+  keyPool.recordUsage({
+    provider,
+    keyRef,
+    modelId: req.model_id,
+    requests: 1,
+    tokensIn: turn.usage?.input,
+    tokensOut: turn.usage?.output,
   });
 
   // A forced-tool refusal (model answered with zero tool calls) is best-effort
@@ -466,7 +479,9 @@ export async function extractDocumentSignals(
   qualitative_params: { parameter: string; content: string; weightage: number }[];
   quantitative_rules: { metric: string; metric_name: string; metric_type: string; operator: string; value: number; weightage: number }[];
 }> {
-  const model = buildModel(modelId, keys);
+  const { apiKey, keyRef } = keyPool.pickKey(modelId, keys as Record<string, string | undefined>);
+  const provider = modelId.split("/")[0];
+  const model = buildModel(modelId, keys, apiKey);
 
   const docContent = documents
     .map((d) => `### ${d.filename}\n${d.text.slice(0, 10000)}`)
@@ -477,6 +492,14 @@ export async function extractDocumentSignals(
     prompt: buildDocumentExtractionPrompt(docContent, getToolCatalog()),
     temperature: 0.3,
     maxOutputTokens: 2000,
+  });
+  keyPool.recordUsage({
+    provider,
+    keyRef,
+    modelId,
+    requests: 1,
+    tokensIn: result.usage?.inputTokens,
+    tokensOut: result.usage?.outputTokens,
   });
 
   const raw = (result.text || "").replace(/```(?:json)?|```/g, "").trim();

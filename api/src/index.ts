@@ -8,7 +8,8 @@ import { fetchUserKeys, ensureUserSettings } from "./provision.js";
 import { getModelIds, getAvailableModelsForUser } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
 import { getMetricsCatalog, buildFieldList, getFlatCatalog, mergeCatalogFields, normalizeQuantRules, type MetricDef } from "./metrics.js";
-import { createRun, RunRequest, DEFAULT_MODEL, checkAndFailStaleRun } from "./run.js";
+import { createRun, checkAndFailStaleRun, type RunRequest } from "./run.js";
+import { keyPool } from "./keypool.js";
 import { draftParameters, type LlmKeys } from "./agent.js";
 import { processBuilderTurn, extractDocumentSignals, type BuilderRequest } from "./builder.js";
 import { getSchemaDescriptor } from "./schema.js";
@@ -574,17 +575,22 @@ app.get("/models", requireAuth, async (req, res) => {
   try {
     const userId = (req as AuthedRequest).user.id;
     const { llmKeys } = await fetchUserKeys(userId);
-    const hasKeys = Object.entries(llmKeys).some(([k, v]) => k !== "tavily" && !!v);
-    if (!hasKeys) {
-      // No LLM keys configured — return curated list unfiltered
-      res.json(getModelIds());
-      return;
-    }
     const models = await getAvailableModelsForUser(llmKeys);
     res.json(models);
   } catch (e: any) {
     // Fallback to static list on error
     res.json(getModelIds());
+  }
+});
+
+// The quota-aware default model for a user with no explicit pick.
+app.get("/models/default", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const { llmKeys } = await fetchUserKeys(userId);
+    res.json({ model_id: keyPool.getDefaultModel(llmKeys) });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
   }
 });
 
@@ -604,18 +610,13 @@ app.post("/models/validate", requireAuth, async (req, res) => {
       return res.json({ valid: true });
     }
 
-    const apiKey = llmKeys[provider];
-    if (!apiKey) {
-      return res.json({
-        valid: false,
-        error: `No API key configured for "${provider}". Add one in Settings.`,
-      });
-    }
+    // Resolve the key (user key, else server pool) — rejects when no key exists.
+    const { apiKey } = keyPool.pickKey(modelId, llmKeys);
 
     // Try a minimal generateText call to validate the key + model access
     const { buildModel } = await import("./agent.js");
     const { generateText } = await import("ai");
-    const model = buildModel(modelId, llmKeys as any);
+    const model = buildModel(modelId, llmKeys as any, apiKey);
     await generateText({
       model,
       prompt: "Hi",
@@ -732,22 +733,9 @@ app.post("/builder/draft", requireAuth, async (req, res) => {
   try {
     const userId = (req as AuthedRequest).user.id;
     const { llmKeys } = await fetchUserKeys(userId);
-    if (!llmKeys || Object.values(llmKeys).every((v) => !v)) {
-      return res.status(400).json({ error: "No LLM API key configured. Add one in Settings first." });
-    }
-    const fallbackModel =
-      getModelIds().find(
-        (id) => id.split("/")[0] !== "ollama" && !!llmKeys[id.split("/")[0]],
-      ) || DEFAULT_MODEL;
 
     const body = req.body || {};
-    requestedModel = body.model_id || fallbackModel;
-    const provider = requestedModel.split("/")[0];
-    if (provider !== "ollama" && !llmKeys[provider as keyof LlmKeys]) {
-      return res.status(400).json({
-        error: `No API key for "${provider}". Add it in Settings, or pick a different model.`,
-      });
-    }
+    requestedModel = body.model_id || keyPool.getDefaultModel(llmKeys);
 
     const builderReq: BuilderRequest = {
       session_id: body.session_id ? String(body.session_id) : undefined,
@@ -846,13 +834,7 @@ app.post("/builder/extract-signals", requireAuth, async (req, res) => {
   try {
     const userId = (req as AuthedRequest).user.id;
     const { llmKeys } = await fetchUserKeys(userId);
-    if (!llmKeys || Object.values(llmKeys).every((v) => !v)) {
-      return res.status(400).json({ error: "No LLM API key configured." });
-    }
-    const modelId =
-      getModelIds().find(
-        (id) => id.split("/")[0] !== "ollama" && !!llmKeys[id.split("/")[0]],
-      ) || DEFAULT_MODEL;
+    const modelId = keyPool.getDefaultModel(llmKeys);
 
     const documents = req.body?.documents;
     if (!Array.isArray(documents) || documents.length === 0) {
@@ -876,14 +858,8 @@ app.post("/agents/draft-parameters", requireAuth, async (req, res) => {
       });
     }
     const { llmKeys } = await fetchUserKeys((req as AuthedRequest).user.id);
-    if (!llmKeys || Object.values(llmKeys).every((v) => !v)) {
-      return res.status(400).json({ error: "No LLM API key configured. Add one in Settings first." });
-    }
-    // First model in priority order whose provider has a user key.
-    const modelId =
-      getModelIds().find(
-        (id) => id.split("/")[0] !== "ollama" && !!llmKeys[id.split("/")[0]],
-      ) || DEFAULT_MODEL;
+    // Quota-aware default: server farm if available, else the user's key, else curated list.
+    const modelId = keyPool.getDefaultModel(llmKeys);
     const section = req.body?.section === "macro_evaluation" ? "macro_evaluation" : "asset_evaluation";
     const count = Math.min(Math.max(Number(req.body?.count) || 5, 1), 8);
     const parameters = await draftParameters(modelId, llmKeys as LlmKeys, persona, section, count);

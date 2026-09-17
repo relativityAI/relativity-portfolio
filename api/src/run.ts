@@ -6,6 +6,7 @@ import { getModelIds } from "./models.js";
 import { VoyagerClient, toCountrySource, pullLastPulled, pullRecordCount, type PullStatus } from "./voyager.js";
 import { runQuantitative, fetchMetricsSnapshot, assessDataAdequacy, type DataAdequacy } from "./quant.js";
 import { runQualitativeAll } from "./agent.js";
+import { keyPool } from "./keypool.js";
 import { ensureFreshData } from "./freshness.js";
 import type { LlmKeys, TraceCallback } from "./agent.js";
 import { log } from "./logger.js";
@@ -25,8 +26,6 @@ export interface RunRequest {
   web_sources?: string[];
   reqId?: string;
 }
-
-export const DEFAULT_MODEL = "gemini/gemini-3.5-flash-lite";
 
 // Hard cap on the data-availability check. Voyager cold-sleeps on Render's free
 // tier; the first call can take minutes to boot + retry. The check is advisory
@@ -203,7 +202,7 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
     symbol: req.symbol,
     share_name: req.share_name || req.symbol,
     agent_name: req.agent_name,
-    model: req.model || getModelIds()[0] || DEFAULT_MODEL,
+    model: req.model || getModelIds()[0],
     documents: req.documents || [],
     web_search: req.web_search ?? false,
     web_sources: req.web_sources || [],
@@ -338,11 +337,18 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
 
     const source = req.source || agent.source || "NSE";
     const cs = toCountrySource(source);
-    await write(() => updateRun(runId, { status: "RUNNING", source }));
-    log.info(runTag, `start symbol=${req.symbol} agent="${agent.name}" model=${req.model || DEFAULT_MODEL} source=${source}`);
 
     // Fetch user's Voyager key and LLM keys from DB
     const { voyagerKey, llmKeys } = await fetchUserKeys(req.userId);
+    // Resolve the model now that keys are known: the user's explicit pick wins,
+    // otherwise the quota-aware default from the server key farm.
+    const modelId = req.model || keyPool.getDefaultModel(llmKeys);
+    if (modelId !== req.model) {
+      await write(() => updateRun(runId, { model: modelId }));
+    }
+    await write(() => updateRun(runId, { status: "RUNNING", source }));
+    log.info(runTag, `start symbol=${req.symbol} agent="${agent.name}" model=${modelId} source=${source}`);
+
     if (!voyagerKey) {
       const msg = "No Voyager API key configured. A key will be generated automatically on your next login.";
       await write(() => updateRun(runId, { status: "FAILED", error: msg }));
@@ -441,7 +447,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
       await tracker.end("qualitative", "skipped", "No qualitative parameters");
     } else {
       qual = await runQualitativeAll(
-        req.model || DEFAULT_MODEL,
+        modelId,
         llmKeys,
         toolCtx,
         agent,

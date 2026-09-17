@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Box, Flex, Text, Button } from "@chakra-ui/react";
 import { SettingsService } from "@/db";
 import { hasRequiredKeys } from "@/utils";
-import { MdWarning } from "react-icons/md";
+import { MdInfo } from "react-icons/md";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 import { useNavigate } from "react-router-dom";
@@ -66,13 +66,13 @@ export default function ApiKeySetupDialog({ user }: { user: any }) {
             boxShadow="0 12px 32px rgba(0,0,0,0.15)"
           >
             <Flex align="center" gap={2.5} mb={2}>
-              <MdWarning size={22} color="var(--signal-warning)" flexShrink={0} />
+              <MdInfo size={22} color="var(--accent-primary)" flexShrink={0} />
               <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)">
-                Welcome to Relativity AI
+                Add your own API keys (optional)
               </Text>
             </Flex>
             <Text fontSize="13px" color="var(--ink-secondary)" mb={6}>
-              Set your API keys — you will not be able to use our services until you do. You need an LLM provider key and a Tavily key for web search.
+              Analyses run on our servers out of the box. Adding your own LLM key lets you use a preferred model and opens up provider-specific features. A Tavily key enables web search.
             </Text>
 
             <Flex justify="flex-end" gap={3} align="center">

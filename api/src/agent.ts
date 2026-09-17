@@ -9,6 +9,7 @@ import { buildTools, getToolCatalog, ToolContext } from "./tools.js";
 import type { DataAdequacy } from "./quant.js";
 import { log } from "./logger.js";
 import { runAgentTurn, type HarnessOptions } from "./harness.js";
+import { keyPool } from "./keypool.js";
 import {
   QUALITATIVE_SCORING_SYSTEM_PROMPT,
   QUALITATIVE_VERDICT_SYSTEM_PROMPT,
@@ -40,34 +41,43 @@ function modelNameFor(modelId: string): string {
   return modelId.slice(modelId.indexOf("/") + 1);
 }
 
-export function buildModel(modelId: string, keys: LlmKeys) {
+// Legacy single-key env fallbacks (superseded by the key pool, kept safe).
+const LEGACY_ENV_KEYS: Record<string, string | undefined> = {
+  openai: process.env.OPENAI_API_KEY,
+  gemini: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+  anthropic: process.env.ANTHROPIC_API_KEY,
+  cerebras: process.env.CEREBRAS_API_KEY,
+  groq: process.env.GROQ_API_KEY,
+  openrouter: process.env.OPENROUTER_API_KEY,
+};
+
+export function buildModel(modelId: string, keys: LlmKeys, apiKey?: string) {
   const provider = providerFor(modelId);
   const name = modelNameFor(modelId);
+  const key = apiKey || keys[provider as keyof LlmKeys] || LEGACY_ENV_KEYS[provider];
   switch (provider) {
     case "openai":
-      return createOpenAI({ apiKey: keys.openai || process.env.OPENAI_API_KEY })(name);
+      return createOpenAI({ apiKey: key })(name);
     case "gemini":
-      return createGoogleGenerativeAI({
-        apiKey: keys.gemini || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY,
-      })(name);
+      return createGoogleGenerativeAI({ apiKey: key })(name);
     case "anthropic":
-      return createAnthropic({ apiKey: keys.anthropic || process.env.ANTHROPIC_API_KEY })(name);
+      return createAnthropic({ apiKey: key })(name);
     case "cerebras":
       return createOpenAICompatible({
         name: "cerebras",
-        apiKey: keys.cerebras || process.env.CEREBRAS_API_KEY,
+        apiKey: key,
         baseURL: "https://api.cerebras.ai/v1",
       })(name);
     case "groq":
       return createOpenAICompatible({
         name: "groq",
-        apiKey: keys.groq || process.env.GROQ_API_KEY,
+        apiKey: key,
         baseURL: "https://api.groq.com/openai/v1",
       })(name);
     case "openrouter":
       return createOpenAICompatible({
         name: "openrouter",
-        apiKey: keys.openrouter || process.env.OPENROUTER_API_KEY,
+        apiKey: key,
         baseURL: "https://openrouter.ai/api/v1",
       })(name);
     case "ollama":
@@ -212,7 +222,8 @@ export async function draftParameters(
   section: "asset_evaluation" | "macro_evaluation",
   count: number,
 ): Promise<{ parameter: string; content: string; weightage: number }[]> {
-  const model = buildModel(modelId, keys);
+  const { apiKey, keyRef } = keyPool.pickKey(modelId, keys as Record<string, string | undefined>);
+  const model = buildModel(modelId, keys, apiKey);
   const scope =
     section === "macro_evaluation"
       ? "market-level / macro qualitative factors a stock picker should monitor"
@@ -222,6 +233,14 @@ export async function draftParameters(
     prompt: buildDraftParametersPrompt(persona, count, scope, getToolCatalog()),
     temperature: 0.4,
     maxOutputTokens: 1500,
+  });
+  keyPool.recordUsage({
+    provider: providerFor(modelId),
+    keyRef,
+    modelId,
+    requests: 1,
+    tokensIn: result.usage?.inputTokens,
+    tokensOut: result.usage?.outputTokens,
   });
   const text = (result.text || "").replace(/```(?:json)?|```/g, "").trim();
   const start = text.indexOf("[");
@@ -255,8 +274,12 @@ export async function runQualitative(
   onTrace?: TraceCallback,
 ): Promise<QualResult> {
   const started = Date.now();
+  const provider = providerFor(modelId);
+  let apiKey = "";
+  let keyRef = "none";
   try {
-    const model = buildModel(modelId, keys);
+    ({ apiKey, keyRef } = keyPool.pickKey(modelId, keys as Record<string, string | undefined>));
+    const model = buildModel(modelId, keys, apiKey);
     const tools = buildTools(toolCtx);
 
     const isMacro = parameter.section === "macro_evaluation";
@@ -331,6 +354,18 @@ export async function runQualitative(
       maxToolSteps: config.maxToolSteps,
       abortSignal: AbortSignal.timeout(PARAM_TIMEOUT_MS),
       onEvent,
+    });
+
+    // Tally the attempt for admin stats; put the key in cooldown on provider errors
+    // so the retry in runQualitativeAll lands on a different, healthy key.
+    if (turn.retryable) keyPool.markFailure(provider, keyRef);
+    keyPool.recordUsage({
+      provider,
+      keyRef,
+      modelId,
+      requests: 1,
+      tokensIn: turn.usage?.input,
+      tokensOut: turn.usage?.output,
     });
 
     if (turn.error) {
@@ -414,6 +449,7 @@ export async function runQualitative(
   } catch (e: any) {
     const timedOut = e?.name === "TimeoutError" || /abort/i.test(String(e?.name));
     log.error("[agent]", `${modelId} "${parameter.parameter}" failed:`, e?.message || e);
+    if (!timedOut) keyPool.markFailure(provider, keyRef);
     return {
       score: 0,
       analysis: `The analysis for this parameter was interrupted by an error: ${String(e?.message || e)}`,
