@@ -21,6 +21,7 @@ import { jsPDF } from "jspdf";
 import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
 import { motion, AnimatePresence } from "motion/react";
 import { CountUp, dur, ease } from "@/lib/motion";
+import { SOURCE_DEFS, SourceMark, sourcesUsedForParam, type SourceKey } from "@/lib/sourceLogos";
 
 const TABS = ["overview", "quantitative", "qualitative", "reasoning"] as const;
 type Tab = (typeof TABS)[number];
@@ -289,6 +290,7 @@ export default function AnalysisResult() {
     const isComplete = terminalStatuses.includes(s);
     const isError = s === "error" || s === "failed";
 
+    const exchangeSource: SourceKey = /nse/i.test(String(analysis.source || "")) ? "nse" : "sec";
     const quantAnalysis: Record<string, any> = analysis.quantitative_analysis || {};
     const qualAnalysis: Record<string, any> = analysis.qualitative_analysis || {};
     const toolCalls = analysis.qualitative_tool_calls || {};
@@ -1103,6 +1105,7 @@ export default function AnalysisResult() {
                                                 View full table →
                                             </Button>
                                         </Box>
+                                        <SourceLegend exchangeSource={exchangeSource} />
                                         <SubHeader label="Asset" count={assetQuant.length} />
                                         <QuantTable
                                             entries={assetQuant}
@@ -1144,11 +1147,11 @@ export default function AnalysisResult() {
                                             </Button>
                                         </Box>
                                         <SubHeader label="Asset" count={assetQual.length} />
-                                        <QualTable entries={assetQual} />
+                                        <QualTable entries={assetQual} toolCalls={toolCalls} exchangeSource={exchangeSource} />
                                         {macroQual.length > 0 && (
                                             <Box mt={6}>
                                                 <SubHeader label="Macro" count={macroQual.length} />
-                                                <QualTable entries={macroQual} />
+                                                <QualTable entries={macroQual} toolCalls={toolCalls} exchangeSource={exchangeSource} />
                                             </Box>
                                         )}
                                     </Box>
@@ -1179,6 +1182,7 @@ export default function AnalysisResult() {
                                 <SectionHeader label="Quantitative" count={quantEntries.length} />
                                 {quantEntries.length > 0 ? (
                                     <>
+                                        <SourceLegend exchangeSource={exchangeSource} />
                                         <SubHeader label="Asset" count={assetQuant.length} />
                                         <QuantTable
                                             entries={assetQuant}
@@ -1230,6 +1234,7 @@ export default function AnalysisResult() {
                                                 toolCalls={toolCalls}
                                                 expandedTools={expandedTools}
                                                 toggleToolCalls={toggleToolCalls}
+                                                exchangeSource={exchangeSource}
                                             />
                                         ) : (
                                             <Text fontSize="12px" color="var(--ink-tertiary)" py={3}>
@@ -1244,6 +1249,7 @@ export default function AnalysisResult() {
                                                     toolCalls={toolCalls}
                                                     expandedTools={expandedTools}
                                                     toggleToolCalls={toggleToolCalls}
+                                                    exchangeSource={exchangeSource}
                                                 />
                                             ) : (
                                                 <Text fontSize="12px" color="var(--ink-tertiary)" py={3}>
@@ -1345,6 +1351,18 @@ function SubHeader({ label, count }: { label: string; count: number }) {
             </Text>
             <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
                 {count}
+            </Text>
+        </Flex>
+    );
+}
+
+function SourceLegend({ exchangeSource }: { exchangeSource: SourceKey }) {
+    return (
+        <Flex align="center" gap={1.5} mb={3} flexWrap="wrap">
+            <SourceMark source={exchangeSource} size={13} />
+            <SourceMark source="voyager" size={13} muted />
+            <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
+                All criteria scored from exchange filings, served via Voyager
             </Text>
         </Flex>
     );
@@ -1539,11 +1557,19 @@ function QuantTable({
     );
 }
 
-function QualTable({ entries }: { entries: [string, any][] }) {
+function QualTable({
+    entries,
+    toolCalls,
+    exchangeSource,
+}: {
+    entries: [string, any][];
+    toolCalls: Record<string, any[]>;
+    exchangeSource: SourceKey;
+}) {
     return (
         <Box border="1px solid var(--hairline)" borderRadius="2px" overflow="hidden">
             <Box overflowX="auto">
-                <Table.Root size="sm" variant="line" minWidth="600px">
+                <Table.Root size="sm" variant="line" minWidth="660px">
                     <Table.Header>
                         <Table.Row bg="var(--surface-recessed)">
                             <Table.ColumnHeader
@@ -1556,6 +1582,17 @@ function QualTable({ entries }: { entries: [string, any][] }) {
                                 px={4}
                             >
                                 Parameter
+                            </Table.ColumnHeader>
+                            <Table.ColumnHeader
+                                fontSize="11px"
+                                fontWeight={500}
+                                letterSpacing="0.06em"
+                                textTransform="uppercase"
+                                color="var(--ink-tertiary)"
+                                py={3}
+                                px={4}
+                            >
+                                From
                             </Table.ColumnHeader>
                             <Table.ColumnHeader
                                 fontSize="11px"
@@ -1587,6 +1624,8 @@ function QualTable({ entries }: { entries: [string, any][] }) {
                         {entries.map(([paramName, d]) => {
                             const score = typeof d?.score === "number" ? d.score : 0;
                             const sig = scoreSignal(score);
+                            const usedSources: SourceKey[] = sourcesUsedForParam(toolCalls[paramName])
+                                .map((k) => (k === "exchange" ? exchangeSource : k));
                             return (
                                 <Table.Row
                                     key={paramName}
@@ -1621,10 +1660,24 @@ function QualTable({ entries }: { entries: [string, any][] }) {
                                             </Text>
                                         )}
                                     </Table.Cell>
+                                    <Table.Cell px={4} py={3}>
+                                        {usedSources.length > 0 && (
+                                            <Flex align="center" gap={1}>
+                                                {usedSources.map((k) => (
+                                                    <SourceMark
+                                                        key={k}
+                                                        source={k}
+                                                        size={13}
+                                                        muted={k === "voyager"}
+                                                        title={`${SOURCE_DEFS[k].label} — ${SOURCE_DEFS[k].full}`}
+                                                    />
+                                                ))}
+                                            </Flex>
+                                        )}
+                                    </Table.Cell>
                                     <Table.Cell
                                         fontSize="13.5px"
                                         fontFamily="var(--font-mono)"
-                                        fontVariantNumeric="tabular-nums"
                                         color="var(--ink-secondary)"
                                         textAlign="right"
                                         px={4}
@@ -1667,11 +1720,13 @@ function QualFullCards({
     toolCalls,
     expandedTools,
     toggleToolCalls,
+    exchangeSource,
 }: {
     qualAnalysis: Record<string, any>;
     toolCalls: Record<string, any[]>;
     expandedTools: Record<string, boolean>;
     toggleToolCalls: (param: string) => void;
+    exchangeSource: SourceKey;
 }) {
     return (
         <VStack gap={0} align="stretch">
@@ -1683,6 +1738,7 @@ function QualFullCards({
                     toolCalls={toolCalls}
                     expandedTools={expandedTools}
                     toggleToolCalls={toggleToolCalls}
+                    exchangeSource={exchangeSource}
                     compact={false}
                 />
             ))}
@@ -1696,6 +1752,7 @@ function QualCard({
     toolCalls,
     expandedTools,
     toggleToolCalls,
+    exchangeSource,
     compact,
 }: {
     paramName: string;
@@ -1703,11 +1760,15 @@ function QualCard({
     toolCalls: Record<string, any[]>;
     expandedTools: Record<string, boolean>;
     toggleToolCalls: (param: string) => void;
+    exchangeSource: SourceKey;
     compact: boolean;
 }) {
     const paramScore = paramData.score ?? 0;
     const sig = scoreSignal(paramScore);
     const borderColor = signalColor(sig);
+
+    const usedSources: SourceKey[] = sourcesUsedForParam(toolCalls[paramName])
+        .map((k) => (k === "exchange" ? exchangeSource : k));
 
     return (
         <Box
@@ -1734,6 +1795,41 @@ function QualCard({
                             wgt {paramData.weightage ?? "—"}
                         </Text>
                     </Flex>
+
+                    {/* Data provenance — the sources this parameter really pulled from */}
+                    {usedSources.length > 0 && (
+                        <Flex align="center" gap={1} flexWrap="wrap" mb={2}>
+                            <Text
+                                as="span"
+                                fontSize="9.5px"
+                                fontFamily="var(--font-mono)"
+                                fontWeight={500}
+                                color="var(--ink-tertiary)"
+                                textTransform="uppercase"
+                                letterSpacing="0.06em"
+                            >
+                                Data from
+                            </Text>
+                            {usedSources.map((k) => (
+                                <Flex
+                                    key={k}
+                                    title={SOURCE_DEFS[k].full}
+                                    align="center"
+                                    gap={1}
+                                    borderRadius="full"
+                                    border="1px solid var(--hairline)"
+                                    bg="var(--surface-recessed)"
+                                    px={1.5}
+                                    py={0.5}
+                                >
+                                    <SourceMark source={k} size={13} muted={k === "voyager"} />
+                                    <Text fontSize="10px" fontFamily="var(--font-mono)" fontWeight={500} color="var(--ink-tertiary)">
+                                        {SOURCE_DEFS[k].label}
+                                    </Text>
+                                </Flex>
+                            ))}
+                        </Flex>
+                    )}
 
                     {paramData.error && (
                         <Box

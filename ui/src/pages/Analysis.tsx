@@ -13,6 +13,7 @@ import { type RunStep } from "./shared/RunStatus";
 import AgentActivity from "@/components/shared/AgentActivity";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease, stagger, staggerItem } from "@/lib/motion";
+import { SOURCE_DEFS, SourceMark, type SourceKey } from "@/lib/sourceLogos";
 
 const MAX_POLL_RETRIES = 600;
 
@@ -260,6 +261,8 @@ export default function Analysis() {
         agent: "",
     });
 
+    const exchangeSource: SourceKey = config.source === "NSE" ? "nse" : "sec";
+
     const sourceKeyMap: Record<string, { mainKey: string; secondaryKey: string; nameField: string }> = {
         SEC: { mainKey: "ticker", secondaryKey: "name", nameField: "name" },
         NSE: { mainKey: "SYMBOL", secondaryKey: "NAME", nameField: "NAME" },
@@ -277,6 +280,7 @@ export default function Analysis() {
     }, [availableAgents]);
 
     const [availableModels, setAvailableModels] = useState<string[]>([]);
+    const [defaultModel, setDefaultModel] = useState("");
     const [providerCount, setProviderCount] = useState(0);
     const [selectedModel, setSelectedModel] = useState("");
     const [modelQuery, setModelQuery] = useState("");
@@ -304,11 +308,13 @@ export default function Analysis() {
 
     const fetchModels = useCallback(async () => {
         try {
-            const [modelsData, settings] = await Promise.all([
+            const [modelsData, settings, def] = await Promise.all([
                 AnalysisService.getAvailableModels(),
                 SettingsService.getSettings().catch(() => ({ llm_keys: {} })),
+                AnalysisService.getDefaultModel().catch(() => ({ model_id: "" })),
             ]);
             const allModels = Array.isArray(modelsData) ? modelsData : [];
+            setDefaultModel(def?.model_id || "");
             const keys = Object.keys(settings?.llm_keys || {});
             const hasTv = keys.includes("tavily");
             setHasTavily(hasTv);
@@ -323,7 +329,8 @@ export default function Analysis() {
             setAvailableModels(models);
             setSelectedModel(prev => {
                 if (prev && models.includes(prev)) return prev;
-                return models[0] || "";
+                const recommended = models.includes(def?.model_id || "") ? def.model_id : "";
+                return recommended || models[0] || "";
             });
         } catch {
             setAvailableModels([]);
@@ -622,6 +629,15 @@ export default function Analysis() {
                                             { value: "SEC", label: "SEC" },
                                         ]}
                                     />
+                                    <Flex
+                                        align="center"
+                                        gap={1.5}
+                                        mt={2}
+                                        title={`${SOURCE_DEFS[exchangeSource].full} · ${SOURCE_DEFS.voyager.full}`}
+                                    >
+                                        <SourceMark source={exchangeSource} size={17} />
+                                        <SourceMark source="voyager" size={17} />
+                                    </Flex>
                                 </Box>
                                 <Box flex={1} minW={0}>
                                     <FieldLabel>Company</FieldLabel>
@@ -887,6 +903,11 @@ export default function Analysis() {
                                             <Text fontSize="12px" color="var(--ink-secondary)">
                                                 {siblingModelCount(selectedModel)} other model{siblingModelCount(selectedModel) === 1 ? "" : "s"} from {providerLabel(modelPrefix(selectedModel))} · checked when the run starts
                                             </Text>
+                                            {selectedModel === defaultModel && (
+                                                <Text fontSize="11px" color="var(--accent-primary)" fontFamily="var(--font-mono)">
+                                                    auto-selected default
+                                                </Text>
+                                            )}
                                         </Flex>
                                     ) : (
                                         <Text fontSize="12px" color="var(--ink-tertiary)">
@@ -961,6 +982,9 @@ export default function Analysis() {
                             ].map((part, i) => (
                                 <HStack key={i} gap={1.5} minW={0}>
                                     {i > 0 && <Text fontSize="11px" color="var(--ink-tertiary)">·</Text>}
+                                    {i === 0 && (
+                                        <SourceMark source={exchangeSource} size={14} muted />
+                                    )}
                                     <Text
                                         fontSize="13px"
                                         fontFamily="var(--font-tabular)"

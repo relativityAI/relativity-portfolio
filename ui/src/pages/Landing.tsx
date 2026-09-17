@@ -216,7 +216,7 @@ export default function Landing() {
       <Box w="100%" maxW="1180px" mx="auto" px={{ base: 4, md: 8 }}>
         <Flex align="center" justify="center" gap={3} mb={{ base: 6, md: 8 }} opacity={0.85}>
           <Text fontFamily="var(--font-mono)" fontSize="xs" fontWeight={500} color="var(--ink-tertiary)">
-            Scans 12 categories of market data
+            Pulls from SEC & NSE filings, across 12 categories of market data
           </Text>
         </Flex>
         <DataSourceMarquee />
