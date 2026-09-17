@@ -119,7 +119,8 @@ export default function AgentBuilder() {
     Promise.all([
       AnalysisService.getAvailableModels(),
       SettingsService.getSettings().catch(() => ({ llm_keys: {} })),
-    ]).then(([modelsData, settings]) => {
+      AnalysisService.getDefaultModel().catch(() => ({ model_id: "" })),
+    ]).then(([modelsData, settings, def]) => {
       const allModels = Array.isArray(modelsData) ? modelsData : [];
       const keys = Object.keys(settings?.llm_keys || {});
       const models = keys.length > 0
@@ -131,7 +132,8 @@ export default function AgentBuilder() {
       setAvailableModels(models);
       setSelectedModel((prev) => {
         if (prev && models.includes(prev)) return prev;
-        return models[0] || "";
+        const recommended = models.includes(def?.model_id || "") ? def.model_id : "";
+        return recommended || models[0] || "";
       });
     }).catch(() => {});
 

@@ -144,7 +144,7 @@ export default function Settings() {
                                 Settings
                             </Text>
                             <Text fontSize="13px" color="var(--ink-secondary)">
-                                Manage the API keys used to run analyses.
+                                Manage the API keys used to run analyses. Optional — skip them to run on our servers with the default model.
                             </Text>
                         </Flex>
                         <Text

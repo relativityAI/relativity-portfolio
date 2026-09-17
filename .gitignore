@@ -183,3 +183,6 @@ pyrightconfig.json
 ### Node (api) ###
 api/dist/
 api/.env
+
+### Admin panel ###
+admin/.credentials.json

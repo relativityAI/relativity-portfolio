@@ -141,37 +141,61 @@ async function fetchProviderModels(
 }
 
 /**
- * Get available models for a user based on their configured API keys.
- * Merges dynamically fetched models with the curated YAML list.
+ * Get available models for a user based on their configured API keys plus the
+ * server's own key pools (config.serverKeys).
+ * Providers the server is keyed for use their explicit PROVIDER_MODELS list
+ * (or the curated YAML list); user-keyed providers keep curated + live discovery.
  * Curated models appear first (sorted by priority), dynamic models after (sorted alpha).
  */
 export async function getAvailableModelsForUser(
   llmKeys: Record<string, string>,
 ): Promise<string[]> {
-  const configuredProviders = Object.entries(llmKeys)
+  const userProviders = Object.entries(llmKeys)
     .filter(([k, v]) => k !== "tavily" && !!v)
     .map(([k]) => k);
+  const serverProviders = Object.keys(config.serverKeys).filter((p) => config.serverKeys[p]?.length);
+  const allProviders = [...new Set([...serverProviders, ...userProviders])];
 
-  // Fetch live models from each provider in parallel
-  const fetches = configuredProviders.map(async (provider) => {
+  // No keys anywhere — fall back to the full curated list so the UI stays useful.
+  if (allProviders.length === 0) return getModelIds();
+
+  // Provider models for a keyed provider: explicit PROVIDER_MODELS env list,
+  // else the curated YAML entries for that provider (in priority order).
+  const explicitModels: string[] = [];
+  const curatedModels: string[] = [];
+  for (const provider of allProviders) {
+    const envList = config.serverModels[provider];
+    if (envList?.length) {
+      explicitModels.push(...envList);
+      continue;
+    }
+    curatedModels.push(
+      ...getModels()
+        .filter((m) => m.id.split("/")[0] === provider)
+        .map((m) => m.id),
+    );
+  }
+
+  // Live discovery only for providers the USER is keyed for (their key queries the API).
+  const fetches = userProviders.map(async (provider) => {
     const key = llmKeys[provider];
     if (!key) return [];
     return fetchProviderModels(provider, key);
   });
-
   const liveResults = await Promise.all(fetches);
   const liveModels = new Set(liveResults.flat());
 
-  // Get curated models and filter to user's providers
-  const curated = getModels().filter(
-    (m) => m.id.split("/")[0] === "ollama" || configuredProviders.includes(m.id.split("/")[0]),
-  );
-  const curatedIds = new Set(curated.map((m) => m.id));
-
-  // Curated models first (in priority order), then dynamic-only models (alpha sorted)
-  const dynamicOnly = [...liveModels]
-    .filter((id) => !curatedIds.has(id))
-    .sort();
-
-  return [...curated.map((m) => m.id), ...dynamicOnly];
+  // Curated models include Ollama (keyless) plus everything above; dedupe and keep
+  // ordering: explicit env models first, curated by priority, live-only models alpha.
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+  for (const id of [...explicitModels, ...curatedModels, ...getModels().filter((m) => m.id.split("/")[0] === "ollama").map((m) => m.id)]) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ordered.push(id);
+  }
+  for (const id of [...liveModels].filter((id) => !seen.has(id)).sort()) {
+    ordered.push(id);
+  }
+  return ordered;
 }

@@ -2,12 +2,12 @@ import { Inngest } from "inngest";
 import { getDb } from "./db.js";
 import { fetchUserKeys } from "./provision.js";
 import { config } from "./config.js";
-import { getModelIds } from "./models.js";
 import { VoyagerClient, toCountrySource, type PullStatus } from "./voyager.js";
 import { runQuantitative, fetchMetricsSnapshot, assessDataAdequacy } from "./quant.js";
 import { runQualitative, parseFinalScoreResult, investorProfileLine, type QualParamEntry, type TraceCallback } from "./agent.js";
 import { ensureFreshData } from "./freshness.js";
-import { resolveWebSearch, DEFAULT_MODEL, type RunRequest } from "./run.js";
+import { resolveWebSearch, type RunRequest } from "./run.js";
+import { keyPool } from "./keypool.js";
 import { aggregateWeightedScores } from "./scoring.js";
 import { log } from "./logger.js";
 import { TraceCollector, traceHub } from "./trace.js";
@@ -154,7 +154,10 @@ export const analysisRunFn = inngest.createFunction(
 
     const qualitativeAnalysis: Record<string, QualParamEntry> = {};
     const qualitativeToolCalls: Record<string, Record<string, unknown>[]> = {};
-    const modelId = req.model || getModelIds()[0] || DEFAULT_MODEL;
+    const modelId = req.model || keyPool.getDefaultModel(llmKeys);
+    if (modelId !== req.model) {
+      await updateRunStatus({ model: modelId });
+    }
     const investorContext = investorProfileLine(agent?.configuration);
 
     const toolCtx = {
