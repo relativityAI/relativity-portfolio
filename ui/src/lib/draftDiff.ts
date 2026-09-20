@@ -4,6 +4,8 @@
 export interface ChangeItem {
   label: string;
   detail: string;
+  /** Machine-readable path (dot notation, shallow) for per-item discard. */
+  path?: string;
 }
 
 type Qual = { parameter?: string; content?: string; weightage?: number };
@@ -78,8 +80,8 @@ function diffQuant(out: ChangeItem[], section: string, prev: unknown, next: unkn
   }
 }
 
-function chg(label: string, detail: string): ChangeItem {
-  return { label, detail };
+function chg(label: string, detail: string, path?: string): ChangeItem {
+  return path ? { label, detail, path } : { label, detail };
 }
 
 export function diffDraft(prev: Record<string, unknown>, next: Record<string, unknown>): ChangeItem[] {
@@ -94,7 +96,7 @@ export function diffDraft(prev: Record<string, unknown>, next: Record<string, un
         : typeof b === "string"
           ? `set to “${snip(b, 90)}”`
           : "updated";
-      out.push(chg(label, detail));
+      out.push(chg(label, detail, key));
     }
   }
 
@@ -110,19 +112,30 @@ export function diffDraft(prev: Record<string, unknown>, next: Record<string, un
             ? `${String(a)} → ${String(v)}`
             : "updated")
         : has(v) ? `set to “${String(v)}”` : "cleared";
-      out.push(chg(label, detail));
+      out.push(chg(label, detail, `configuration.${k}`));
     }
   }
 
-  diffQual(out, "Asset Qualitative", prev.asset_evaluation?.qualitative, next.asset_evaluation?.qualitative);
-  diffQuant(out, "Asset Quantitative", prev.asset_evaluation?.quantitative, next.asset_evaluation?.quantitative);
-  diffQual(out, "Macro Qualitative", prev.macro_evaluation?.qualitative, next.macro_evaluation?.qualitative);
-  diffQuant(out, "Macro Quantitative", prev.macro_evaluation?.quantitative, next.macro_evaluation?.quantitative);
+  type EvalShape = { qualitative?: unknown; quantitative?: unknown };
+  const aeA = prev.asset_evaluation as EvalShape | undefined;
+  const aeB = next.asset_evaluation as EvalShape | undefined;
+  const meA = prev.macro_evaluation as EvalShape | undefined;
+  const meB = next.macro_evaluation as EvalShape | undefined;
+
+  diffQual(out, "Asset Qualitative", aeA?.qualitative, aeB?.qualitative);
+  diffQuant(out, "Asset Quantitative", aeA?.quantitative, aeB?.quantitative);
+  diffQual(out, "Macro Qualitative", meA?.qualitative, meB?.qualitative);
+  diffQuant(out, "Macro Quantitative", meA?.quantitative, meB?.quantitative);
 
   const pa = prev.persona as Record<string, unknown> | undefined;
   const pb = next.persona as Record<string, unknown> | undefined;
   if (JSON.stringify(pa?.philosophy_and_mindset) !== JSON.stringify(pb?.philosophy_and_mindset) && !out.some((c) => c.label === "Philosophy")) {
-    out.push(chg("Persona", "philosophy updated"));
+    const detail = (pa?.philosophy_and_mindset as string) && (pb?.philosophy_and_mindset as string)
+      ? `“${snip(pa?.philosophy_and_mindset as string, 40)}” → “${snip(pb?.philosophy_and_mindset as string, 40)}”`
+      : (pb?.philosophy_and_mindset as string)
+        ? `set to “${snip(pb?.philosophy_and_mindset as string, 90)}”`
+        : "philosophy cleared";
+    out.push(chg("Persona", detail, "persona.philosophy_and_mindset"));
   }
 
   return out;

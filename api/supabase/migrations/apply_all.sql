@@ -54,3 +54,15 @@ CREATE TABLE IF NOT EXISTS api_usage (
 );
 
 CREATE INDEX IF NOT EXISTS idx_api_usage_provider_day ON api_usage(provider, day);
+
+-- ─── 008: agent markdown storage ────────────────────────────────────────────
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS md_config TEXT NOT NULL DEFAULT '';
+
+-- ─── 009: analysis report storage ───────────────────────────────────────────
+ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS report JSONB DEFAULT NULL;
+
+-- ─── 010: honest scoring (plan §5.3 / Phase 0 tickets 0.2–0.4) ─────────────
+ALTER TABLE analysis_runs
+  ADD COLUMN IF NOT EXISTS fit_low NUMERIC,
+  ADD COLUMN IF NOT EXISTS fit_high NUMERIC,
+  ADD COLUMN IF NOT EXISTS coverage NUMERIC;

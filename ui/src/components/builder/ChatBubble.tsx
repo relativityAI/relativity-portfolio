@@ -1,7 +1,7 @@
 import { Box, Flex, Text } from "@chakra-ui/react";
 import { motion } from "motion/react";
-import { useState, useEffect } from "react";
 import { dur, ease } from "@/lib/motion";
+import { tap } from "@/lib/tokens";
 import OptionCards from "./OptionCards";
 
 export interface ChatMsg {
@@ -19,35 +19,9 @@ interface ChatBubbleProps {
   isLatest?: boolean;
 }
 
-// Reveal assistant text char-by-char for a smooth "typing" effect.
-const TYPING_CPS = 35; // chars per second
-function useTypewriter(text: string, animate: boolean, isLatest: boolean) {
-  const [len, setLen] = useState(animate ? 0 : text.length);
-  useEffect(() => {
-    if (!animate || !isLatest) {
-      setLen(text.length);
-      return;
-    }
-    let i = 0;
-    const id = setInterval(() => {
-      i += 3;
-      if (i >= text.length) {
-        setLen(text.length);
-        clearInterval(id);
-      } else {
-        setLen(i);
-      }
-    }, 1000 / TYPING_CPS);
-    return () => clearInterval(id);
-  }, [text, animate, isLatest]);
-  return len;
-}
-
 export default function ChatBubble({ message, onOptionSelect, isLatest }: ChatBubbleProps) {
   const isAssistant = message.role === "assistant";
-  const typed = useTypewriter(message.content, isAssistant && !!isLatest, !!isLatest);
-  const isTyping = typed < message.content.length;
-  const showOptions = isAssistant && !isTyping && message.options && message.options.length > 0;
+  const hasOptions = isAssistant && message.options && message.options.length > 0;
 
   return (
     <motion.div
@@ -62,24 +36,27 @@ export default function ChatBubble({ message, onOptionSelect, isLatest }: ChatBu
             Builder
           </Text>
         )}
+        {/* Full text always rendered + exposed to assistive tech; no typewriter. */}
         <Box
           maxW="85%"
           px={3.5}
           py={2.5}
           borderRadius="4px"
           bg={isAssistant ? "var(--surface-recessed)" : "var(--accent-primary)"}
-          color={isAssistant ? "var(--ink-primary)" : "#fff"}
+          color={isAssistant ? "var(--ink-primary)" : "var(--ink-inverse-primary)"}
           fontSize="13px"
           lineHeight="1.55"
           whiteSpace="pre-wrap"
           border={isAssistant ? "1px solid var(--hairline)" : "none"}
+          minH={`${tap}px`}
+          display="flex"
+          alignItems="center"
         >
-          {message.content.slice(0, typed)}
-          {isTyping && <Box as="span" display="inline-block" w="6px" h="14px" ml={0.5} verticalAlign="text-bottom" bg="var(--accent-primary)" sx={{ animation: "blink 0.8s step-start infinite" }} />}
+          {message.content}
         </Box>
-        {showOptions && onOptionSelect && (
+        {hasOptions && onOptionSelect && (
           <Box maxW="85%">
-            <OptionCards options={message.options} onSelect={onOptionSelect} disabled={!isLatest} />
+            <OptionCards options={message.options ?? []} onSelect={onOptionSelect} disabled={!isLatest} />
           </Box>
         )}
         {isAssistant && message.annotations && message.annotations.length > 0 && (

@@ -31,16 +31,15 @@ export const swap = {
   exit: { opacity: 0, y: -6, transition: { duration: dur.fast, ease } },
 }
 
-export function CountUp({ value, decimals = 1, duration = 0.7 }: { value: number; decimals?: number; duration?: number }) {
+export function CountUp({ value, decimals = 1 }: { value: number; decimals?: number }) {
   const mv = useMotionValue(0)
   const spring = useSpring(mv, { damping: 30, stiffness: 90 })
   const [display, setDisplay] = useState(0)
   useEffect(() => { mv.set(value) }, [value, mv])
   useEffect(() => {
-    const unsub = spring.onChange((v: number) => setDisplay(v))
+    const unsub = spring.on("change", (v: number) => setDisplay(v))
     return () => unsub()
   }, [spring])
-  useEffect(() => { setDisplay(value) }, [])
   return <>{display.toFixed(decimals)}</>
 }
 

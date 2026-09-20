@@ -10,7 +10,6 @@ import {
 } from "@chakra-ui/react"
 import { MdDeleteForever, MdAdd, MdRemove, MdAutoAwesome } from "react-icons/md"
 import { motion, AnimatePresence } from "motion/react"
-import { dur, ease } from "@/lib/motion"
 
 interface ListEditorItem {
   id: string;
@@ -31,6 +30,10 @@ interface ListEditorProps {
   addButtonLabel: string;
   onDraft?: () => Promise<void> | void;
   drafting?: boolean;
+  /** Disables the DRAFT WITH AI button (e.g. missing persona). */
+  draftDisabled?: boolean;
+  /** Helper text shown under the draft button when it's disabled. */
+  draftHint?: string;
 }
 
 function WeightStepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
@@ -158,7 +161,6 @@ export default function ListEditor(props: ListEditorProps) {
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -6, height: 0 }}
-                transition={{ duration: dur.base, ease }}
                 gap={3}
                 px={3}
                 py={2.5}
@@ -220,7 +222,7 @@ export default function ListEditor(props: ListEditorProps) {
                     lineHeight="short"
                   />
                 </Box>
-                <Box width="32px" flexShrink={0} display="flex" justify="flex-start">
+                <Box width="32px" flexShrink={0} display="flex">
                   <Button
                     size="xs"
                     variant="subtle"
@@ -243,7 +245,8 @@ export default function ListEditor(props: ListEditorProps) {
       )}
       </Box>
 
-      <Flex gap={2} mt={3} alignSelf="flex-start">
+      <Flex gap={2} mt={3} alignSelf="flex-start" direction={props.draftHint ? "column" : "row"} align={props.draftHint ? "flex-start" : "center"}>
+        <Flex gap={2}>         
         <Button
           variant="subtle"
           color="fg.subtle"
@@ -265,6 +268,7 @@ export default function ListEditor(props: ListEditorProps) {
             size="sm"
             onClick={() => props.onDraft!()}
             loading={props.drafting}
+            disabled={props.draftDisabled}
             loadingText="DRAFTING..."
             fontWeight="bold"
             borderStyle="dashed"
@@ -275,6 +279,12 @@ export default function ListEditor(props: ListEditorProps) {
             <MdAutoAwesome />
             DRAFT WITH AI
           </Button>
+        )}
+        </Flex>
+        {props.draftDisabled && props.draftHint && (
+          <Text fontSize="11px" color="var(--ink-tertiary)">
+            {props.draftHint}
+          </Text>
         )}
       </Flex>
     </Flex>

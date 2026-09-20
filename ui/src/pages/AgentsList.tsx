@@ -11,6 +11,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AgentService } from "@/db";
 import PageHero from "@/components/PageHero";
+import AgentAvatar from "@/components/shared/AgentAvatar";
 import { motion, AnimatePresence } from "motion/react";
 import { stagger, staggerItem } from "@/lib/motion";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -56,11 +57,11 @@ export default function AgentsList() {
     };
 
     const handleCreate = () => {
-        navigate("/agent/builder");
+        navigate("/agent/new");
     };
 
     const onRowClick = (id: string) => {
-        navigate("/agent/builder/" + id);
+        navigate("/agent/" + id);
     };
 
     const handleDelete = async (id: string | undefined) => {
@@ -208,7 +209,9 @@ export default function AgentsList() {
                                             >
                                                 {/* Name + ID sub-line */}
                                                 <Table.Cell px={4} py={3}>
-                                                    <Flex direction="column">
+                                                    <Flex align="center" gap={2.5}>
+                                                        <AgentAvatar agent={item} size={38} />
+                                                        <Flex direction="column" minW={0}>
                                                         <Text
                                                             fontSize="13.5px"
                                                             fontWeight={500}
@@ -227,6 +230,7 @@ export default function AgentsList() {
                                                                 10
                                                             )}
                                                         </Text>
+                                                        </Flex>
                                                     </Flex>
                                                 </Table.Cell>
 

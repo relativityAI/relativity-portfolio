@@ -2,9 +2,10 @@ import { useState, useRef, useEffect } from "react";
 import { Box, Flex, Input, IconButton, Text } from "@chakra-ui/react";
 import { motion, AnimatePresence } from "motion/react";
 import { MdSend, MdOutlineInfo } from "react-icons/md";
+import { tap, type } from "@/lib/tokens";
 import ChatBubble, { type ChatMsg } from "./ChatBubble";
 import DocDropzone from "./DocDropzone";
-import StepsTrace, { type BuilderStep } from "./StepsTrace";
+import StepsTrace, { TraceBlock, type BuilderStep } from "./StepsTrace";
 
 interface DocFile {
   filename: string;
@@ -22,6 +23,7 @@ interface ChatPanelProps {
   onRemoveDocument?: (index: number) => void;
   isProcessing: boolean;
   steps?: BuilderStep[] | null;
+  traces?: { key: string; title: string; steps: BuilderStep[] }[];
   disabled?: boolean;
 }
 
@@ -34,6 +36,7 @@ export default function ChatPanel({
   onRemoveDocument,
   isProcessing,
   steps,
+  traces = [],
   disabled,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
@@ -61,17 +64,16 @@ export default function ChatPanel({
   // Find the last assistant message with options
   const lastOptionsIdx = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "assistant" && messages[i].options && messages[i].options.length > 0) {
-        return i;
-      }
+      const m = messages[i];
+      if (m.role === "assistant" && m.options?.length) return i;
     }
     return -1;
   })();
 
   return (
-    <Flex direction="column" h="100%">
+    <Flex direction="column" h="100%" minH={0} w="full">
       {/* Messages area */}
-      <Box flex={1} overflowY="auto" px={4} py={4}>
+      <Box flex={1} overflowY="auto" px={4} py={4} aria-live="polite" aria-relevant="additions">
         <Flex direction="column" gap={3}>
           {messages.map((msg, i) => (
             <ChatBubble
@@ -81,18 +83,23 @@ export default function ChatPanel({
               isLatest={i === lastOptionsIdx}
             />
           ))}
+          {traces.length > 0 && (
+            <Box>
+              <Text fontSize={type.micro} fontWeight={600} color="var(--ink-tertiary)" letterSpacing="0.04em" textTransform="uppercase" mb={1.5} mt={1}>
+                How this was built
+              </Text>
+              <Flex direction="column" gap={1.5}>
+                {traces.map((t) => (
+                  <TraceBlock key={t.key} title={t.title || "Assist step"} steps={t.steps} />
+                ))}
+              </Flex>
+            </Box>
+          )}
           <AnimatePresence initial={false}>
             {steps && steps.length > 0 && (
-              <Box
-                key="steptrace"
-                px={1}
-                as={motion.div}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ type: "spring", stiffness: 420, damping: 36 }}
-                overflow="hidden"
-              >
+              <motion.div key="steptrace" exit={{ opacity: 0, height: 0 }} style={{ overflow: "hidden" }}>
                 <StepsTrace steps={steps} />
-              </Box>
+              </motion.div>
             )}
           </AnimatePresence>
           <div ref={messagesEndRef} />
@@ -100,7 +107,7 @@ export default function ChatPanel({
       </Box>
 
       {/* Document dropzone */}
-      <Box px={4} pb={2}>
+      <Box px={4} pb={2} flexShrink={0}>
         <DocDropzone
           onUpload={onUploadFiles}
           documents={documents}
@@ -110,7 +117,7 @@ export default function ChatPanel({
       </Box>
 
       {/* Input area */}
-      <Flex px={4} pb={4} pt={2} gap={2} align="center">
+      <Flex px={4} pb={3} pt={2} gap={2} align="center" flexShrink={0}>
         <Input
           ref={inputRef}
           value={input}
@@ -118,17 +125,20 @@ export default function ChatPanel({
           onKeyDown={handleKeyDown}
           placeholder="Type a message..."
           size="sm"
+          minH={`${tap}px`}
           flex={1}
           bg="var(--surface-panel)"
           border="1px solid var(--hairline)"
           borderRadius="3px"
-          fontSize="13px"
+          fontSize={type.body}
           _placeholder={{ color: "var(--ink-tertiary)" }}
           _focus={{ borderColor: "var(--accent-primary)", outline: "none" }}
           disabled={isProcessing || disabled}
         />
         <IconButton
           size="sm"
+          minW={`${tap}px`}
+          minH={`${tap}px`}
           onClick={handleSend}
           disabled={!input.trim() || isProcessing || disabled}
           variant="surface"
@@ -139,10 +149,10 @@ export default function ChatPanel({
         </IconButton>
       </Flex>
 
-      <Flex align="center" justify="center" gap={1} px={4} pb={2}>
+      <Flex align="center" justify="center" gap={1} px={4} pb={2.5} flexShrink={0}>
         <MdOutlineInfo size={11} color="var(--ink-tertiary)" />
         <Text fontSize="10.5px" color="var(--ink-tertiary)">
-          This chat isn't stored — it's cleared when you refresh or leave this page.
+          Drafts autosave on this device only — use the manual editor or Save to store on the server.
         </Text>
       </Flex>
     </Flex>

@@ -117,6 +117,7 @@ export function findMetricId(metric: string): string | null {
   for (const cat of CATALOG) {
     for (const m of cat.metrics) {
       if (m.id.replace(/[^a-z0-9]/g, "") === target) return m.id;
+      if (m.name.toLowerCase().replace(/[^a-z0-9]/g, "") === target) return m.id;
     }
   }
   return null;

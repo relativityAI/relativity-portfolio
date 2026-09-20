@@ -1,6 +1,7 @@
 import { useState } from "react"
 import ListEditor from "./shared/ListEditor"
 import { VoyagerService } from "@/db"
+import { toaster } from "@/components/ui/toaster"
 
 interface AgentDataQualitativeProps {
     data: any[];
@@ -46,7 +47,11 @@ export default function AgentDataQualitative(props: AgentDataQualitativeProps) {
             }))
             handleChange([...items, ...drafted])
         } catch (e: any) {
-            alert(e?.response?.data?.error || "Could not draft parameters")
+            toaster.create({
+                title: "Could not draft parameters",
+                description: e?.response?.data?.error || "Please try again.",
+                type: "error",
+            })
         } finally {
             setDrafting(false)
         }
@@ -63,8 +68,10 @@ export default function AgentDataQualitative(props: AgentDataQualitativeProps) {
             emptyStateTitle="No qualitative parameters yet"
             emptyStateSubtitle="Add them manually or let AI draft a starting list from your persona."
             addButtonLabel="ADD PARAMETER"
-            onDraft={props.persona ? handleDraft : undefined}
+            onDraft={handleDraft}
             drafting={drafting}
+            draftDisabled={!props.persona}
+            draftHint="Set your persona philosophy first — AI drafting uses it to add compatible parameters."
         />
     )
 }

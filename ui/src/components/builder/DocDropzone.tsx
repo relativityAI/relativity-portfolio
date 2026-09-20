@@ -2,6 +2,8 @@ import { useState, useCallback, useRef } from "react";
 import { Box, Flex, Text, IconButton } from "@chakra-ui/react";
 import { motion, AnimatePresence } from "motion/react";
 import { MdClose, MdDescription } from "react-icons/md";
+import { toaster } from "@/components/ui/toaster";
+import { tap, type } from "@/lib/tokens";
 
 interface DocFile {
   filename: string;
@@ -17,32 +19,61 @@ interface DocDropzoneProps {
   disabled?: boolean;
 }
 
+export const MAX_FILES = 10;
+export const MAX_BYTES = 25 * 1024 * 1024; // 25 MB
 const ACCEPT = ".pdf,.txt,.md,.csv,.docx,.json";
+const FILE_RE = /\.(pdf|txt|md|csv|docx|json)$/i;
+
+/** One validation path for drag-and-drop and the file picker. */
+function validateFiles(files: File[], currentCount: number): { ok: boolean; files?: File[]; message?: string } {
+  if (files.length === 0) return { ok: true, files: [] };
+  if (currentCount + files.length > MAX_FILES) {
+    return { ok: false, message: `You can upload up to ${MAX_FILES} files at once (${currentCount} already attached).` };
+  }
+  const extOk = files.filter((f) => FILE_RE.test(f.name));
+  const sizeOk = files.filter((f) => f.size <= MAX_BYTES);
+  if (extOk.length !== files.length) {
+    return { ok: false, message: "Only PDF, TXT, MD, CSV, DOCX and JSON files are supported." };
+  }
+  if (sizeOk.length !== files.length) {
+    return { ok: false, message: "One or more files exceed the 25MB limit." };
+  }
+  return { ok: true, files: files };
+}
 
 export default function DocDropzone({ onUpload, documents, onRemove, disabled }: DocDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const handler = useCallback(
+    (files: File[]) => {
+      if (disabled) return;
+      const result = validateFiles(files, documents.length);
+      if (!result.ok) {
+        toaster.create({ title: "Can't upload documents", description: result.message, type: "error" });
+        return;
+      }
+      if (result.files && result.files.length > 0) onUpload(result.files);
+    },
+    [onUpload, disabled, documents.length],
+  );
+
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setIsDragging(false);
-      if (disabled) return;
-      const files = Array.from(e.dataTransfer.files).filter((f) =>
-        /\.(pdf|txt|md|csv|docx|json)$/i.test(f.name),
-      );
-      if (files.length > 0) onUpload(files);
+      handler(Array.from(e.dataTransfer.files));
     },
-    [onUpload, disabled],
+    [handler],
   );
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || []);
-      if (files.length > 0) onUpload(files);
+      handler(files);
       if (inputRef.current) inputRef.current.value = "";
     },
-    [onUpload],
+    [handler],
   );
 
   const borderColor = isDragging ? "var(--accent-primary)" : "var(--hairline)";
@@ -74,11 +105,11 @@ export default function DocDropzone({ onUpload, documents, onRemove, disabled }:
         }
       >
         <Flex direction="column" align="center" gap={1}>
-          <Text fontSize="12px" color="var(--ink-secondary)" textAlign="center">
+          <Text fontSize={type.meta} color="var(--ink-secondary)" textAlign="center">
             Drop documents here or click to browse
           </Text>
-          <Text fontSize="11px" color="var(--ink-tertiary)" textAlign="center">
-            PDF, TXT, MD, CSV, DOCX, JSON — text extraction only, no images
+          <Text fontSize={type.micro} color="var(--ink-tertiary)" textAlign="center">
+            PDF, TXT, MD, CSV, DOCX, JSON — text extraction only, no images · max {MAX_FILES} files, 25MB each
           </Text>
         </Flex>
       </Box>
@@ -120,8 +151,10 @@ export default function DocDropzone({ onUpload, documents, onRemove, disabled }:
                     border="1px solid var(--hairline)"
                     boxShadow="0 1px 2px rgba(0,0,0,0.04)"
                   >
-                    <MdDescription size={14} color="var(--accent-primary)" flexShrink={0} />
-                    <Text fontSize="12px" color="var(--ink-primary)" flex={1} truncate whiteSpace="nowrap">
+                    <Box display="flex" flexShrink={0} color="var(--accent-primary)">
+                    <MdDescription size={14} />
+                  </Box>
+                    <Text fontSize={type.meta} color="var(--ink-primary)" flex={1} truncate whiteSpace="nowrap">
                       {doc.filename}
                     </Text>
                     {doc.status === "uploading" || doc.status === "processing" ? (
@@ -139,7 +172,9 @@ export default function DocDropzone({ onUpload, documents, onRemove, disabled }:
                     )}
                     {onRemove && doc.status !== "processing" && (
                       <IconButton
-                        size="2xs"
+                        size="xs"
+                        minW={`${tap}px`}
+                        minH={`${tap}px`}
                         variant="subtle"
                         color="var(--ink-tertiary)"
                         _hover={{ color: "var(--signal-negative)" }}
@@ -147,7 +182,7 @@ export default function DocDropzone({ onUpload, documents, onRemove, disabled }:
                           e.stopPropagation();
                           onRemove(i);
                         }}
-                        aria-label="Remove document"
+                        aria-label={`Remove document ${doc.filename}`}
                       >
                         <MdClose size={12} />
                       </IconButton>

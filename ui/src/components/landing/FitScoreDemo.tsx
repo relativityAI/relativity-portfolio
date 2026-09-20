@@ -152,7 +152,6 @@ export default function FitScoreDemo() {
                       bg="var(--accent-primary)"
                       ml="1px"
                       verticalAlign="text-bottom"
-                      animation="blink 0.8s step-end infinite"
                     />
                   </>
                 ) : (
@@ -174,7 +173,7 @@ export default function FitScoreDemo() {
             transition={{ duration: dur.fast, ease }}
           >
             <Flex px={{ base: 4, md: 5 }} py={3} borderTop="1px solid var(--hairline)" align="center" gap={2}>
-              <Box w={2} h={2} borderRadius="full" bg="var(--accent-primary)" animation="blink 0.6s step-end infinite" />
+              <Box w={2} h={2} borderRadius="full" bg="var(--accent-primary)" />
               <Text fontFamily="var(--font-mono)" fontSize="xs" color="var(--accent-primary)" fontWeight={500}>
                 Scanning {SCANNING_LABELS[state.scanIdx]}...
               </Text>

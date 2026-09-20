@@ -14,12 +14,15 @@ import { draftParameters, type LlmKeys } from "./agent.js";
 import { processBuilderTurn, extractDocumentSignals, type BuilderRequest } from "./builder.js";
 import { getSchemaDescriptor } from "./schema.js";
 import { getPreset, listPresets, buildSeedAgents } from "./presets.js";
+import { agentFromRow, buildAgentConfig, validateConfig, type AgentRow } from "./agentstore.js";
+import { parseMd } from "./mdconfig.js";
 import { extractText } from "./upload.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
 import multer from "multer";
 import { isDataFresh, FRESHNESS_FUNDAMENTAL_MS } from "./freshness.js";
 import { requireAuth, type AuthedRequest } from "./auth.js";
 import { log, paint } from "./logger.js";
+import { buildReportPdf } from "./pdf.js";
 import { initTelemetry } from "./telemetry.js";
 import { serve } from "inngest/express";
 import { inngest, analysisRunFn } from "./inngest.js";
@@ -293,7 +296,8 @@ app.get("/agents", requireAuth, async (req, res) => {
     }
 
     docs.sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
-    res.json(docs);
+    // Surface parsed markdown content (list omits `md` to keep payloads small).
+    res.json(docs.map((row: AgentRow) => ({ ...row, ...(agentFromRow(row).config || {}) })));
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -306,7 +310,27 @@ app.get("/agents/search", requireAuth, async (req, res) => {
     const q = String(req.query.query || "");
     const { data, error } = await db.from("agents").select("*").eq("user_id", userId).ilike("name", `%${q}%`).limit(25);
     if (error) throw error;
-    res.json(data || []);
+    res.json((data || []).map((row: AgentRow) => ({ ...row, ...(agentFromRow(row).config || {}) })));
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+/**
+ * Endpoint for the Raw Markdown editor: validate md without saving.
+ * Returns { valid, parsed?, issues: [{line, message, severity}] }.
+ */
+app.post("/agents/validate-md", requireAuth, async (req, res) => {
+  try {
+    const md = String(req.body?.md || "");
+    if (!md.trim()) return res.status(400).json({ valid: false, issues: [{ line: 1, message: "empty markdown", severity: "error" }] });
+    const { agent, issues } = parseMd(md);
+    if (!agent) return res.json({ valid: false, parsed: null, issues });
+    const check = validateConfig(agent);
+    const all = check.ok ? issues : check.issues.concat(issues);
+    const hasErrors = all.some((i) => i.severity === "error");
+    if (hasErrors) return res.json({ valid: false, parsed: agent, issues: all });
+    res.json({ valid: true, parsed: agent, issues: all });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -317,27 +341,30 @@ app.post("/agents", requireAuth, async (req, res) => {
     const db = getDb();
     const userId = (req as AuthedRequest).user.id;
     const id = req.body?.id || req.body?._id || randomUUID();
-    const body = req.body || {};
-    const phil = body.philosophy || body.persona?.philosophy_and_mindset || "";
-    const persona = {
-      ...(typeof body.persona === "object" ? body.persona : {}),
-      philosophy_and_mindset: phil,
-    };
+    let built;
+    try {
+      built = buildAgentConfig(req.body || {});
+    } catch (e: any) {
+      if (e.issues) return res.status(400).json({ error: e.message, issues: e.issues });
+      throw e;
+    }
+    const { config, md } = built;
+    const now = new Date().toISOString();
     const doc = {
       id,
       user_id: userId,
-      name: String(body.name || "Untitled Agent"),
-      source: body.source || "NSE",
-      persona,
-      configuration: body.configuration || {},
-      asset_evaluation: normalizeEval(body.asset_evaluation) || { qualitative: [], quantitative: [] },
-      macro_evaluation: normalizeEval(body.macro_evaluation) || { qualitative: [], quantitative: [] },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      name: config.name,
+      persona: config.persona,
+      configuration: config.configuration,
+      asset_evaluation: config.asset_evaluation,
+      macro_evaluation: config.macro_evaluation,
+      md_config: md,
+      created_at: now,
+      updated_at: now,
     };
     const { error } = await db.from("agents").insert(doc);
     if (error) throw error;
-    res.status(201).json(doc);
+    res.status(201).json({ ...doc, md, ...config });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -349,9 +376,17 @@ app.get("/agents/:id", requireAuth, async (req, res) => {
     const userId = (req as AuthedRequest).user.id;
     const { data, error } = await db.from("agents").select("*").eq("id", req.params.id).eq("user_id", userId).single();
     if (error || !data) return res.status(404).json({ error: "Agent not found" });
-    data.asset_evaluation = normalizeEval(data.asset_evaluation);
-    data.macro_evaluation = normalizeEval(data.macro_evaluation);
-    res.json(data);
+    // Markdown-first: surface parsed config, the raw md, and any parse warnings.
+    const row = data as AgentRow;
+    if (row.md_config?.trim()) {
+      const { config, issues, md } = agentFromRow(row);
+      res.json({ ...row, ...(config || {}), md, md_issues: issues });
+    } else {
+      row.asset_evaluation = normalizeEval(row.asset_evaluation);
+      row.macro_evaluation = normalizeEval(row.macro_evaluation);
+      const { md } = agentFromRow(row);
+      res.json({ ...row, md, md_issues: [] });
+    }
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -365,31 +400,36 @@ app.put("/agents/:id", requireAuth, async (req, res) => {
     const { data: existing, error: fetchErr } = await db.from("agents").select("*").eq("id", id).eq("user_id", userId).single();
     if (fetchErr || !existing) return res.status(404).json({ error: "Agent not found" });
 
-    const body = req.body || {};
-    const phil = body.philosophy || body.persona?.philosophy_and_mindset || existing.persona?.philosophy_and_mindset || "";
-    const persona = {
-      ...(existing.persona || {}),
-      ...(typeof body.persona === "object" ? body.persona : {}),
-      philosophy_and_mindset: phil,
-    };
+    let built;
+    try {
+      built = buildAgentConfig(req.body || {}, existing as AgentRow);
+    } catch (e: any) {
+      if (e.issues) {
+        console.error("[PUT /agents] 400 – body:", JSON.stringify(req.body, null, 2));
+        console.error("[PUT /agents] 400 – issues:", JSON.stringify(e.issues, null, 2));
+        return res.status(400).json({ error: e.message, issues: e.issues });
+      }
+      throw e;
+    }
+    const { config, issues, md } = built;
 
     // Pick ONLY valid table columns to prevent PostgREST unknown column errors (503)
-    const doc = {
+    const doc: Record<string, any> = {
       id: existing.id,
       user_id: userId,
-      name: body.name !== undefined ? String(body.name) : existing.name,
-      source: body.source || existing.source || "NSE",
-      persona,
-      configuration: body.configuration || existing.configuration || {},
-      asset_evaluation: normalizeEval(body.asset_evaluation || existing.asset_evaluation || { qualitative: [], quantitative: [] }),
-      macro_evaluation: normalizeEval(body.macro_evaluation || existing.macro_evaluation || { qualitative: [], quantitative: [] }),
+      name: config.name,
+      persona: config.persona,
+      configuration: config.configuration,
+      asset_evaluation: config.asset_evaluation,
+      macro_evaluation: config.macro_evaluation,
+      md_config: md,
       created_at: existing.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
     const { error } = await db.from("agents").update(doc).eq("id", id).eq("user_id", userId);
     if (error) throw error;
-    res.json(doc);
+    res.json({ ...doc, ...config, md, md_issues: issues });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -443,7 +483,8 @@ app.post("/analysis", requireAuth, async (req, res) => {
     const result = await createRun(runReq);
     res.status(202).json(result);
   } catch (e: any) {
-    res.status(503).json({ error: e.message });
+    console.error("POST /analysis ERROR:", e);
+    res.status(503).json({ error: e.message, stack: e.stack });
   }
 });
 
@@ -536,6 +577,26 @@ app.delete("/analysis/:id", requireAuth, async (req, res) => {
     res.json({ deleted: true });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
+  }
+});
+
+// Server-generated PDF export of the analysis report (same plots as the UI).
+app.get("/analysis/:id/pdf", requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const { data, error } = await db.from("analysis_runs").select("*").eq("id", req.params.id).eq("user_id", userId).single();
+    if (error || !data) return res.status(404).json({ error: "Analysis not found" });
+    if (!data.quantitative_analysis && !data.qualitative_analysis && !data.report) {
+      return res.status(409).json({ error: "No analysis to export" });
+    }
+    const pdf = await buildReportPdf(data);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent((data.share_name || data.symbol || "analysis").replace(/\s+/g, "-"))}.pdf"`);
+    res.send(Buffer.from(pdf));
+  } catch (e: any) {
+    log.error("[pdf]", e.message);
+    res.status(503).json({ error: `PDF generation failed: ${e.message}` });
   }
 });
 
