@@ -1,6 +1,5 @@
 import { Flex, Text, Box } from "@chakra-ui/react"
 import { motion } from "motion/react"
-import { dur, ease } from "@/lib/motion"
 
 export interface StepDef {
     id: string;
@@ -16,20 +15,20 @@ interface NavProps {
 
 function CompletionDot({ filled }: { filled: boolean }) {
     return (
-        <Box
-            as={motion.div}
+        <motion.div
             animate={{
                 scale: filled ? [1, 1.35, 1] : 1,
                 backgroundColor: filled ? "var(--signal-positive)" : "transparent",
             }}
-            transition={{ duration: dur.base, ease }}
-            w="7px"
-            h="7px"
-            borderRadius="2px"
-            bg={filled ? "var(--signal-positive)" : "transparent"}
-            border={filled ? "none" : "1px solid var(--hairline)"}
-            flexShrink={0}
-            ml="auto"
+            style={{
+                width: 7,
+                height: 7,
+                borderRadius: 2,
+                background: filled ? "var(--signal-positive)" : "transparent",
+                border: filled ? "none" : "1px solid var(--hairline)",
+                flexShrink: 0,
+                marginLeft: "auto",
+            }}
         />
     )
 }
@@ -115,7 +114,7 @@ export function StepRail({ steps, active, onSelect, completion }: NavProps) {
     )
 }
 
-export function MobilePills({ steps, active, onSelect }: NavProps) {
+export function MobilePills({ steps, active, onSelect, completion }: NavProps) {
     return (
         <Flex gap={1} overflowX="auto" flexWrap="nowrap" pb={1} css={{ scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" } }}>
             {steps.map((s, i) => {
@@ -123,8 +122,6 @@ export function MobilePills({ steps, active, onSelect }: NavProps) {
                 return (
                     <Box
                         key={s.id}
-                        as={motion.div}
-                        whileTap={{ scale: 0.96 }}
                         position="relative"
                         px={3}
                         py={2}
@@ -163,6 +160,7 @@ export function MobilePills({ steps, active, onSelect }: NavProps) {
                             )}
                             {s.label}
                         </Text>
+                        {i > 0 && <CompletionDot filled={completion[s.id] || false} />}
                     </Box>
                 )
             })}

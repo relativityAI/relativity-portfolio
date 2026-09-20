@@ -6,6 +6,9 @@ import { dur, ease } from "@/lib/motion";
 import { API_BASE } from "@/db";
 import { supabase } from "@/lib/supabase";
 import type { TraceEvent } from "@/pages/shared/TracePanel";
+import AgentAvatar from "@/components/shared/AgentAvatar";
+import { agentIdentity, agentSeed, type AgentSeedLike } from "@/lib/agentIdentity";
+import { useColorModeValue } from "@/components/ui/color-mode";
 
 /* ─── Live SSE hook (generic over any trace stream URL) ────────────────── */
 
@@ -232,7 +235,7 @@ function Row({ row, active }: { row: ActivityRow; active: boolean }) {
                             </Text>
                         )}
                         {row.snippet && (
-                            <Text fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" noOfLines={2} wordBreak="break-all" mt={0.5} opacity={0.85}>
+                            <Text fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" lineClamp={2} mt={0.5} opacity={0.85}>
                                 {row.snippet.length > 300 ? row.snippet.slice(0, 300) + "…" : row.snippet}
                             </Text>
                         )}
@@ -277,6 +280,8 @@ export interface AgentStep {
 interface AgentActivityProps {
     title: string;
     subtitle?: string;
+    /** Agent identity — renders the agent's chip in the header. */
+    agent?: AgentSeedLike | string;
     /** SSE endpoint (relative to API_BASE) for live events. */
     streamUrl?: string;
     /** Static trace events (used when not streaming). */
@@ -292,6 +297,7 @@ interface AgentActivityProps {
 export default function AgentActivity({
     title,
     subtitle,
+    agent,
     streamUrl,
     events,
     steps = [],
@@ -335,6 +341,9 @@ export default function AgentActivity({
           ? "Finished"
           : "";
 
+    const identity = useMemo(() => agentIdentity(agentSeed(agent)), [agent]);
+    const spinColor = useColorModeValue(identity.color.light, identity.color.dark);
+
     return (
         <Box
             border="1px solid var(--hairline)"
@@ -346,13 +355,20 @@ export default function AgentActivity({
         >
             {/* Header */}
             <Flex align="center" gap={2.5} px={3} py={2.5} borderBottom="1px solid var(--hairline)">
-                <motion.div
-                    animate={active ? { scale: [1, 1.18, 1] } : {}}
-                    transition={active ? { duration: 1.4, repeat: Infinity, ease: "easeInOut" } : {}}
-                    style={{ display: "inline-flex", flexShrink: 0 }}
-                >
-                    <Box w="7px" h="7px" borderRadius="50%" bg={active ? "var(--accent-primary)" : "var(--signal-positive)"} />
-                </motion.div>
+                {agent ? (
+                    <Flex align="center" gap={1.5} flexShrink={0}>
+                        <AgentAvatar agent={agent} size={22} />
+                        {active && <Spinner size="xs" borderWidth="2px" color={spinColor} />}
+                    </Flex>
+                ) : (
+                    <Box flexShrink={0}>
+                        {active ? (
+                            <Spinner size="xs" color="var(--accent-primary)" borderWidth="2px" />
+                        ) : (
+                            <Box w="7px" h="7px" borderRadius="50%" bg="var(--signal-positive)" />
+                        )}
+                    </Box>
+                )}
                 <Flex direction="column" minW={0} flex={1}>
                     <Text fontSize="12.5px" fontWeight={600} color="var(--ink-primary)" truncate>
                         {title}
@@ -382,7 +398,7 @@ export default function AgentActivity({
                                 transition={{ duration: dur.fast, ease }}
                                 layout
                             >
-                                <Row row={row} active={active} />
+                                <Row row={row} active={!!active} />
                             </motion.div>
                         ))}
                     </AnimatePresence>

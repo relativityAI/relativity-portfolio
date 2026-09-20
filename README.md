@@ -18,33 +18,35 @@ The name *Relativity* draws inspiration from Einsteins Theory of Relativity. A g
 - **Inngest** — durable workflow orchestration for multi-step analysis runs, background polling, and concurrency control.
 - **Supabase / Postgres** — persistence for user agents, builder sessions, and analysis runs.
 
-The UI talks only to `/api` (proxied to 8080). LLM and Voyager API keys are held in the browser and forwarded to the API as headers — never persisted server-side. The API forwards your Voyager key to the hosted service as `X-API-Key`.
+The UI talks only to `/api` (proxied to 8080). LLM and Voyager API keys are stored server-side, encrypted at rest (AES-256-GCM) — they are never persisted in the browser. The API forwards your Voyager key to the hosted service as `X-API-Key`.
 
 ## Install
 
 ### Setup
 
+The stack requires a Supabase project (Postgres, auth, and key storage) — there is no bundled local database. Configure it before starting:
+
 ```bash
 git clone https://github.com/relativityAI/relativity-portfolio.git
 cd relativity-portfolio
+export SUPABASE_PROJECT_URL='https://<project>.supabase.co'
+export SUPABASE_URL='https://<project>.supabase.co'
+export SUPABASE_SERVICE_ROLE_KEY='<service-role-key>'
+export ENCRYPTION_KEY='<64-hex-char key>'
+export VITE_SUPABASE_URL='https://<project>.supabase.co'
+export VITE_SUPABASE_ANON_KEY='<anon-key>'
 docker compose up -d
 ```
 
 Add `--build` to rebuild images after pulling changes.
 
-This starts the UI (5173), the API (8080), MongoDB (27017), and Mongo Express (8081). The API targets the hosted Voyager service by default — no local Voyager is required. (A local `voyager` service is still defined in the compose file for self-hosting, but the API's `VOYAGER_URL` defaults to the hosted endpoint.)
+This starts the UI (5173) and the API (8080). The API targets the hosted Voyager service by default — no local Voyager is required. Inngest handles run orchestration when `INNGEST_EVENT_KEY` is set; without it, runs execute locally in the API process.
 
-For MongoDB Atlas, set the connection string before starting:
-
-```bash
-export MONGODB_URL='mongodb+srv://<user>:<password>@<cluster>.mongodb.net/'
-export MONGODB_DB_NAME='relativity'
-docker compose up -d
-```
+See `api/.env.example` for the full list of supported environment variables (Voyager admin key, optional server-side LLM key pools, Langfuse, etc.).
 
 ### Local development
 
-Run MongoDB (e.g. `docker compose up -d mongo`), then:
+A Supabase project (or its env vars) is required for the API to start, then:
 
 ```bash
 # API (port 8080)
@@ -66,7 +68,7 @@ Open [http://localhost:5173](http://localhost:5173).
 - **New Analysis** — Pick a source (SEC/NSE), search a company, choose an agent and a model, then run. Data is fetched automatically.
 - **Agents** — Create and configure agents with qualitative and quantitative criteria (operators, thresholds, weightage).
 - **Analysis** — Browse previous runs and open full reports.
-- **Settings** — Store LLM provider API keys (sent to the backend as headers, never persisted server-side) and your Voyager API key. The Voyager endpoint is server-configured (`VOYAGER_URL`); the API reads it through the hosted service and only ever uses read-only endpoints.
+- **Settings** — Store LLM provider API keys and your Voyager API key. Keys are stored server-side, encrypted at rest (AES-256-GCM), and never returned unmasked to the browser. The Voyager endpoint is server-configured (`VOYAGER_URL`); the API reads it through the hosted service and only ever uses read-only endpoints.
 
 ## Contributing
 

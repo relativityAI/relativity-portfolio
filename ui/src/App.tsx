@@ -1,10 +1,10 @@
 import { Suspense, useEffect, type ReactNode } from "react";
 import Agent from "./pages/Agent";
-import AgentBuilder from "./pages/AgentBuilder";
 import {
   Routes,
   Route,
   useLocation,
+  useParams,
   Navigate
 } from 'react-router';
 
@@ -29,6 +29,7 @@ import CookieBanner from "./components/CookieBanner";
 import ApiKeySetupDialog from "./components/ApiKeySetupDialog";
 import { MotionConfig, AnimatePresence, motion } from "motion/react";
 import { page, dur, ease } from "@/lib/motion";
+import { Toaster } from "./components/ui/toaster";
 
 function Protected({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -84,6 +85,12 @@ function UnknownRoute() {
   return user ? <Navigate to="/" replace /> : <NotFound />;
 }
 
+/** Old standalone builder URLs now open the wizard directly. */
+function BuilderRedirect() {
+  const { id } = useParams();
+  return <Navigate to={id ? `/agent/${id}` : "/agent/new"} replace />;
+}
+
 const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/thank-you", "/auth/callback"];
 
 function AppRoutes() {
@@ -97,7 +104,7 @@ function AppRoutes() {
       if (path === "/") return user ? "New Analysis" : "Welcome";
       if (path === "/analysis") return "New Analysis";
       if (path === "/agents") return "Agents";
-      if (path === "/agent/builder" || path.startsWith("/agent/builder/")) return "Agent Builder";
+      if (path === "/agent/builder" || path.startsWith("/agent/builder/")) return "Agent Detail";
       if (path.startsWith("/agent/")) return "Agent Detail";
       if (path === "/analysis-list") return "Analysis List";
       if (path.startsWith("/analysis-result/")) return "Analysis Result";
@@ -111,22 +118,15 @@ function AppRoutes() {
   const isLogin = locationPath === "/login";
   const isLanding = locationPath === "/" && !user;
   const isPublicPage = PUBLIC_PATHS.includes(locationPath);
-  const isBuilder = locationPath === "/agent/builder" || locationPath.startsWith("/agent/builder/");
   const showNav = !isLogin && !isLanding;
-  const showFooter = showNav && !isPublicPage && !isBuilder;
+  const showFooter = showNav && !isPublicPage;
 
   return (
     <Flex direction="column" h="100dvh" overflow="hidden">
       {user && locationPath !== "/settings" && <ApiKeySetupDialog key={user.id} user={user} />}
       {showNav && <NavBar />}
 
-        <Box w="100%" flex={1} overflowY="auto" overflowX="hidden" paddingX={isLanding || isBuilder ? 0 : { base: 4, md: 16 }} marginY={isLanding || isBuilder ? 0 : 5}>
-          {isBuilder ? (
-            <Routes location={location}>
-              <Route path="/agent/builder" element={<Protected><AgentBuilder /></Protected>} />
-              <Route path="/agent/builder/:id" element={<Protected><AgentBuilder /></Protected>} />
-            </Routes>
-          ) : (
+        <Box w="100%" flex={1} overflowY="auto" overflowX="hidden" paddingX={isLanding ? 0 : { base: 4, md: 16 }} marginY={isLanding ? 0 : 5}>
             <AnimatePresence mode="wait">
               <motion.div key={location.pathname} variants={page} style={{ height: "100%" }} initial="initial" animate="animate" exit="exit">
                 <Suspense fallback={<PageFallback />}>
@@ -138,6 +138,9 @@ function AppRoutes() {
                       path="/agent"
                       element={<Navigate to="/agents" replace />}
                     />
+                    {/* Old standalone builder URLs now open the wizard directly. */}
+                    <Route path="/agent/builder" element={<BuilderRedirect />} />
+                    <Route path="/agent/builder/:id" element={<BuilderRedirect />} />
                     <Route
                       path="/agent/new"
                       element={
@@ -215,11 +218,11 @@ function AppRoutes() {
                 </Suspense>
               </motion.div>
             </AnimatePresence>
-          )}
         </Box>
 
       {showFooter && <Footer />}
       <CookieBanner />
+      <Toaster />
     </Flex>
   );
 }

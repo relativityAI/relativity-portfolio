@@ -34,7 +34,8 @@ export const AgentService = {
     async updateAgent(agent: any) {
         const id = agent?._id ?? agent?.id;
         if (!id) throw new Error("Agent id required for update");
-        const response = await axios.put(`${API_BASE}/agents/${encodeURIComponent(id)}`, agent);
+        const { id: _id, _id: _id2, ...payload } = agent;
+        const response = await axios.put(`${API_BASE}/agents/${encodeURIComponent(id)}`, payload);
         return response.data;
     },
 
@@ -48,7 +49,12 @@ export const AgentService = {
             params: { query }
         });
         return response.data;
-    }
+    },
+
+    async validateMd(md: string): Promise<{ valid: boolean; parsed?: any; issues: { line: number; message: string; severity: "warn" | "error" }[] }> {
+        const response = await axios.post(`${API_BASE}/agents/validate-md`, { md });
+        return response.data;
+    },
 };
 
 export const AnalysisService = {
@@ -166,6 +172,7 @@ export const BuilderService = {
     },
 
     async draft(params: {
+        session_id: string;
         messages: { role: string; content: string }[];
         agent_draft: Record<string, unknown>;
         metrics: { id: string; name: string; type: string }[];

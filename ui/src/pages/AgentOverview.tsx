@@ -1,7 +1,7 @@
 import { Flex, Text, Box } from "@chakra-ui/react"
 import { MdChevronRight } from "react-icons/md"
 import { motion } from "motion/react"
-import { dur, ease, stagger, staggerItem, CountUp } from "@/lib/motion"
+import { dur, ease, CountUp } from "@/lib/motion"
 
 interface OverviewSection {
   id: string;
@@ -11,21 +11,20 @@ interface OverviewSection {
 }
 
 interface AgentOverviewProps {
-  agentName: string;
   isDirty: boolean;
   sections: OverviewSection[];
   onNavigate: (section: string) => void;
 }
 
-export default function AgentOverview({ agentName, sections, onNavigate }: AgentOverviewProps) {
+export default function AgentOverview({ sections, onNavigate }: AgentOverviewProps) {
   const done = sections.filter((s) => s.hasContent).length
   const pct = Math.round((done / sections.length) * 100)
 
   return (
     <Flex direction="column" gap={7}>
-      <motion.div variants={staggerItem} transition={{ duration: dur.base, ease }}>
+      <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: dur.base, ease }}>
         <Text fontSize="13px" color="var(--ink-secondary)" mb={4}>
-          An agent needs all four parts defined before it can run an analysis. Jump to any section — order matters.
+          An agent needs all four parts defined before it can run an analysis. Jump to any section to fill it in.
         </Text>
         <Flex align="flex-end" gap={4}>
           <Text
@@ -55,14 +54,10 @@ export default function AgentOverview({ agentName, sections, onNavigate }: Agent
         </Flex>
       </motion.div>
 
-      <Flex direction="column" gap={2} as={motion.div} variants={stagger} initial="initial" animate="animate">
+      <Flex direction="column" gap={2}>
         {sections.map((section, i) => (
-          <Box
+          <Flex
             key={section.id}
-            as={motion.div}
-            variants={staggerItem}
-            whileHover={{ y: -2 }}
-            transition={{ duration: dur.fast, ease }}
             onClick={() => onNavigate(section.id)}
             cursor="pointer"
             role="button"
@@ -101,7 +96,7 @@ export default function AgentOverview({ agentName, sections, onNavigate }: Agent
               </Text>
             </Box>
             <MdChevronRight size={16} color="var(--ink-tertiary)" style={{ flexShrink: 0 }} />
-          </Box>
+          </Flex>
         ))}
       </Flex>
     </Flex>

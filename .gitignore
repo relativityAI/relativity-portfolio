@@ -7,6 +7,8 @@ api/node_modules/
 api/.env
 ui/.env
 
+.agents/
+
 # stuff
 archives
 

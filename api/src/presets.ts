@@ -6,6 +6,7 @@
 
 import { randomUUID } from "node:crypto";
 import { getFlatCatalog, findMetricId } from "./metrics.js";
+import { serializeMd } from "./mdconfig.js";
 
 export interface PresetTemplate {
   name: string;
@@ -78,7 +79,7 @@ const PRESETS: Record<string, PresetTemplate> = {
         { metric: "earnings_per_share_growth", metric_name: "EPS Growth", metric_type: "percentage", operator: "gt", value: 25, weightage: 9 },
         { metric: "revenue_growth", metric_name: "Revenue Growth", metric_type: "percentage", operator: "gt", value: 25, weightage: 8 },
         { metric: "return_on_equity", metric_name: "Return on Equity", metric_type: "percentage", operator: "gt", value: 17, weightage: 7 },
-        { metric: "rsi_14", metric_name: "RSI (14)", metric_type: "number", operator: "between", value: 55, weightage: 5 },
+        { metric: "rsi_14", metric_name: "RSI (14)", metric_type: "number", operator: "gte", value: 55, weightage: 5 },
         { metric: "price_to_earnings_ratio", metric_name: "P/E Ratio", metric_type: "number", operator: "lt", value: 40, weightage: 5 },
       ],
     },
@@ -88,8 +89,8 @@ const PRESETS: Record<string, PresetTemplate> = {
         { parameter: "Distribution Days / Market Correction", content: "Are distribution days stacking up — index sessions closing down on higher volume, roughly five or six within a 25-session window? That signals institutional selling under pressure. Step aside, raise cash to 25%+, and stop adding new positions.", weightage: 8 },
       ],
       quantitative: [
-        { metric: "sma_50", metric_name: "50-Day SMA (Uptrend)", metric_type: "number", operator: "gt", value: 0, weightage: 6 },
-        { metric: "sma_200", metric_name: "200-Day SMA (Longer Uptrend)", metric_type: "number", operator: "gt", value: 0, weightage: 6 },
+        { metric: "sma_50", metric_name: "SMA 50", metric_type: "number", operator: "gt", value: 0, weightage: 6 },
+        { metric: "sma_200", metric_name: "SMA 200", metric_type: "number", operator: "gt", value: 0, weightage: 6 },
       ],
     },
   },
@@ -117,7 +118,7 @@ const PRESETS: Record<string, PresetTemplate> = {
         { metric: "gross_margin", metric_name: "Gross Margin", metric_type: "percentage", operator: "gt", value: 50, weightage: 7 },
         { metric: "return_on_invested_capital", metric_name: "Return on Invested Capital", metric_type: "percentage", operator: "gt", value: 15, weightage: 7 },
         { metric: "debt_to_equity", metric_name: "Debt to Equity", metric_type: "number", operator: "lt", value: 0.5, weightage: 6 },
-        { metric: "free_cash_flow_yield", metric_name: "FCF Yield (Quality of Earnings)", metric_type: "percentage", operator: "gt", value: 1, weightage: 5 },
+        { metric: "free_cash_flow_yield", metric_name: "FCF Yield", metric_type: "percentage", operator: "gt", value: 1, weightage: 5 },
       ],
     },
     macro_evaluation: {
@@ -132,6 +133,10 @@ const PRESETS: Record<string, PresetTemplate> = {
 
 export function getPreset(name: string): PresetTemplate | null {
   return PRESETS[name.toLowerCase()] || null;
+}
+
+export function listPresetTemplates(): { key: string; preset: PresetTemplate }[] {
+  return Object.entries(PRESETS).map(([key, preset]) => ({ key, preset }));
 }
 
 export function listPresets(): { key: string; name: string; description: string }[] {
@@ -159,6 +164,7 @@ export interface SeededAgent {
   configuration: PresetTemplate["configuration"];
   asset_evaluation: PresetTemplate["asset_evaluation"];
   macro_evaluation: PresetTemplate["macro_evaluation"];
+  md_config: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -177,6 +183,14 @@ export function buildSeedAgents(userId: string): SeededAgent[] {
     configuration: p.configuration,
     asset_evaluation: p.asset_evaluation,
     macro_evaluation: p.macro_evaluation,
+    md_config: serializeMd({
+      name: p.name,
+      description: p.description,
+      persona: p.persona,
+      configuration: p.configuration,
+      asset_evaluation: p.asset_evaluation as any,
+      macro_evaluation: p.macro_evaluation as any,
+    }),
     created_at: now,
     updated_at: now,
   }));

@@ -77,13 +77,30 @@ export default function ConfigurationSection({ data, onChange }: ConfigurationSe
                 <Slider.Track>
                   <Slider.Range />
                 </Slider.Track>
-                <Slider.Thumb index={0} />
+                <Slider.Thumb index={0} boxShadow="0 0 0 1px var(--hairline)" bg="var(--accent-primary)">
+                  <Slider.ValueText
+                    position="absolute"
+                    top="-14px"
+                    left="50%"
+                    transform="translateX(-50%)"
+                    fontSize="10.5px"
+                    fontFamily="var(--font-mono)"
+                    fontWeight={700}
+                    color="var(--ink-primary)"
+                    bg="var(--surface-recessed)"
+                    border="1px solid var(--hairline)"
+                    borderRadius="4px"
+                    py="1px"
+                    px="6px"
+                    whiteSpace="nowrap"
+                  />
+                </Slider.Thumb>
               </Slider.Control>
             </Slider.Root>
             <Flex justify="space-between" fontSize="11px" color="var(--ink-tertiary)">
-              <span>Conservative (1)</span>
-              <span>Balanced (5)</span>
-              <span>Aggressive (10)</span>
+              <span>Conservative (1–3)</span>
+              <span>Balanced (4–6)</span>
+              <span>Aggressive (7–10)</span>
             </Flex>
           </Flex>
         </SectionBlock>

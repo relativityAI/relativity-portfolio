@@ -8,6 +8,8 @@ interface ConfirmDialogProps {
     title: string;
     message: string;
     confirmLabel?: string;
+    /** Palette for the confirm action. Defaults to "red" (destructive). */
+    confirmColorPalette?: string;
     onCancel: () => void;
     onConfirm: () => void;
 }
@@ -17,6 +19,7 @@ export default function ConfirmDialog({
     title,
     message,
     confirmLabel = "Delete",
+    confirmColorPalette = "red",
     onCancel,
     onConfirm,
 }: ConfirmDialogProps) {
@@ -133,8 +136,8 @@ export default function ConfirmDialog({
                                 fontSize="13px"
                                 fontWeight={600}
                                 variant="surface"
-                                colorPalette="red"
-                                onClick={onConfirm}
+confirmColorPalette={confirmColorPalette}
+                                    onClick={onConfirm}
                             >
                                 {confirmLabel}
                             </Button>

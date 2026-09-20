@@ -12,6 +12,8 @@ import {
 import RelCard from "@/components/RelCard"
 import { useState, useEffect, useMemo } from "react"
 import { AgentService, AnalysisService } from "@/db"
+import AgentAvatar from "@/components/shared/AgentAvatar";
+import { resolveAgent } from "@/lib/agentIdentity";
 
 import { FaFilePen, FaBrain } from "react-icons/fa6";
 import { MdAnalytics, MdTrendingUp } from "react-icons/md";
@@ -28,6 +30,7 @@ export default function Dashboard() {
     const logoSize = 60;
     const [stats, setStats] = useState({ agents: 0, analysis: 0 });
     const [analyses, setAnalyses] = useState<any[]>([]);
+    const [agentList, setAgentList] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -42,6 +45,7 @@ export default function Dashboard() {
                     analysis: analyses.length || 0,
                 });
                 setAnalyses(Array.isArray(analyses) ? analyses : []);
+                setAgentList(Array.isArray(agents) ? agents : []);
             } catch (error) {
                 console.error("Error fetching dashboard stats:", error);
             } finally {
@@ -189,7 +193,12 @@ export default function Dashboard() {
                                             {topAgents.map((p, i) => (
                                                 <Table.Row key={p.agent}>
                                                     <Table.Cell px={1} color="fg.muted" fontSize="10px">{i + 1}</Table.Cell>
-                                                    <Table.Cell px={1} fontWeight="medium" fontSize="sm" maxW="130px" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">{p.agent}</Table.Cell>
+                                                    <Table.Cell px={1} maxW="130px" overflow="hidden">
+                                                        <Flex align="center" gap={1.5} minW={0}>
+                                                            <AgentAvatar agent={resolveAgent(p.agent, agentList)} size={18} />
+                                                            <Text fontWeight="medium" fontSize="sm" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">{p.agent}</Text>
+                                                        </Flex>
+                                                    </Table.Cell>
                                                     <Table.Cell px={1} textAlign="center">
                                                         <Badge variant="surface" colorPalette="gray" color="fg.muted" size="xs">{p.count}</Badge>
                                                     </Table.Cell>

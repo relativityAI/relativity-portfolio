@@ -112,9 +112,18 @@ body {
   }
 }
 
-/* Builder typing cursor */
-@keyframes blink {
-  50% { opacity: 0; }
+/* Global kill-switch for users who prefer reduced motion: no CSS animations,
+   transitions, or smooth scrolling anywhere (Motion already respects the
+   OS preference via MotionConfig reducedMotion="user"). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Data-source marquee */
@@ -153,4 +162,75 @@ body {
   opacity: var(--blob-opacity, 0);
   pointer-events: none;
   z-index: 0;
+}
+
+/* ── Print stylesheet ─────────────────────────────────────────────────────────
+   Used by the "Download as PDF" button (window.print()). Hides all chrome and
+   navigation, leaving only the hero score band and the ReportBlockRenderer
+   output. Recharts renders SVG which prints natively in all browsers.        */
+@media print {
+  /* Allow full document flow without scroll-container clipping */
+  html,
+  body,
+  #root,
+  div,
+  main,
+  section,
+  [class*="chakra-"] {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* Force light palette regardless of OS preference */
+  :root,
+  html.dark {
+    --surface-canvas: #ffffff;
+    --surface-panel: #ffffff;
+    --surface-recessed: #f5f5f4;
+    --hairline: #d1d5db;
+    --ink-primary: #16181b;
+    --ink-secondary: #4b5563;
+    --ink-tertiary: #9ca3af;
+  }
+
+  /* Hide everything that isn't the report body */
+  nav,
+  header,
+  footer,
+  [data-print-hide],
+  .chakra-tabs__tab-list,
+  [role="tablist"] {
+    display: none !important;
+  }
+
+  /* Remove page chrome shadows and excess spacing */
+  body {
+    font-size: 11pt;
+    background: #ffffff !important;
+  }
+
+  /* Let the report container use full page width */
+  .chakra-container {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Keep tables from splitting awkwardly across pages */
+  table,
+  .report-container > * {
+    page-break-inside: avoid;
+  }
+
+  /* Charts: let them scale to full width in print */
+  .recharts-responsive-container {
+    width: 100% !important;
+  }
+
+  /* Remove interactive hover styles */
+  a {
+    text-decoration: none;
+    color: inherit;
+  }
 }

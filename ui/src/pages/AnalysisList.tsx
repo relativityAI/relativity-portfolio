@@ -1,9 +1,12 @@
 import { Text, Flex, Button, Table, Box, HStack, Spinner } from "@chakra-ui/react";
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { MdArrowUpward, MdArrowDownward } from "react-icons/md";
+import { MdArrowUpward, MdArrowDownward, MdExpandMore, MdChevronRight } from "react-icons/md";
 import { AnalysisService, AgentService } from "@/db";
 import { agentDisplayName } from "@/utils";
+import AgentAvatar from "@/components/shared/AgentAvatar";
+import { resolveAgent } from "@/lib/agentIdentity";
+import { ModelLogo } from "@/lib/modelLogos";
 import { motion, AnimatePresence } from "motion/react";
 import { ease, stagger, staggerItem, CountUp } from "@/lib/motion";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -177,9 +180,10 @@ function Sparkline({ data, agents, height = 40 }: { data: any[]; agents: any[]; 
                                 <Text color="var(--ink-primary)" fontWeight={600} fontSize="11px">
                                     {symbol}
                                 </Text>
-                                <Flex gap={1.5} color="var(--ink-tertiary)" fontSize="10.5px" flexWrap="wrap">
+                                <Flex gap={1.5} align="center" color="var(--ink-tertiary)" fontSize="10.5px" flexWrap="wrap">
                                     <Text>{date}</Text>
                                     <Text>·</Text>
+                                    <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={12} />
                                     <Text>{agent}</Text>
                                 </Flex>
                                 <Text fontSize="11px" fontWeight={600} color="var(--signal-positive)">
@@ -194,16 +198,116 @@ function Sparkline({ data, agents, height = 40 }: { data: any[]; agents: any[]; 
     );
 }
 
+type GroupMode = "individual" | "date" | "agent" | "stock" | "model";
+
+const GROUP_VIEWS: { key: GroupMode; label: string }[] = [
+    { key: "individual", label: "All runs" },
+    { key: "date", label: "By date" },
+    { key: "agent", label: "By agent" },
+    { key: "stock", label: "By stock" },
+    { key: "model", label: "By model" },
+];
+
+function groupAverage(items: any[]): number | null {
+    const v = items.map((i) => i.total_score).filter((x: any) => typeof x === "number");
+    return v.length ? v.reduce((s: number, x: number) => s + x, 0) / v.length : null;
+}
+
+function formatGroupDate(iso: string): string {
+    const d = new Date(`${iso}T00:00:00`);
+    if (isNaN(+d)) return iso === "undated" ? "Undated" : iso;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diff = Math.round((+d - +today) / 86400000);
+    const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+    if (d.getFullYear() !== now.getFullYear()) opts.year = "numeric";
+    const base = d.toLocaleDateString(undefined, opts);
+    if (diff === 0) return `Today, ${base}`;
+    if (diff === -1) return `Yesterday, ${base}`;
+    return d.toLocaleDateString(undefined, { ...opts, weekday: "short" });
+}
+
+function GroupHeaderRow({
+    avatar,
+    label,
+    count,
+    avg,
+    expanded,
+    onToggle,
+}: {
+    avatar?: React.ReactNode;
+    label: string;
+    count: number;
+    avg: number | null;
+    expanded: boolean;
+    onToggle: () => void;
+}) {
+    return (
+        <Table.Row
+            bg="var(--surface-recessed)"
+            cursor="pointer"
+            onClick={onToggle}
+            _hover={{ bg: "var(--surface-recessed)" }}
+            aria-expanded={expanded}
+        >
+            <Table.Cell colSpan={8} px={4} py={2}>
+                <Flex align="center" gap={2} minW={0}>
+                    {expanded ? (
+                        <Box flexShrink={0} display="flex">
+                            <MdExpandMore size={15} color="var(--ink-tertiary)" />
+                        </Box>
+                    ) : (
+                        <Box flexShrink={0} display="flex">
+                            <MdChevronRight size={15} color="var(--ink-tertiary)" />
+                        </Box>
+                    )}
+                    {avatar}
+                    <Text fontSize="12.5px" fontWeight={600} color="var(--ink-primary)" truncate>
+                        {label}
+                    </Text>
+                    <Text fontSize="11px" fontFamily="var(--font-tabular)" color="var(--ink-tertiary)" flexShrink={0}>
+                        {count} {count === 1 ? "run" : "runs"}
+                    </Text>
+                    {avg != null && (
+                        <Text
+                            ml="auto"
+                            fontSize="11.5px"
+                            fontFamily="var(--font-tabular)"
+                            fontVariantNumeric="tabular-nums"
+                            color="var(--ink-secondary)"
+                            flexShrink={0}
+                        >
+                            avg match {avg.toFixed(0)}%
+                        </Text>
+                    )}
+                </Flex>
+            </Table.Cell>
+        </Table.Row>
+    );
+}
+
 export default function AnalysisList() {
     const navigate = useNavigate();
 
     const [uniqueAnalysis, setUniqueAnalysis] = useState<any[]>([]);
     const [fetchError, setFetchError] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [sortKey, setSortKey] = useState<SortKey | null>(null);
+    const [sortKey, setSortKey] = useState<SortKey | null>("created_at");
     const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
     const [deleteTarget, setDeleteTarget] = useState<AnalysisItem | null>(null);
     const [agents, setAgents] = useState<any[]>([]);
+    const [viewMode, setViewMode] = useState<GroupMode>("date");
+    // Groups start collapsed — the headers themselves are the summary.
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+    const toggleGroup = (key: string) => {
+        setExpanded((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
 
     useEffect(() => {
         AgentService.listAgents()
@@ -310,6 +414,46 @@ export default function AnalysisList() {
             <MdArrowDownward size={11} color="var(--ink-tertiary)" />
         );
     };
+
+    // Grouped sections for the non-individual views. Within each group the
+    // current sort order is preserved; groups themselves sort by name (or
+    // newest-first for dates).
+    const sections = useMemo(() => {
+        if (viewMode === "individual") return [{ key: "all", items: sorted }];
+        const keyOf = (a: any): string => {
+            switch (viewMode) {
+                case "date":
+                    return a.created_at ? new Date(a.created_at).toISOString().slice(0, 10) : "undated";
+                case "agent":
+                    return agentName(a.agent_name || a.agent);
+                case "stock":
+                    return String(a.share_name || a.symbol || "Unknown stock");
+                case "model":
+                    return a.model || "unknown";
+                default:
+                    return "";
+            }
+        };
+        const map = new Map<string, any[]>();
+        for (const a of sorted) {
+            const k = keyOf(a);
+            if (!map.has(k)) map.set(k, []);
+            map.get(k)!.push(a);
+        }
+        const keys = Array.from(map.keys()).sort((x, y) =>
+            viewMode === "date" ? y.localeCompare(x) : x.localeCompare(y)
+        );
+        return keys.map((k) => ({ key: k, items: map.get(k)! }));
+    }, [viewMode, sorted]);
+
+    // Collapsed groups render only their header row.
+    const visibleSections = useMemo(
+        () =>
+            viewMode === "individual"
+                ? sections
+                : sections.map((s) => (expanded.has(s.key) ? s : { ...s, items: [] })),
+        [viewMode, sections, expanded]
+    );
 
     const completed = useMemo(() => {
         return uniqueAnalysis.filter(
@@ -648,6 +792,30 @@ export default function AnalysisList() {
 
                     {/* Main table */}
                     <Box flex={1} minW={0}>
+                        {/* View switcher */}
+                        <Flex gap={1} mb={3} wrap="wrap">
+                            {GROUP_VIEWS.map((v) => (
+                                <Box
+                                    key={v.key}
+                                    as="button"
+                                    px={2.5}
+                                    py={1}
+                                    fontSize="11.5px"
+                                    fontWeight={viewMode === v.key ? 600 : 400}
+                                    color={viewMode === v.key ? "var(--ink-primary)" : "var(--ink-secondary)"}
+                                    bg={viewMode === v.key ? "var(--surface-recessed)" : "transparent"}
+                                    border="1px solid"
+                                    borderColor={viewMode === v.key ? "var(--hairline)" : "transparent"}
+                                    borderRadius="2px"
+                                    cursor="pointer"
+                                    _hover={{ color: "var(--ink-primary)" }}
+                                    transition="background 160ms"
+                                    onClick={() => setViewMode(v.key)}
+                                >
+                                    {v.label}
+                                </Box>
+                            ))}
+                        </Flex>
                         {loading && uniqueAnalysis.length === 0 ? (
                             <Flex justify="center" py={16} gap={3} color="var(--ink-secondary)">
                                 <Spinner size="sm" borderWidth="2px" />
@@ -837,7 +1005,29 @@ export default function AnalysisList() {
                                                     </Table.Cell>
                                                 </Table.Row>
                                             ) : (
-                                                sorted.map((item) => {
+                                                visibleSections.flatMap((sec) => [
+                                                    ...(viewMode === "individual"
+                                                        ? []
+                                                        : [
+                                                            <GroupHeaderRow
+                                                                key={`h-${sec.key}`}
+                                                                avatar={
+                                                                    viewMode === "agent" ? (
+                                                                        <AgentAvatar agent={resolveAgent(sec.key, agents)} size={18} />
+                                                                    ) : viewMode === "model" ? (
+                                                                        <ModelLogo model={sec.key} size={14} />
+                                                                    ) : viewMode === "stock" ? (
+                                                                        <Box w="8px" h="8px" borderRadius="1px" bg="var(--grid-line)" flexShrink={0} />
+                                                                    ) : null
+                                                                }
+                                                                label={viewMode === "date" ? formatGroupDate(sec.key) : sec.key}
+                                                                count={sections.find((s) => s.key === sec.key)?.items.length ?? sec.items.length}
+                                                                avg={groupAverage(sections.find((s) => s.key === sec.key)?.items || sec.items)}
+                                                                expanded={expanded.has(sec.key)}
+                                                                onToggle={() => toggleGroup(sec.key)}
+                                                            />,
+                                                        ]),
+                                                    ...sec.items.map((item) => {
                                                     const id =
                                                         item.analysis_id || item._id || item.id;
                                                     const itemScore: number | null =
@@ -900,32 +1090,33 @@ export default function AnalysisList() {
 
                                                             {/* Agent */}
                                                             <Table.Cell
-                                                                fontSize="13px"
-                                                                color="var(--ink-secondary)"
                                                                 maxW="140px"
                                                                 overflow="hidden"
-                                                                textOverflow="ellipsis"
-                                                                whiteSpace="nowrap"
                                                                 px={4}
                                                                 py={3}
                                                             >
-                                                                {agentName(item.agent_name || item.agent)}
+                                                                <Flex align="center" gap={2} minW={0}>
+                                                                    <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={24} />
+                                                                    <Text fontSize="13px" color="var(--ink-secondary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                                                                        {agentName(item.agent_name || item.agent)}
+                                                                    </Text>
+                                                                </Flex>
                                                             </Table.Cell>
 
                                                             {/* Model */}
                                                             <Table.Cell
-                                                                fontSize="13px"
-                                                                fontFamily="var(--font-mono)"
-                                                                color="var(--ink-secondary)"
                                                                 maxW="200px"
                                                                 overflow="hidden"
-                                                                textOverflow="ellipsis"
-                                                                whiteSpace="nowrap"
                                                                 px={4}
                                                                 py={3}
                                                                 title={item.model || undefined}
                                                             >
-                                                                {item.model || "—"}
+                                                                <Flex align="center" gap={2} minW={0}>
+                                                                    <ModelLogo model={item.model} size={13} />
+                                                                    <Text fontSize="13px" fontFamily="var(--font-mono)" color="var(--ink-secondary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                                                                        {item.model || "—"}
+                                                                    </Text>
+                                                                </Flex>
                                                             </Table.Cell>
 
                                                             {/* Match — tabular-nums + signal dot */}
@@ -1069,7 +1260,8 @@ export default function AnalysisList() {
                                                             </Table.Cell>
                                                         </Table.Row>
                                                     );
-                                                })
+                                                }),
+                                            ])
                                             )}
                                             </AnimatePresence>
                                         </Table.Body>

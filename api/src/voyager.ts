@@ -1,9 +1,17 @@
-import { circuitBreaker, ConsecutiveBreaker, handleAll } from "cockatiel";
+import { circuitBreaker, ConsecutiveBreaker, handleWhen } from "cockatiel";
 
-export const voyagerCircuitBreaker = circuitBreaker(handleAll, {
-  halfOpenAfter: 10_000,
-  breaker: new ConsecutiveBreaker(5),
-});
+export const voyagerCircuitBreaker = circuitBreaker(
+  handleWhen((err: any) => {
+    if (err && err.name === "VoyagerError" && typeof err.status === "number" && err.status >= 400 && err.status < 500) {
+      return false;
+    }
+    return true;
+  }),
+  {
+    halfOpenAfter: 5_000,
+    breaker: new ConsecutiveBreaker(15),
+  },
+);
 
 // Voyager runs on Render's free tier, which cold-sleeps: the first call after
 // idle can drop with 000/timeout/503. Retries are mandatory, not optional.

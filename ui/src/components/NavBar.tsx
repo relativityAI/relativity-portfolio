@@ -69,27 +69,52 @@ export default function NavBar() {
             })
             .catch(() => {});
 
+        return () => {
+            cancelled = true;
+        };
+    }, [location.pathname]);
+
+    // Health probes are NOT per-route work: they used to refire on every
+    // navigation, stacking multi-second Voyager cold-start requests. Run the
+    // loop once per mount with an in-flight guard and debounced refocus.
+    useEffect(() => {
+        let cancelled = false;
+        let inFlight = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+
         const fetchData = async () => {
-            const { data, endpoints } = await runHealthCheck();
-            if (!cancelled) {
-                setSystemStatus(data)
-                setEndpoints(endpoints)
+            if (inFlight) return;
+            inFlight = true;
+            try {
+                const { data, endpoints } = await runHealthCheck();
+                if (!cancelled) {
+                    setSystemStatus(data);
+                    setEndpoints(endpoints);
+                }
+            } finally {
+                inFlight = false;
             }
         };
 
-        const refreshOnVisible = () => fetchData();
+        // Tab switches fire focus AND visibilitychange — debounce to one probe.
+        const refreshOnVisible = () => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => fetchData(), 500);
+        };
 
         fetchData();
         const interval = setInterval(fetchData, HEALTH_CHECK_INTERVAL_MS);
         window.addEventListener("focus", refreshOnVisible);
         document.addEventListener("visibilitychange", refreshOnVisible);
+
         return () => {
             cancelled = true;
             clearInterval(interval);
+            if (timer) clearTimeout(timer);
             window.removeEventListener("focus", refreshOnVisible);
             document.removeEventListener("visibilitychange", refreshOnVisible);
         };
-    }, [location.pathname]);
+    }, []);
 
     const navLinks = [
         { to: "/", icon: MdAddCircleOutline, label: "New Analysis" },

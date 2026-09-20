@@ -1,17 +1,96 @@
 import { randomUUID } from "node:crypto";
 import { getDb } from "./db.js";
+import { loadAgent } from "./agentstore.js";
 import { fetchUserKeys } from "./provision.js";
 import { config } from "./config.js";
 import { getModelIds } from "./models.js";
 import { VoyagerClient, toCountrySource, pullLastPulled, pullRecordCount, type PullStatus } from "./voyager.js";
-import { runQuantitative, fetchMetricsSnapshot, assessDataAdequacy, type DataAdequacy } from "./quant.js";
-import { runQualitativeAll } from "./agent.js";
+import { runQuantitative, runQuantitativeLLM, applyQuantOverlay, fetchMetricsSnapshot, assessDataAdequacy, unscoredQuantResult, type DataAdequacy } from "./quant.js";
+import { runQualitativeAll, synthesizeReport, sanitizeReport, planAnalyze, normalizeQuantScale, parseQualStructure, buildScoreTables, scoreTablesToBlocks } from "./agent.js";
+import { getAnalystToolCatalog } from "./tools.js";
+import { combinePillars } from "./scoring.js";
 import { keyPool } from "./keypool.js";
 import { ensureFreshData } from "./freshness.js";
 import type { LlmKeys, TraceCallback } from "./agent.js";
 import { log } from "./logger.js";
 import { inngest } from "./inngest.js";
 import { TraceCollector, traceHub } from "./trace.js";
+
+// ── Numeric integrity (spec Section 3) ────────────────────────────────────
+// Every number in a synthesized report's table cells and chart data points
+// must trace back to a value actually provided to the LLM. collectKnownValues
+// gathers that full set; sanitizeReport() in agent.ts enforces it as a hard
+// gate (dropping ungrounded blocks), not just a logged warning.
+
+export function collectKnownValues(
+  quantAnalysis: Record<string, any>,
+  qualAnalysis: Record<string, any>,
+  totalScore: number,
+  quantScore: number,
+  qualScore: number,
+  toolCalls?: Record<string, unknown[]>,
+): Set<number> {
+  const known = new Set<number>();
+  known.add(Math.round(totalScore * 10) / 10);
+  known.add(Math.round(quantScore * 10) / 10);
+  known.add(Math.round(qualScore * 10) / 10);
+
+  for (const v of Object.values(quantAnalysis || {})) {
+    if (typeof v?.score_0_100 === "number") known.add(Math.round(v.score_0_100 * 10) / 10);
+    if (typeof v?.score === "number") known.add(Math.round(v.score * 10) / 10);
+    if (typeof v?.value === "number") known.add(Math.round(v.value * 10) / 10);
+    if (typeof v?.threshold === "number") known.add(Math.round(v.threshold * 10) / 10);
+    if (typeof v?.weightage === "number") known.add(Math.round(v.weightage * 10) / 10);
+  }
+  for (const v of Object.values(qualAnalysis || {})) {
+    if (typeof v?.score_0_100 === "number") known.add(Math.round(v.score_0_100 * 10) / 10);
+    if (typeof v?.score === "number") known.add(Math.round(v.score * 10) / 10);
+    if (typeof v?.weightage === "number") known.add(Math.round(v.weightage * 10) / 10);
+  }
+  collectToolNumbers(toolCalls, known);
+  return known;
+}
+
+/** Ground charts in whatever the tools actually returned, not just final scores. */
+function collectToolNumbers(toolCalls: Record<string, unknown[]> | undefined, known: Set<number>): void {
+  const visit = (v: unknown): void => {
+    if (typeof v === "number" && Number.isFinite(v)) {
+      known.add(Math.round(v * 10) / 10);
+    } else if (Array.isArray(v)) {
+      for (const item of v) visit(item);
+    } else if (v && typeof v === "object") {
+      for (const val of Object.values(v)) visit(val);
+    }
+  };
+  for (const calls of Object.values(toolCalls || {})) {
+    for (const call of Array.isArray(calls) ? calls : []) {
+      if (call && typeof call === "object") {
+        visit((call as any).result);
+        visit((call as any).args);
+      }
+    }
+  }
+}
+
+/** Condense what the analysis tools actually pulled for the synthesis prompt. */
+export function toolEvidenceDigest(toolCalls: Record<string, unknown[]> | undefined): string {
+  const lines: string[] = [];
+  for (const [param, calls] of Object.entries(toolCalls || {})) {
+    for (const c of Array.isArray(calls) ? calls : []) {
+      if (!c || typeof c !== "object") continue;
+      const rec = c as any;
+      if (rec.status === "ERR") continue;
+      let out: string;
+      try {
+        out = typeof rec.result === "string" ? rec.result : JSON.stringify(rec.result ?? {});
+      } catch {
+        out = String(rec.result);
+      }
+      if (out && out !== "{}") lines.push(`[${param}] ${rec.tool_name || rec.tool || "tool"}: ${out.slice(0, 800)}`);
+    }
+  }
+  return lines.join("\n").slice(0, 60000);
+}
 
 export interface RunRequest {
   userId: string;
@@ -64,10 +143,11 @@ const STEP_DEFS: { key: string; label: string }[] = [
   { key: "pull", label: "Ensure fresh data" },
   { key: "quantitative", label: "Quantitative scoring" },
   { key: "qualitative", label: "Qualitative scoring" },
+  { key: "scorecard", label: "Summarize scoring tables" },
   { key: "finalize", label: "Finalize report" },
 ];
 
-function initialSteps(): RunStep[] {
+export function initialSteps(): RunStep[] {
   return STEP_DEFS.map((d) => ({
     key: d.key,
     label: d.label,
@@ -78,7 +158,7 @@ function initialSteps(): RunStep[] {
   }));
 }
 
-function startStep(steps: RunStep[], key: string): RunStep[] {
+export function startStep(steps: RunStep[], key: string): RunStep[] {
   return steps.map((s) =>
     s.key === key
       ? { ...s, status: "running", started_at: new Date().toISOString(), finished_at: null, duration_ms: null, detail: undefined }
@@ -86,7 +166,7 @@ function startStep(steps: RunStep[], key: string): RunStep[] {
   );
 }
 
-function finishStep(steps: RunStep[], key: string, status: StepStatus, detail?: string): RunStep[] {
+export function finishStep(steps: RunStep[], key: string, status: StepStatus, detail?: string): RunStep[] {
   return steps.map((s) => {
     if (s.key !== key) return s;
     const finished_at = new Date().toISOString();
@@ -193,8 +273,30 @@ export async function checkAndFailStaleRun(runId: string): Promise<boolean> {
 }
 
 export async function createRun(req: RunRequest): Promise<{ analysis_id: string }> {
-  const runId = randomUUID();
   const db = getDb();
+
+  // Dedupe: one active run per user + symbol. The UI guard makes accidental
+  // double-submits unlikely, but a double-click, retry, or two tabs can still
+  // slip a second request through — and both would burn LLM + data-pull quota
+  // on the same analysis. Redirect to the existing run instead of starting a
+  // duplicate. (The Inngest path additionally serializes same-symbol runs via
+  // its concurrency key; this covers the local runner and the window before
+  // the first run flips out of PENDING.)
+  const { data: active, error: activeErr } = await db
+    .from("analysis_runs")
+    .select("id")
+    .eq("user_id", req.userId)
+    .eq("symbol", req.symbol)
+    .in("status", ["PENDING", "RUNNING"])
+    .limit(1)
+    .maybeSingle();
+  if (activeErr) throw activeErr;
+  if (active?.id) {
+    log.info(`[run]`, `dedupe: active run ${active.id} already exists for ${req.symbol}, returning it`);
+    return { analysis_id: active.id };
+  }
+
+  const runId = randomUUID();
   const run = {
     id: runId,
     user_id: req.userId,
@@ -222,10 +324,36 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
     quantitative_score: null,
     qualitative_score: null,
     total_score: null,
+    fit_low: null,
+    fit_high: null,
+    coverage: null,
+    report: null,
     trace: [],
   };
-  const { error } = await db.from("analysis_runs").insert(run);
-  if (error) throw error;
+  let insertError: any = null;
+  try {
+    const { error } = await db.from("analysis_runs").insert(run);
+    insertError = error;
+  } catch (e: any) {
+    insertError = e;
+  }
+  if (insertError) {
+    if (isMissingColumnError(insertError)) {
+      // Migration 010 not applied yet: retry without the new columns so run
+      // creation still succeeds (coverage/band data is dropped until then).
+      warnMissingColumns("createRun");
+      const retryRun: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(run)) {
+        if (!KNOWN_OPTIONAL_COLUMNS.has(k)) retryRun[k] = v;
+        // Optional columns are simply dropped for the retry — the columns
+        // don't exist yet, and run creation must not depend on them.
+      }
+      const { error: retryError } = await db.from("analysis_runs").insert(retryRun);
+      if (retryError) throw retryError;
+    } else {
+      throw insertError;
+    }
+  }
 
   // Inngest is used in production when INNGEST_EVENT_KEY is set.
   // In development (no key), always run locally to avoid silent hangs.
@@ -254,9 +382,57 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
   return { analysis_id: runId };
 }
 
+// ── Schema-drift guard (migration 010 not yet applied) ───────────────────
+// The honest-scoring columns (fit_low / fit_high / coverage) are new. If the
+// migration hasn't been applied, PostgREST rejects ANY patch containing them
+// with PGRST204 "Could not find the '…' column … in the schema cache" — which
+// would 503 every run insert/update. Instead: detect the error, strip the
+// unknown columns, retry once, and log loudly so the migration gets applied.
+const KNOWN_OPTIONAL_COLUMNS = new Set(["fit_low", "fit_high", "coverage"]);
+let missingColumnsWarned = false;
+
+function stripUnknownColumns(patch: Record<string, unknown>): Record<string, unknown> {
+  const stripped: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  for (const [k, v] of Object.entries(patch)) {
+    if (KNOWN_OPTIONAL_COLUMNS.has(k)) dropped.push(k);
+    else stripped[k] = v;
+  }
+  return dropped.length ? stripped : patch;
+}
+
+function isMissingColumnError(e: any): boolean {
+  return e && (e.code === "PGRST204" || /Could not find the .* column/i.test(String(e?.message || "")));
+}
+
+function warnMissingColumns(context: string): void {
+  if (missingColumnsWarned) return;
+  missingColumnsWarned = true;
+  log.error(
+    "[run]",
+    `analysis_runs is missing the honest-scoring columns (fit_low, fit_high, coverage). ` +
+      `Runs still work but scores will have no coverage/band data until migration 010 is applied ` +
+      `(api/supabase/migrations/010_honest_scoring.sql). First seen in: ${context}`,
+  );
+}
+
 async function updateRun(runId: string, patch: Record<string, unknown>): Promise<void> {
   const db = getDb();
-  await db.from("analysis_runs").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", runId);
+  const full = { ...patch, updated_at: new Date().toISOString() };
+  const { error } = await db.from("analysis_runs").update(full).eq("id", runId);
+  if (error) {
+    if (isMissingColumnError(error)) {
+      warnMissingColumns(`updateRun(${runId})`);
+      const retry = stripUnknownColumns(patch);
+      const { error: retryError } = await db
+        .from("analysis_runs")
+        .update({ ...retry, updated_at: new Date().toISOString() })
+        .eq("id", runId);
+      if (retryError) log.error(`[run ${runId}]`, `run patch retry failed:`, retryError.message);
+      return;
+    }
+    log.error(`[run ${runId}]`, `run patch failed:`, error.message);
+  }
 }
 
 async function markFailed(runId: string, err: unknown, started?: number): Promise<void> {
@@ -323,19 +499,17 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
   try {
     // ---- agent ----
     await tracker.begin("agent");
-    const { data: agent, error: agentErr } = await db
-      .from("agents")
-      .select("*")
-      .eq("user_id", req.userId)
-      .or(`name.eq.${req.agent_name},id.eq.${req.agent_name}`)
-      .single();
-    if (agentErr || !agent) {
+    const { config: agent, issues: agentIssues } = await loadAgent(req.userId, req.agent_name);
+    if (!agent) {
       await tracker.end("agent", "failed", "Agent not found");
       throw new Error(`Agent not found: ${req.agent_name}`);
     }
+    if (agentIssues.length) log.warn(runTag, `agent md warnings: ${agentIssues.map((i) => i.message).join("; ")}`);
     await tracker.end("agent", "completed");
 
-    const source = req.source || agent.source || "NSE";
+    // The market (NSE/SEC) is a property of the run, never the agent — agents
+    // are independent stock evaluators that work on any listed company.
+    const source = req.source || "NSE";
     const cs = toCountrySource(source);
 
     // Fetch user's Voyager key and LLM keys from DB
@@ -401,13 +575,41 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
 
     // ---- quantitative (single metrics snapshot feeds scoring + adequacy) ----
     await tracker.begin("quantitative");
-    const { metrics, price_data } = await fetchMetricsSnapshot(voyager, req.symbol, cs.country, cs.source);
+    const snap = await fetchMetricsSnapshot(voyager, req.symbol, cs.country, cs.source);
+    // Outage ≠ no-data (plan 0.2 / A3 / B7), revised after field feedback: a
+    // provider outage no longer kills the run — it DEGRADES it. The quant
+    // pillar is marked fully unscored (null scores with an explicit reason),
+    // so the total becomes a qual-only estimate: no fake zeros, the band
+    // widens, coverage drops, and the report states the gap. The research that
+    // CAN run still runs, and the user gets the remaining work instead of an
+    // error page.
+    // Start from the fully-unscored shape and overwrite with real scores only
+    // when the provider answered — assignment is then unconditional.
+    let quant = unscoredQuantResult(agent, snap.price_data, "error");
+    let metricsOutage: string | null = null;
+    if (snap.outage) {
+      metricsOutage = snap.outage_error || "metrics provider outage";
+      await tracker.end(
+        "quantitative",
+        "failed",
+        `Metrics provider outage — quantitative criteria unscored: ${metricsOutage.slice(0, 160)}`,
+      );
+      log.warn(runTag, `metrics outage — degrading to qual-only scoring: ${metricsOutage}`);
+    } else {
+      await tracker.end("quantitative", "completed");
+      const metrics = snap.metrics;
+      const price_data = snap.price_data;
+      quant = runQuantitative(agent, metrics, price_data);
+      const quantOverlay = await runQuantitativeLLM({ modelId, llmKeys, entries: quant.quantitative_analysis });
+      applyQuantOverlay(quant, quantOverlay);
+      if (Object.keys(quantOverlay).length) log.info(runTag, `quant LLM-judged ${Object.keys(quantOverlay).length} criteria`);
+    }
+    const metrics = snap.metrics;
+    const price_data = snap.price_data;
     const adequacy = assessDataAdequacy(dataAvailability, metrics);
-    const quant = runQuantitative(agent, metrics, price_data);
-    await tracker.end("quantitative", "completed");
     log.info(
       runTag,
-      `quant done score=${quant.quantitative_score} price_data=${price_data} adequacy=${adequacy}`,
+      `quant done score=${quant.quantitative_score} coverage=${quant.coverage} price_data=${price_data} adequacy=${adequacy}${metricsOutage ? " (OUTAGE — qual-only)" : ""}`,
     );
 
     // Resolve effective web search now that adequacy is known.
@@ -431,6 +633,31 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
       webSources: req.web_sources || [],
     };
 
+    // ---- plan (agent decides research tactics + report outline) ----
+    const plan = await planAnalyze({
+      modelId,
+      llmKeys,
+      persona: agent.persona?.philosophy_and_mindset || "",
+      agentDisplayName: agent.name,
+      quant: Object.entries(quant.quantitative_analysis).map(([key, e]: [string, any]) => ({
+        key,
+        metric_name: e.metric_name || key,
+        value: e.value,
+        threshold: e.threshold,
+        operator: e.operator,
+        score: e.score ?? 0,
+      })),
+      qual: [
+        ...(agent?.asset_evaluation?.qualitative || []).map((p: any) => ({ parameter: p.parameter, content: p.content, section: "asset_evaluation" })),
+        ...(agent?.macro_evaluation?.qualitative || []).map((p: any) => ({ parameter: p.parameter, content: p.content, section: "macro_evaluation" })),
+      ],
+      adequacy,
+      webSearch: web.effective !== "off",
+      tools: getAnalystToolCatalog(),
+      subject: `${req.share_name || req.symbol} (${req.symbol}) on ${source}`,
+    });
+    log.info(runTag, `plan: ${plan.params.length} param tactics, ${plan.report.charts.length} chart(s), ${plan.report.tables.length} table(s)`);
+
     // ---- qualitative ----
     const qualParams = [
       ...(agent?.asset_evaluation?.qualitative || []),
@@ -440,11 +667,22 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     let qual: {
       qualitative_analysis: Record<string, unknown>;
       qualitative_tool_calls: Record<string, unknown[]>;
-      qualitative_score: number;
+      qualitative_score: number | null;
+      fit_low: number;
+      fit_high: number;
+      coverage: number;
     } | null = null;
     let qualErrors: string[] = [];
     if (qualParams.length === 0) {
       await tracker.end("qualitative", "skipped", "No qualitative parameters");
+      qual = {
+        qualitative_analysis: {},
+        qualitative_tool_calls: {},
+        qualitative_score: null,
+        fit_low: 0,
+        fit_high: 0,
+        coverage: 0,
+      };
     } else {
       qual = await runQualitativeAll(
         modelId,
@@ -458,6 +696,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
           tracker.setDetail("qualitative", `${done} of ${total} parameters scored — ${label}`);
         },
         traceQual,
+        plan,
       );
       qualErrors = Object.entries(qual.qualitative_analysis)
         .filter(([, e]) => !!(e as any)?.error)
@@ -469,27 +708,136 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
           ? `${qualErrors.length} qualitative parameter${qualErrors.length > 1 ? "s" : ""} failed`
           : undefined,
       );
-      log.info(runTag, `qual done score=${qual.qualitative_score}`);
+      log.info(runTag, `qual done score=${qual.qualitative_score} coverage=${qual.coverage}`);
     }
 
-    // ---- finalize ----
-    // Run only fails when every qualitative parameter failed; partial results
-    // complete with per-parameter errors preserved in the report.
-    await tracker.begin("finalize");
+    // ---- aggregate scores (pillar-weighted, honest — plan 0.2/0.3) ----
+    // A quant score of 0 is a REAL 0 when metrics were scored — the old
+    // `score > 0` test silently turned (0, 80) into 80. Nulls (unscored
+    // pillars) are excluded from the point estimate and widen the band.
     const quantScore = quant.quantitative_score;
-    const qualScore = qual?.qualitative_score ?? 0;
-    let total = 0;
-    if (quantScore > 0 && qualScore > 0) total = (quantScore + qualScore) / 2;
-    else if (quantScore > 0) total = quantScore;
-    else if (qualScore > 0) total = qualScore;
-    total = Math.round(total * 100) / 100;
+    const qualScore = qual?.qualitative_score ?? null;
+    const totalAgg = combinePillars([
+      {
+        key: "quantitative",
+        result: {
+          score: quantScore,
+          fit_low: quant.fit_low,
+          fit_high: quant.fit_high,
+          coverage: quant.coverage,
+          totalWeight: Object.keys(quant.quantitative_analysis).length,
+          allWeight: Object.keys(quant.quantitative_analysis).length,
+          weightedSum: 0,
+        },
+        weight: 1,
+      },
+      {
+        key: "qualitative",
+        result: {
+          score: qualScore,
+          fit_low: qual?.fit_low ?? 0,
+          fit_high: qual?.fit_high ?? 0,
+          coverage: qual?.coverage ?? 0,
+          totalWeight: qual ? Object.keys(qual.qualitative_analysis).length : 0,
+          allWeight: qual ? Object.keys(qual.qualitative_analysis).length : 0,
+          weightedSum: 0,
+        },
+        weight: 1,
+      },
+    ]);
+    const total = totalAgg.score; // null when neither pillar produced a score
+    const totalCoverage = totalAgg.coverage;
+    const totalLow = totalAgg.fit_low;
+    const totalHigh = totalAgg.fit_high;
 
+    // Persist the parsed per-parameter structure (checklist verdicts + risks) so
+    // the UI, PDF, scorecard and synthesis render "why this score" structurally.
+    const parsedQual = parseQualStructure(qual?.qualitative_analysis || {});
+
+    // ---- scorecard: deterministic tables rendered by CODE (plan 0.2 / D2) ----
+    await tracker.begin("scorecard");
+    const scoreTables = buildScoreTables({
+      quantAnalysis: normalizeQuantScale(quant.quantitative_analysis),
+      qualAnalysis: parsedQual,
+      quantScore,
+      qualScore,
+      totalScore: total,
+      coverage: totalCoverage,
+    });
+    await tracker.end("scorecard", "completed", `${scoreTables.length} deterministic table(s)`);
+    log.info(runTag, `scorecard: ${scoreTables.length} code-rendered table(s)`);
+
+    // ---- finalize ----
+    // The run fails only when EVERYTHING failed to score (no honest number
+    // exists); partial results complete with per-parameter errors preserved.
+    await tracker.begin("finalize");
     const qualTotal = Object.keys(qual?.qualitative_analysis || {}).length;
     const allQualFailed = qualTotal > 0 && qualErrors.length === qualTotal;
+    const nothingScored = quantScore == null && qualScore == null;
     const qualErrorSummary = allQualFailed
       ? `Qualitative scoring failed — ${qualErrors.join("; ")}`
-      : null;
+      : nothingScored && qualTotal === 0 && Object.keys(quant.quantitative_analysis).length === 0
+        ? "No scoring criteria were configured for this agent."
+        : null;
     const finalStatus = qualErrorSummary ? "FAILED" : "COMPLETED";
+
+    let report = null;
+    if (total != null || quantScore != null || qualScore != null) {
+      tracker.setDetail("finalize", "Synthesizing final report...");
+      report = await synthesizeReport({
+        modelId,
+        llmKeys,
+        agentPersona: agent.persona?.philosophy_and_mindset || "",
+        agentDisplayName: agent.name || "Analysis Agent",
+        quantAnalysis: normalizeQuantScale(quant.quantitative_analysis),
+        qualAnalysis: parsedQual,
+        totalScore: total ?? 0,
+        quantScore,
+        qualScore,
+        fitLow: totalLow,
+        fitHigh: totalHigh,
+        coverage: totalCoverage,
+        asOf: new Date().toISOString().slice(0, 10),
+        degraded: metricsOutage
+          ? `the metrics provider was unreachable, so all ${Object.keys(quant.quantitative_analysis).length} quantitative criteria are unscored`
+          : undefined,
+        partial: !!qualErrorSummary,
+        plan,
+        toolEvidence: toolEvidenceDigest(qual?.qualitative_tool_calls),
+      });
+
+      // Score summary tables are appended from CODE-rendered ScoreTables
+      // (plan 0.2/D2): no LLM transcription, no invented totals, no rescaling.
+      if (scoreTables.length) {
+        const scoreBlocks = [
+          { type: "heading", level: 2, text: "Score Summary" } as const,
+          ...scoreTablesToBlocks(scoreTables),
+        ];
+        report = { ...report, blocks: [...report.blocks, ...scoreBlocks] };
+      }
+
+      // Numeric integrity hard gate (spec Section 3): any bullet in a table or
+      // chart that can't trace back to a scored value or tool observation drops
+      // the block. The stored report therefore never ships an invented figure.
+      const known = collectKnownValues(
+        normalizeQuantScale(quant.quantitative_analysis),
+        parsedQual,
+        total ?? 0,
+        quantScore ?? 0,
+        qualScore ?? 0,
+        qual?.qualitative_tool_calls,
+      );
+      const { report: cleanReport, dropped } = sanitizeReport(report, known);
+      if (dropped.length) {
+        log.warn(runTag, `report sanitized — dropped ${dropped.length} block(s): ${dropped.slice(0, 5).join("; ")}`);
+      }
+      report = cleanReport;
+      // The hero number is OUR stored total, not the model's (plan 0.2/D2):
+      // clamp heroPct to the deterministic aggregate so the headline can never
+      // drift from the persisted total_score.
+      report = { ...report, heroPct: total != null ? Math.round(total * 10) / 10 : report.heroPct };
+      log.info(runTag, `report ready (source=${report.source})`);
+    }
 
     await write(() =>
       updateRun(runId, {
@@ -497,18 +845,24 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
         error: qualErrorSummary,
         duration: (Date.now() - started) / 1000,
         quantitative_analysis: quant.quantitative_analysis,
-        qualitative_analysis: qual?.qualitative_analysis || {},
+        qualitative_analysis: parsedQual,
         qualitative_tool_calls: qual?.qualitative_tool_calls || {},
         quantitative_score: quantScore,
         qualitative_score: qualScore,
         total_score: total,
+        fit_low: totalLow,
+        fit_high: totalHigh,
+        coverage: totalCoverage,
         price_data: price_data || null,
+        report,
         steps: finishStep(tracker.steps, "finalize", "completed"),
       }),
     );
-    collector.push("log", "finalize", { text: `${finalStatus} — total score ${total}` });
+    collector.push("log", "finalize", {
+      text: `${finalStatus}${total != null ? ` — total score ${total} (coverage ${totalCoverage}%, band ${totalLow}\u2013${totalHigh})` : " — nothing scored"}`,
+    });
     await collector.flush();
-    log.info(runTag, `${finalStatus} total=${total} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
+    log.info(runTag, `${finalStatus} total=${total} coverage=${totalCoverage} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
   } catch (e) {
     tracker.steps = failRunningStep(tracker.steps);
     await write(() => updateRun(runId, { steps: tracker.steps })).catch(() => {});

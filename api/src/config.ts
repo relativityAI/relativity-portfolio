@@ -64,6 +64,29 @@ export function parseDailyCaps(env: Record<string, string | undefined> = process
 
 export const config = {
   port: Number(process.env.PORT || 8080),
+  // Scoring must be deterministic (plan 0.4/A6): the LLM quant judge is OFF
+  // unless explicitly enabled with QUANT_LLM_JUDGE=1. Lazy so tests and
+  // late-set env vars are honored.
+  get quantLlmJudge() {
+    return process.env.QUANT_LLM_JUDGE === "1";
+  },
+  // read_pdf SSRF guard (plan 0.5/C1): allowed download hosts. Matched as a
+  // suffix so subdomains work ("nseindia.com" allows "www.nseindia.com").
+  pdfHostAllowlist: parseCsv(process.env.PDF_HOST_ALLOWLIST).length
+    ? parseCsv(process.env.PDF_HOST_ALLOWLIST)
+    : [
+        "nseindia.com",
+        "nsearchive.nseindia.com",
+        "sec.gov",
+        "www.sec.gov",
+        "static.nseindia.com",
+        "archives.nseindia.com",
+        "cdn.nseindia.com",
+        "bseindia.com",
+        "bsmedia.business-standard.com",
+      ],
+  // Max bytes downloaded by read_pdf (plan C1: size cap).
+  maxPdfBytes: Number(process.env.MAX_PDF_BYTES || 20 * 1024 * 1024),
   // Supabase
   supabaseProjectUrl: process.env.SUPABASE_PROJECT_URL || "",
   supabaseUrl: process.env.SUPABASE_URL || "",

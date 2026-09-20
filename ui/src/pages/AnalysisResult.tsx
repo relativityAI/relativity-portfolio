@@ -12,37 +12,42 @@ import {
     VStack,
     Tabs,
 } from "@chakra-ui/react";
-import { AnalysisService, AgentService } from "@/db";
+import { AnalysisService, AgentService, API_BASE } from "@/db";
+import axios from "axios";
 import { formatSeconds, agentDisplayName } from "@/utils";
+import AgentAvatar from "@/components/shared/AgentAvatar";
+import { resolveAgent } from "@/lib/agentIdentity";
+import { ModelLogo } from "@/lib/modelLogos";
 import type { TraceEvent } from "./shared/TracePanel";
 import AgentActivity from "../components/shared/AgentActivity";
 import ReactMarkdown from "react-markdown";
-import { jsPDF } from "jspdf";
 import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
 import { motion, AnimatePresence } from "motion/react";
 import { CountUp, dur, ease } from "@/lib/motion";
 import { SOURCE_DEFS, SourceMark, sourcesUsedForParam, type SourceKey } from "@/lib/sourceLogos";
+import { ReportBlockRenderer } from "../components/builder/ReportBlockRenderer";
+import {
+    currencyForSource,
+    formatCurrencyForMarket,
+    bandForScore,
+    scoreSignal as bandSignal,
+    stripScoreScaffolding,
+    coverageLabel,
+    insufficientCoverage,
+} from "@/lib/analysisFormat";
 
-const TABS = ["overview", "quantitative", "qualitative", "reasoning"] as const;
+const TABS = ["report", "reasoning"] as const;
 type Tab = (typeof TABS)[number];
 
 function scoreSignal(score: number): "positive" | "caution" | "negative" {
-    if (score >= 70) return "positive";
-    if (score >= 40) return "caution";
-    return "negative";
+    // Shared band semantics (0.7/D4): one scale, one definition.
+    return bandSignal(score);
 }
 
 function signalColor(signal: "positive" | "caution" | "negative"): string {
     if (signal === "positive") return "var(--signal-positive)";
     if (signal === "caution") return "var(--signal-caution)";
     return "var(--signal-negative)";
-}
-
-function formatCurrency(val: number): string {
-    if (val >= 1e9) return `₹${(val / 1e9).toFixed(2)}B`;
-    if (val >= 1e7) return `₹${(val / 1e7).toFixed(2)}Cr`;
-    if (val >= 1e5) return `₹${(val / 1e5).toFixed(2)}L`;
-    return `₹${val.toLocaleString()}`;
 }
 
 function formatDuration(sec: number): string {
@@ -55,9 +60,9 @@ function formatDuration(sec: number): string {
     return `${sec.toFixed(1)}s`;
 }
 
-function formatValue(val: any, type?: string): string {
+function formatValue(val: any, type?: string, currency: "INR" | "USD" = "USD"): string {
     if (val == null) return "—";
-    if (type === "currency" && typeof val === "number") return formatCurrency(val);
+    if (type === "currency" && typeof val === "number") return formatCurrencyForMarket(val, currency);
     if (typeof val === "number") {
         if (Number.isInteger(val)) return val.toLocaleString();
         return val.toFixed(2);
@@ -85,10 +90,12 @@ function isMacroSection(section: string): boolean {
 
 function generateVerdict(totalScore: number | null, quant: Record<string, any>, qual: Record<string, any>): string {
     if (totalScore == null) return "Analysis completed. Review quantitative and qualitative sections for details.";
+    // E3 fix: everything here is on the 0–100 scale now (the old code compared
+    // 0–100 scores against 0.7/0.4, labelling almost anything "supportive").
     const quantEntries = Object.values(quant);
     const live = quantEntries.filter((m: any) => !m.price_unavailable);
-    const passed = live.filter((m: any) => (m.score ?? 0) >= 0.7).length;
-    const failed = live.filter((m: any) => (m.score ?? 0) < 0.4).length;
+    const passed = live.filter((m: any) => (m.score ?? 0) >= 70).length;
+    const failed = live.filter((m: any) => (m.score ?? 0) < 40).length;
     const unavailable = quantEntries.length - live.length;
     const qualEntries = Object.values(qual);
     const qualScored = qualEntries.filter((p) => !p.error);
@@ -103,7 +110,7 @@ function generateVerdict(totalScore: number | null, quant: Record<string, any>, 
     let sentence = `Passes ${passed} of ${quantEntries.length} quantitative gates`;
     if (failed > 0) {
         const failedNames = live
-            .filter((m: any) => (m.score ?? 0) < 0.4)
+            .filter((m: any) => (m.score ?? 0) < 40)
             .slice(0, 3)
             .map((m: any) => m.metric_name)
             .join(", ");
@@ -114,11 +121,11 @@ function generateVerdict(totalScore: number | null, quant: Record<string, any>, 
         sentence += ` ${unavailable} price-dependent ${unavailable === 1 ? "criterion" : "criteria"} not scored (live price unavailable).`;
     }
     if (qualScored.length > 0) {
-        const qualLabel = qualAvg >= 0.7 ? "supportive" : qualAvg >= 0.4 ? "moderately supportive" : "mixed";
+        const qualLabel = qualAvg >= 70 ? "supportive" : qualAvg >= 40 ? "moderately supportive" : "mixed";
         sentence += ` Qualitative narrative is ${qualLabel}.`;
     }
     if (macroAvg != null) {
-        const macroLabel = macroAvg >= 0.7 ? "supportive" : macroAvg >= 0.4 ? "moderately supportive" : "mixed";
+        const macroLabel = macroAvg >= 70 ? "supportive" : macroAvg >= 40 ? "moderately supportive" : "mixed";
         sentence += ` Macro (market) narrative is ${macroLabel}.`;
     }
     if (qualEntries.some((p) => p.error)) {
@@ -152,7 +159,8 @@ export default function AnalysisResult() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
-    const [activeTab, setActiveTab] = useState<Tab>("overview");
+    const [pdfState, setPdfState] = useState<"idle" | "busy" | "error">("idle");
+    const [activeTab, setActiveTab] = useState<Tab>("report");
     const [sortByScore, setSortByScore] = useState<"asc" | "desc" | null>(null);
     const [activeSection, setActiveSection] = useState<string>("");
     const [elapsed, setElapsed] = useState(0);
@@ -313,382 +321,32 @@ export default function AnalysisResult() {
         setExpandedTools((prev) => ({ ...prev, [param]: !prev[param] }));
     };
 
-    const downloadPdf = () => {
+    const downloadPdf = async () => {
         if (!analysis) return;
-        const doc = new jsPDF({ unit: "mm", format: "a4" });
-
-        // ---- Relativity brand tokens (mirror ui/src/index.css) ----
-        const INK = "#16181B"; // display + masthead ink
-        const INK2 = "#6B7280"; // secondary text
-        const HAIR = "#D9D9D5"; // hairline rules
-        const ACCENT = "#5B7FDE"; // brand accent, used sparingly
-        const GOOD = "#4C8B6B",
-            CAUTION = "#B8935A",
-            BAD = "#B85C5C";
-
-        const W = doc.internal.pageSize.getWidth();
-        const H = doc.internal.pageSize.getHeight();
-        const M = 16;
-        const FOOT = 22; // reserve room for the running footer
-        const CW = W - M * 2;
-        let y = 60;
-
-        const signalFor = (s: number | null): string =>
-            s == null ? INK2 : s >= 70 ? GOOD : s >= 40 ? CAUTION : BAD;
-        const font = (style: string) => doc.setFont("helvetica", style);
-        const ink = (color: string) => doc.setTextColor(color);
-        const caps = (text: string, x: number, cy: number, color: string, size = 7, spacing = 0.9, align?: "left" | "right" | "center") => {
-            font("bold");
-            doc.setFontSize(size);
-            ink(color);
-            doc.text(text.toUpperCase(), x, cy, { charSpace: spacing, align });
-        };
-
-        const ensure = (needed: number) => {
-            if (y + needed > H - FOOT) {
-                doc.addPage();
-                y = M;
-            }
-        };
-        const body = (text: string, size = 9.5, style: string | null = null, mx = 0) => {
-            font(style || "normal");
-            ink(INK);
-            doc.setFontSize(size);
-            const lines = doc.splitTextToSize(text, CW - mx);
-            ensure(lines.length * size * 0.3528 + 2);
-            doc.text(lines, M + mx, y);
-            y += lines.length * size * 0.3528 + (size >= 10 ? 1.6 : 0.5);
-        };
-        const spacer = (h = 2) => { y += h; };
-        const rule = (x1: number, cy: number, w: number, color = HAIR, lw = 0.3) => {
-            doc.setDrawColor(color);
-            doc.setLineWidth(lw);
-            doc.line(x1, cy, x1 + w, cy);
-        };
-
-        // Section kicker: hairline + accent tick + tracked small-caps label.
-        // The tick marks the start of a block, not a step — these are sections.
-        const label = (text: string) => {
-            rule(M, y, CW);
-            y += 3.4;
-            ink(ACCENT);
-            doc.setFillColor(ACCENT);
-            doc.rect(M, y - 2.4, 1.3, 3.2, "F");
-            caps(text, M + 4, y + 0.6, INK, 7.5, 1.1);
-            y += 6;
-        };
-
-        // Page-1 signature: dark masthead with R mark + RELATIVITY wordmark.
-        const band = () => {
-            doc.setFillColor(INK);
-            doc.rect(0, 0, W, 34, "F");
-            doc.setFillColor(INK);
-            doc.roundedRect(M, 8, 11, 11, 2.6, 2.6, "F");
-            ink("#FFFFFF");
-            font("bold");
-            doc.setFontSize(10);
-            doc.text("R", M + 5.5, 15.8, { align: "center" });
-            font("bold");
-            doc.setFontSize(12.5);
-            ink("#FFFFFF");
-            doc.text("RELATIVITY", M + 15.5, 16.5, { charSpace: 1.8 });
-            caps("FIT SCORE REPORT", W - M, 14.8, "#8FA0C8", 8, 1.4, "right");
-            rule(M, 33.4, CW, "#3A3E46");
-        };
-        const scoreBar = (x: number, cy: number, w: number, ratio: number, color: string) => {
-            doc.setFillColor(HAIR);
-            doc.roundedRect(x, cy, w, 1.4, 0.7, 0.7, "F");
-            if (ratio > 0) {
-                doc.setFillColor(color);
-                doc.roundedRect(x, cy, Math.max(w * ratio, 1.6), 1.4, 0.7, 0.7, "F");
-            }
-        };
-
-        const shareName = analysis.share_name || analysis.symbol || "Analysis";
-
-        // ---- Masthead + verdict + score band (the one bold moment) ----
-        band();
-        y = 50;
-        font("bold");
-        ink(INK);
-        doc.setFontSize(24);
-        const shareLines = doc.splitTextToSize(shareName, CW);
-        doc.text(shareLines, M, y);
-        y += shareLines.length * 9 + 7;
-        if (verdictSentence) {
-            font("normal");
-            doc.setFontSize(11.5);
-            ink(INK2);
-            const vLines = doc.splitTextToSize(verdictSentence, CW);
-            ensure(vLines.length * 5.1 + 2);
-            doc.text(vLines, M, y);
-            y += vLines.length * 5.1 + 8;
+        try {
+            setPdfState("busy");
+            const res = await axios.get(`${API_BASE}/analysis/${encodeURIComponent(id)}/pdf`, { responseType: "blob" });
+            if (!res.data || !(res.data instanceof Blob)) throw new Error("No PDF received");
+            const url = URL.createObjectURL(res.data);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${(analysis.share_name || analysis.symbol || "analysis").replace(/\s+/g, "-")}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            setPdfState("idle");
+        } catch (e: any) {
+            setPdfState("error");
+            console.error("PDF export failed:", e);
         }
-        const cellLabel = ["Fit Score", "Quantitative", "Qualitative"];
-        const cellVal = [
-            totalScore != null ? totalScore.toFixed(1) : "—",
-            quantScore != null ? quantScore.toFixed(1) : "—",
-            qualScore != null ? qualScore.toFixed(1) : "—",
-        ];
-        const cellCol = [signalFor(totalScore), signalFor(quantScore), signalFor(qualScore)];
-        const cellW = CW / 3;
-        for (let i = 0; i < 3; i++) {
-            const x = M + i * cellW;
-            caps(cellLabel[i], x, y, INK2, 7, 0.9);
-            font("bold");
-            doc.setFontSize(22);
-            ink(cellCol[i]);
-            doc.text(cellVal[i], x, y + 9.5);
-            font("normal");
-            doc.setFontSize(8.5);
-            ink(INK2);
-            doc.text("/100", x + doc.getTextWidth(cellVal[i]) + 2.5, y + 9.5);
-            const n = Number(cellVal[i]);
-            scoreBar(x, y + 13.5, cellW - 6, Number.isFinite(n) ? Math.min(n, 100) / 100 : 0, cellCol[i]);
-            if (i < 2) {
-                doc.setDrawColor(HAIR);
-                doc.setLineWidth(0.3);
-                doc.line(x + cellW, y - 6, x + cellW, y + 17);
-            }
-        }
-        y += 30;
-
-        // Draw a run of inline text supporting **bold** markers with word-wrap.
-        // Returns the wrapped fragment width it consumed on the last visual row.
-        const drawRich = (raw: string, size: number, indent: number, weight: "normal" | "bold") => {
-            const maxW = W - M * 2 - indent;
-            const lineH = size * 0.3528 + (size >= 10 ? 1.5 : 0.5);
-            const words: { text: string; bold: boolean }[] = [];
-            const tokens = raw.split(/\*\*(.+?)\*\*/g);
-            for (let i = 0; i < tokens.length; i++) {
-                const bold = i % 2 === 1;
-                for (const w of tokens[i].split(/\s+/).filter(Boolean)) words.push({ text: w, bold });
-            }
-            let cx = M + indent;
-            for (let i = 0; i < words.length; i++) {
-                const w = words[i];
-                doc.setFont("helvetica", w.bold ? "bold" : weight);
-                doc.setFontSize(size);
-                const sep = i === 0 || cx === M + indent ? "" : " ";
-                const addW = doc.getTextWidth(sep + w.text);
-                if (cx - (M + indent) + addW > maxW) {
-                    y += lineH;
-                    ensure(lineH + 1);
-                    cx = M + indent;
-                    doc.setFont("helvetica", w.bold ? "bold" : weight);
-                    doc.setFontSize(size);
-                    doc.text(w.text, cx, y);
-                    cx += doc.getTextWidth(w.text);
-                } else {
-                    doc.text(sep + w.text, cx, y);
-                    cx += addW;
-                }
-            }
-            y += lineH;
-        };
-
-        // Markdown-aware block renderer: headings, **bold**, bullets, numbered
-        // lists, FINAL_SCORE emphasis. Fixes the cramped raw-text layout.
-        const mdBody = (text: string, baseSize = 9, indent = 0) => {
-            for (const raw of String(text || "").split("\n")) {
-                const line = raw.replace(/\s+$/, "");
-                if (!line.trim()) {
-                    y += baseSize >= 10 ? 1.5 : 1;
-                    continue;
-                }
-                const heading = line.match(/^(#{1,6})\s+(.*)/);
-                if (heading) {
-                    const size = baseSize + (heading[1].length <= 1 ? 3 : heading[1].length === 2 ? 2 : 1);
-                    ensure(size + 1);
-                    drawRich(heading[2], size, indent, "bold");
-                    y += 0.5;
-                    continue;
-                }
-                const bullet = line.match(/^[-•*]\s+(.*)/);
-                const numbered = line.match(/^(\d+)[.)]\s+(.*)/);
-                if (bullet || numbered) {
-                    const marker = numbered ? `${numbered[1]}.` : "•";
-                    drawRich(`${marker}  ${(bullet || numbered)![1]}`, baseSize, indent + 2, "normal");
-                    continue;
-                }
-                const isFinalScore = /^FINAL_SCORE\s*[:：=]/.test(line);
-                doc.setTextColor(isFinalScore ? 20 : 0);
-                drawRich(line, isFinalScore ? baseSize + 1 : baseSize, indent, isFinalScore ? "bold" : "normal");
-                doc.setTextColor(0);
-            }
-        };
-
-        // Run details
-        label("Run Details");
-        const runRows = [
-            ["Symbol", analysis.symbol || "—"],
-            ["Agent", analysis.agent_name ? agentName(analysis.agent_name) : "—"],
-            ["Model", analysis.model || "—"],
-            ["Source", analysis.source || "—"],
-            ["Duration", analysis.duration != null ? formatDuration(analysis.duration) : "—"],
-            ["Created", analysis.created_at ? new Date(analysis.created_at).toLocaleString() : "—"],
-            ...(tokenUse
-                ? [
-                    ["Tokens Used", `${formatTokens(tokenUse.total)} net (${formatTokens(tokenUse.input)} in / ${formatTokens(tokenUse.output)} out)`],
-                ]
-                : []),
-        ];
-        ensure(runRows.length * 6);
-        runRows.forEach(([k, v]) => {
-            body(`${k}:  ${v}`, 9.5);
-        });
-        spacer();
-
-        // Scores
-        label("Scores");
-        const scoreRows = [
-            ["Fit Score", totalScore != null ? `${totalScore.toFixed(1)} / 100` : "—"],
-            ["Quantitative", quantScore != null ? `${quantScore.toFixed(1)} / 100` : "—"],
-            ["Qualitative", qualScore != null ? `${qualScore.toFixed(1)} / 100` : "—"],
-        ];
-        ensure(scoreRows.length * 6);
-        scoreRows.forEach(([k, v]) => body(`${k}:  ${v}`, 9.5));
-        spacer();
-
-        // Run steps
-        const steps = analysis.steps || [];
-        if (steps.length) {
-            label("Run Steps");
-            steps.forEach((st) => {
-                const status = st?.status || "pending";
-                const mark = status === "completed" ? "✓" : status === "failed" ? "✗" : status === "running" ? "•" : status === "skipped" ? "–" : "•";
-                const dur = typeof st?.duration_ms === "number" ? ` (${formatSeconds(Math.round(st.duration_ms / 1000))})` : "";
-                body(`${mark} ${st?.label || st?.key || "step"} — ${status}${dur}`, 9, null, 2);
-            });
-            spacer();
-        }
-
-        // Quantitative
-        const opSymbol: Record<string, string> = { gt: ">", gte: ">=", lt: "<", lte: "<=", eq: "=", between: "between" };
-        const section = (title: string, rows: typeof assetQuant, scoreScale: number) => {
-            if (!rows.length) return;
-            label(title);
-            for (const item of rows) {
-                const score = typeof item?.score === "number" ? item.score * scoreScale : 0;
-                const criterion = item ? `${opSymbol[item.operator] || item.operator} ${item.threshold ?? ""}`.trim() : "—";
-                const actual = item?.value != null ? formatValue(item.value, item?.metric_type) : "—";
-                body(`${item?.metric_name || item.key}`, 9.5, "bold", 2);
-                body(`Criterion ${criterion} · Actual ${actual} · Wgt ${item?.weightage ?? "—"} · Score ${score.toFixed(1)} (${scoreSignal(score)})`, 8.5, null, 4);
-            }
-            spacer(2);
-        };
-        if (quantAnalysis && Object.keys(quantAnalysis).length) {
-            label("Quantitative");
-            section("Asset", assetQuant, 100);
-            section("Macro", macroQuant, 100);
-        }
-
-        // Qualitative
-        if (qualAnalysis && Object.keys(qualAnalysis).length) {
-            label("Qualitative");
-            const qualSection = (rows: typeof assetQual) => {
-                for (const [key, d] of rows) {
-                    const score = typeof d?.score === "number" ? d.score : 0;
-                    doc.setFont("helvetica", "bold");
-                    doc.setFontSize(10);
-                    ensure(8);
-                    doc.text(`${d?.parameter || key}${d?.weightage != null ? `  (wgt ${d.weightage})` : ""}`, M + 2, y);
-                    y += 4;
-                    const scoreLine = `Score: ${score.toFixed(1)} / 100 (${scoreSignal(score)})`;
-                    body(scoreLine, 8.5, null, 4);
-                    doc.setFont("helvetica", "normal");
-                    const analysisText = d?.error ? `Error: ${String(d.error)}` : d?.analysis || d?.content || "No analysis available.";
-                    mdBody(analysisText, 9, 4);
-                    const calls = toolCalls?.[key] || [];
-                    if (calls.length) {
-                        const names = calls.map((c) => c?.tool_name || "tool").filter(Boolean);
-                        body(`Tool calls: ${names.join(", ")}`, 8, null, 4);
-                    }
-                    spacer(2);
-                }
-            };
-            qualSection(assetQual);
-            qualSection(macroQual);
-        }
-
-        // Trace summary
-        const trace: TraceEvent[] = analysis.trace || [];
-        if (trace.length) {
-            label("Model Reasoning Trace");
-            body(`${trace.length} events`, 8, null, 2);
-            const byParam: Record<string, TraceEvent[]> = {};
-            for (const ev of trace) {
-                const k = ev?.key || "—";
-                (byParam[k] = byParam[k] || []).push(ev);
-            }
-            Object.entries(byParam).forEach(([param, evs]) => {
-                const thoughts = evs.filter((e) => e.type === "thought").map((e) => e.text || "").join("");
-                const toolCallsCount = evs.filter((e) => e.type === "tool_call").length;
-                const toolErrors = evs.filter((e) => e.type === "tool_result" && e.status === "ERR").length;
-                const decision = [...evs].reverse().find((e) => e.type === "decision");
-                doc.setFont("helvetica", "bold");
-                doc.setFontSize(9.5);
-                ensure(6);
-                doc.text(param, M + 2, y);
-                y += 4;
-                doc.setFont("helvetica", "normal");
-                const summaryBits = [
-                    toolCallsCount ? `${toolCallsCount} tool call${toolCallsCount > 1 ? "s" : ""}` : null,
-                    toolErrors ? `${toolErrors} error${toolErrors > 1 ? "s" : ""}` : null,
-                    decision?.score != null ? `final score ${Number(decision.score).toFixed(1)}` : null,
-                ].filter(Boolean);
-                if (summaryBits.length) body(summaryBits.join(" · "), 8, null, 4);
-                if (thoughts) body(thoughts.slice(0, 700) + (thoughts.length > 700 ? "…" : ""), 8, null, 4);
-                spacer(2);
-            });
-        }
-
-        // Sources
-        const hasSources = docs.length > 0 || webSrc.length > 0;
-        const webNote =
-            analysis.web_search_effective === "user" || analysis.web_search
-                ? "Web search enabled"
-                : analysis.web_search_effective === "auto"
-                ? `Web search auto-enabled (internal data ${analysis.data_adequacy || "sparse"})`
-                : "";
-        if (hasSources || webNote) {
-            label("Sources");
-            if (docs.length) {
-                body(`Documents (${docs.length})`, 9, "bold", 2);
-                docs.forEach((doc) => {
-                    const name = typeof doc === "string" ? doc : doc.name || doc.title || JSON.stringify(doc);
-                    body(`- ${name}`, 8.5, null, 4);
-                });
-            }
-            if (webSrc.length) {
-                body(`Web Sources (${webSrc.length})`, 9, "bold", 2);
-                webSrc.forEach((src: string) => body(`- ${src}`, 8.5, null, 4));
-            }
-            if (webNote) body(webNote, 8.5, "italic", 2);
-        }
-
-        // Running footer + page numbers on every page.
-        const pageCount = doc.getNumberOfPages();
-        for (let p = 1; p <= pageCount; p++) {
-            doc.setPage(p);
-            const fy = H - 8.5;
-            rule(M, fy - 3, CW);
-            caps(`${shareName} · FIT SCORE`, M, fy, INK2, 6.5, 0.8);
-            font("normal");
-            doc.setFontSize(6.8);
-            ink(INK2);
-            doc.text(`Relativity · page ${p} of ${pageCount}`, W - M, fy, { align: "right" });
-            ink("#B9BEC7");
-            doc.text("Research aid — not investment advice", M, fy + 2.6);
-        }
-
-        const filename = `${analysis.symbol || analysis.share_name || "analysis"}-${id?.slice(0, 8) || "result"}.pdf`;
-        doc.save(filename);
     };
 
     const totalScore: number | null = analysis.total_score;
     const quantScore: number | null = analysis.quantitative_score;
     const qualScore: number | null = analysis.qualitative_score;
+    const coverage: number | null = analysis.coverage ?? null;
+    const runCurrency = currencyForSource(analysis.source);
 
     const verdictSentence = generateVerdict(totalScore, quantAnalysis, qualAnalysis);
 
@@ -732,6 +390,7 @@ export default function AnalysisResult() {
                     pb={3}
                     pt={2}
                     mb={5}
+                    data-print-hide
                 >
                     <Flex justify="space-between" align="center" gap={3} wrap="wrap">
                         <HStack gap={3} align="center" minW={0}>
@@ -793,8 +452,10 @@ export default function AnalysisResult() {
                                     color="var(--ink-secondary)"
                                     _hover={{ color: "var(--ink-primary)" }}
                                     onClick={downloadPdf}
+                                    isDisabled={pdfState === "busy"}
                                 >
-                                    <MdDownload style={{ marginRight: 4 }} /> Download as PDF
+                                    <MdDownload style={{ marginRight: 4 }} />{" "}
+                                    {pdfState === "busy" ? "Generating PDF…" : pdfState === "error" ? "Export failed — retry" : "Download as PDF"}
                                 </Button>
                             )}
                         </HStack>
@@ -875,17 +536,21 @@ export default function AnalysisResult() {
                             gap={{ base: 4, md: 6 }}
                         >
                             {/* Hero score */}
-                            <Box>
-                                <Text
-                                    fontSize="10.5px"
-                                    fontWeight={500}
-                                    color="var(--ink-tertiary)"
-                                    letterSpacing="0.06em"
-                                    textTransform="uppercase"
-                                    mb={1}
-                                >
-                                    Fit Score
-                                </Text>
+                                    <Box>
+                                <Flex align="center" gap={2} mb={1}>
+                                    <AgentAvatar agent={resolveAgent(analysis.agent_name, agents)} size={26} />
+                                    <Text
+                                        fontSize="10.5px"
+                                        fontWeight={500}
+                                        color="var(--ink-tertiary)"
+                                        letterSpacing="0.06em"
+                                        textTransform="uppercase"
+                                    >
+                                        {analysis.report
+                                            ? analysis.report.heroLabel
+                                            : `Alignment with ${agentName(analysis.agent_name) || "Agent"}`}
+                                    </Text>
+                                </Flex>
                                 {totalScore != null ? (
                                     <HStack gap={2} align="baseline">
                                         <Text
@@ -897,7 +562,7 @@ export default function AnalysisResult() {
                                             letterSpacing="-0.02em"
                                             color="var(--ink-primary)"
                                         >
-                                            <CountUp value={totalScore} decimals={1} />
+                                            <CountUp value={analysis.report ? analysis.report.heroPct : totalScore} decimals={1} />
                                         </Text>
                                         <Box
                                             as={motion.div}
@@ -1001,7 +666,8 @@ export default function AnalysisResult() {
                             </Box>
                         </Flex>
 
-                        {/* Verdict sentence */}
+                        {/* Verdict sentence — only shown in fallback (no LLM report) */}
+                        {!analysis.report && (
                         <Text
                             fontSize="13.5px"
                             color="var(--ink-secondary)"
@@ -1010,6 +676,46 @@ export default function AnalysisResult() {
                         >
                             {verdictSentence}
                         </Text>
+                        )}
+
+                        {/* Coverage + band chip beside the score (E8): how much of
+                            the rubric the number actually rests on. */}
+                        {isComplete && (
+                            <HStack gap={2} mt={3} flexWrap="wrap">
+                                {coverage != null && (
+                                    <Box
+                                        px={2.5}
+                                        py={1}
+                                        borderRadius="4px"
+                                        bg="var(--surface-recessed)"
+                                        border="1px solid var(--hairline)"
+                                    >
+                                        <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
+                                            coverage {coverageLabel(coverage)}
+                                            {insufficientCoverage(coverage) ? " — low" : ""}
+                                        </Text>
+                                    </Box>
+                                )}
+                                {totalScore != null && (
+                                    <Box
+                                        px={2.5}
+                                        py={1}
+                                        borderRadius="4px"
+                                        bg="var(--surface-recessed)"
+                                        border="1px solid var(--hairline)"
+                                    >
+                                        <Text fontSize="11px" fontFamily="var(--font-mono)" color={bandForScore(totalScore).color}>
+                                            {bandForScore(totalScore).label.toLowerCase()}
+                                        </Text>
+                                    </Box>
+                                )}
+                                {insufficientCoverage(coverage) && (
+                                    <Text fontSize="11px" color="var(--signal-caution)">
+                                        Headline suppressed — insufficient coverage of the rubric.
+                                    </Text>
+                                )}
+                            </HStack>
+                        )}
                     </Box>
                 )}
 
@@ -1051,6 +757,7 @@ export default function AnalysisResult() {
                             overflowX="auto"
                             flexWrap="nowrap"
                             css={{ scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" } }}
+                            data-print-hide
                         >
                             {TABS.map((tab) => (
                                 <Tabs.Trigger
@@ -1081,187 +788,117 @@ export default function AnalysisResult() {
                             ))}
                         </Tabs.List>
 
-                        {/* ── Overview ── */}
-                        <Tabs.Content value="overview">
-                            <Box ref={(el) => registerSection("overview", el)} data-section="overview">
+                        {/* ── Report ── */}
+                        <Tabs.Content value="report">
+                            <Box ref={(el) => registerSection("report", el)} data-section="report">
                                 {isComplete ? (
-                                    <>
-                                {/* Quantitative preview */}
-                                {quantEntries.length > 0 && (
-                                    <Box mb={8}>
-                                        <SectionHeader label="Quantitative" count={quantEntries.length} />
-                                        <Box mb={3}>
-                                            <Button
-                                                size="xs"
-                                                variant="subtle"
-                                                color="var(--ink-tertiary)"
-                                                onClick={() => {
-                                                    setActiveTab("quantitative");
-                                                    requestAnimationFrame(() => sectionRefs.current["quantitative"]?.scrollIntoView({ behavior: "smooth", block: "start" }));
-                                                }}
-                                                px={1}
-                                                _hover={{ color: "var(--ink-primary)" }}
-                                            >
-                                                View full table →
-                                            </Button>
-                                        </Box>
-                                        <SourceLegend exchangeSource={exchangeSource} />
-                                        <SubHeader label="Asset" count={assetQuant.length} />
-                                        <QuantTable
-                                            entries={assetQuant}
-                                            sortByScore={sortByScore}
-                                            setSortByScore={setSortByScore}
-                                            formatValue={formatValue}
-                                        />
-                                        {macroQuant.length > 0 && (
-                                            <Box mt={6}>
-                                                <SubHeader label="Macro" count={macroQuant.length} />
-                                                <QuantTable
-                                                    entries={macroQuant}
-                                                    sortByScore={sortByScore}
-                                                    setSortByScore={setSortByScore}
-                                                    formatValue={formatValue}
-                                                />
+                                    <Box maxW="800px">
+                                        {/* Decision-first order (E1): synthesis and verdict
+                                            first, evidence-dense breakdowns after. */}
+                                        {analysis.report ? (
+                                            <Box mb={8}>
+                                                <SectionHeader label="Executive Report & Synthesis" count={analysis.report.blocks.length} />
+                                                {analysis.report.partial && (
+                                                    <Box
+                                                        borderLeft="3px solid var(--signal-caution)"
+                                                        pl={4}
+                                                        py={3}
+                                                        mb={6}
+                                                        bg="var(--surface-panel)"
+                                                    >
+                                                        <Text fontSize="12px" fontWeight={500} color="var(--ink-primary)" mb={1}>
+                                                            Partial Result
+                                                        </Text>
+                                                        <Text fontSize="12px" color="var(--ink-secondary)">
+                                                            Some qualitative parameters failed to score. The synthesis is based on partial data.
+                                                        </Text>
+                                                    </Box>
+                                                )}
+                                                {analysis.report.source === "fallback" && (
+                                                    <Box
+                                                        borderLeft="3px solid var(--signal-caution)"
+                                                        pl={4}
+                                                        py={3}
+                                                        mb={6}
+                                                        bg="var(--surface-panel)"
+                                                    >
+                                                        <Text fontSize="12px" color="var(--ink-secondary)">
+                                                            AI narrative was unavailable for this run; this synthesis was assembled deterministically from the scored breakdowns below.
+                                                        </Text>
+                                                    </Box>
+                                                )}
+                                                <ReportBlockRenderer blocks={analysis.report.blocks} />
+                                            </Box>
+                                        ) : (
+                                            <Box mb={6}>
+                                                <Box
+                                                    borderLeft="3px solid var(--signal-caution)"
+                                                    pl={4}
+                                                    py={3}
+                                                    bg="var(--surface-panel)"
+                                                >
+                                                    <Text fontSize="12px" color="var(--ink-secondary)">
+                                                        No executive synthesis for this run — review the parameter breakdowns below.
+                                                    </Text>
+                                                </Box>
                                             </Box>
                                         )}
-                                    </Box>
-                                )}
 
-                                {/* Qualitative preview */}
-                                {Object.keys(qualAnalysis).length > 0 && (
-                                    <Box mb={8}>
-                                        <SectionHeader label="Qualitative" count={Object.keys(qualAnalysis).length} />
-                                        <Box mb={3}>
-                                            <Button
-                                                size="xs"
-                                                variant="subtle"
-                                                color="var(--ink-tertiary)"
-                                                onClick={() => {
-                                                    setActiveTab("qualitative");
-                                                    requestAnimationFrame(() => sectionRefs.current["qualitative"]?.scrollIntoView({ behavior: "smooth", block: "start" }));
-                                                }}
-                                                px={1}
-                                                _hover={{ color: "var(--ink-primary)" }}
-                                            >
-                                                View all parameters →
-                                            </Button>
-                                        </Box>
-                                        <SubHeader label="Asset" count={assetQual.length} />
-                                        <QualTable entries={assetQual} toolCalls={toolCalls} exchangeSource={exchangeSource} />
-                                        {macroQual.length > 0 && (
-                                            <Box mt={6}>
-                                                <SubHeader label="Macro" count={macroQual.length} />
-                                                <QualTable entries={macroQual} toolCalls={toolCalls} exchangeSource={exchangeSource} />
-                                            </Box>
-                                        )}
-                                    </Box>
-                                )}
-
-                                {/* Sources preview */}
-                                {(docs.length > 0 || webSrc.length > 0) && (
-                                    <Box>
-                                        <SectionHeader label="Sources" count={docs.length + webSrc.length} />
-                                        <SourcesStrip docs={docs} webSrc={webSrc} analysis={analysis} />
-                                    </Box>
-                                )}
-                                    </>
-                                ) : (
-                                    <EmptyState message="Waiting for the analysis to complete — the report appears here when it's done." />
-                                )}
-                            </Box>
-                        </Tabs.Content>
-
-                        {/* ── Quantitative ── */}
-                        <Tabs.Content value="quantitative">
-                            <Box
-                                ref={(el) => registerSection("quantitative", el)}
-                                data-section="quantitative"
-                            >
-                                {isComplete ? (
-                                    <>
-                                <SectionHeader label="Quantitative" count={quantEntries.length} />
-                                {quantEntries.length > 0 ? (
-                                    <>
-                                        <SourceLegend exchangeSource={exchangeSource} />
-                                        <SubHeader label="Asset" count={assetQuant.length} />
-                                        <QuantTable
-                                            entries={assetQuant}
-                                            sortByScore={sortByScore}
-                                            setSortByScore={setSortByScore}
-                                            formatValue={formatValue}
-                                        />
-                                        <Box mt={6}>
-                                            <SubHeader label="Macro" count={macroQuant.length} />
-                                            {macroQuant.length > 0 ? (
+                                        {/* Breakdowns after the decision (E1) */}
+                                        <Box mb={10}>
+                                            <SectionHeader label="Quantitative Breakdown" count={quantEntries.length} />
+                                            <Box mb={8}>
+                                                <SourceLegend exchangeSource={exchangeSource} />
+                                                <SubHeader label="Asset" count={assetQuant.length} />
                                                 <QuantTable
-                                                    entries={macroQuant}
+                                                    entries={assetQuant}
                                                     sortByScore={sortByScore}
                                                     setSortByScore={setSortByScore}
-                                                    formatValue={formatValue}
+                                                    formatValue={(val, type) => formatValue(val, type, runCurrency)}
                                                 />
-                                            ) : (
-                                                <Text fontSize="12px" color="var(--ink-tertiary)" py={3}>
-                                                    No macro quantitative criteria were configured for this agent.
-                                                </Text>
-                                            )}
-                                        </Box>
-                                    </>
-                                ) : (
-                                    <EmptyState message="No quantitative data available." />
-                                )}
-                                    </>
-                                ) : (
-                                    <EmptyState message="Waiting for the analysis to complete — the report appears here when it's done." />
-                                )}
-                            </Box>
-                        </Tabs.Content>
+                                                {macroQuant.length > 0 && (
+                                                    <Box mt={6}>
+                                                        <SubHeader label="Macro" count={macroQuant.length} />
+                                                        <QuantTable
+                                                            entries={macroQuant}
+                                                            sortByScore={sortByScore}
+                                                            setSortByScore={setSortByScore}
+                                                            formatValue={(val, type) => formatValue(val, type, runCurrency)}
+                                                        />
+                                                    </Box>
+                                                )}
+                                            </Box>
 
-                        {/* ── Qualitative ── */}
-                        <Tabs.Content value="qualitative">
-                            <Box
-                                ref={(el) => registerSection("qualitative", el)}
-                                data-section="qualitative"
-                            >
-                                {isComplete ? (
-                                    <>
-                                <SectionHeader label="Qualitative" count={Object.keys(qualAnalysis).length} />
-                                {Object.keys(qualAnalysis).length > 0 ? (
-                                    <>
-                                        <SubHeader label="Asset" count={assetQual.length} />
-                                        {assetQual.length > 0 ? (
+                                            <SectionHeader label="Qualitative Breakdown" count={Object.keys(qualAnalysis).length} />
+                                            <Box mb={8}>
+                                                <SubHeader label="Asset" count={assetQual.length} />
+                                                <QualTable entries={assetQual} toolCalls={toolCalls} exchangeSource={exchangeSource} />
+                                                {macroQual.length > 0 && (
+                                                    <Box mt={6}>
+                                                        <SubHeader label="Macro" count={macroQual.length} />
+                                                        <QualTable entries={macroQual} toolCalls={toolCalls} exchangeSource={exchangeSource} />
+                                                    </Box>
+                                                )}
+                                            </Box>
+
+                                            <SectionHeader label="Parameter Rationale" count={Object.keys(qualAnalysis).length} />
                                             <QualFullCards
-                                                qualAnalysis={Object.fromEntries(assetQual)}
+                                                qualAnalysis={qualAnalysis}
                                                 toolCalls={toolCalls}
                                                 expandedTools={expandedTools}
                                                 toggleToolCalls={toggleToolCalls}
                                                 exchangeSource={exchangeSource}
                                             />
-                                        ) : (
-                                            <Text fontSize="12px" color="var(--ink-tertiary)" py={3}>
-                                                No asset-level qualitative findings for this run.
-                                            </Text>
-                                        )}
-                                        <Box mt={6}>
-                                            <SubHeader label="Macro" count={macroQual.length} />
-                                            {macroQual.length > 0 ? (
-                                                <QualFullCards
-                                                    qualAnalysis={Object.fromEntries(macroQual)}
-                                                    toolCalls={toolCalls}
-                                                    expandedTools={expandedTools}
-                                                    toggleToolCalls={toggleToolCalls}
-                                                    exchangeSource={exchangeSource}
-                                                />
-                                            ) : (
-                                                <Text fontSize="12px" color="var(--ink-tertiary)" py={3}>
-                                                    No macro qualitative findings for this run.
-                                                </Text>
-                                            )}
                                         </Box>
-                                    </>
-                                ) : (
-                                    <EmptyState message="No qualitative findings available." />
-                                )}
-                                    </>
+
+                                        {/* Sources preview */}
+                                        {(docs.length > 0 || webSrc.length > 0) && (
+                                            <Box mt={8}>
+                                                <SectionHeader label="Sources" count={docs.length + webSrc.length} />
+                                                <SourcesStrip docs={docs} webSrc={webSrc} analysis={analysis} />
+                                            </Box>
+                                        )}
+                                    </Box>
                                 ) : (
                                     <EmptyState message="Waiting for the analysis to complete — the report appears here when it's done." />
                                 )}
@@ -1276,6 +913,7 @@ export default function AnalysisResult() {
                                     <AgentActivity
                                         title={`Analyzing ${analysis.share_name || analysis.symbol || "…"} with ${agentName(analysis.agent_name)}`}
                                         subtitle={`${analysis.model || "default model"} · gathering data, searching, scoring`}
+                                        agent={resolveAgent(analysis.agent_name, agents)}
                                         streamUrl={`/analysis/${id}/stream`}
                                         steps={analysis.steps || []}
                                         startedAt={analysis.created_at ? +new Date(analysis.created_at) : undefined}
@@ -1286,6 +924,7 @@ export default function AnalysisResult() {
                                     <AgentActivity
                                         title={`Reasoning history — ${analysis.share_name || analysis.symbol || "…"} with ${agentName(analysis.agent_name)}`}
                                         subtitle={`${analysis.model || "default model"} · full tool and thought trace`}
+                                        agent={resolveAgent(analysis.agent_name, agents)}
                                         events={analysis.trace || []}
                                         steps={analysis.steps || []}
                                         active={false}
@@ -1357,12 +996,13 @@ function SubHeader({ label, count }: { label: string; count: number }) {
 }
 
 function SourceLegend({ exchangeSource }: { exchangeSource: SourceKey }) {
+    // D5: never name the upstream data engine to investors; name the evidence
+    // class instead (exchange filings, transcripts, announcements).
     return (
         <Flex align="center" gap={1.5} mb={3} flexWrap="wrap">
             <SourceMark source={exchangeSource} size={13} />
-            <SourceMark source="voyager" size={13} muted />
             <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
-                All criteria scored from exchange filings, served via Voyager
+                Scored from exchange filings and company disclosures
             </Text>
         </Flex>
     );
@@ -1904,7 +1544,7 @@ function QualCard({
                                 "& a": { color: "var(--accent-primary)", textDecoration: "underline" },
                             }}
                         >
-                            <ReactMarkdown>{paramData.analysis || "_No analysis available_"}</ReactMarkdown>
+                            <ReactMarkdown>{stripScoreScaffolding(paramData.analysis) || "_No analysis available_"}</ReactMarkdown>
                         </Box>
                     )}
                 </Box>
@@ -2119,7 +1759,7 @@ function SourcesDetail({
                     Run Details
                 </Text>
                 <VStack gap={1} align="stretch" fontSize="13px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
-                    {analysis.model && <Text>Model: {analysis.model}</Text>}
+                    {analysis.model && <Text><ModelLogo model={analysis.model} size={12} /> Model: {analysis.model}</Text>}
                     {analysis.source && <Text>Source: {analysis.source}</Text>}
                     {analysis.agent_name && <Text>Agent: {agentName(analysis.agent_name)}</Text>}
                     {analysis.duration != null && <Text>Duration: {formatDuration(analysis.duration)}</Text>}

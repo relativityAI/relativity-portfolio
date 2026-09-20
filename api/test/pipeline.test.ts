@@ -100,41 +100,43 @@ describe("evaluateMetric", () => {
 
   it("scores gt full when above threshold", () => {
     const e = evaluateMetric({ returnonequity: 20 }, { ...base, metric: "roe", operator: "gt", value: 15 }, "asset_evaluation");
-    expect(e.score).toBe(1);
+    expect(e.score).toBe(100);
   });
 
   it("decays linearly toward threshold", () => {
     // threshold 15, spread max(15,1)*0.5=7.5 → value 12 sits 4.5/7.5 up the ramp
     const e = evaluateMetric({ x: 12 }, { ...base, metric: "x", operator: "gt", value: 15 }, "asset_evaluation");
-    expect(e.score).toBeCloseTo(0.6, 3);
+    expect(e.score).toBeCloseTo(60, 0);
   });
 
   it("handles between with upper bound", () => {
     const e = evaluateMetric({ x: 7 }, { ...base, metric: "x", operator: "between", value: 5, value_upper: 10 }, "asset_evaluation");
-    expect(e.score).toBe(1);
+    expect(e.score).toBe(100);
     const outside = evaluateMetric({ x: 20 }, { ...base, metric: "x", operator: "between", value: 5, value_upper: 10 }, "asset_evaluation");
     expect(outside.score).toBe(0);
   });
 
   it("evaluates dates binary", () => {
     const e = evaluateMetric({ d: "2024-06-01" }, { ...base, metric: "d", metric_type: "date", operator: "after", value: "2024-01-01" }, "asset_evaluation");
-    expect(e.score).toBe(1);
+    expect(e.score).toBe(100);
   });
 
   it("evaluates text case-insensitively", () => {
     const e = evaluateMetric({ t: "Yes" }, { ...base, metric: "t", metric_type: "text", operator: "eq", value: "yes" }, "asset_evaluation");
-    expect(e.score).toBe(1);
+    expect(e.score).toBe(100);
   });
 
-  it("flags price-derived criteria as unavailable instead of failing hard", () => {
+  it("flags price-derived criteria as UNSCORED, never zero (plan A5)", () => {
     const e = evaluateMetric({}, { ...base, metric: "pe", category: "valuation", operator: "lt", value: 20 }, "asset_evaluation", "unavailable");
     expect(e.price_unavailable).toBe(true);
-    expect(e.score).toBe(0);
+    expect(e.score).toBeNull();
+    expect(e.unscored_reason).toBe("price_unavailable");
   });
 
-  it("missing data scores 0 with weight kept", () => {
+  it("missing data is UNSCORED with weight kept (unknown ≠ 0, plan A5)", () => {
     const e = evaluateMetric({}, { ...base, metric: "nope", operator: "gt", value: 1 }, "asset_evaluation");
-    expect(e.score).toBe(0);
+    expect(e.score).toBeNull();
+    expect(e.unscored_reason).toBe("missing_data");
     expect(e.weightage).toBe(5);
   });
 });
@@ -146,8 +148,24 @@ describe("runQuantitative", () => {
       macro_evaluation: { quantitative: [{ metric: "b", metric_type: "number", operator: "gt", value: 0, weightage: 1 }] },
     };
     const r = runQuantitative(agent, { a: 5, b: -5 }, "live");
-    // a=1 (w3), b=0 (w1) → 0.75 → 75
+    // a=100 (w3), b=0 (w1) → 75
     expect(r.quantitative_score).toBe(75);
+  });
+
+  it("missing metrics reduce coverage instead of scoring zero (plan 0.3)", () => {
+    const agent = {
+      asset_evaluation: {
+        quantitative: [
+          { metric: "a", metric_type: "number", operator: "gt", value: 0, weightage: 3 },
+          { metric: "missing_metric", metric_type: "number", operator: "gt", value: 0, weightage: 3 },
+        ],
+      },
+    };
+    const r = runQuantitative(agent, { a: 5 }, "live");
+    expect(r.quantitative_score).toBe(100);
+    expect(r.coverage).toBe(0.5);
+    expect(r.fit_low).toBe(50);
+    expect(r.fit_high).toBe(100);
   });
 });
 
@@ -186,10 +204,10 @@ describe("buildFieldList", () => {
 });
 
 describe("investorProfileLine", () => {
-  it("joins horizon and risk", () => {
-    expect(investorProfileLine({ investment_horizon: "Long-term (years)", risk_appetite: "Conservative" })).toBe(
-      "Investor profile — Investment horizon: Long-term (years). Risk appetite: Conservative.",
-    );
+  it("investorProfileLine joins horizon and risk (full persona, plan B1)", () => {
+    const line = investorProfileLine({ investment_horizon: "Long-term (years)", risk_appetite: "Conservative" });
+    expect(line).toContain("Investment horizon: Long-term (years)");
+    expect(line).toContain("Risk appetite: Conservative");
   });
 
   it("empty when nothing configured", () => {
@@ -386,7 +404,7 @@ describe("runQualitative recovery", () => {
     const { keys, ctx, parameter } = qualContext();
     const res = await runQualitative("openai/gpt-4o-mini", keys, ctx, parameter, [], false, "sparse", "Investor profile.", () => {});
     expect(res.error).toBeTruthy();
-    expect(res.score).toBe(0);
+    expect(res.score).toBeNull();
     expect(res.analysis).toContain("Research gathered by the tools");
     expect(res.analysis).toContain("web_search");
   });
