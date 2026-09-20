@@ -19,6 +19,7 @@ import AnalysisList from "./pages/AnalysisList";
 import Analysis from "./pages/Analysis";
 import AnalysisResult from "./pages/AnalysisResult";
 import Settings from "./pages/Settings";
+import Guide from "./pages/Guide";
 import NotFound from "./pages/NotFound";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
@@ -91,7 +92,7 @@ function BuilderRedirect() {
   return <Navigate to={id ? `/agent/${id}` : "/agent/new"} replace />;
 }
 
-const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/thank-you", "/auth/callback"];
+const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/thank-you", "/auth/callback", "/guide"];
 
 function AppRoutes() {
   const location = useLocation();
@@ -109,6 +110,7 @@ function AppRoutes() {
       if (path === "/analysis-list") return "Analysis List";
       if (path.startsWith("/analysis-result/")) return "Analysis Result";
       if (path === "/settings") return "Settings";
+      if (path === "/guide") return "Guide";
       return "Relativity AI";
     };
 
@@ -209,6 +211,7 @@ function AppRoutes() {
                         </Protected>
                       }
                     />
+                    <Route path="/guide" element={<Guide />} />
                     <Route path="/privacy" element={<Privacy />} />
                     <Route path="/terms" element={<Terms />} />
                     <Route path="/thank-you" element={<ThankYou />} />

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import {
     Flex, Text, Box, Button, Input, VStack, HStack, Spinner
 } from "@chakra-ui/react";
+import { Link } from "react-router-dom";
 import { MdCheck, MdVisibility, MdVisibilityOff, MdDelete, MdLockOutline } from "react-icons/md";
 import { toaster } from "@/components/ui/toaster";
 import { SettingsService } from "@/db";
@@ -364,6 +365,17 @@ export default function Settings() {
                             </Text>
                             <Text fontSize="13px" color="var(--ink-secondary)">
                                 Manage the API keys used to run analyses. Optional — skip them to run on our servers with the default model.
+                            </Text>
+                            <Text
+                                as={Link}
+                                to="/guide"
+                                fontSize="12.5px"
+                                fontWeight={500}
+                                color="var(--accent-primary)"
+                                mt={1}
+                                _hover={{ color: "var(--ink-primary)" }}
+                            >
+                                New here? Follow the API key guide →
                             </Text>
                         </Flex>
                         <Text
