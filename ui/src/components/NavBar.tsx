@@ -4,7 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { runHealthCheck, hasRequiredKeys } from "../utils"
 import { SettingsService, AnalysisService, AgentService } from "@/db";
 import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout, MdWarning } from "react-icons/md";
-import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX } from "react-icons/lu";
+import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX, LuBookOpen } from "react-icons/lu";
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { useAuth } from "@/auth/useAuth";
 import { motion } from "motion/react";
@@ -120,6 +120,7 @@ export default function NavBar() {
         { to: "/", icon: MdAddCircleOutline, label: "New Analysis" },
         { to: "/agents", icon: MdOutlinePeople, label: "Agents" },
         { to: "/analysis-list", icon: MdOutlineAssessment, label: "Analysis" },
+        { to: "/guide", icon: LuBookOpen, label: "Guide" },
         { to: "/settings", icon: MdOutlineSettings, label: "Settings" },
     ]
 
@@ -160,6 +161,7 @@ export default function NavBar() {
                         { to: "/", icon: MdAddCircleOutline, label: "New Analysis" },
                         { to: "/agents", icon: MdOutlinePeople, label: "Agents" },
                         { to: "/analysis-list", icon: MdOutlineAssessment, label: "Analysis" },
+                        { to: "/guide", icon: LuBookOpen, label: "Guide" },
                         { to: "/settings", icon: MdOutlineSettings, label: "Settings" },
                     ].map((item) => {
                         const active = location.pathname === item.to || (item.to !== "/" && location.pathname.startsWith(item.to));

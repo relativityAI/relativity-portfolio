@@ -110,6 +110,9 @@ export default function Landing() {
             </Text>
           </Flex>
           <Flex align="center" gap={2}>
+            <Button size="sm" variant="ghost" color="var(--ink-secondary)" _hover={{ color: "var(--ink-primary)" }} onClick={() => navigate("/guide")}>
+              Guide
+            </Button>
             <Button size="sm" variant="outline" onClick={() => navigate("/login")}>
               Log in
             </Button>

@@ -20,6 +20,15 @@ export default function Footer() {
       <Flex gap={4}>
         <Text
           as={Link}
+          to="/guide"
+          fontSize="xs"
+          color="fg.muted"
+          _hover={{ color: "fg" }}
+        >
+          Guide
+        </Text>
+        <Text
+          as={Link}
           to="/privacy"
           fontSize="xs"
           color="fg.muted"
