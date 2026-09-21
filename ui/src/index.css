@@ -2,6 +2,7 @@
   /* Surfaces */
   --surface-canvas: #FAFAF9;
   --surface-panel: #FFFFFF;
+  --surface-floating: #FFFFFF;
   --surface-recessed: #F4F4F3;
   --surface-inverse: #101215;
   --hairline: #D9D9D5;
@@ -36,27 +37,15 @@
   --font-tabular: 'IBM Plex Mono', 'Inter', monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface-canvas: #0B0D10;
-    --surface-panel: #14171B;
-    --surface-recessed: #0F1114;
-    --surface-inverse: #060709;
-    --hairline: #343B43;
-    --grid-line: #414A54;
-
-    --ink-primary: #EDEDEC;
-    --ink-secondary: #9AA0A6;
-    --ink-tertiary: #5B6167;
-
-    --blob-opacity: 0.22;
-  }
-}
-
-/* Also handle Chakra dark mode class */
+/* Dark theme. Driven ONLY by the theme class on <html> (next-themes sets
+   class="light" / class="dark"). Deliberately no @media (prefers-color-scheme)
+   override here: the user-selected theme must always win over the OS
+   preference. index.html applies the initial class before first paint so there
+   is no flash. */
 html.dark {
   --surface-canvas: #0B0D10;
   --surface-panel: #14171B;
+  --surface-floating: #1A1E24;
   --surface-recessed: #0F1114;
   --surface-inverse: #060709;
   --hairline: #343B43;
