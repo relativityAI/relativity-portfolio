@@ -8,6 +8,26 @@
   <title>Relativity AI Portfolio</title>
   <meta name="description" content="AI-powered investment research platform. Create agents that capture your investing style and dig through filings, news, and numbers — everything cited." />
 
+  <!-- Apply the saved/OS theme class before first paint so the page renders in
+       the right color mode immediately. Mirrors next-themes (storage key
+       "theme", attribute "class", default "system"); next-themes re-applies it
+       on mount, so this only covers the pre-hydration window and prevents a
+       flash. The site's CSS tokens are driven solely by .dark/.light on <html>,
+       so this class must exist before any layout happens. -->
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("theme");
+        var dark =
+          stored === "dark" ||
+          ((!stored || stored === "system") &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.add(dark ? "dark" : "light");
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      } catch (e) {}
+    })();
+  </script>
+
   <!-- Favicon set -->
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
