@@ -13,7 +13,7 @@ export default function AuthCallback() {
     }, [loading, user, navigate]);
 
     return (
-        <Center minH="calc(100vh - 56px)">
+        <Center minH="calc(100vh - 44px)">
             <Spinner size="lg" />
         </Center>
     );

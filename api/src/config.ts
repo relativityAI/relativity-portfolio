@@ -94,7 +94,7 @@ export const config = {
   // AES-256-GCM key for encrypting stored API keys (64 hex chars = 32 bytes)
   encryptionKey: process.env.ENCRYPTION_KEY || "",
   // Voyager
-  voyagerUrl: process.env.VOYAGER_URL || "https://voyager-1hpq.onrender.com",
+  voyagerUrl: process.env.VOYAGER_URL || "https://voyager-api-0csb.onrender.com",
   voyagerAdminKey: process.env.VOYAGER_ADMIN_KEY || "",
   voyagerRpm: Number(process.env.VOYAGER_RPM || 60),
   // Server-side LLM key pools + model lists + daily caps (multiple keys per provider)

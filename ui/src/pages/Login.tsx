@@ -81,7 +81,7 @@ export default function Login() {
     } as const;
 
     return (
-        <Flex minH="calc(100vh - 56px)" align="center" justify="center" p={6} position="relative" overflow="hidden">
+        <Flex minH="calc(100vh - 44px)" align="center" justify="center" p={6} position="relative" overflow="hidden">
             <Helmet>
                 <title>Sign in | Relativity AI</title>
                 <meta name="description" content="Build an investor agent that scores stocks against your thesis. Sign in with Google." />
