@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Flex, Text, IconButton, Drawer, Separator, Menu, Popover, Box } from "@chakra-ui/react"
+import { Flex, Text, IconButton, Drawer, Separator, Menu, Badge, Box } from "@chakra-ui/react"
 import { Link, useLocation } from "react-router-dom";
 import { runHealthCheck, hasRequiredKeys } from "../utils"
 import { SettingsService, AnalysisService, AgentService } from "@/db";
@@ -116,6 +116,7 @@ export default function NavBar() {
         };
     }, []);
 
+    // Single source for both desktop links and the mobile drawer.
     const navLinks = [
         { to: "/", icon: MdAddCircleOutline, label: "New Analysis" },
         { to: "/agents", icon: MdOutlinePeople, label: "Agents" },
@@ -130,46 +131,65 @@ export default function NavBar() {
         return null;
     }
 
-    const navLabel = (item: { to: string; label: string }) => {
-        const count = navCount(item.to);
-        return count !== null && count > 0 ? `${item.label} (${count})` : item.label;
-    }
+    const isNavActive = (to: string) =>
+        location.pathname === to || (to !== "/" && location.pathname.startsWith(to));
 
     const apiOk = !!systemStatus.api;
     const dbOk = !!systemStatus.db;
     const voyagerOk = !!systemStatus.voyagerApi;
+    // The account menu's status dot must reflect all three signals.
+    const allOk = apiOk && dbOk && voyagerOk;
+
+    const StatusRow = ({ icon: Icon, label, ok }: { icon: typeof LuWebhook; label: string; ok: boolean }) => (
+        <Flex justify="space-between" align="center" minH="24px">
+            <Flex gap={1.5} align="center">
+                <Icon size={12} color="var(--chakra-colors-fg-muted)" />
+                <Text fontSize="xs" fontWeight="500">{label}</Text>
+            </Flex>
+            {ok ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+        </Flex>
+    );
 
     return (
-        <Flex 
-            paddingX={{ base: 4, md: 8 }} 
-            paddingY={2} 
-            borderBottom="1px solid" 
-            borderColor="border" 
-            justify={"space-between"} 
+        <Flex
+            paddingX={{ base: 3, md: 8 }}
+            paddingY={0.5}
+            borderBottom="1px solid"
+            borderColor="border"
+            justify={"space-between"}
             align={"center"}
             bg="bg.subtle"
-            height="56px"
+            height="44px"
         >
-            <Flex align="center" gap={{ base: 8, md: 4, lg: 8 }}>
-                <Flex align="center" gap={2}>
-                    <img src={logoMark} alt="Relativity logo" style={{ height: "30px", width: "auto", borderRadius: 8 }} />
-                    <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
+            <Flex align="center" gap={{ base: 5, md: 4, lg: 8 }} minW={0} flexShrink={1}>
+                <Flex align="center" gap={2} minW={0}>
+                    <img src={logoMark} alt="Relativity logo" style={{ height: "20px", width: "auto", borderRadius: 5, flexShrink: 0 }} />
+                    <Text
+                        fontWeight={"bold"}
+                        fontSize={{ base: "xs", md: "sm" }}
+                        letterSpacing="tight"
+                        color="fg"
+                        overflow="hidden"
+                        textOverflow="ellipsis"
+                        whiteSpace="nowrap"
+                        css={{ "@media (max-width: 379px)": { display: "none" } }}
+                    >
+                        RELATIVITY
+                    </Text>
                 </Flex>
-                
-                <Flex gap={{ base: 6, md: 3, lg: 6 }} align="center" display={{ base: "none", md: "flex" }}>
-                    {[
-                        { to: "/", icon: MdAddCircleOutline, label: "New Analysis" },
-                        { to: "/agents", icon: MdOutlinePeople, label: "Agents" },
-                        { to: "/analysis-list", icon: MdOutlineAssessment, label: "Analysis" },
-                        { to: "/guide", icon: LuBookOpen, label: "Guide" },
-                        { to: "/settings", icon: MdOutlineSettings, label: "Settings" },
-                    ].map((item) => {
-                        const active = location.pathname === item.to || (item.to !== "/" && location.pathname.startsWith(item.to));
+
+                <Flex gap={{ md: 3, lg: 6 }} align="center" display={{ base: "none", md: "flex" }} minW={0}>
+                    {navLinks.map((item) => {
+                        const active = isNavActive(item.to);
+                        const count = navCount(item.to);
                         return (
                             <Link key={item.to} to={item.to}>
                                 <Flex gap={1.5} align="center" position="relative" py={1}>
                                     <item.icon size={16} color={active ? "var(--chakra-colors-fg)" : "var(--chakra-colors-fg-muted)"} />
-                                    <Text fontSize={{ md: "xs", lg: "sm" }} whiteSpace="nowrap" flexShrink={0} fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{navLabel(item)}</Text>
+                                    <Text fontSize={{ md: "xs", lg: "sm" }} whiteSpace="nowrap" flexShrink={0} fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{item.label}</Text>
+                                    {count !== null && count > 0 && (
+                                        <Badge size="xs" variant="subtle" colorPalette="gray" borderRadius="full">{count}</Badge>
+                                    )}
                                     {item.to === "/settings" && missingKeys && (
                                         <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
                                     )}
@@ -181,82 +201,32 @@ export default function NavBar() {
                 </Flex>
             </Flex>
 
-            <Flex justify={"flex-end"} gap={{ base: 2, md: 2, lg: 4 }} align="center">
+            <Flex justify={"flex-end"} gap={{ base: 1.5, md: 2 }} align="center" flexShrink={0}>
                 <IconButton
                     aria-label="Open navigation menu"
-                    variant="subtle"
-                    size="sm"
+                    variant="ghost"
+                    size="xs"
                     display={{ base: "flex", md: "none" }}
                     color="fg.muted"
                     _hover={{ color: "fg", bg: "bg.muted" }}
                     onClick={() => setNavOpen(true)}
                 >
-                    <LuMenu size={16} />
+                    <LuMenu size={15} />
                 </IconButton>
-                <ColorModeButton />
-                <Popover.Root>
-                    <Popover.Trigger asChild>
-                        <IconButton
-                            aria-label="System status"
-                            variant="subtle"
-                            size="sm"
-                            color={apiOk && dbOk ? "fg.muted" : "red.500"}
-                            _hover={{ color: "fg" }}
-                        >
-                            <LuSatellite size={16} />
-                        </IconButton>
-                    </Popover.Trigger>
-                    <Popover.Positioner>
-                        <Popover.Content width="220px">
-                            <Popover.Arrow>
-                                <Popover.ArrowTip />
-                            </Popover.Arrow>
-                            <Popover.Header fontWeight="semibold" fontSize="xs">
-                                System Status
-                            </Popover.Header>
-                            <Popover.Body>
-                                <Flex direction="column" gap={2}>
-                                    <Flex justify="space-between" align="center">
-                                        <Flex gap={1.5} align="center">
-                                            <LuWebhook size={12} color="var(--chakra-colors-fg-muted)" />
-                                            <Text fontSize="xs" fontWeight="500">API</Text>
-                                        </Flex>
-                                        {apiOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
-                                    </Flex>
-                                    <Flex justify="space-between" align="center">
-                                        <Flex gap={1.5} align="center">
-                                            <LuDatabase size={12} color="var(--chakra-colors-fg-muted)" />
-                                            <Text fontSize="xs" fontWeight="500">DB</Text>
-                                        </Flex>
-                                        {dbOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
-                                    </Flex>
-                                    <Flex justify="space-between" align="center">
-                                        <Flex gap={1.5} align="center">
-                                            <LuSatellite size={12} color="var(--chakra-colors-fg-muted)" />
-                                            <Text fontSize="xs" fontWeight="500">
-                                                Data Provider{" "}
-                                                <Text as="span" color="fg.muted" fontWeight="400">(Voyager)</Text>
-                                            </Text>
-                                        </Flex>
-                                        {voyagerOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
-                                    </Flex>
-                                </Flex>
-                            </Popover.Body>
-                        </Popover.Content>
-                    </Popover.Positioner>
-                </Popover.Root>
+                <ColorModeButton size="xs" variant="ghost" />
                 <Menu.Root>
                     <Menu.Trigger asChild>
                         <Flex
                             align="center"
                             justify="center"
-                            minW="28px"
-                            minH="28px"
+                            minW="26px"
+                            minH="26px"
                             borderRadius="full"
-                            bg="blue.solid"
+                            bg={allOk ? "blue.solid" : "red.solid"}
                             cursor="pointer"
                             _hover={{ opacity: 0.85 }}
                             title={email || "Account"}
+                            position="relative"
                         >
                             <Text
                                 fontSize="xs"
@@ -265,6 +235,20 @@ export default function NavBar() {
                             >
                                 {initials}
                             </Text>
+                            {!allOk && (
+                                <Box
+                                    position="absolute"
+                                    top="-1px"
+                                    right="-1px"
+                                    w="9px"
+                                    h="9px"
+                                    borderRadius="full"
+                                    bg="red.solid"
+                                    border="2px solid"
+                                    borderColor="bg.subtle"
+                                    aria-label="System issue detected"
+                                />
+                            )}
                         </Flex>
                     </Menu.Trigger>
                     <Menu.Positioner>
@@ -282,6 +266,27 @@ export default function NavBar() {
                                     {email}
                                 </Text>
                             </Flex>
+                            <Menu.Separator />
+                            <Menu.ItemGroup id="status" label="System status">
+                                <Menu.Item value="status-api" closeOnSelect={false} cursor="default">
+                                    <LuWebhook size={15} color="var(--chakra-colors-fg-muted)" />
+                                    API
+                                    <Box flex={1} />
+                                    {apiOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                                </Menu.Item>
+                                <Menu.Item value="status-db" closeOnSelect={false} cursor="default">
+                                    <LuDatabase size={15} color="var(--chakra-colors-fg-muted)" />
+                                    Database
+                                    <Box flex={1} />
+                                    {dbOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                                </Menu.Item>
+                                <Menu.Item value="status-voyager" closeOnSelect={false} cursor="default">
+                                    <LuSatellite size={15} color="var(--chakra-colors-fg-muted)" />
+                                    Data provider (Voyager)
+                                    <Box flex={1} />
+                                    {voyagerOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
+                                </Menu.Item>
+                            </Menu.ItemGroup>
                             <Menu.Separator />
                             <Menu.Item value="signout" onClick={() => signOut()}>
                                 <MdOutlineLogout size={15} />
@@ -307,11 +312,11 @@ export default function NavBar() {
                             justifyContent="space-between"
                             borderBottom="1px solid var(--hairline)"
                             px={5}
-                            py={4}
+                            py={3}
                         >
-                            <Flex align="center" gap={2}>
-                                <img src={logoMark} alt="Relativity logo" style={{ height: "30px", width: "auto", borderRadius: 8 }} />
-                                <Text fontWeight={"bold"} fontSize="xl" letterSpacing="tight" color="fg">RELATIVITY</Text>
+                            <Flex align="center" gap={2} minW={0}>
+                                <img src={logoMark} alt="Relativity logo" style={{ height: "20px", width: "auto", borderRadius: 5, flexShrink: 0 }} />
+                                <Text fontWeight={"bold"} fontSize="sm" letterSpacing="tight" color="fg">RELATIVITY</Text>
                             </Flex>
                             <Drawer.CloseTrigger asChild>
                                 <IconButton
@@ -328,25 +333,35 @@ export default function NavBar() {
                             </Drawer.CloseTrigger>
                         </Drawer.Header>
                         <Drawer.Body p={0}>
-                            {navLinks.map((item) => (
-                                <Link key={item.to} to={item.to} onClick={() => setNavOpen(false)}>
-                                    <Flex
-                                        gap={3}
-                                        align="center"
-                                        minH="48px"
-                                        px={5}
-                                        borderBottom="1px solid var(--hairline)"
-                                    >
-                                        <item.icon size={16} color="var(--chakra-colors-fg-muted)" />
-                                        <Text fontSize="sm" fontWeight="medium" color="fg.muted" _hover={{ color: "fg" }}>
-                                            {navLabel(item)}
-                                        </Text>
-                                        {item.to === "/settings" && missingKeys && (
-                                            <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
-                                        )}
-                                    </Flex>
-                                </Link>
-                            ))}
+                            {navLinks.map((item) => {
+                                const active = isNavActive(item.to);
+                                const count = navCount(item.to);
+                                return (
+                                    <Link key={item.to} to={item.to} onClick={() => setNavOpen(false)}>
+                                        <Flex
+                                            gap={3}
+                                            align="center"
+                                            minH="48px"
+                                            px={5}
+                                            borderBottom="1px solid var(--hairline)"
+                                            bg={active ? "bg.subtle" : "transparent"}
+                                            borderLeft="3px solid"
+                                            borderLeftColor={active ? "var(--accent-primary)" : "transparent"}
+                                        >
+                                            <item.icon size={16} color={active ? "var(--chakra-colors-fg)" : "var(--chakra-colors-fg-muted)"} />
+                                            <Text fontSize="sm" fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"}>
+                                                {item.label}
+                                            </Text>
+                                            {count !== null && count > 0 && (
+                                                <Badge size="xs" variant="subtle" colorPalette="gray" borderRadius="full">{count}</Badge>
+                                            )}
+                                            {item.to === "/settings" && missingKeys && (
+                                                <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
+                                            )}
+                                        </Flex>
+                                    </Link>
+                                );
+                            })}
 
                             <Flex
                                 gap={2}

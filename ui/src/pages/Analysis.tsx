@@ -495,7 +495,7 @@ function AnalysisSummaryRail(props: {
             >
                 <Box
                     position="sticky"
-                    top="72px"
+                    top="60px"
                     border="1px solid var(--hairline)"
                     borderRadius="2px"
                     bg="var(--surface-panel)"
@@ -1050,7 +1050,6 @@ export default function Analysis() {
             display="flex"
             flexDirection="column"
             mx={{ base: -4, md: -16 }}
-            my="-5"
         >
             <Box flex={1} w="full" minW={0}>
                 <Flex direction="column" maxW="1240px" mx="auto" px={{ base: 4, md: 8 }} py={{ base: 4, md: 6 }}>

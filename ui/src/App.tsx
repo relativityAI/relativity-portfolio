@@ -39,7 +39,7 @@ function Protected({ children }: { children: ReactNode }) {
     <AnimatePresence mode="wait" initial={false}>
       {loading ? (
         <motion.div key="loading" exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }}>
-          <Center minH="calc(100vh - 56px)">
+          <Center minH="calc(100vh - 44px)">
             <Spinner size="lg" />
           </Center>
         </motion.div>
@@ -59,7 +59,7 @@ function Home() {
     <AnimatePresence mode="wait" initial={false}>
       {loading ? (
         <motion.div key="loading" exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }}>
-          <Center minH="calc(100vh - 56px)">
+          <Center minH="calc(100vh - 44px)">
             <Spinner size="lg" />
           </Center>
         </motion.div>
@@ -128,7 +128,7 @@ function AppRoutes() {
       {user && locationPath !== "/settings" && <ApiKeySetupDialog key={user.id} user={user} />}
       {showNav && <NavBar />}
 
-        <Box w="100%" flex={1} overflowY="auto" overflowX="hidden" paddingX={isLanding ? 0 : { base: 4, md: 16 }} marginY={isLanding ? 0 : 5}>
+        <Box w="100%" flex={1} overflowY="auto" overflowX="hidden" paddingX={isLanding ? 0 : { base: 4, md: 16 }}>
             <AnimatePresence mode="wait">
               <motion.div key={location.pathname} variants={page} style={{ height: "100%" }} initial="initial" animate="animate" exit="exit">
                 <Suspense fallback={<PageFallback />}>

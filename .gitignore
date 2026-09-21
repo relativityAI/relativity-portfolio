@@ -8,6 +8,10 @@ api/.env
 ui/.env
 
 .agents/
+.freebuff/
+api/test-post.js
+
+
 
 # stuff
 archives
