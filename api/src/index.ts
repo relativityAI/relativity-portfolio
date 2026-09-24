@@ -599,7 +599,7 @@ app.get("/analysis/data-status", requireAuth, async (req, res) => {
       keyed: true,
       is_fresh: isFresh,
       freshness_threshold_ms: FRESHNESS_FUNDAMENTAL_MS,
-      pull_supported: cs.source === "nse",
+      pull_supported: true,
     });
   } catch (e: any) {
     const status = e?.status;
@@ -617,7 +617,7 @@ app.get("/analysis/data-status", requireAuth, async (req, res) => {
       keyed: true,
       error: message,
       is_fresh: false,
-      pull_supported: cs.source === "nse",
+      pull_supported: true,
     });
   }
 });
