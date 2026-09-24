@@ -70,6 +70,16 @@ export const config = {
   get quantLlmJudge() {
     return process.env.QUANT_LLM_JUDGE === "1";
   },
+  // Quant soft-decay change (D3): spread = max(|t|×0.5, metric.minSpread),
+  // default OFF until sign-off. Keeps v1 decay (|t|×0.5 only) when unset.
+  get quantSpreadV2() {
+    return process.env.QUANT_SPREAD_V2 === "1";
+  },
+  // Rubric compiler model (plan D1): strong LLM that decomposes qualitative
+  // parameters into atomic criteria. Unset → strongest configured model.
+  get rubricCompilerModel() {
+    return process.env.RUBRIC_COMPILER_MODEL || "";
+  },
   // read_pdf SSRF guard (plan 0.5/C1): allowed download hosts. Matched as a
   // suffix so subdomains work ("nseindia.com" allows "www.nseindia.com").
   pdfHostAllowlist: parseCsv(process.env.PDF_HOST_ALLOWLIST).length

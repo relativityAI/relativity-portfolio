@@ -1,7 +1,13 @@
+import { FEATURE_KEYS, MIN_SPREAD, unitForMetricType, type Unit } from "./units.js";
+
 export interface MetricDef {
   id: string;
   name: string;
   type: "number" | "percentage" | "currency" | "date" | "text";
+  /** Canonical unit for this metric; defaults to unitForMetricType(type). */
+  unit?: Unit;
+  /** Minimum soft-decay spread (D3); defaults to MIN_SPREAD[unit]. */
+  minSpread?: number;
 }
 
 export interface MetricCategory {
@@ -120,7 +126,30 @@ export function findMetricId(metric: string): string | null {
       if (m.name.toLowerCase().replace(/[^a-z0-9]/g, "") === target) return m.id;
     }
   }
-  return null;
+  // History-feature keys (roe_min_10y, op_margin_slope_5y, ...) resolve to
+  // themselves so quantified rules can reference computed features (plan §6.2).
+  const feature = FEATURE_KEYS.find((k) => k.replace(/[^a-z0-9]/g, "") === target);
+  return feature ?? null;
+}
+
+/** Canonical unit for a metric id or stored rule (D3 spread calc). */
+export function unitForMetric(id: string, metricType?: string): Unit {
+  for (const cat of CATALOG) {
+    for (const m of cat.metrics) {
+      if (m.id === id) return m.unit ?? unitForMetricType(m.type);
+    }
+  }
+  return unitForMetricType(metricType);
+}
+
+/** Minimum soft-decay spread for a metric; catalog override wins (D3). */
+export function minSpreadFor(id: string, metricType?: string): number {
+  for (const cat of CATALOG) {
+    for (const m of cat.metrics) {
+      if (m.id === id) return m.minSpread ?? MIN_SPREAD[unitForMetric(id)];
+    }
+  }
+  return MIN_SPREAD[unitForMetric(id, metricType)];
 }
 
 // Resolve quantitative rule metric references: builder LLMs and the manual

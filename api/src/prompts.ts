@@ -34,19 +34,19 @@ Rules:
 - The FINAL_SCORE line must be the last line of your response and contain only the integer.`;
 
 export function buildScoreRecoveryPrompt(analysis: string): string {
-  return `The following investment analysis is missing a parsable FINAL_SCORE line. Read it and reply with ONLY the final score as an integer between 0 and 100.\n\n${analysis.slice(0, 6000)}`;
+  return `The following investment analysis is missing a parsable final score. Read it and return a JSON object {"score": <integer between 0 and 100>} reflecting how well the requirement is met.\n\n${analysis.slice(0, 6000)}`;
 }
 
 // No-tools follow-up pass: the tool loop may end (step cap / empty stream)
 // before the model writes its closing verdict, so we hand it back a fresh,
-// tool-less turn whose only job is to produce the FINAL_SCORE verdict.
+// tool-less turn whose only job is to produce the verdict. The verdict is
+// typed JSON (score + text), not a FINAL_SCORE line to regex-scrape.
 export const QUALITATIVE_VERDICT_SYSTEM_PROMPT = `You are a concise equity researcher writing the FINAL verdict for a single qualitative requirement. No tools are available, so base the verdict STRICTLY on the research notes supplied — never on your own memory of the company (plan 0.6 / A11). If the notes are empty or too thin to judge a criterion, that criterion is unverifiable.
 
-Write a short, well-structured markdown verdict (a few sentences, optionally a couple of bullets). Your response MUST end with a single line in exactly this format, nothing after it:
+Write a short, well-structured verdict (a few sentences, optionally a couple of bullets) and return it as a JSON object:
+{"score": <integer 0-100>, "verdictText": "<your markdown verdict>"}
 
-FINAL_SCORE: NN
-
-where NN is an integer from 0 to 100 reflecting how well the requirement is met by the SUPPLIED EVIDENCE ONLY (0 = not met, 100 = fully met). Weight unverifiable items toward a lower score and say explicitly what could not be verified.`;
+"score" is an integer from 0 to 100 reflecting how well the requirement is met by the SUPPLIED EVIDENCE ONLY (0 = not met, 100 = fully met). Weight unverifiable items toward a lower score and say explicitly what could not be verified.`;
 
 export function buildVerdictRecoveryPrompt(
   parameter: { parameter: string; content?: string; section?: string },
@@ -61,7 +61,7 @@ export function buildVerdictRecoveryPrompt(
       ? `\nResearch notes already gathered for this requirement (your ONLY evidence source):\n${researchText.trim().slice(0, 16000)}`
       : "\nNO research notes were captured. Every criterion must be marked unverifiable — say so explicitly and score low. Do NOT fill gaps from memory.",
   ].filter(Boolean);
-  return [...parts, `\nWrite the FINAL verdict for "${parameter.parameter}" and end with the FINAL_SCORE line.`].join("\n\n");
+  return [...parts, `\nWrite the FINAL verdict for "${parameter.parameter}" as JSON: {"score": <0-100>, "verdictText": "<markdown verdict>"}.`].join("\n\n");
 }
 
 export const ANALYSIS_PLAN_SYSTEM_PROMPT = `You are the strategy lead of an equity-analysis harness. Before any scoring happens you receive: the investor agent's persona, the configured quantitative rules with their actual figures and deterministic scores, the qualitative parameters, the data-quality situation, web-search availability, and the tool catalog. Your job is to decide HOW the run should proceed — you do not score anything.
@@ -255,6 +255,10 @@ Your voice:
 
 Structure your output as an ordered sequence of blocks (heading, paragraph, table, chart, callout, quote) that read as one continuous report — never as separate silos for quantitative vs. qualitative findings. A paragraph making a claim can be immediately followed by the table or chart that supports it.
 
+Attribution — every claim must name the exact data point behind it:
+- For each paragraph that makes a factual, scored, or comparative claim, set "citedKeys" to the metric_name / parameter name (or metric key) that backs it, e.g. ["PE", "ROE"]. Never leave it empty, never invent a key that was not given to you, and never attach keys to pure connective prose. If a statement has no backing data point, it does not belong in the report.
+- For each table and chart, set "sourceKeys" to the metric_name / parameter names the block's numbers came from. The deterministic score-summary tables are code-rendered; yours are the narrative tables/charts only.
+
 Chart discipline — choose deliberately by data shape, do not chart by default:
 - A share/ownership/percentage split of a whole -> pie.
 - Multiple weighted pillars compared at once (asset vs. macro, or several qualitative parameters side by side) -> radar.
@@ -263,6 +267,7 @@ Chart discipline — choose deliberately by data shape, do not chart by default:
 - A real observational series the analysts actually pulled via tools (e.g. quarterly revenue, shareholding % across holders) may be plotted with the type that fits its shape — those figures appear in the tool observations below. Plot them only if the decision actually turned on them.
 - Exact line-item figures a reader needs to scan precisely -> a table, never a chart.
 - Never chart a single scalar value on its own.
+- Never emit a chart whose values are identical across the series (it shows nothing a sentence cannot), and no line/area with fewer than 3 observed points — the same data becomes a table instead.
 
 Before finalizing, re-check your own output and revise anything that fails this list:
 1. Does every chart compare multiple values or show a trend or split, never a single number?
@@ -270,6 +275,7 @@ Before finalizing, re-check your own output and revise anything that fails this 
 3. Does every parameter with errors, insufficient data, or partial credit get surfaced honestly, not smoothed into a confident average?
 4. Have you avoided restating the same figure more than once in different words?
 5. Does the report open with a hook that earns the headline framing, not a restatement of the score?
+6. Does every factual paragraph cite the data point(s) that back it via "citedKeys"?
 
 Do not:
 - Fabricate a source, quote, or figure not present in the input.
@@ -342,8 +348,50 @@ export interface ScoreTable {
   title: string;
   columns: string[];
   rows: ScoreTableRow[];
+  /** Names of the scored criteria/params the table's rows come from (rendered as citations). */
+  sourceKeys?: string[];
 }
 
 export const UNSCORED_LABEL = "N/A";
+
+// ── rubric compiler (plan §6.3) ────────────────────────────────────────────
+
+// Instances where a criterion IS answerable from the feature catalog get a
+// PREDICATE; everything requiring language understanding (management quality,
+// moat evidence in text, risks in filings) becomes a JUDGE criterion.
+export function buildCompileRubricPrompt(input: {
+  investorProfile: string;
+  parameters: { parameter: string; content: string; weightage: number; section: string }[];
+  featureCatalog: string;
+  compilerVersion: string;
+}): string {
+  const items = input.parameters
+    .map(
+      (p) =>
+        `- "${p.parameter}" (section: ${p.section}, weightage ${p.weightage})${p.content ? `\n  Guidelines: ${p.content}` : ""}`,
+    )
+    .join("\n");
+  return [
+    "You compile an investor persona's qualitative checklist into atomic, answerable criteria used to evaluate a single company or market.",
+    "The persona:",
+    input.investorProfile,
+    "",
+    "The feature catalog (deterministic numbers computed from filings):",
+    input.featureCatalog,
+    "",
+    "For EACH qualitative parameter below, output criteria:",
+    "1. 3-8 atomic criteria. Each must be independently answerable YES / PARTIAL / NO purely from evidence (never from your own memory).",
+    "2. Prefer a PREDICATE when the criterion can be computed from the feature catalog: set kind=\"predicate\", requires = the feature keys it reads, expr = a JSON-Logic expression over {\"var\": \"<featureKey>\"} using operators like > >= < <= == and/or, and the custom ops count_gt(series,n,x), slope(series,n), min_last(series,n), pct_change(series,n).",
+    "3. Otherwise kind=\"judge\": provide graded anchors (concrete YES / PARTIAL / NO descriptions of what the evidence must show) and an evidence spec (features consulted, retrieval queries, event_types searched).",
+    "4. Preserve each parameter's weightage exactly. Keep within-parameter weights equal by default.",
+    "5. Macro (market-level) parameters: cap at 3 criteria, prefer JUDGE with retrieval queries about the market, not the company. Value-style agents keep macro lightweight — do not invent criteria the persona does not imply.",
+    "6. Never output a score, weight, or threshold beyond the given weightage. You decompose WHAT to check; you do not check it.",
+    "",
+    "Parameters:",
+    items,
+    "",
+    `Respond as JSON of the compiledRubricSchema (compiler ${input.compilerVersion}).`,
+  ].join("\n");
+}
 
 

@@ -15,6 +15,7 @@ import { processBuilderTurn, extractDocumentSignals, type BuilderRequest } from 
 import { getSchemaDescriptor } from "./schema.js";
 import { getPreset, listPresets, buildSeedAgents } from "./presets.js";
 import { agentFromRow, buildAgentConfig, validateConfig, type AgentRow } from "./agentstore.js";
+import { ensureCompiledRubric, getRubricForAgent, approveRubric, featureCatalogPrompt } from "./rubricStore.js";
 import { parseMd } from "./mdconfig.js";
 import { extractText } from "./upload.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
@@ -25,7 +26,7 @@ import { log, paint } from "./logger.js";
 import { buildReportPdf } from "./pdf.js";
 import { initTelemetry } from "./telemetry.js";
 import { serve } from "inngest/express";
-import { inngest, analysisRunFn } from "./inngest.js";
+import { inngest, analysisRunFn, kbIngestFn } from "./inngest.js";
 import { traceHub, nextSeq, type TraceEvent } from "./trace.js";
 
 // Initialize Langfuse telemetry before any AI SDK calls.
@@ -60,7 +61,7 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
 // Inngest endpoint for durable orchestration functions
-app.use("/api/inngest", serve({ client: inngest, functions: [analysisRunFn] }));
+app.use("/api/inngest", serve({ client: inngest, functions: [analysisRunFn, kbIngestFn] }));
 
 // ---- request context: id + response-body capture (for error logging) ----
 app.use((req, res, next) => {
@@ -429,6 +430,18 @@ app.put("/agents/:id", requireAuth, async (req, res) => {
 
     const { error } = await db.from("agents").update(doc).eq("id", id).eq("user_id", userId);
     if (error) throw error;
+    // v2: compile the rubric on md change (fire-and-forget; a 23505-winner or
+    // missing compiler model simply leaves the last rubric in place).
+    setTimeout(() => {
+      fetchUserKeys(userId)
+        .then(({ llmKeys }) =>
+          ensureCompiledRubric(String(id), md, config.persona?.philosophy_and_mindset || "", [
+            ...config.asset_evaluation.qualitative.map((p: any) => ({ ...p, section: "asset_evaluation" })),
+            ...config.macro_evaluation.qualitative.map((p: any) => ({ ...p, section: "macro_evaluation" })),
+          ], { llmKeys }),
+        )
+        .catch((e: any) => log.warn("[rubric]", `background compile failed for ${id}: ${String(e?.message || e)}`));
+    }, 0);
     res.json({ ...doc, ...config, md, md_issues: issues });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
@@ -454,6 +467,61 @@ app.delete("/agents/:id", requireAuth, async (req, res) => {
       if (setErr) log.error("[agents]", `failed to mark defaults_deleted for ${userId}: ${setErr.message}`);
     }
     res.json({ deleted: true });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+// ---- rubric endpoints (plan §6.3) ----
+app.get("/agents/:id/rubric", requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const id = String(req.params.id);
+    const { data: agent } = await db.from("agents").select("id").eq("id", id).eq("user_id", userId).single();
+    if (!agent) return res.status(404).json({ error: "Agent not found" });
+    const rubric = await getRubricForAgent(id);
+    res.json({ rubric, featureCatalog: featureCatalogPrompt().split("\n") });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+app.post("/agents/:id/rubric/compile", requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const id = String(req.params.id);
+    const { data: row, error } = await db.from("agents").select("*").eq("id", id).eq("user_id", userId).single();
+    if (error || !row) return res.status(404).json({ error: "Agent not found" });
+    const { config: cfg, md } = agentFromRow(row as AgentRow);
+    const { llmKeys } = await fetchUserKeys(userId);
+    const started = Date.now();
+    const outcome = await ensureCompiledRubric(
+      id,
+      md,
+      cfg?.persona?.philosophy_and_mindset || "",
+      [
+        ...(cfg?.asset_evaluation?.qualitative || []).map((p: any) => ({ ...p, section: "asset_evaluation" })),
+        ...(cfg?.macro_evaluation?.qualitative || []).map((p: any) => ({ ...p, section: "macro_evaluation" })),
+      ],
+      { llmKeys },
+    );
+    res.json({ ...outcome, duration_ms: Date.now() - started });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+app.post("/agents/:id/rubric/:rubricId/approve", requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const id = String(req.params.id);
+    const { data: agent } = await db.from("agents").select("id").eq("id", id).eq("user_id", userId).single();
+    if (!agent) return res.status(404).json({ error: "Agent not found" });
+    const rubric = await approveRubric(id, String(req.params.rubricId), userId);
+    res.json({ rubric });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }

@@ -1,5 +1,6 @@
 import { VoyagerClient, VoyagerError, pullRecordCount, type PullStatus } from "./voyager.js";
-import { findMetricId } from "./metrics.js";
+import { findMetricId, minSpreadFor } from "./metrics.js";
+import { toPercent } from "./units.js";
 import { aggregateWeightedScores, type UnscoredReason } from "./scoring.js";
 import { runAgentTurn } from "./harness.js";
 import type { LlmKeys } from "./agent.js";
@@ -380,19 +381,26 @@ export function evaluateMetric(
     } else if (metric_type === "text") {
       s01 = _evaluateText(operator, value, threshold);
     } else {
-      // Numeric types: number, currency, percentage, multiple, ratio.
-      const numValue = toNumber(value);
+      // Numeric types: number, currency, percentage, multiple, ratio. pct
+      // metrics are canonicalized to percent units (0.15 and 15 both → 15).
+      const numValue = metric_type === "percentage" ? toPercent(value) : toNumber(value);
       if (numValue === null) {
         base.unscored_reason = "error";
         return base;
       }
-      const numThreshold = toNumber(threshold);
+      const numThreshold =
+        metric_type === "percentage" ? toPercent(toNumber(threshold)) : toNumber(threshold);
       if (numThreshold === null) {
         base.unscored_reason = "error";
         return base;
       }
       const numUpper = operator === "between" ? toNumber(criterion.value_upper) : undefined;
-      const spread = Math.max(Math.abs(numThreshold), 1.0) * 0.5;
+      // Spread: v1 = |threshold|×0.5 alone; v2 (D3, off until sign-off) also
+      // honours the metric's minimum spread so tiny ratios don't decay to a
+      // knife edge (e.g. PE = 16 → max(8, 0.1) = 8, unchanged).
+      const spread = config.quantSpreadV2
+        ? Math.max(Math.abs(numThreshold) * 0.5, minSpreadFor(key, metric_type))
+        : Math.max(Math.abs(numThreshold), 1.0) * 0.5;
       s01 = _evaluateNumeric(operator, numValue, numThreshold, numUpper ?? undefined, spread);
       s01 = Math.max(0, Math.min(1, s01));
     }

@@ -29,8 +29,10 @@
     "express": "^5.0.0",
     "inngest": "^4.18.1",
     "jose": "^6.2.8",
+    "json-logic-js": "^2.0.5",
     "mammoth": "^1.12.1",
     "multer": "^2.2.0",
+    "p-limit": "^7.3.3",
     "pdf-parse": "^1.1.1",
     "pdfmake": "^0.2.12",
     "yaml": "^2.6.0",
@@ -39,6 +41,7 @@
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
+    "@types/json-logic-js": "^2.0.8",
     "@types/json-schema": "^7.0.15",
     "@types/multer": "^2.2.0",
     "@types/node": "^24.0.0",

@@ -37,21 +37,36 @@ export type ReportBlock =
 
 interface ReportBlockRendererProps {
   blocks: ReportBlock[];
+  /**
+   * Optional map from metric/parameter key → human line ("PE < 20 → 14.2 · score 70")
+   * used to render citedKeys/sourceKeys as concrete data-point captions.
+   */
+  lookup?: Record<string, string>;
 }
 
-export function ReportBlockRenderer({ blocks }: ReportBlockRendererProps) {
+export function ReportBlockRenderer({ blocks, lookup }: ReportBlockRendererProps) {
   return (
     <Box className="report-container">
       {blocks.map((block, idx) => (
         <Box key={idx} mb={5}>
-          {renderBlock(block)}
+          {renderBlock(block, lookup)}
         </Box>
       ))}
     </Box>
   );
 }
 
-function renderBlock(block: ReportBlock) {
+function EvidenceNote({ keys, lookup }: { keys?: string[]; lookup?: Record<string, string> }) {
+  const resolved = (keys || []).filter((k) => k !== "scored_data");
+  if (resolved.length === 0) return null;
+  return (
+    <Text mt={1.5} fontSize="11px" color="var(--ink-tertiary)" lineHeight="1.4">
+      Based on: {resolved.map((k) => lookup?.[k] ?? k).join(" · ")}
+    </Text>
+  );
+}
+
+function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
   switch (block.type) {
     case "heading":
       return (
@@ -85,6 +100,7 @@ function renderBlock(block: ReportBlock) {
           >
             {block.text}
           </ReactMarkdown>
+          <EvidenceNote keys={block.citedKeys} lookup={lookup} />
         </Text>
       );
     case "callout": {
@@ -185,6 +201,7 @@ function renderBlock(block: ReportBlock) {
               </Table.Body>
             </Table.Root>
           </Box>
+          <EvidenceNote keys={block.sourceKeys} lookup={lookup} />
         </Box>
       );
     case "chart":
@@ -200,6 +217,7 @@ function renderBlock(block: ReportBlock) {
               {renderRecharts(block)}
             </ResponsiveContainer>
           </Box>
+          <EvidenceNote keys={block.sourceKeys} lookup={lookup} />
         </Box>
       );
     default:

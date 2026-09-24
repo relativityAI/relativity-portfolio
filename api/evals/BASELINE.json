@@ -1,0 +1,138 @@
+{
+  "predicates": {
+    "roe_floor_yes": {
+      "verdict": "NO",
+      "value": false,
+      "inputs": {
+        "expr": {
+          ">=": [
+            {
+              "min_last": [
+                {
+                  "var": "roe_annual"
+                },
+                5
+              ]
+            },
+            15
+          ]
+        },
+        "value": false
+      }
+    },
+    "roe_floor_no": {
+      "verdict": "NO",
+      "value": false,
+      "inputs": {
+        "expr": {
+          ">=": [
+            {
+              "min_last": [
+                {
+                  "var": "roe_annual"
+                },
+                5
+              ]
+            },
+            40
+          ]
+        },
+        "value": false
+      }
+    },
+    "leverage_ok": {
+      "verdict": "YES",
+      "value": true,
+      "inputs": {
+        "expr": {
+          "<=": [
+            {
+              "var": "net_debt_ebitda"
+            },
+            2
+          ]
+        },
+        "value": true
+      }
+    },
+    "null_propagation": {
+      "verdict": "INSUFFICIENT",
+      "unscored_reason": "missing_data",
+      "inputs": {
+        "requires": [
+          "roe_min_10y"
+        ],
+        "missing_feature": "roe_min_10y"
+      }
+    }
+  },
+  "evidence": {
+    "fact_ids": [
+      "F1",
+      "E2",
+      "C10"
+    ],
+    "hash": "a9d42e48ecbbf616",
+    "token_estimate": 253,
+    "under_hard_cap": true
+  },
+  "chunks": {
+    "chunk_count": 2,
+    "all_within_bounds": true,
+    "doc_hash": "7ca8ff55ce9ad563"
+  },
+  "scoring": {
+    "checklist": {
+      "score": 50,
+      "coverage": 75,
+      "fit_low": 37.5,
+      "fit_high": 62.5,
+      "counts": {
+        "YES": 1,
+        "PARTIAL": 1,
+        "NO": 1,
+        "INSUFFICIENT DATA": 1
+      }
+    },
+    "agg": {
+      "score": 80,
+      "fit_low": 50,
+      "fit_high": 87.5,
+      "coverage": 0.63,
+      "totalWeight": 5,
+      "weightedSum": 400,
+      "allWeight": 8
+    },
+    "total": {
+      "score": 40,
+      "fit_low": 40,
+      "fit_high": 40,
+      "coverage": 1,
+      "totalWeight": 2,
+      "weightedSum": 40,
+      "allWeight": 2
+    }
+  },
+  "rubric": {
+    "Return Durability": {
+      "score": 50,
+      "coverage": 100,
+      "counts": {
+        "YES": 1,
+        "PARTIAL": 0,
+        "NO": 1,
+        "INSUFFICIENT DATA": 0
+      }
+    },
+    "Balance Sheet": {
+      "score": 100,
+      "coverage": 100,
+      "counts": {
+        "YES": 3,
+        "PARTIAL": 0,
+        "NO": 0,
+        "INSUFFICIENT DATA": 0
+      }
+    }
+  }
+}

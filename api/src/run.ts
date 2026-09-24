@@ -15,6 +15,12 @@ import type { LlmKeys, TraceCallback } from "./agent.js";
 import { log } from "./logger.js";
 import { inngest } from "./inngest.js";
 import { TraceCollector, traceHub } from "./trace.js";
+import { mdHash, loadRubricForMd } from "./rubricStore.js";
+import { deriveFeatures, persistFeatures, FEATURES_DATA_VERSION } from "./kb/features.js";
+import { loadKbRows } from "./kb/store.js";
+import { scoreRubric, parameterOutcomesToAnalysis } from "./v2/score.js";
+import { scoreChecklist } from "./scoring.js";
+import { v2ShadowEnabled } from "./v2/judge.js";
 
 // ── Numeric integrity (spec Section 3) ────────────────────────────────────
 // Every number in a synthesized report's table cells and chart data points
@@ -82,7 +88,10 @@ export function toolEvidenceDigest(toolCalls: Record<string, unknown[]> | undefi
       if (rec.status === "ERR") continue;
       let out: string;
       try {
-        out = typeof rec.result === "string" ? rec.result : JSON.stringify(rec.result ?? {});
+        out =
+          typeof rec.result === "string"
+            ? String(stripIdentifiers(rec.result ?? ""))
+            : JSON.stringify(stripIdentifiers(rec.result ?? {}));
       } catch {
         out = String(rec.result);
       }
@@ -90,6 +99,28 @@ export function toolEvidenceDigest(toolCalls: Record<string, unknown[]> | undefi
     }
   }
   return lines.join("\n").slice(0, 60000);
+}
+
+const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+/**
+ * Remove infrastructure identifiers (uuid-shaped ids) from tool output so the
+ * model never echoes internal record ids into the report/PDF. Business values
+ * (tickers, dates, percentages) pass through untouched.
+ */
+export function stripIdentifiers(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(stripIdentifiers);
+  if (v && typeof v === "object") {
+    const o: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v)) {
+      const looksUuid = typeof val === "string" && UUID_RE.test(val);
+      if ((k === "id" || k.endsWith("_id")) && looksUuid) continue;
+      o[k] = stripIdentifiers(val);
+    }
+    return o;
+  }
+  if (typeof v === "string") return v.replace(UUID_RE, "").trim();
+  return v;
 }
 
 export interface RunRequest {
@@ -753,6 +784,60 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     // Persist the parsed per-parameter structure (checklist verdicts + risks) so
     // the UI, PDF, scorecard and synthesis render "why this score" structurally.
     const parsedQual = parseQualStructure(qual?.qualitative_analysis || {});
+
+    // ---- v2 shadow scoring (plan §6, off by default: V2_SHADOW_SCORING=1) ----
+    // Runs the compiled rubric's predicates + micro-judge over the KB in
+    // parallel to v1 and persists ONLY the audit trail (criterion_verdicts +
+    // prompt_versions marker) — v1 scores, report and status are untouched.
+    // Failure here is always non-fatal: shadow mode must never break a run.
+    if (v2ShadowEnabled()) {
+      try {
+        const { row: agentRow } = await loadAgent(req.userId, req.agent_name).then((r) => ({ row: r.row }));
+        const md = agentRow.md_config || "";
+        const rubricRow = await loadRubricForMd(String(agentRow.id), md);
+        if (rubricRow) {
+          const feat = deriveFeatures(snap.metrics);
+          const asOf = String(snap.metrics?.period_end_date || "") || null;
+          await persistFeatures(req.symbol, source, snap.metrics, asOf).catch(() => {});
+          const kb = await loadKbRows(req.symbol, cs.source);
+          const outcomes = await scoreRubric(rubricRow.rubric.criteria, {
+            symbol: req.symbol,
+            source: cs.source,
+            model: modelId,
+            llmKeys: llmKeys as any,
+            runId,
+            features: feat.features,
+            featureRows: kb.features as any,
+            eventRows: kb.events as any,
+            chunkRows: kb.chunks as any,
+          });
+          const v2Analysis = parameterOutcomesToAnalysis(outcomes);
+          for (const p of outcomes) {
+            const scored = scoreChecklist(v2Analysis[p.parameter].checklist);
+            v2Analysis[p.parameter].score = scored.score;
+          }
+          const v2Summary = Object.fromEntries(
+            Object.entries(v2Analysis).map(([k, v]: [string, any]) => [
+              k,
+              { score: v.score, coverage: scoreChecklist(v.checklist).coverage, criteria: v.checklist.length },
+            ]),
+          );
+          log.info("[v2-shadow]", `rubric ${rubricRow.rubric.id} scored: ${JSON.stringify(v2Summary)}`);
+          await write(() =>
+            updateRun(runId, {
+              pipeline_version: "v2-shadow",
+              rubric_id: rubricRow.rubric.id,
+              rubric_hash: mdHash(md),
+              prompt_versions: { features: FEATURES_DATA_VERSION, v2_shadow: "1" },
+            }),
+          );
+        } else {
+          log.info("[v2-shadow]", "no compiled rubric for this md hash — skipping shadow scoring");
+        }
+      } catch (e: any) {
+        log.warn("[v2-shadow]", `shadow scoring failed (non-fatal): ${e?.message}`);
+      }
+    }
 
     // ---- scorecard: deterministic tables rendered by CODE (plan 0.2 / D2) ----
     await tracker.begin("scorecard");

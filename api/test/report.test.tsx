@@ -69,6 +69,49 @@ describe("sanitizeReport", () => {
     expect(out.source).toBe("llm");
   });
 
+  it("converts a flat (identical-values) chart into a table instead of dropping it", () => {
+    const report: AnalysisReport = {
+      heroPct: 62,
+      heroLabel: "Alignment",
+      partial: false,
+      source: "llm",
+      blocks: [
+        {
+          type: "chart",
+          chartType: "bar",
+          title: "Flat bars",
+          data: [
+            { name: "A", score: 70 },
+            { name: "B", score: 70 },
+            { name: "C", score: 70 },
+          ],
+          sourceKeys: ["PE"],
+        },
+        {
+          type: "chart",
+          chartType: "line",
+          title: "Trend",
+          data: [
+            { name: "Q1", score: 70 },
+            { name: "Q2", score: 35 },
+          ],
+          sourceKeys: ["PE"],
+        },
+      ],
+    };
+
+    const { report: out, dropped } = sanitizeReport(report, KNOWN);
+    const flatTable = out.blocks.find((b: any) => b.type === "table" && b.title === "Flat bars (data)");
+    expect(flatTable).toBeDefined();
+    expect((flatTable as any).rows).toEqual([
+      ["A", 70],
+      ["B", 70],
+      ["C", 70],
+    ]);
+    expect(out.blocks.some((b: any) => b.type === "chart" && b.title === "Trend")).toBe(true);
+    expect(dropped.some((d) => d.includes("flat chart converted to table"))).toBe(true);
+  });
+
   it("drops radar with fewer than 3 axes", () => {
     const report: AnalysisReport = {
       heroPct: 62,
