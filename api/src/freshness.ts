@@ -272,11 +272,6 @@ export async function ensureFreshData(
   source: string,
   userId: string,
 ): Promise<PullResult> {
-  // SEC pulls not supported by Voyager
-  if (source === "sec" || source === "SEC") {
-    return { pulled: false, reason: "Automated data pulling is only supported for NSE stocks" };
-  }
-
   // Fast path: check local DB
   const localFresh = await isDataFresh(userId, symbol, source);
   if (localFresh) {
