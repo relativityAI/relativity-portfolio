@@ -246,7 +246,9 @@ export class VoyagerClient {
     filingType = "quarterly",
     refresh = false,
   ): Promise<{ job_id: string; status: string; status_url: string }> {
-    return this.post("/pull", { symbol, source, filing_type: filingType, refresh });
+    // Voyager expects symbol/source/filing_type/refresh as QUERY params on
+    // POST /pull (verified live: JSON body → 422 "Field required").
+    return this.post("/pull", { symbol, source, filing_type: filingType, refresh }, null);
   }
 
   async getPullJobStatus(jobId: string): Promise<PullJobStatus> {
