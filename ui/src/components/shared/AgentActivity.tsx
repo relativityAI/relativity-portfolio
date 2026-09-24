@@ -9,6 +9,7 @@ import type { TraceEvent } from "@/pages/shared/TracePanel";
 import AgentAvatar from "@/components/shared/AgentAvatar";
 import { agentIdentity, agentSeed, type AgentSeedLike } from "@/lib/agentIdentity";
 import { useColorModeValue } from "@/components/ui/color-mode";
+import { summarizeToolResult } from "@/lib/toolResultSummary";
 
 /* ─── Live SSE hook (generic over any trace stream URL) ────────────────── */
 
@@ -119,7 +120,7 @@ function buildRows(steps: AgentStep[], events: TraceEvent[]): ActivityRow[] {
                         args: (rows[idx] as { args?: unknown }).args,
                         status: ev.status === "ERR" ? "ERR" : "OK",
                         duration_ms: ev.duration_ms,
-                        snippet: typeof ev.result === "string" ? ev.result : ev.result != null ? JSON.stringify(ev.result).slice(0, 400) : undefined,
+                        snippet: summarizeToolResult(ev.result),
                     };
                 } else {
                     rows.push({ kind: "log", text: `${ev.tool} → ${ev.status}` });
@@ -347,7 +348,7 @@ export default function AgentActivity({
     return (
         <Box
             border="1px solid var(--hairline)"
-            borderRadius="6px"
+            borderRadius="2px"
             bg="var(--surface-panel)"
             overflow="hidden"
             display="flex"

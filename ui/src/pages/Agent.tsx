@@ -130,6 +130,8 @@ export default function Agent() {
     const [restoreOpen, setRestoreOpen] = useState(false)
     const [hasLocalDraft, setHasLocalDraft] = useState(false)
     const [aiOpen, setAiOpen] = useState(false)
+    const [rubric, setRubric] = useState<any>(null)
+    const [rubricLoading, setRubricLoading] = useState(false)
 
     // Per-section markdown (form and md are two views of the same agent object).
     const [mdStep, setMdStep] = useState<string | null>(null)
@@ -212,6 +214,47 @@ export default function Agent() {
             .then((data) => { if (data?.fields) setAvailableMetrics(data) })
             .catch(() => {})
     }, [])
+
+    // v2 rubric: show status + allow approving a draft against the current md.
+    useEffect(() => {
+        if (isNew || !agentId) return
+        setRubricLoading(true)
+        AgentService.getRubric(agentId)
+            .then((d) => setRubric(d?.rubric ?? null))
+            .catch(() => {})
+            .finally(() => setRubricLoading(false))
+    }, [isNew, agentId, saved])
+
+    const handleCompileRubric = async () => {
+        setRubricLoading(true)
+        try {
+            const d = await AgentService.compileRubric(agentId)
+            if (d?.rubric) {
+                setRubric(d.rubric)
+                toaster.create({ title: "Rubric compiled", description: d.error || "", type: d.error ? "error" : "success" })
+            } else if (d?.error) {
+                toaster.create({ title: "Couldn't compile rubric", description: d.error, type: "error" })
+            }
+        } catch (error: any) {
+            toaster.create({ title: "Couldn't compile rubric", description: error?.response?.data?.error || error?.message, type: "error" })
+        } finally {
+            setRubricLoading(false)
+        }
+    }
+
+    const handleApproveRubric = async () => {
+        if (!rubric?.id) return
+        setRubricLoading(true)
+        try {
+            const d = await AgentService.approveRubric(agentId, rubric.id)
+            setRubric(d?.rubric ?? rubric)
+            toaster.create({ title: "Rubric approved", type: "success" })
+        } catch (error: any) {
+            toaster.create({ title: "Couldn't approve rubric", description: error?.response?.data?.error || error?.message, type: "error" })
+        } finally {
+            setRubricLoading(false)
+        }
+    }
 
     // Autosave — a recovery net on this device only. "Saved" still means the server.
     useLocalAutosave(storageKey, { ...agent }, !loading)
@@ -674,6 +717,45 @@ export default function Agent() {
                         <MdOutlineAutoAwesome size={14} />
                         <Box as="span" display={{ base: "none", sm: "inline" }}>Draft with AI</Box>
                     </Button>
+
+                    {!isNew && agentId && (
+                        <Flex align="center" gap={2} data-testid="rubric-status">
+                            {!rubricLoading && rubric?.status === "approved" ? (
+                                <Text as="span" fontSize="12px" fontWeight={600} color="var(--signal-positive)">
+                                    Rubric approved
+                                </Text>
+                            ) : !rubricLoading && rubric?.status === "draft" ? (
+                                <>
+                                    <Text as="span" fontSize="12px" fontWeight={600} color="var(--signal-caution)">
+                                        Rubric draft
+                                    </Text>
+                                    <Button
+                                        size="xs"
+                                        variant="subtle"
+                                        minH="36px"
+                                        color="var(--accent-primary)"
+                                        loading={rubricLoading}
+                                        onClick={handleApproveRubric}
+                                    >
+                                        Approve
+                                    </Button>
+                                </>
+                            ) : (
+                                !rubricLoading && (
+                                    <Button
+                                        size="xs"
+                                        variant="subtle"
+                                        minH="36px"
+                                        color="var(--ink-secondary)"
+                                        loading={rubricLoading}
+                                        onClick={handleCompileRubric}
+                                    >
+                                        Compile rubric
+                                    </Button>
+                                )
+                            )}
+                        </Flex>
+                    )}
 
                     <Button
                         size="sm"

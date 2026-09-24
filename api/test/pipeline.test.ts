@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
+import { generateObject } from "ai";
 import { parseFinalScoreResult, investorProfileLine, summarizeToolEvidence, runQualitative, buildModel } from "../src/agent.js";
 import { runAgentTurn } from "../src/harness.js";
 import { VoyagerClient } from "../src/voyager.js";
 import { assessDataAdequacy, evaluateMetric, runQuantitative } from "../src/quant.js";
-import { resolveWebSearch, withDeadline } from "../src/run.js";
+import { resolveWebSearch, withDeadline, stripIdentifiers, toolEvidenceDigest } from "../src/run.js";
 import { buildFieldList, getFlatCatalog } from "../src/metrics.js";
 import { parseJsonObject } from "../src/builder.js";
 import { getToolCatalog } from "../src/tools.js";
@@ -13,6 +14,11 @@ import { getSchemaDescriptor } from "../src/schema.js";
 vi.mock("../src/harness.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/harness.js")>();
   return { ...actual, runAgentTurn: vi.fn() };
+});
+
+vi.mock("ai", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("ai")>();
+  return { ...actual, generateObject: vi.fn() };
 });
 
 describe("parseJsonObject", () => {
@@ -138,6 +144,48 @@ describe("evaluateMetric", () => {
     expect(e.score).toBeNull();
     expect(e.unscored_reason).toBe("missing_data");
     expect(e.weightage).toBe(5);
+  });
+
+  it("compares fraction and percent inputs in canonical pct units (phase 2)", () => {
+    const rule = { ...base, metric: "roe", operator: "gt", value: 15 };
+    const asPercent = evaluateMetric({ returnonequity: 20 }, rule, "asset_evaluation");
+    const asFraction = evaluateMetric({ returnonequity: 0.2 }, rule, "asset_evaluation");
+    expect(asPercent.score).toBe(100);
+    expect(asFraction.score).toBe(100);
+  });
+
+  it("resolves history-feature keys to themselves (phase 2)", () => {
+    const e = evaluateMetric(
+      { roe_min_10y: 18 },
+      { ...base, metric: "roe_min_10y", operator: "gt", value: 12 },
+      "asset_evaluation",
+    );
+    expect(e.score).toBe(100);
+    const missing = evaluateMetric(
+      {},
+      { ...base, metric: "roe_min_10y", operator: "gt", value: 12 },
+      "asset_evaluation",
+    );
+    expect(missing.score).toBeNull();
+    expect(missing.unscored_reason).toBe("missing_data");
+  });
+
+  it("QUANT_SPREAD_V2 honours minSpread floor (D3, default off)", () => {
+    const rule = { ...base, metric: "x", operator: "gt", value: 15 };
+    // Large threshold: v1 spread = max(15,1)*0.5 = 7.5 → value 12 → 60
+    expect(evaluateMetric({ x: 12 }, rule, "asset_evaluation").score).toBe(60);
+    // Small pct threshold 2.5: v1 spread 1.25 → value 2.0 → 0.6 → 60
+    const tiny = { ...base, metric: "x", operator: "gt", value: 2.5 };
+    expect(evaluateMetric({ x: 2.0 }, tiny, "asset_evaluation").score).toBe(60);
+    process.env.QUANT_SPREAD_V2 = "1";
+    try {
+      // Same large rule → spread = max(7.5, 2) = 7.5 → unchanged
+      expect(evaluateMetric({ x: 12 }, rule, "asset_evaluation").score).toBe(60);
+      // Tiny rule → spread = max(1.25, 2) = 2 → value 2.0 sits 1.5/2 → 75 (was 60)
+      expect(evaluateMetric({ x: 2.0 }, tiny, "asset_evaluation").score).toBe(75);
+    } finally {
+      delete process.env.QUANT_SPREAD_V2;
+    }
   });
 });
 
@@ -358,22 +406,22 @@ describe("runQualitative recovery", () => {
     };
   }
 
-  it("recovers a score via the no-tools verdict pass when the harness errors", async () => {
-    vi.mocked(runAgentTurn)
-      .mockResolvedValueOnce({
-        text: "",
-        steps: [],
-        toolCalls: [],
-        error: "No output generated. Check the stream for errors.",
-        retryable: true,
-        finishReason: "error",
-      })
-      .mockResolvedValueOnce({
-        text: "Stable moat verdict.\nFINAL_SCORE: 72",
-        steps: [],
-        toolCalls: [],
-        finishReason: "stop",
-      });
+  it("recovers a score via the typed verdict pass when the harness errors", async () => {
+    vi.mocked(runAgentTurn).mockResolvedValueOnce({
+      text: "",
+      steps: [],
+      toolCalls: [],
+      error: "No output generated. Check the stream for errors.",
+      retryable: true,
+      finishReason: "error",
+    });
+    vi.mocked(generateObject).mockResolvedValueOnce({
+      object: { score: 72, verdictText: "Stable moat verdict." },
+      warnings: [],
+      request: {},
+      response: {},
+      usage: { inputTokens: 1, outputTokens: 1 },
+    } as any);
     const { keys, ctx, parameter } = qualContext();
     const res = await runQualitative("openai/gpt-4o-mini", keys, ctx, parameter, [], false, "sparse", "Investor profile.", () => {});
     expect(res.error).toBeUndefined();
@@ -396,16 +444,36 @@ describe("runQualitative recovery", () => {
       retryable: true,
       finishReason: "error",
     };
-    const emptyRecovery = { text: "", steps: [], toolCalls: [], finishReason: "error" };
-    vi.mocked(runAgentTurn)
-      .mockResolvedValueOnce(errorTurn)
-      .mockResolvedValueOnce(emptyRecovery)
-      .mockResolvedValueOnce(emptyRecovery);
+    vi.mocked(runAgentTurn).mockResolvedValue(errorTurn);
+    vi.mocked(generateObject).mockRejectedValue(new Error("recovery failed"));
     const { keys, ctx, parameter } = qualContext();
     const res = await runQualitative("openai/gpt-4o-mini", keys, ctx, parameter, [], false, "sparse", "Investor profile.", () => {});
     expect(res.error).toBeTruthy();
     expect(res.score).toBeNull();
     expect(res.analysis).toContain("Research gathered by the tools");
     expect(res.analysis).toContain("web_search");
+  });
+});
+
+describe("tool evidence digesting", () => {
+  it("strips uuid-shaped ids from tool results so the model never echoes infra ids", () => {
+    const calls = {
+      moat: [
+        {
+          tool_name: "web_search",
+          status: "OK",
+          result: {
+            count: 1,
+            results: [{ id: "7b3f0c0a-8b1e-4a9e-9f2d-2c1e3a4b5c6d", title: "Deep moat", score: 0.9 }],
+            request_id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+          },
+        },
+      ],
+    };
+    const digest = toolEvidenceDigest(calls as any);
+    expect(digest).toContain("[moat] web_search:");
+    expect(digest).toContain("Deep moat");
+    expect(digest).not.toContain("7b3f0c0a");
+    expect(digest).not.toContain("request_id");
   });
 });

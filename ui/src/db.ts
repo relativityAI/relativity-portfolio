@@ -55,6 +55,21 @@ export const AgentService = {
         const response = await axios.post(`${API_BASE}/agents/validate-md`, { md });
         return response.data;
     },
+
+    async getRubric(id: string) {
+        const response = await axios.get(`${API_BASE}/agents/${encodeURIComponent(id)}/rubric`);
+        return response.data;
+    },
+
+    async compileRubric(id: string) {
+        const response = await axios.post(`${API_BASE}/agents/${encodeURIComponent(id)}/rubric/compile`);
+        return response.data;
+    },
+
+    async approveRubric(id: string, rubricId: string) {
+        const response = await axios.post(`${API_BASE}/agents/${encodeURIComponent(id)}/rubric/${encodeURIComponent(rubricId)}/approve`);
+        return response.data;
+    },
 };
 
 export const AnalysisService = {

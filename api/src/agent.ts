@@ -13,7 +13,6 @@ import { runAgentTurn, type HarnessOptions } from "./harness.js";
 import { keyPool } from "./keypool.js";
 import {
   QUALITATIVE_SCORING_SYSTEM_PROMPT,
-  QUALITATIVE_VERDICT_SYSTEM_PROMPT,
   ANALYSIS_PLAN_SYSTEM_PROMPT,
   buildAnalysisPlanPrompt,
   buildScoreRecoveryPrompt,
@@ -123,21 +122,26 @@ export type TraceCallback = (event: {
   score?: number;
 }) => void;
 
-// Last-resort score recovery: ask the model to restate just the integer.
+// Last-resort score recovery is a STRUCTURED verdict (plan: no regex parsers):
+// a typed generateObject attempt first, never a giant integer-scrape net.
+const ScoreRecoverySchema = z.object({
+  score: z.number().min(0).max(100),
+});
+
 async function recoverScore(
   model: LanguageModel,
   analysis: string,
 ): Promise<{ score: number; found: boolean }> {
   try {
-    const res = await generateText({
+    const res = await generateObject({
       model,
+      schema: ScoreRecoverySchema,
       prompt: buildScoreRecoveryPrompt(analysis),
       temperature: 0,
-      maxOutputTokens: 8,
+      maxOutputTokens: 32,
     });
-    const m = (res.text || "").match(/\d{1,3}/);
-    if (!m) return { score: 0, found: false };
-    return { score: Math.max(0, Math.min(100, Number(m[0]))), found: true };
+    const s = res.object?.score;
+    return Number.isFinite(s) ? { score: Math.max(0, Math.min(100, Math.round(s))), found: true } : { score: 0, found: false };
   } catch {
     return { score: 0, found: false };
   }
@@ -178,7 +182,13 @@ export function summarizeToolEvidence(steps: any[], maxChars = 12000): string {
 }
 
 // No-tools verdict pass used when the tool loop ended without a FINAL_SCORE
-// line. Retried a couple times with a short wait for empty/no-output replies.
+// line. Emits a typed verdict (score + text) instead of a markdown FINAL_SCORE
+// to regex-scrape (plan: no regex parsers).
+const VerdictSchema = z.object({
+  score: z.number().min(0).max(100),
+  verdictText: z.string().describe("Short structured markdown summary for the report."),
+});
+
 async function verdictRecovery(
   model: LanguageModel,
   parameter: { parameter: string; content?: string; section?: string },
@@ -189,19 +199,21 @@ async function verdictRecovery(
   for (let attempt = 0; attempt < RECOVERY_RETRIES; attempt++) {
     if (attempt > 0) await sleep(RECOVERY_RETRY_DELAY_MS);
     try {
-      const turn = await runAgentTurn({
+      const res = await generateObject({
         model,
-        system: QUALITATIVE_VERDICT_SYSTEM_PROMPT,
+        schema: VerdictSchema,
         prompt,
         temperature: 0.2,
         maxOutputTokens: 4096,
-        maxToolSteps: 1,
         abortSignal: AbortSignal.timeout(60_000),
       });
-      const text = turn.text || "";
-      if (text.trim()) {
-        const { score, found } = parseFinalScoreResult(text);
-        return { text, score, found };
+      const v = res.object;
+      if (v && typeof v.score === "number" && Number.isFinite(v.score) && v.verdictText?.trim()) {
+        return {
+          text: `${v.verdictText.trim()}\n\nFINAL_SCORE: ${Math.round(v.score)}`,
+          score: Math.max(0, Math.min(100, Math.round(v.score))),
+          found: true,
+        };
       }
       log.warn("[agent]", "verdict recovery returned no output; retrying");
     } catch (e: any) {
@@ -1022,6 +1034,41 @@ export async function synthesizeReport(input: SynthesisInput): Promise<AnalysisR
  * (≥2 series, radar ≥2 axes, line/area ≥2 points). Blocks that fail are
  * dropped; the remaining report stays structurally valid.
  */
+/**
+ * A chart whose numeric series are all identical carries no signal — same
+ * data reads better as a table (plots must be relevant, not decorative).
+ */
+function isFlatChart(data: Record<string, string | number>[]): boolean {
+  const values: number[] = [];
+  for (const row of data) {
+    for (const [field, val] of Object.entries(row)) {
+      if (field === "name" || field === "label") continue;
+      if (typeof val === "number" && Number.isFinite(val)) values.push(val);
+    }
+  }
+  return values.length >= 2 && values.every((v) => v === values[0]);
+}
+
+/** Drop a flat/degenerate chart but keep its data as a table block. */
+function chartToTable(block: Extract<ReportBlock, { type: "chart" }>): ReportBlock {
+  const data = block.data || [];
+  const first = data[0] || {};
+  const nameKey = first.name != null ? "name" : first.label != null ? "label" : null;
+  const valueKeys = Object.keys(first).filter((k) => k !== "name" && k !== "label");
+  const columns = [nameKey === "label" ? "Label" : "Name", ...valueKeys];
+  const rows: (string | number)[][] = data.map((d) => [
+    nameKey ? String((d as any)[nameKey] ?? "") : "",
+    ...valueKeys.map((k) => (d as any)[k] ?? ""),
+  ]);
+  return {
+    type: "table",
+    title: block.title ? `${block.title} (data)` : "Chart data",
+    columns,
+    rows,
+    sourceKeys: block.sourceKeys,
+  };
+}
+
 export function sanitizeReport(report: AnalysisReport, known: Set<number>): { report: AnalysisReport; dropped: string[] } {
   const knownOk = (n: number): boolean => {
     for (const k of known) if (Math.abs(n - k) <= 0.5) return true;
@@ -1090,6 +1137,11 @@ export function sanitizeReport(report: AnalysisReport, known: Set<number>): { re
         dropped.push(`${label}: line/area needs ≥2 data points`);
         continue;
       }
+      if (isFlatChart(data)) {
+        dropped.push(`${label}: flat chart converted to table`);
+        blocks.push(chartToTable(block));
+        continue;
+      }
       blocks.push(block);
       continue;
     }
@@ -1139,6 +1191,7 @@ export function buildScoreTables(input: {
       title: "Quantitative criteria",
       columns: ["Criterion", "Rule", "Actual", "Wgt", "Score"],
       rows: quantRows,
+      sourceKeys: Object.values(input.quantAnalysis || {}).map((e: any) => e.metric_name || "metric") ,
     });
   }
 
@@ -1162,6 +1215,7 @@ export function buildScoreTables(input: {
       title: "Qualitative parameters",
       columns: ["Parameter", "Verdicts", "Wgt", "Score"],
       rows: qualRows,
+      sourceKeys: Object.keys(input.qualAnalysis || {}),
     });
   }
 
@@ -1214,7 +1268,7 @@ export function scoreTablesToBlocks(tables: ScoreTable[]): ReportBlock[] {
         if (t.columns.includes("Note")) cells.push(r.note ?? "");
         return cells;
       }),
-      sourceKeys: ["scored_data"],
+      sourceKeys: t.sourceKeys?.length ? t.sourceKeys : ["scored_data"],
     });
   }
   return blocks;

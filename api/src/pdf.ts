@@ -260,12 +260,14 @@ export function chartBlockToPng(block: ChartBlock): Buffer {
 }
 
 /** Strip the light markdown the model uses (###, **, bullets) to plain PDF text. */
+const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 function plain(text: string): string {
   return String(text || "")
     .replace(/^#{1,6}\s*/gm, "")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(UUID_RE, "")
     .trim();
 }
 
@@ -292,12 +294,42 @@ function markdownText(md: string): string[] {
   return parts;
 }
 
-async function blockToPdfContent(block: ReportBlock): Promise<PdfContent> {
+/** Map metric/parameter names to a one-line data-point description for evidence captions. */
+function evidenceLookupFor(run: any): Record<string, string> {
+  const m: Record<string, string> = {};
+  const sym: Record<string, string> = { gt: ">", gte: "≥", lt: "<", lte: "≤", eq: "=", between: "between" };
+  for (const [k, d] of Object.entries(run.quantitative_analysis || {})) {
+    const e = d as any;
+    const label = e.metric_name || k;
+    const rule = `${sym[e.operator] || "="} ${e.threshold ?? "—"}`;
+    const line = e.price_unavailable
+      ? `${label} → N/A (no live price)`
+      : `${label} ${rule} → ${e.value ?? "—"} · score ${Math.round((e.score ?? 0) * 10) / 10}`;
+    m[k] = line;
+    m[label] = line;
+  }
+  for (const [k, p] of Object.entries(run.qualitative_analysis || {})) {
+    m[k] = `score ${Math.round(((p as any).score ?? 0) * 10) / 10}`;
+  }
+  return m;
+}
+
+/** Evidence caption under a block that claims to be backed by named data points. */
+function evidenceLine(keys: string[] | undefined, lookup: Record<string, string>): PdfContent {
+  const resolved = (keys || []).filter((k) => k !== "scored_data");
+  if (resolved.length === 0) return [];
+  return [{ text: `Based on: ${resolved.map((k) => lookup[k] ?? k).join(" · ")}`, style: "meta", margin: [0, 1, 0, 5] }];
+}
+
+async function blockToPdfContent(block: ReportBlock, lookup: Record<string, string>): Promise<PdfContent> {
   switch (block.type) {
     case "heading":
       return [{ text: plain(block.text), style: block.level === 2 ? "h2" : "h3" }];
     case "paragraph": {
-      return markdownText(block.text).map((ln) => ({ text: ln, style: "body" }));
+      return [
+        ...markdownText(block.text).map((ln) => ({ text: ln, style: "body" })),
+        ...evidenceLine(block.citedKeys, lookup),
+      ];
     }
     case "callout": {
       const colors: Record<string, string> = { positive: "#E9F2EC", caution: "#F6EFDC", negative: "#F7E9E9", neutral: "#F4F4F3" };
@@ -337,6 +369,7 @@ async function blockToPdfContent(block: ReportBlock): Promise<PdfContent> {
           },
           margin: [0, 4, 0, 10],
         },
+        ...evidenceLine(block.sourceKeys, lookup),
       ];
     }
     case "chart": {
@@ -345,6 +378,7 @@ async function blockToPdfContent(block: ReportBlock): Promise<PdfContent> {
         return [
           block.title ? { text: plain(block.title), style: "tableTitle" } : {},
           { image: `data:image/png;base64,${png.toString("base64")}`, width: 500, margin: [0, 4, 0, 12], alignment: "center" },
+          ...evidenceLine(block.sourceKeys, lookup),
         ];
       } catch (e: any) {
         log.warn("[pdf]", `chart render failed, skipped: ${e?.message || e}`);
@@ -477,7 +511,7 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
   };
 
   for (const block of blocks) {
-    const node = await blockToPdfContent(block);
+    const node = await blockToPdfContent(block, evidenceLookupFor(run));
     for (const n of node) document.content.push(n);
   }
 
