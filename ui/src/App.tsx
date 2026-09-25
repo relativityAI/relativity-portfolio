@@ -26,7 +26,6 @@ import Terms from "./pages/Terms";
 import ThankYou from "./pages/ThankYou";
 import NavBar from "./components/NavBar";
 import Footer from "./components/Footer";
-import CookieBanner from "./components/CookieBanner";
 import ApiKeySetupDialog from "./components/ApiKeySetupDialog";
 import { MotionConfig, AnimatePresence, motion } from "motion/react";
 import { page, dur, ease } from "@/lib/motion";
@@ -224,7 +223,6 @@ function AppRoutes() {
         </Box>
 
       {showFooter && <Footer />}
-      <CookieBanner />
       <Toaster />
     </Flex>
   );
