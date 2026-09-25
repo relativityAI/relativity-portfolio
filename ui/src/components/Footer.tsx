@@ -6,18 +6,18 @@ export default function Footer() {
     <Flex
       as="footer"
       px={{ base: 4, md: 16 }}
-      py={6}
-      mt={8}
+      py={{ base: 3, md: 5 }}
+      mt={4}
       borderTop="1px solid var(--hairline)"
       justify="space-between"
       align="center"
-      direction={{ base: "column", md: "row" }}
       gap={3}
+      flexWrap={{ base: "wrap", md: "nowrap" }}
     >
       <Text fontSize="xs" color="fg.muted">
         &copy; {new Date().getFullYear()} Relativity AI
       </Text>
-      <Flex gap={4}>
+      <Flex gap={{ base: 3, md: 4 }} align="center">
         <Text
           as={Link}
           to="/guide"

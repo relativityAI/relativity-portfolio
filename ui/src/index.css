@@ -115,6 +115,19 @@ body {
   }
 }
 
+/* Landing page display font — Sora, scoped so the app keeps Inter.
+   Applied via the .landing wrapper on the Landing page only. */
+.landing {
+  --font-display: 'Sora', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.landing h1,
+.landing h2,
+.landing h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+}
+
 /* Data-source marquee */
 @keyframes marquee {
   0% { transform: translateX(0); }

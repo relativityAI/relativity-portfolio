@@ -20,15 +20,18 @@ export default function ProofSection() {
           py={{ base: 10, md: 14 }}
         >
           <Flex direction="column" gap={4} flex={1}>
+            <Text fontFamily="var(--font-mono)" fontSize="xs" fontWeight={600} letterSpacing="0.12em" color="var(--ink-inverse-tertiary)">
+              THE RECEIPTS
+            </Text>
             <Text as="h2" fontSize={{ base: "2xl", md: "3xl" }} fontWeight={700} color="var(--ink-inverse-primary)" lineHeight="tight">
-              One thesis. A full read on every stock that matches it.
+              Every score shows its work.
             </Text>
             <Flex direction="column" gap={3}>
               <Text fontSize={{ base: "sm", md: "md" }} color="var(--ink-inverse-secondary)" lineHeight="relaxed">
                 Your agent reads financial statements, shareholding patterns, filings, and earnings calls — then scores every stock on how well it fits your thesis.
               </Text>
               <Text fontSize={{ base: "sm", md: "md" }} color="var(--ink-inverse-secondary)" lineHeight="relaxed">
-                Each FIT score comes with visible criteria so you can see exactly why a stock scored the way it did.
+                When the data is thin, it says so: scores carry a coverage figure and an uncertainty band instead of false confidence. Unknown is never quietly counted as zero.
               </Text>
             </Flex>
           </Flex>
