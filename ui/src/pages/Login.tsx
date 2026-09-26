@@ -6,7 +6,7 @@ import { Helmet } from "react-helmet-async";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/auth/useAuth";
 import { dur, ease } from "@/lib/motion";
-import logoMark from "@/assets/logo-mark.png";
+import Logo from "@/components/Logo";
 
 interface GoogleGsiId {
   initialize(settings: { client_id: string; callback: (res: { credential?: string }) => void }): void;
@@ -91,10 +91,7 @@ export default function Login() {
             <Flex direction="column" align="center" w="100%" maxW="560px" gap={5}>
                 {/* Wordmark */}
                 <motion.div {...reveal(0)} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <img src={logoMark} alt="" style={{ height: "22px", width: "auto", borderRadius: 8 }} />
-                    <Text fontFamily="var(--font-mono)" fontWeight="bold" fontSize="xs" letterSpacing="0.2em" color="var(--ink-primary)" textTransform="uppercase">
-                        Relativity
-                    </Text>
+                    <Logo preset="login" />
                 </motion.div>
 
                 {/* Signature — one equity, two lenses */}

@@ -8,7 +8,7 @@ import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX, LuBookOpen } from "rea
 import { ColorModeButton } from "@/components/ui/color-mode";
 import { useAuth } from "@/auth/useAuth";
 import { motion } from "motion/react";
-import logoMark from "@/assets/logo-mark.png";
+import Logo from "@/components/Logo";
 
 const HEALTH_CHECK_INTERVAL_MS = 15000;
 
@@ -163,19 +163,7 @@ export default function NavBar() {
         >
             <Flex align="center" gap={{ base: 5, md: 4, lg: 8 }} minW={0} flexShrink={1}>
                 <Flex align="center" gap={2} minW={0}>
-                    <img src={logoMark} alt="Relativity logo" style={{ height: "20px", width: "auto", borderRadius: 5, flexShrink: 0 }} />
-                    <Text
-                        fontWeight={"bold"}
-                        fontSize={{ base: "xs", md: "sm" }}
-                        letterSpacing="tight"
-                        color="fg"
-                        overflow="hidden"
-                        textOverflow="ellipsis"
-                        whiteSpace="nowrap"
-                        css={{ "@media (max-width: 379px)": { display: "none" } }}
-                    >
-                        RELATIVITY
-                    </Text>
+                    <Logo preset="nav" showWordmark={false} />
                 </Flex>
 
                 <Flex gap={{ md: 3, lg: 6 }} align="center" display={{ base: "none", md: "flex" }} minW={0}>
@@ -315,8 +303,7 @@ export default function NavBar() {
                             py={3}
                         >
                             <Flex align="center" gap={2} minW={0}>
-                                <img src={logoMark} alt="Relativity logo" style={{ height: "20px", width: "auto", borderRadius: 5, flexShrink: 0 }} />
-                                <Text fontWeight={"bold"} fontSize="sm" letterSpacing="tight" color="fg">RELATIVITY</Text>
+                                <Logo preset="nav" />
                             </Flex>
                             <Drawer.CloseTrigger asChild>
                                 <IconButton

@@ -11,6 +11,7 @@ import { createRequire } from "node:module";
 import type { ReportBlock } from "./agent.js";
 import { log } from "./logger.js";
 import { agentChipPng, agentSeed, providerChipPng } from "./agentIdentity.js";
+import { LOGO_PNG_DATA_URI } from "./reportLogo.js";
 
 // pdfmake ships a CJS browser build that Vite's transformer breaks. Load it via
 // Node's native require (identical in tsc-runtime and vitest).
@@ -316,7 +317,9 @@ function evidenceLookupFor(run: any): Record<string, string> {
 
 /** Evidence caption under a block that claims to be backed by named data points. */
 function evidenceLine(keys: string[] | undefined, lookup: Record<string, string>): PdfContent {
-  const resolved = (keys || []).filter((k) => k !== "scored_data");
+  // Drop infrastructure ids (uuid-shaped keys) — they are never human-facing
+  // data points and leak internal row ids into the report.
+  const resolved = (keys || []).filter((k) => k !== "scored_data" && !UUID_RE.test(k));
   if (resolved.length === 0) return [];
   return [{ text: `Based on: ${resolved.map((k) => lookup[k] ?? k).join(" · ")}`, style: "meta", margin: [0, 1, 0, 5] }];
 }
@@ -407,7 +410,7 @@ function identityTitleBand(run: any): PdfNode {
           image: `data:image/png;base64,${agentChipPng(agentSeed(run.agent_name || "Agent")).toString("base64")}`,
           width: 30,
           height: 30,
-          margin: [0, 0, 8, 0],
+          margin: [0, 0, 12, 0],
         },
         {
           stack: [
@@ -419,7 +422,7 @@ function identityTitleBand(run: any): PdfNode {
                       image: `data:image/png;base64,${providerChipPng(run.model).toString("base64")}`,
                       width: 12,
                       height: 12,
-                      margin: [0, 1, 4, 0],
+                      margin: [0, 1, 6, 0],
                     },
                     {
                       text: `${run.model} · ${run.created_at ? new Date(run.created_at).toLocaleDateString() : ""}`,
@@ -432,7 +435,7 @@ function identityTitleBand(run: any): PdfNode {
           ],
         },
       ],
-      margin: [0, 4, 0, 2],
+      margin: [0, 8, 0, 2],
     };
   } catch (e: any) {
     log.warn("[pdf]", `identity chips skipped: ${e?.message || e}`);
@@ -454,15 +457,29 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
     info: { title: `${run.share_name || run.symbol || "Analysis"} — Equity Report`, author: "Relativity" },
     footer: (currentPage: number, pageCount: number) => ({
       columns: [
-        { text: `Relativity · ${run.share_name || run.symbol} · ${run.agent_name || "Agent"}`, style: "footer" },
-        { text: `page ${currentPage} of ${pageCount}`, style: "footer", alignment: "right" },
+        {
+          image: LOGO_PNG_DATA_URI,
+          width: 17,
+          height: 13,
+          margin: [0, 1, 0, 0],
+        },
+        { text: `Relativity · ${run.share_name || run.symbol} · ${run.agent_name || "Agent"}`, style: "footer", alignment: "left", margin: [0, 3, 0, 0] },
+        { text: `page ${currentPage} of ${pageCount}`, style: "footer", alignment: "right", margin: [0, 3, 0, 0] },
       ],
+      columnGap: 6,
       margin: [44, 20, 44, 0],
     }),
     content: [
       // ── Title band ──
+      // Brand mark alone on top, stock name and details stacked below it.
+      {
+        image: LOGO_PNG_DATA_URI,
+        width: 34,
+        height: 26,
+        margin: [0, 0, 0, 10],
+      },
       { text: run.share_name || run.symbol || "Equity Analysis", style: "title" },
-      { text: `${run.symbol || ""}${run.source ? ` · ${run.source}` : ""}`, style: "subtitle" },
+      { text: `${run.symbol || ""}${run.source ? ` · ${run.source}` : ""}`, style: "subtitle", margin: [0, 2, 0, 10] },
       identityTitleBand(run),
       { text: "", style: "spacer" },
       // ── Hero band ──

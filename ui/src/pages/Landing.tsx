@@ -4,7 +4,7 @@ import { motion, useScroll, useMotionValueEvent } from "motion/react";
 import { Helmet } from "react-helmet-async";
 import { useNavigate } from "react-router-dom";
 import { dur, ease } from "@/lib/motion";
-import logoMark from "@/assets/logo-mark.png";
+import Logo from "@/components/Logo";
 import resultScreenshot from "@/assets/hero-screenshot.png";
 import FitScoreDemo from "@/components/landing/FitScoreDemo";
 import DataSourceMarquee from "@/components/landing/DataSourceMarquee";
@@ -99,6 +99,7 @@ export default function Landing() {
         <Flex
           align="center"
           justify="space-between"
+          position="relative"
           w="100%"
           maxW="1180px"
           mx="auto"
@@ -106,20 +107,11 @@ export default function Landing() {
           py={3}
         >
           <Flex align="center" gap={2}>
-            <img src={logoMark} alt="Relativity" style={{ height: "34px", width: "auto", borderRadius: 8 }} />
-            <Text fontFamily="var(--font-mono)" fontWeight="bold" fontSize="xs" letterSpacing="0.18em" color="var(--ink-primary)" display={{ base: "none", sm: "block" }}>
-              RELATIVITY
-            </Text>
+            <Logo preset="landing" />
           </Flex>
           <Flex align="center" gap={2}>
-            <Button size="sm" variant="ghost" color="var(--ink-secondary)" _hover={{ color: "var(--ink-primary)" }} onClick={() => navigate("/guide")}>
-              Guide
-            </Button>
             <Button size="sm" variant="outline" onClick={() => navigate("/login")}>
               Log in
-            </Button>
-            <Button size="sm" variant="surface" colorPalette="blue" onClick={() => navigate("/login")}>
-              Get started
             </Button>
           </Flex>
         </Flex>
