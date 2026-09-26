@@ -99,6 +99,8 @@ export function agentChipPng(seed: string, px = 128): Buffer {
 
 /* ─── Model provider chip ──────────────────────────────────────────────── */
 
+import { PROVIDER_ICON_PATHS } from "./providerIcons.js";
+
 const PROVIDER_COLORS: Record<string, string> = {
     openai: "#10A37F",
     anthropic: "#D97757",
@@ -112,7 +114,6 @@ const PROVIDER_COLORS: Record<string, string> = {
     ollama: "#16181B",
     perplexity: "#20808D",
 };
-
 export function modelProvider(model?: string | null): string {
     const id = (model || "").trim().toLowerCase();
     return id ? id.split("/")[0] : "unknown";
@@ -126,21 +127,35 @@ function providerInitial(model?: string | null): string {
 const providerCache = new Map<string, Buffer>();
 
 /**
- * Small monogram chip for the model's provider — mirrors the fallback
- * language the UI uses when a provider has no brand mark.
+ * The provider's true brand mark (Simple Icons path data, same source as
+ * the UI's react-icons) rasterized at 4x for print sharpness. Falls back
+ * to a monogram chip only for providers with no mark available.
  */
 export function providerChipPng(model: string | undefined | null, px = 96): Buffer {
-    const key = modelProvider(model);
+    const raw = modelProvider(model);
+    // Normalize id-prefix variants to the icon/color keys.
+    const key = raw === "gemini" ? "google" : raw === "mistralai" ? "mistral" : raw === "meta-llama" ? "meta" : raw;
     const cached = providerCache.get(key);
     if (cached) return cached;
 
-    const initial = providerInitial(model);
     const color = PROVIDER_COLORS[key] || "#6B7280";
-    const svg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 ${px} ${px}">` +
-        `<rect width="${px}" height="${px}" rx="${Math.round(px * 0.14)}" fill="#FFFFFF" stroke="#D9D9D5"/>` +
-        `<text x="${px / 2}" y="${Math.round(px * 0.72)}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(px * 0.6)}" font-weight="600" fill="${color}" text-anchor="middle">${initial}</text>` +
-        `</svg>`;
+    const iconPath = PROVIDER_ICON_PATHS[key];
+    let svg: string;
+    if (iconPath) {
+        // Brand mark on a white tile, matching the UI's rendering context.
+        svg =
+            `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 ${px} ${px}">` +
+            `<rect width="${px}" height="${px}" rx="${Math.round(px * 0.14)}" fill="#FFFFFF" stroke="#D9D9D5"/>` +
+            `<g transform="scale(${px / 24})"><path d="${iconPath.d}" fill="${color}"/></g>` +
+            `</svg>`;
+    } else {
+        const initial = key === "unknown" ? "M" : key.charAt(0).toUpperCase();
+        svg =
+            `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 ${px} ${px}">` +
+            `<rect width="${px}" height="${px}" rx="${Math.round(px * 0.14)}" fill="#FFFFFF" stroke="#D9D9D5"/>` +
+            `<text x="${px / 2}" y="${Math.round(px * 0.72)}" font-family="Helvetica, Arial, sans-serif" font-size="${Math.round(px * 0.6)}" font-weight="600" fill="${color}" text-anchor="middle">${initial}</text>` +
+            `</svg>`;
+    }
 
     const resvg = new Resvg(svg, { fitTo: { mode: "width", value: px * 4 } });
     const png = Buffer.from(resvg.render().asPng());
