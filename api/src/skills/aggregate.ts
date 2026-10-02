@@ -66,7 +66,11 @@ export function scoreSkillOutput(output: SkillOutput): SkillScore {
     assessable++;
   }
 
-  const anchorCount = output.verdicts?.length || 0;
+  // Coverage is measured against the anchors the skill DECLARED. Using the
+  // returned verdict count instead meant a model that answered 2 of 5 anchors
+  // reported 2/2 = 100% coverage — inflated precisely when it under-answered.
+  const returned = output.verdicts?.length || 0;
+  const anchorCount = Math.max(returned, output.anchor_count || 0);
   const coverage = anchorCount > 0 ? assessable / anchorCount : 0;
   const score = assessable > 0 ? Math.round((credits / assessable) * 10000) / 100 : null;
 
@@ -126,11 +130,15 @@ export function aggregateSkillOutputs(outputs: SkillOutput[], weights: Record<st
   const scoredWeight = scored.reduce((n, s) => n + s.weight, 0);
   const total = Math.round((weightedSum / scoredWeight) * 10) / 10;
 
-  // Coverage = fraction of verdicts assessable across all skills with anchors,
-  // weighted like the scores.
+  // Coverage = fraction of DECLARED anchors assessable, averaged over the
+  // skills that actually scored. Errored/unscored skills are excluded: they
+  // already widen the band via unscoredShare, and counting their 0 coverage
+  // here is what silently suppressed the headline on partial-failure runs
+  // (two dead skills out of three → 0.33 → no score, reports intact).
   let covCredits = 0;
   let covTotal = 0;
   for (const s of perSkill) {
+    if (s.score_0_100 === null) continue;
     const w = Math.max(1, Math.min(10, weights[s.skill_id] ?? 5));
     covCredits += s.coverage * w;
     covTotal += w;

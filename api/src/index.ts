@@ -8,7 +8,7 @@ import { fetchUserKeys, ensureUserSettings } from "./provision.js";
 import { getModelIds, getAvailableModelsForUser } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
 import { getMetricsCatalog, buildFieldList, getFlatCatalog, mergeCatalogFields, normalizeQuantRules, type MetricDef } from "./metrics.js";
-import { createRun, checkAndFailStaleRun, startStaleRunSweeper, type RunRequest } from "./run.js";
+import { createRun, checkAndFailStaleRun, startStaleRunSweeper, failOrphanedRuns, type RunRequest } from "./run.js";
 import { keyPool } from "./keypool.js";
 import { draftParameters, type LlmKeys } from "./agent.js";
 import { classifyModelError } from "./modelcheck.js";
@@ -117,12 +117,17 @@ app.use((req, res, next) => {
 
     const msg = parts.join(" ");
 
+    // Keep the access log out of the default INFO stream — the UI polls
+    // /health and friends constantly. Errors always log; slow calls log at
+    // INFO; routine 2xx/3xx only surface with LOG_LEVEL=debug.
     if (res.statusCode >= 400) {
       const resp = (res as any)._jsonBody;
       const errStr = resp ? JSON.stringify(resp) : "";
       log.error(`[http:${reqId}]`, `${msg}${errStr ? ` ${paint(`resp=${errStr.slice(0, 500)}`, "1;35")}` : ""}`);
-    } else {
+    } else if (ms >= 1000) {
       log.info(`[http:${reqId}]`, msg);
+    } else {
+      log.debug(`[http:${reqId}]`, msg);
     }
   });
   next();
@@ -1133,6 +1138,7 @@ const server = app.listen(config.port, async () => {
     `config: supabase=${config.supabaseUrl ? "set" : "unset"} voyager=${config.voyagerUrl} rateLimit=${config.rateLimitPerMin}/min logLevel=${process.env.LOG_LEVEL || "info"}`,
   );
   startStaleRunSweeper();
+  void failOrphanedRuns();
 });
 
 async function shutdown() {

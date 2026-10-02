@@ -125,6 +125,13 @@ export interface SkillOutput {
   /** Populated by the aggregator. */
   score_0_100?: number;
   coverage?: number;
+  /**
+   * Verdict anchors the skill DECLARED, as opposed to the number of verdicts
+   * the model happened to return. Coverage is measured against this — measuring
+   * against the returned verdicts meant a model that answered 2 of 5 anchors
+   * scored 2/2 = 100% coverage.
+   */
+  anchor_count?: number;
 }
 
 export function skillToPromptSection(skill: SkillDefinition): string {

@@ -74,7 +74,11 @@ export const SkillAnalystOutputSchema = z.object({
     .array(
       z.object({
         anchor: z.string().max(300),
-        verdict: z.enum(["YES", "PARTIAL", "NO", "INSUFFICIENT"]),
+        // Deliberately a string, not z.enum: a strict enum makes the whole
+        // structured call FAIL (and drop a fully-researched skill) when the
+        // model says "Supported" instead of "YES". normVerdict() does the
+        // mapping, generously but safely.
+        verdict: z.string().max(40),
         evidence: z.string().max(500),
         /** Tool + external URL the evidence figure/quote came from. */
         citations: z
@@ -130,9 +134,27 @@ function normCitations(raw: unknown): import("./types.js").SkillCitation[] {
 }
 
 /** Coerce a verdict into the enum; anything unknown counts as INSUFFICIENT. */
-function normVerdict(v: unknown): "YES" | "PARTIAL" | "NO" | "INSUFFICIENT" {
-  const s = String(v || "").toUpperCase();
-  return s === "YES" || s === "PARTIAL" || s === "NO" ? (s as "YES" | "PARTIAL" | "NO") : "INSUFFICIENT";
+/**
+ * Map whatever the model said onto the four verdicts we score.
+ *
+ * This was an exact match on the canonical token, so anything else silently
+ * became INSUFFICIENT. Combined with the strict zod enum that killed the whole
+ * structured call, a single word of vocabulary drift ("Supported", "Not
+ * confirmed", "No data") turned a run with 60 sections of real data into
+ * "0 of 5 anchors met". Matching generously is what makes the pipeline
+ * resilient to model phrasing; an unrecognised token still falls to
+ * INSUFFICIENT, which is the safe direction.
+ */
+export function normVerdict(v: unknown): "YES" | "PARTIAL" | "NO" | "INSUFFICIENT" {
+  const s = String(v ?? "").toUpperCase().trim();
+  if (!s) return "INSUFFICIENT";
+  // Order matters. "NO DATA" contains NO, and "NOT CONFIRMED" contains
+  // CONFIRMED — so absence-of-data and negation are tested before agreement.
+  if (/\b(INSUFFICIENT|UNKNOWN|NONE|N\/?A|MISSING|CANT|CANNOT|UNABLE|NO DATA|NO CLEAR)\b/.test(s)) return "INSUFFICIENT";
+  if (/\b(NO|NOT|NEVER|FAIL\w*|VIOLAT\w*|UNSUPPORTED|REJECTED|INVALID|BROKEN|ABSENT|DISCONFIRM\w*)\b/.test(s)) return "NO";
+  if (/\b(PARTIAL\w*|MOSTLY\w*|SOMEWHAT|MIXED|QUALIFIED\w*|MARGINAL\w*|NEAR)\b/.test(s)) return "PARTIAL";
+  if (/\b(YES|TRUE|SUPPORT\w*|CONFIRM\w*|MET|MEETS|SATISFIED|VALID|PASS\w*|ALIGNED)\b/.test(s)) return "YES";
+  return "INSUFFICIENT";
 }
 
 /**
@@ -246,6 +268,13 @@ export interface SkillRunContext {
   webSearch: boolean;
   /** Analyst tool catalog (name + description) for the prompt. */
   toolCatalog: { name: string; description: string }[];
+  /**
+   * Deterministic facts pack (WS-1): price, SMA/RSI/MACD/ATR/Bollinger/VWAP
+   * and the level map, all computed in code. Injected into every skill prompt
+   * as a fenced "quote these exactly" block so the analyst never has to
+   * extract figures from raw tool JSON.
+   */
+  factsPack?: string;
   onTrace?: TraceCallback;
   /** Live per-skill progress: fired when a skill's analyst turn starts. */
   onSkillStart?: (skill: { id: string; name: string }) => void;
@@ -303,6 +332,14 @@ function buildSkillPrompt(ctx: SkillRunContext, skill: SkillDefinition, symbol: 
   // frame it as internal-first, not web-absent — the fallback turn still exists.
   if (ctx.webSearch) parts.push("Web search is enabled.");
   else parts.push("Prefer the internal data tools; web_search is available as a fallback if they return nothing usable.");
+  if (ctx.factsPack) {
+    // Deliberately NOT fenced with ``` — extractJsonObject/extractJsonArray take
+    // the FIRST fenced block as the model's JSON, and a recited prompt would put
+    // this block ahead of the real payload.
+    parts.push(
+      `\n## FACTS — computed in code, quote these exactly\nThe following figures were computed deterministically from live data. Use them verbatim in findings and verdict evidence — never recompute, estimate, or contradict them. If a figure is marked INSUFFICIENT, say so.\nLines beginning READING are the pipeline's own interpretation of those figures and are AUTHORITATIVE: quote their verdict instead of deriving your own. A timeframe is only oversold/overbought when its zone says so, MACD level and momentum must both be stated when they disagree, the regime line names the actual trend state, and price below VWAP is weakness. Never contradict a READING line.\n${ctx.factsPack}`,
+    );
+  }
   return parts.join("\n");
 }
 
@@ -311,28 +348,96 @@ function buildSkillPrompt(ctx: SkillRunContext, skill: SkillDefinition, symbol: 
  *
  * Small/reasoning models paraphrase these long anchor sentences instead of
  * copying them verbatim, so a pure text match discarded EVERY verdict and the
- * skill scored nothing despite real tool evidence. The prompt asks for one
- * verdict per anchor in order, so fall back to position.
+ * skill scored nothing despite real tool evidence.
+ *
+ * Matching is by CONTENT-WORD OVERLAP, not by leading characters. The v2 eval
+ * showed why the old prefix test failed: these anchors all open with generic
+ * words ("Price is in a confirmed trend or regime with…", "The level map is
+ * actionable with…"), so `label.slice(0, 40)` was the same string for three
+ * different claims. Every RSI/MACD verdict collapsed onto the trend anchor,
+ * "Price is in a confirmed trend" rendered three times, and the Momentum and
+ * Volume anchors vanished.
  *
  * The returned label always comes from `anchors` — never from the model — so a
  * hallucinated anchor still cannot reach aggregation.
  */
+/**
+ * Citation gate: keep only citations this session can actually vouch for.
+ *
+ * A url survives only if a tool returned that exact url — an invented link is
+ * fabrication. A source that names the model's own transcript/conversation is
+ * circular provenance (it points at the narrative, not at data) and is dropped.
+ *
+ * `circular` is injected so the policy stays one regex at the call site and the
+ * behaviour is unit-testable without a live model.
+ */
+export function cleanCitations(
+  cs: import("./types.js").SkillCitation[] | undefined,
+  allowed: Set<string>,
+  circular: RegExp,
+): import("./types.js").SkillCitation[] {
+  return (cs || [])
+    .map((c) => {
+      if (!c.url) return c; // tool-name-only citation: kept (tool WAS called)
+      return allowed.has(c.url) ? c : { ...c, url: undefined };
+    })
+    .filter((c) => (c.source || c.url) && !circular.test(`${c.source} ${c.label || ""}`));
+}
+
 export function pickAnchor(
   anchors: { label: string }[],
   anchor: string,
   index: number,
 ): { label: string } | null {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  return (
-    anchors.find((a) => norm(a.label) === norm(anchor)) ||
-    anchors.find(
-      (a) =>
-        norm(a.label).includes(norm(anchor).slice(0, 40)) ||
-        norm(anchor).includes(norm(a.label).slice(0, 40)),
-    ) ||
-    anchors[index] ||
-    null
-  );
+  const exact = anchors.find((a) => norm(a.label) === norm(anchor));
+  if (exact) return exact;
+
+  // Content words only: drop the stopwords that make every anchor look alike.
+  const STOP = new Set([
+    "is", "are", "the", "a", "an", "and", "or", "of", "to", "in", "on", "at", "for", "with",
+    "that", "this", "it", "as", "by", "be", "has", "have", "its", "their", "from", "than",
+  ]);
+  const words = (s: string) =>
+    new Set(
+      norm(s)
+        .split(" ")
+        .filter((w) => w.length > 2 && !STOP.has(w)),
+    );
+  const aw = words(anchor);
+  if (aw.size === 0) return null;
+
+  let best: { label: string; score: number } | null = null;
+  let runnerUp = 0;
+  for (const a of anchors) {
+    const lw = words(a.label);
+    let hit = 0;
+    for (const w of aw) if (lw.has(w)) hit++;
+    // Normalise by the smaller set so a long anchor is not penalised for length.
+    const score = hit / Math.max(1, Math.min(aw.size, lw.size));
+    if (!best || score > best.score) {
+      runnerUp = best ? best.score : 0;
+      best = { label: a.label, score };
+    } else if (score > runnerUp) {
+      runnerUp = score;
+    }
+  }
+  // Require a real margin over the runner-up. A paraphrase is short and noisy
+  // ("VWAP is 4619 and volume analysis is supportive" hits 2 of 6 words), so a
+  // low absolute score is fine as long as no other anchor competes. A TIE means
+  // the words genuinely do not identify one claim, so fall through to position
+  // rather than silently picking the first.
+  if (best && best.score >= 0.25 && best.score > runnerUp * 1.5) {
+    return anchors.find((a) => a.label === best!.label)!;
+  }
+
+  // Nothing matched decisively. Fall back to position: small models paraphrase
+  // so badly that overlap scoring finds nothing, and dropping every verdict
+  // there is what made the run unscoreable. Safe to keep now that overlap
+  // matching runs first and the caller de-duplicates anchors — the duplicate
+  // rows that made the old prefix match scramble the table can no longer
+  // happen.
+  return anchors[index] ?? null;
 }
 
 /** Run ONE skill's analyst turn → SkillOutput (verdicts + findings, no scores). */
@@ -357,6 +462,7 @@ export async function runSingleSkill(
     citations: [],
     raw_observations: [],
     scored_by: "llm",
+    anchor_count: skill.anchors?.length || 0,
   };
 
   try {
@@ -383,7 +489,12 @@ export async function runSingleSkill(
         } catch {
           body = String(ev.result ?? "");
         }
-        evidenceParts.push(`RESULT ${ev.tool} (${ev.status}): ${body.slice(0, 1200)}`);
+        // ponytail: was 1200 chars, which cut a 15732-char get_technicals
+        // payload down to 4 of 60 sections — the model reported SMA/RSI/MACD
+        // "unavailable" because it never saw them. Ceiling: a single tool
+        // result over ~24k chars still gets cut. Upgrade path: per-section
+        // budgeting in skills/charts.ts if that ever bites.
+        evidenceParts.push(`RESULT ${ev.tool} (${ev.status}): ${body.slice(0, 24000)}`);
         // Raw observations are the run's provenance record: the verbatim tool
         // data every finding cites, persisted with the skill output and shown
         // unfiltered in the result page / PDF alongside its source URL.
@@ -630,14 +741,15 @@ export async function runSingleSkill(
         // Retry transient provider failures before salvaging/failing.
         const res = await retryLlmCall(
           `skill structured extraction (${skill.id})`,
-          () =>
+          (signal) =>
             generateObject({
               model,
               schema: SkillAnalystOutputSchema,
               system: structuredSystem,
-              prompt: `Analyst research transcript (may include tool results):\n\n${text.slice(0, 30000)}${evidenceBlock}\n\nSkill: ${skill.name}\nAnchors:\n${(skill.anchors || []).map((a) => `- ${a.label}`).join("\n") || "(none)"}`,
+              prompt: `Analyst notes (UNVERIFIABLE — never cite this; it is prose, not data):\n\n${text.slice(0, 30000)}${evidenceBlock}\n\nCite ONLY the raw tool observations above. A citation whose source is the transcript, the notes, or yourself is fabricated provenance and will be stripped.\n\nSkill: ${skill.name}\nAnchors:\n${(skill.anchors || []).map((a) => `- ${a.label}`).join("\n") || "(none)"}`,
               temperature: 0,
               maxOutputTokens: 2000,
+              abortSignal: signal,
             }),
           {
             attempts: 3,
@@ -718,23 +830,45 @@ export async function runSingleSkill(
       // both shapes the model emits: {verdicts:[...]} or a bare
       // array of verdict objects.
       const recoveryAnchors = skill.anchors || [];
-      if (parsed && recoveryAnchors.length > 0 && (parsed.verdicts || []).length === 0) {
+      // Also runs when `parsed` is null (structured extraction AND raw-JSON
+      // salvage both failed). That case used to skip straight to "could not be
+      // structured" and void the skill despite the analyst turn succeeding.
+      //
+      // And it now runs on a THIRD case that was silently shipping bad reports:
+      // every verdict came back INSUFFICIENT even though the tools returned
+      // real data (the KEI run — 60 sections, 0 of 5 anchors met). A second
+      // independent pass is exactly what a one-shot judgement should get.
+      const gotToolData = rawObservations.some((o) => o.status === "ok");
+      const allInsufficient =
+        gotToolData &&
+        (parsed?.verdicts || []).length > 0 &&
+        // normVerdict(), not ===: the raw token may still be drifted text like
+        // "No data", which only becomes INSUFFICIENT once normalised.
+        (parsed!.verdicts as SkillAnalystOutput["verdicts"]).every((v) => normVerdict(v.verdict) === "INSUFFICIENT");
+      if (recoveryAnchors.length > 0 && (!parsed || (parsed.verdicts || []).length === 0 || allInsufficient)) {
+        if (allInsufficient) {
+          log.warn("skillrun", `[${skill.id}] every verdict came back INSUFFICIENT despite ${rawObservations.length} tool observation(s) — retrying the judgement`);
+        }
         try {
           const res2 = await retryLlmCall(
             `verdict recovery (${skill.id})`,
-            () =>
+            (signal) =>
               generateText({
                 model,
                 system: structuredSystem,
                 prompt:
               `Assign one verdict for EVERY anchor below using ONLY the analyst transcript and the raw tool observations. ` +
-              "Copy figures verbatim from the observations — never compute, estimate, or complete them. If the evidence does not settle an anchor, verdict INSUFFICIENT — never guess.\n\n" +
+              "Copy figures verbatim from the observations — never compute, estimate, or complete them. " +
+              "The observations DO contain the data for these anchors, so commit to a judgement: YES, PARTIAL or NO. " +
+              "Reserve INSUFFICIENT for an anchor whose specific figures are genuinely absent from the observations — " +
+              "a weak or conflicting signal is PARTIAL or NO, never INSUFFICIENT.\n\n" +
               `Return ONLY a JSON array of verdict objects, one per anchor, exactly like: [{"anchor": str, "verdict": "YES"|"PARTIAL"|"NO"|"INSUFFICIENT", "evidence": str, "citations": [{"source": str, "url": str?, "value": str}]}] — no prose around it.\n\n` +
               `Skill: ${skill.name}\nAnchors:\n${recoveryAnchors.map((a) => `- ${a.label}`).join("\n")}\n\n` +
               `Analyst transcript:\n${text.slice(0, 30000)}` +
               (evidenceParts.length ? `\n\nRAW TOOL OBSERVATIONS (verbatim, from the tools actually called this session):\n${evidenceDigest().slice(0, 24000)}` : ""),
                 temperature: 0,
                 maxOutputTokens: 2000,
+                abortSignal: signal,
               }),
             {
               attempts: 3,
@@ -761,7 +895,9 @@ export async function runSingleSkill(
             .filter((v) => v.anchor && v.evidence)
             .slice(0, 24);
           if (recovered.length) {
-            parsed = { ...parsed, verdicts: recovered };
+            parsed = parsed
+              ? { ...parsed, verdicts: recovered }
+              : { findings: [], verdicts: recovered, chart_requests: [], tools_used: [] };
             log.warn("skillrun", `[${skill.id}] verdict recovery pass extracted ${recovered.length} verdict(s) from raw text`);
           }
           keyPool.recordUsage({
@@ -845,15 +981,24 @@ export async function runSingleSkill(
     const MEMORY_ANSWER_ERROR =
       "The model answered from memory without reading any data, so its output was discarded — there is nothing real to score here. The pipeline's automatic web search also found no usable results. Try a stronger model for this agent or check the data-provider connection.";
 
-    // Keep only verdicts that map to this skill's anchors (by fuzzy label match),
-    // so a hallucinated anchor never enters aggregation.
+    // Keep only verdicts that map to this skill's anchors (by content-word
+    // overlap), so a hallucinated anchor never enters aggregation. First
+    // mapping wins: the v2 eval rendered "Price is in a confirmed trend" three
+    // times because several verdicts collapsed onto it, which is how a correct
+    // verdict ended up shown against the wrong claim.
     const anchors = skill.anchors || [];
+    const takenAnchors = new Set<string>();
     const verdicts = hasData
       ? (parsed.verdicts || [])
           .map((v, i) => {
             const match = pickAnchor(anchors, v.anchor, i);
             if (!match) return null;
-            return { anchor: match.label, verdict: v.verdict, evidence: v.evidence, citations: normCitations((v as any).citations) };
+            if (takenAnchors.has(match.label)) {
+              log.warn("skillrun", `[${skill.id}] dropped a duplicate verdict for anchor "${match.label.slice(0, 60)}"`);
+              return null;
+            }
+            takenAnchors.add(match.label);
+            return { anchor: match.label, verdict: normVerdict(v.verdict), evidence: v.evidence, citations: normCitations((v as any).citations) };
           })
           .filter((v): v is NonNullable<typeof v> => !!v)
       : [];
@@ -868,23 +1013,40 @@ export async function runSingleSkill(
     // ── Citation URL gate: a link is rendered ONLY if that exact url came
     // back from a tool this session. Model-invented urls are stripped — a
     // citation to a site that was never fetched is fabrication, full stop.
+    //
+    // P0-3: also strip CIRCULAR provenance. The v2 eval showed every figure
+    // cited "Analyst research transcript" — the model's own prose, which
+    // points at the narrative rather than at data. A source that names the
+    // transcript, the conversation, or the assistant is never evidence.
+    const CIRCULAR = /\b(transcript|conversation|analyst research|assistant|the above|own analysis|prior output)/i;
     const allowed = allowedUrls(rawObservations);
-    const gateCitations = (cs: import("./types.js").SkillCitation[] | undefined): import("./types.js").SkillCitation[] =>
-      (cs || [])
-        .map((c) => {
-          if (!c.url) return c; // tool-name-only citation: kept (tool WAS called)
-          return allowed.has(c.url) ? c : { ...c, url: undefined };
-        })
-        .filter((c) => c.source || c.url);
-    for (const v of verdicts) v.citations = gateCitations(v.citations);
+    const gateCitations = (cs: import("./types.js").SkillCitation[] | undefined) =>
+      cleanCitations(cs, allowed, CIRCULAR);
+
+    // P0-3: real provenance for anything the model left uncited. The only
+    // sources we can assert without inventing provenance are the tools this
+    // session actually called, plus the facts pack's own as_of date.
+    const sessionTools = [...new Set(rawObservations.map((o) => o.tool).filter(Boolean))];
+    const asOf = /\bas_of=([0-9]{4}-[0-9]{2}-[0-9]{2})/.exec(ctx.factsPack || "")?.[1];
+    const fallbackCitation: import("./types.js").SkillCitation | null = sessionTools.length
+      ? { source: sessionTools.join(" + "), label: "computed indicators", value: asOf ? `as_of ${asOf}` : "this session" }
+      : null;
+
+    for (const v of verdicts) {
+      v.citations = gateCitations(v.citations);
+      if (!v.citations.length && fallbackCitation) v.citations = [fallbackCitation];
+    }
     const gatedFindings = hasData
-      ? (parsed.findings || []).map((f) => ({ ...f, citations: gateCitations(f.citations) }))
+      ? (parsed.findings || []).map((f) => {
+          const cs = gateCitations(f.citations);
+          return { ...f, citations: cs.length ? cs : fallbackCitation ? [fallbackCitation] : cs };
+        })
       : [];
 
     // Consolidate citations from findings + verdicts into one deduped list.
     const citations = hasData
       ? normCitations([
-          ...((parsed.findings || []) as any[]).flatMap((f) => f?.citations ?? []),
+          ...gatedFindings.flatMap((f) => f.citations ?? []),
           ...verdicts.flatMap((v) => v.citations ?? []),
         ]).filter((c) => !c.url || allowed.has(c.url))
       : [];

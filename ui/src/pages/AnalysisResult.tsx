@@ -145,13 +145,16 @@ export default function AnalysisResult() {
             setElapsed(0);
             return;
         }
-        setElapsed(0);
-        const start = Date.now();
-        const interval = setInterval(() => {
-            setElapsed(Math.floor((Date.now() - start) / 1000));
-        }, 1000);
+        // Anchor to the run's persisted start, not page-load time, so a
+        // refresh mid-run resumes the clock instead of restarting at 0.
+        const anchor = analysis?.started_at || analysis?.created_at;
+        const parsed = anchor ? +new Date(anchor) : NaN;
+        const start = Number.isFinite(parsed) ? parsed : Date.now();
+        const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+        tick();
+        const interval = setInterval(tick, 1000);
         return () => clearInterval(interval);
-    }, [isRunning]);
+    }, [isRunning, analysis?.started_at, analysis?.created_at]);
 
     const fetchCancelled = useRef(false);
     const fetchTimer = useRef<number | null>(null);
@@ -560,7 +563,7 @@ export default function AnalysisResult() {
                     </Box>
                 )}
 
-                {analysis.error && (
+                {analysis.error && isComplete && (
                     <Box mb={6}>
                         <Callout tone="negative" title="Analysis Error">
                             <Text
@@ -597,9 +600,23 @@ export default function AnalysisResult() {
                             </Box>
                             <Box>
                                 <Text fontSize="14px" fontWeight={600} color="var(--ink-tertiary)" mb={1}>
-                                    Total Score
+                                    {analysis.report?.heroLabel ? "Stance" : "Total Score"}
                                 </Text>
-                                {totalScore != null && !lowCoverage ? (
+                                {analysis.report?.heroLabel ? (
+                                    <HStack gap={2} align="baseline">
+                                        <Text
+                                            fontSize={analysis.report.heroLabel.length > 14 ? "52px" : "88px"}
+                                            fontWeight={800}
+                                            lineHeight="0.85"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                            letterSpacing="-0.05em"
+                                            color="var(--ink-primary)"
+                                        >
+                                            {analysis.report.heroLabel}
+                                        </Text>
+                                    </HStack>
+                                ) : totalScore != null && !lowCoverage ? (
                                     <HStack gap={2} align="baseline">
                                         <Text
                                             fontSize="88px"
@@ -752,10 +769,10 @@ export default function AnalysisResult() {
                                             <SectionHeader label="Executive Summary" count={analysis.report ? analysis.report.blocks.length : 0} />
                                             {analysis.report ? (
                                                 <>
-                                                    {analysis.report.partial && (
+                                                    {analysis.report.partial && (coverage == null || coverage < 100) && (
                                                         <Box mb={4}>
                                                             <Callout tone="caution" title="Partial Result">
-                                                                Some qualitative parameters failed to score. The synthesis is based on partial data.
+                                                                Some skills could not assess every anchor — this report leans on partial evidence{coverage != null ? ` (${coverageLabel(coverage)} of rubric scored)` : ""}.
                                                             </Callout>
                                                         </Box>
                                                     )}
@@ -808,7 +825,7 @@ export default function AnalysisResult() {
                                 {isRunning ? (
                                     <AgentActivity
                                         title={`Analyzing ${analysis.share_name || analysis.symbol || "…"} with ${agentName(analysis.agent_name)}`}
-                                        subtitle={`${analysis.model || "default model"} · gathering data, searching, scoring`}
+                                        subtitle="gathering data, searching, scoring"
                                         agent={resolveAgent(analysis.agent_name, agents)}
                                         streamUrl={`/analysis/${id}/stream`}
                                         steps={analysis.steps || []}
@@ -819,7 +836,7 @@ export default function AnalysisResult() {
                                 ) : (
                                     <AgentActivity
                                         title={`Reasoning history — ${analysis.share_name || analysis.symbol || "…"} with ${agentName(analysis.agent_name)}`}
-                                        subtitle={`${analysis.model || "default model"} · full tool and thought trace`}
+                                        subtitle="full tool and thought trace"
                                         agent={resolveAgent(analysis.agent_name, agents)}
                                         events={analysis.trace || []}
                                         steps={analysis.steps || []}

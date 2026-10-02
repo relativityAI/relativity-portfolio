@@ -88,7 +88,7 @@ export async function ensureUserSettings(userId: string): Promise<void> {
 
   // If row exists AND has a key AND key_version >= 2 (has data:write scope), we're done
   if (rowData && rowData.voyager_key_encrypted && (rowData.key_version || 1) >= 2) {
-    log.info("[provision]", `Key already exists for ${userId} with write scope (skip)`);
+    log.debug("[provision]", `Key already exists for ${userId} with write scope (skip)`);
     return;
   }
 

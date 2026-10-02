@@ -588,14 +588,15 @@ export default function Analysis() {
 
     useEffect(() => {
         if (status === "PENDING") {
-            const start = Date.now();
-            setElapsedTime(0);
-            const interval = setInterval(() => {
-                setElapsedTime(Math.floor((Date.now() - start) / 1000));
-            }, 1000);
+            // Anchor to the run's persisted start, not page-load time, so a
+            // refresh mid-run resumes the clock instead of restarting at 0.
+            const start = startedAt ?? Date.now();
+            const tick = () => setElapsedTime(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+            tick();
+            const interval = setInterval(tick, 1000);
             return () => clearInterval(interval);
         }
-    }, [status]);
+    }, [status, startedAt]);
 
     useEffect(() => {
         let cancelled = false;
@@ -834,7 +835,10 @@ export default function Analysis() {
                 setCorrelationId(analysisId);
 
                 if (Array.isArray(data.steps)) setSteps(data.steps);
-                if (data.created_at) setStartedAt(+new Date(data.created_at));
+                // started_at is when the run actually began; created_at is
+                // queue time. Prefer the former so the live clock is honest.
+                const runStart = data.started_at || data.created_at;
+                if (runStart) setStartedAt(+new Date(runStart));
 
                 const s = (data.status || "").toLowerCase();
                 if (s === "complete" || s === "completed" || s === "error" || s === "failed" || s === "success") {

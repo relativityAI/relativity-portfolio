@@ -632,7 +632,7 @@ export function planAnalyze(input: {
     try {
       const res = await retryLlmCall(
         "analysis planning",
-        () =>
+        (signal) =>
           generateObject({
             model,
             schema: AnalysisPlanSchema,
@@ -640,6 +640,7 @@ export function planAnalyze(input: {
             prompt: buildAnalysisPlanPrompt(input),
             temperature: 0.2,
             maxOutputTokens: 2048,
+            abortSignal: signal,
           }),
         {
           attempts: 3,
@@ -1446,6 +1447,21 @@ export interface SkillSynthesisInput {
   asOf?: string;
   degraded?: string;
   toolEvidence?: string;
+  /**
+   * Deterministic facts pack (WS-1): price, SMA/RSI/MACD/ATR/Bollinger/VWAP
+   * and the level map, computed in code. The synthesis must quote these
+   * exactly — never invent or recompute a figure.
+   */
+  factsPack?: string;
+  /**
+   * Code-derived stance (WS-3): per-timeframe + overall with confidence.
+   * The synthesis must use this as the hero headline — never "alignment".
+   */
+  stance?: { short: string; medium: string; long: string; overall: string; confidence: number };
+  /** Sampling temperature. The gate retry passes a higher value so it is a real second opinion, not a reroll. */
+  temperature?: number;
+  /** Consistency-gate issues the previous draft was rejected for (retry pass only). */
+  fixIssues?: string[];
 }
 
 /**
@@ -1635,12 +1651,23 @@ export function buildSkillFallbackReport(input: SkillSynthesisInput): AnalysisRe
 
   return {
     heroPct: input.totalScore != null ? Math.round(input.totalScore * 10) / 10 : 0,
-    heroLabel: `Alignment with ${input.agentDisplayName}`,
+    heroLabel: input.stance
+      ? `${input.stance.overall} · ${input.stance.confidence}% confidence`
+      : `Alignment with ${input.agentDisplayName}`,
     blocks,
     partial: true,
     source: "fallback",
   };
 }
+
+/**
+ * Synthesis is bounded by retryLlmCall's per-attempt timeout (harness.ts), not
+ * here: without it a hung provider stream blocks the run until the stale-run
+ * sweeper kills it, leaving a report that was already computed but never
+ * written.
+ * ponytail: 3 attempts x 120s is the real ceiling. Raise it only if synthesis
+ * genuinely needs longer than 2 minutes; raise STALE_RUN_THRESHOLD_MS with it.
+ */
 
 export async function synthesizeSkillReport(input: SkillSynthesisInput): Promise<AnalysisReport> {
   const { apiKey, keyRef } = keyPool.pickKey(input.modelId, input.llmKeys as Record<string, string | undefined>);
@@ -1686,9 +1713,24 @@ export async function synthesizeSkillReport(input: SkillSynthesisInput): Promise
     input.agentPersona ? `Investor persona:\n${input.agentPersona.slice(0, 2000)}` : "",
     "",
     input.totalScore != null
-      ? `AGGREGATE (computed in code — state these exactly): total score ${input.totalScore}, uncertainty band ${input.fitLow ?? "?"}\u2013${input.fitHigh ?? "?"}, coverage ${input.coverage ?? 0}%.`
-      : `AGGREGATE (computed in code): the total score was SUPPRESSED — coverage ${input.coverage ?? 0}% is below the reliability floor. Say so plainly and do NOT state or invent any headline number; the uncertainty band is ${input.fitLow ?? "?"}\u2013${input.fitHigh ?? "?"}.`,
+      ? `AGGREGATE (computed in code — state these exactly): total score ${input.totalScore}, uncertainty band ${input.fitLow ?? "?"}–${input.fitHigh ?? "?"}, coverage ${input.coverage ?? 0}%.`
+      : `AGGREGATE (computed in code): the total score was SUPPRESSED — coverage ${input.coverage ?? 0}% is below the reliability floor. Say so plainly and do NOT state or invent any headline number; the uncertainty band is ${input.fitLow ?? "?"}–${input.fitHigh ?? "?"}.`,
     input.degraded ? `Degraded run note: ${input.degraded}` : "",
+    input.fixIssues?.length
+      ? `A previous draft of this report was REJECTED by an automated consistency check against the figures above. Correct exactly these and do not repeat them:\n${input.fixIssues.map((i) => `- ${i}`).join("\n")}`
+      : "",
+    "",
+    "FACTS — computed in code, quote these exactly:",
+    input.factsPack || "(no facts pack available)",
+    "The lines beginning READING are the pipeline's own INTERPRETATION of those figures and are authoritative. " +
+      "Quote the READING verdict verbatim instead of deriving your own reading: a timeframe is only 'oversold' when its zone says oversold, " +
+      "MACD level and momentum must both be stated when they disagree, 'regime' names the actual trend state, and a price below VWAP is weakness. " +
+      "Never contradict a READING line — if you believe it is wrong, say the figures are inconsistent and stop.",
+    "Every number you write must appear in this facts pack, the per-skill outputs below, or the aggregate line above. Never compute, estimate, or 'fill in' a figure. If a needed figure is marked INSUFFICIENT, say so.",
+    "",
+    input.stance
+      ? `STANCE (computed in code — use this as the headline, never "alignment" or "fit"): overall ${input.stance.overall}, confidence ${input.stance.confidence}%. Per timeframe: short ${input.stance.short}, medium ${input.stance.medium}, long ${input.stance.long}.`
+      : "",
     "",
     "PER-SKILL STRUCTURED OUTPUTS (already produced by focused analyst runs):",
     skillSummaries.slice(0, 60000),
@@ -1711,13 +1753,14 @@ export async function synthesizeSkillReport(input: SkillSynthesisInput): Promise
   // before degrading to the deterministic fallback.
   const res = await retryLlmCall(
     "skill report synthesis",
-    () =>
+    (signal) =>
       generateObject({
         model,
         schema: AnalysisReportSchema,
         system: SKILL_REPORT_SYNTHESIS_SYSTEM_PROMPT,
         prompt,
-        temperature: 0.1,
+        temperature: input.temperature ?? 0.1,
+        abortSignal: signal,
       }),
     {
       attempts: 3,

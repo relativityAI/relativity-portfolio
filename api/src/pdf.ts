@@ -10,7 +10,7 @@ import { Resvg } from "@resvg/resvg-js";
 import { createRequire } from "node:module";
 import type { ReportBlock } from "./agent.js";
 import { log } from "./logger.js";
-import { agentChipPng, agentSeed, providerChipPng } from "./agentIdentity.js";
+import { agentChipPng, agentSeed } from "./agentIdentity.js";
 import { LOGO_PNG_DATA_URI } from "./reportLogo.js";
 
 // pdfmake ships a CJS browser build that Vite's transformer breaks. Load it via
@@ -474,9 +474,10 @@ function identityTitleBand(run: any): PdfNode {
   const agentLabel = isUuid(run.agent_name)
     ? run.agent_display_name || "Investor agent"
     : run.agent_name || "Agent";
+  // WS-5: the model slug is an internal detail — never printed in the
+  // investor-facing PDF header.
   const plainLine =
     `Prepared for the "${agentLabel}" mandate` +
-    (run.model ? ` · ${run.model}` : "") +
     ` · ${run.created_at ? new Date(run.created_at).toLocaleDateString() : ""}`;
   try {
     // Report-size portrait: the agent visibly authors this document, the way
@@ -493,23 +494,7 @@ function identityTitleBand(run: any): PdfNode {
           stack: [
             { text: agentLabel, style: "h3", margin: [0, 2, 0, 1] },
             { text: `Prepared for the "${agentLabel}" mandate`, style: "meta" },
-            run.model
-              ? {
-                  columns: [
-                    {
-                      image: `data:image/png;base64,${providerChipPng(run.model).toString("base64")}`,
-                      width: 12,
-                      height: 12,
-                      margin: [0, 1, 6, 0],
-                    },
-                    {
-                      text: `${run.model} · ${run.created_at ? new Date(run.created_at).toLocaleDateString() : ""}`,
-                      style: "meta",
-                    },
-                  ],
-                  margin: [0, 2, 0, 0],
-                }
-              : { text: run.created_at ? new Date(run.created_at).toLocaleDateString() : "", style: "meta" },
+            { text: run.created_at ? new Date(run.created_at).toLocaleDateString() : "", style: "meta" },
           ],
         },
       ],

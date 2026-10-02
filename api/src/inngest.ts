@@ -5,11 +5,12 @@ import { fetchUserKeys } from "./provision.js";
 import { config } from "./config.js";
 import { VoyagerClient, toCountrySource, type PullStatus } from "./voyager.js";
 import { fetchMetricsSnapshot, assessDataAdequacy } from "./quant.js";
-import { synthesizeSkillReport, sanitizeReport, buildSourcesBlocks, type TraceCallback } from "./agent.js";
+import { synthesizeSkillReport, buildSourcesBlocks, type TraceCallback, type ReportBlock } from "./agent.js";
+import { blockedReport, isUnscoreable } from "./reportGate.js";
 import { getAnalystToolCatalog } from "./tools.js";
-import { buildMarketSnapshot } from "./marketdata.js";
+import { buildMarketSnapshot, buildFactsPack } from "./marketdata.js";
 import { ensureFreshData } from "./freshness.js";
-import { resolveWebSearch, initialSteps, startStep, finishStep, toolEvidenceDigest, type RunRequest, type RunStep } from "./run.js";
+import { resolveWebSearch, initialSteps, startStep, finishStep, toolEvidenceDigest, collectSkillKnownValues, type RunRequest, type RunStep } from "./run.js";
 import { keyPool } from "./keypool.js";
 import { log } from "./logger.js";
 import { TraceCollector, traceHub } from "./trace.js";
@@ -19,6 +20,7 @@ import { aggregateSkillOutputs, isScoreDisplayable, MIN_COVERAGE_FOR_SCORE } fro
 import { assembleSkillCharts, buildSkillScoreCharts, toolEvidenceForCharts } from "./skills/charts.js";
 import { runQuantScreen } from "./skills/quantscreen.js";
 import { buildSkillScoreTables } from "./skills/tables.js";
+import { finalizeReport } from "./skills/finalize.js";
 
 export const inngest = new Inngest({ id: "relativity-portfolio" });
 
@@ -40,14 +42,16 @@ export const analysisRunFn = inngest.createFunction(
     // stuck in RUNNING until the stale-run sweeper fires (parity with the
     // local runner's error handling).
     onFailure: async ({ event, error }) => {
-      // The failure event wraps the original event payload one level down.
       const original = (event.data as { event?: { data?: AnalysisRunEventData } } | undefined)?.event;
       const runId = original?.data?.runId;
       if (!runId) return;
       try {
-        await getDb()
+        const db = getDb();
+        const { data: row } = await db.from("analysis_runs").select("steps").eq("id", runId).maybeSingle();
+        const steps = Array.isArray(row?.steps) ? (row.steps as RunStep[]).map((s: RunStep) => s.status === "running" ? { ...s, status: "failed" as const } : s) : undefined;
+        await db
           .from("analysis_runs")
-          .update({ status: "FAILED", error: error instanceof Error ? error.message : String(error), updated_at: new Date().toISOString() })
+          .update({ status: "FAILED", error: error instanceof Error ? error.message : String(error), updated_at: new Date().toISOString(), ...(steps ? { steps } : {}) })
           .eq("id", runId);
       } catch (e) {
         log.error(`[inngest ${runId}]`, "failed to persist failure:", e);
@@ -59,7 +63,8 @@ export const analysisRunFn = inngest.createFunction(
     const runId = req.runId;
     const db = getDb();
     const runTag = `[inngest ${runId}]`;
-    const started = Date.now();
+    const { data: runRow } = await db.from("analysis_runs").select("started_at").eq("id", runId).maybeSingle();
+    const started = runRow?.started_at ? new Date(runRow.started_at as string).getTime() : Date.now();
 
     // Live trace: publish every event to SSE subscribers, persist throttled.
     traceHub.reset(runId);
@@ -92,7 +97,8 @@ export const analysisRunFn = inngest.createFunction(
 
     // Steps tracking (parity with the local runner): the UI's progress UI reads
     // analysis.steps; without this the Inngest path left every step "pending".
-    let steps: RunStep[] = initialSteps();
+    const { data: existingRun } = await db.from("analysis_runs").select("steps").eq("id", runId).maybeSingle();
+    let steps: RunStep[] = (existingRun?.steps as RunStep[] | null) ?? initialSteps();
     const setStep = async (key: string, status: RunStep["status"], detail?: string) => {
       steps = status === "running" ? startStep(steps, key) : finishStep(steps, key, status, detail);
       await updateRunStatus({ steps });
@@ -188,6 +194,10 @@ export const analysisRunFn = inngest.createFunction(
         throw new Error("Agent has no skills attached");
       }
 
+      // Facts pack (WS-1): deterministic digest of every figure the report
+      // may quote — built in code from the same live feeds the analysts use.
+      const { facts: factsPack, stance } = await buildFactsPack(voyagerKey ? voyager : null, req.symbol, cs.source);
+
       const skillCtx = {
         toolCtx: {
           voyager,
@@ -204,6 +214,7 @@ export const analysisRunFn = inngest.createFunction(
         documents: req.documents || [],
         webSearch: web.effective !== "off",
         toolCatalog: getAnalystToolCatalog(),
+        factsPack,
         // skillrun envelopes its events ({ parameter, section, type, data }) —
         // unwrap the real event and key it by skill name; passing the
         // envelope itself leaves every field traceQual reads (text/tool/
@@ -247,9 +258,9 @@ export const analysisRunFn = inngest.createFunction(
         }),
       );
 
-      return { outputs, weights, resolved, adequacy, web, price_data, marketSnapshot, metricsOutage: snap.outage ? snap.outage_error || "metrics provider outage" : null };
+      return { outputs, weights, resolved, adequacy, web, price_data, marketSnapshot, factsPack, stance, metricsOutage: snap.outage ? snap.outage_error || "metrics provider outage" : null, traceSnapshot: collector.snapshot() };
     });
-    const { outputs, weights, resolved, price_data, marketSnapshot } = skillsResult;
+    const { outputs, weights, resolved, price_data, marketSnapshot, factsPack, stance, traceSnapshot } = skillsResult;
     const skillErrors = outputs.filter((o) => o.error).map((o) => `${o.skill_name}: ${o.error}`);
     await setStep("skills", skillErrors.length === outputs.length ? "failed" : "completed", skillErrors.length ? `${skillErrors.length} skill(s) reported problems` : `${outputs.length} skill(s) completed`);
 
@@ -271,7 +282,7 @@ export const analysisRunFn = inngest.createFunction(
       // mostly-unassessed anchors is suppressed, not displayed.
       const total = isScoreDisplayable(agg) ? agg.total_score : null;
       const totalCoverage = Math.round(agg.coverage * 1000) / 10;
-      const errorSummary =
+      let errorSummary =
         agg.scored_count === 0
           ? `All skills failed to produce a score — ${
               skillErrors.length
@@ -279,14 +290,17 @@ export const analysisRunFn = inngest.createFunction(
                 : agg.failure_reason || "every anchor came back without usable data"
             }`
           : null;
-      const finalStatus = agg.scored_count === 0 ? "FAILED" : "COMPLETED";
+      // Terminal status is decided AFTER synthesis (see below): a run that
+      // produced a readable report is COMPLETED even when no anchor scored —
+      // the number is suppressed, not the report.
 
       // Persist the deterministic results BEFORE any LLM-dependent synthesis:
       // a synthesis throw must not void the computed score (parity with the
-      // local runner's early-results patch).
+      // local runner's early-results patch). Status stays RUNNING until the
+      // report lands — a terminal status here is what made the UI show
+      // "Failed" while the run was still finalizing.
       await updateRunStatus({
-        status: finalStatus,
-        error: errorSummary,
+        status: "RUNNING",
         skill_outputs: outputs,
         pipeline_version: "v3-skills",
         total_score: total,
@@ -303,8 +317,44 @@ export const analysisRunFn = inngest.createFunction(
       // whose headline score was suppressed for thin coverage
       // (totalScore: null tells the model not to invent a headline
       // number). Only a run where every skill failed outright skips it.
+      // Charts are code-assembled from real tool data, so hoist them above the
+      // synthesis branch: a blocked/unavailable report still gets the price
+      // action we actually have.
+      let chartBlocksPromise: Promise<ReportBlock[]> = Promise.resolve([]);
+      try {
+        chartBlocksPromise = assembleSkillCharts(
+          outputs,
+          resolved,
+          req.symbol,
+          toolEvidenceForCharts(
+            traceToolCallMap(
+              (traceSnapshot || []).filter((ev: any) => ev.type === "tool_result" && ev.status !== "ERR"),
+            ),
+          ),
+          voyager,
+          cs.source,
+        );
+      } catch (e: any) {
+        log.warn(runTag, `chart assembly setup failed: ${e?.message}`);
+      }
       let report = null;
-      if (scoredOutputs.length > 0) {
+      const asOfStamp = new Date().toISOString().slice(0, 10);
+      if (isUnscoreable(agg.scored_count)) {
+        // Nothing scored at all (the v2 KEI case: 0Y/0P/0N, 6 of 6 anchors
+        // insufficient) — publish the unavailable notice, not a degraded report.
+        // This is the ONLY path that voids a report; the consistency gate is
+        // advisory (see skills/finalize.ts).
+        log.warn(runTag, `no skill produced a scoreable verdict — publishing an unavailable notice`);
+        report = blockedReport(agg.failure_reason || "no anchor could be assessed from the returned data", asOfStamp);
+      } else if (scoredOutputs.length > 0) {
+        const degradedNote =
+          skillErrors.length > 0
+            ? `${skillErrors.length} of ${outputs.length} skills reported problems: ${skillErrors.slice(0, 2).join("; ")}`
+            : agg.status === "degraded"
+              ? "some skills could not assess every anchor (INSUFFICIENT data) — coverage is below 100%"
+              : total == null
+                ? "the deterministic total was withheld because coverage is below the reliability floor; the report carries no headline number"
+                : undefined;
         report = await synthesizeSkillReport({
           modelId,
           llmKeys,
@@ -316,17 +366,12 @@ export const analysisRunFn = inngest.createFunction(
           fitHigh: agg.fit_high,
           coverage: totalCoverage,
           asOf: new Date().toISOString().slice(0, 10),
-          degraded:
-            skillErrors.length > 0
-              ? `${skillErrors.length} of ${outputs.length} skills reported problems: ${skillErrors.slice(0, 2).join("; ")}`
-              : agg.status === "degraded"
-                ? "some skills could not assess every anchor (INSUFFICIENT data) — coverage is below 100%"
-                : total == null
-                  ? "the headline total score was suppressed (coverage below the reliability floor) — do not invent a headline number"
-                  : undefined,
+          degraded: degradedNote,
           toolEvidence: toolEvidenceDigest(
             Object.fromEntries(outputs.map((o) => [o.skill_name, (o.tools_used || []).map((t) => ({ tool: t, status: o.error ? "ERR" : "OK" }))])),
           ),
+          factsPack,
+          stance,
         });
 
         // Resilience visibility: synthesis degrades to the deterministic
@@ -338,58 +383,72 @@ export const analysisRunFn = inngest.createFunction(
           });
         }
 
-        if (scoreTables.length) {
-          report = { ...report, blocks: [...report.blocks, ...scoreTables] };
+        // One assembly site, shared with the local runner (skills/finalize.ts):
+        // gates the NARRATIVE only, keeps a failed gate advisory, and appends
+        // the code-rendered blocks exactly once.
+        let scoreChartBlocks: ReportBlock[] = [];
+        try {
+          scoreChartBlocks = buildSkillScoreCharts(outputs, agg.per_skill, total);
+        } catch (e: any) {
+          log.warn(runTag, `score chart generation failed (continuing without): ${e?.message}`);
         }
-        const chartEvidence = toolEvidenceForCharts(
-          traceToolCallMap(
-            collector.snapshot().filter((ev) => ev.type === "tool_result" && ev.status !== "ERR"),
-          ),
-        );
-        const chartBlocks = await assembleSkillCharts(outputs, resolved, req.symbol, chartEvidence, voyager, cs.source);
-        if (chartBlocks.length) {
-          report = { ...report, blocks: [...report.blocks, ...chartBlocks] };
-        }
-
-        // Score visualizations: the run's computed results, plotted from
-        // the aggregate (code-assembled, exempt from the numeric gate by
-        // prefix). Rendered even when the headline total is suppressed:
-        // per-skill scores still exist and are worth plotting.
-        const scoreChartBlocks = buildSkillScoreCharts(outputs, agg.per_skill, total);
-        if (scoreChartBlocks.length) {
-          report = { ...report, blocks: [...report.blocks, ...scoreChartBlocks] };
-        }
-
-        // Numeric-integrity allowlist: totals + every number analysts observed.
-        const known = new Set<number>();
-        if (total != null) known.add(Math.round(total * 10) / 10);
-        const visit = (v: unknown): void => {
-          if (typeof v === "number" && Number.isFinite(v)) known.add(Math.round(v * 10) / 10);
-          else if (typeof v === "string") {
-            for (const m of v.matchAll(/-?\d+(?:\.\d+)?/g)) {
-              const n = parseFloat(m[0]);
-              if (Number.isFinite(n)) known.add(Math.round(n * 10) / 10);
-            }
-          } else if (Array.isArray(v)) v.forEach(visit);
-          else if (v && typeof v === "object") Object.values(v).forEach(visit);
-        };
-        for (const o of outputs) {
-          (o.findings || []).forEach(visit);
-          (o.verdicts || []).forEach((v) => visit(v.evidence));
-        }
-        // Sources & raw data: deterministic provenance section appended to
-        // every report, before the sanitizer so the allowlist (built from the
-        // same raw observations) accepts its figures.
-        const sourceBlocks = buildSourcesBlocks(outputs);
-        report = { ...report, blocks: [...report.blocks, ...sourceBlocks] };
-        const { report: cleanReport, dropped } = sanitizeReport(report, known);
-        if (dropped.length) log.warn(runTag, `report sanitized — dropped ${dropped.length} block(s)`);
-        report = cleanReport;
-        // The hero number is OUR stored total, not the model's: clamp
-        // heroPct to the deterministic aggregate so the headline can never
-        // drift from the persisted total_score (no clamp when suppressed).
-        report = { ...report, heroPct: total != null ? Math.round(total * 10) / 10 : report.heroPct };
+        const finalized = await finalizeReport({
+          narrative: report,
+          factsPack,
+          codeBlocks: [
+            ...scoreTables,
+            ...scoreChartBlocks,
+            ...buildSourcesBlocks(outputs),
+          ],
+          known: collectSkillKnownValues(outputs, total ?? 0),
+          totalScore: total,
+          stance,
+          regenerate: (issues) =>
+            synthesizeSkillReport({
+              modelId,
+              llmKeys,
+              agentPersona: agent.persona?.philosophy || "",
+              agentDisplayName: agent.name || "Analysis Agent",
+              outputs: scoredOutputs,
+              totalScore: total,
+              fitLow: agg.fit_low,
+              fitHigh: agg.fit_high,
+              coverage: totalCoverage,
+              asOf: new Date().toISOString().slice(0, 10),
+              degraded: degradedNote,
+              toolEvidence: toolEvidenceDigest(
+                Object.fromEntries(outputs.map((o) => [o.skill_name, (o.tools_used || []).map((t) => ({ tool: t, status: o.error ? "ERR" : "OK" }))])),
+              ),
+              factsPack,
+              stance,
+              temperature: 0.6,
+              fixIssues: issues,
+            }),
+          onLog: (m) => log.warn(runTag, m),
+        });
+        report = finalized.report;
       }
+
+      // Skill-declared charts are code-assembled from real tool data, so they
+      // are valid regardless of whether a verdict scored. Appending them here
+      // (not inside the synthesis branch) keeps them on blocked/unavailable
+      // reports — the reader still gets the price action we actually have.
+      if (report && chartBlocksPromise) {
+        try {
+          const cb = await chartBlocksPromise;
+          if (cb.length) report = { ...report, blocks: [...report.blocks, ...cb] };
+        } catch (e: any) {
+          log.warn(runTag, `chart assembly failed (continuing without): ${e?.message}`);
+        }
+      }
+
+      // A run that produced a readable report is COMPLETED even when no anchor
+      // scored — the number is suppressed, not the report. Only a run with no
+      // report at all is a failure. Labelling a full report "Failed" is what
+      // made the UI show an error banner over real content.
+      const hasReport = !!(report as any)?.blocks?.length;
+      const finalStatus = hasReport ? "COMPLETED" : "FAILED";
+      if (hasReport) errorSummary = null;
 
       await updateRunStatus({
         status: finalStatus,
