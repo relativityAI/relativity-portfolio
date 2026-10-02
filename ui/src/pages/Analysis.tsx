@@ -1,22 +1,62 @@
-import SearchBar from "@/components/SearchBar";
-import PageHero from "@/components/PageHero";
-import {
-    Button, Flex, Text, Spinner, Box, Select, Input,
-    createListCollection, Portal, HStack, VStack, Switch
-} from "@chakra-ui/react";
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import { MdInfoOutline, MdCheck, MdClose, MdArrowForward } from "react-icons/md";
+import { Flex, Text, Spinner, Box, HStack } from "@chakra-ui/react";
+import { useEffect, useState, useMemo, useCallback, useRef, Fragment, type ElementType } from "react";
+import { MdInfoOutline, MdCheck, MdClose, MdArrowForward, MdOutlineOpenInNew } from "react-icons/md";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AnalysisService, AgentService, DataService, SettingsService, API_BASE } from "@/db";
+import { AnalysisService, AgentService, SettingsService, API_BASE, isServerFreeModel } from "@/db";
 import { formatSeconds, agentDisplayName } from "@/utils";
 import AgentAvatar from "@/components/shared/AgentAvatar";
 import { resolveAgent } from "@/lib/agentIdentity";
 import { ModelLogo } from "@/lib/modelLogos";
-import { type RunStep } from "./shared/RunStatus";
+import { AlertCircleIcon, ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+    Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList,
+} from "@/components/ui/combobox";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { type RunStep, runProgressPct } from "./shared/RunStatus";
+import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import AgentActivity from "@/components/shared/AgentActivity";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease, stagger, staggerItem } from "@/lib/motion";
-import { SOURCE_DEFS, SourceMark, type SourceKey } from "@/lib/sourceLogos";
+import { SourceMark } from "@/lib/sourceLogos";
+
+/** The one line this page opens with. */
+const HEADLINE = "Which agent are we running today?";
+const TAGLINE = "Market. Model. Magic.";
+
+const WORD = {
+    initial: { opacity: 0, y: 16, filter: "blur(8px)" },
+    animate: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 1.2, ease } },
+};
+
+/** Word-by-word blur-up. Shared by the headline and its tagline. */
+function Staggered({
+    as: Tag, text, className, delay = 0.2,
+}: { as: ElementType; text: string; className?: string; delay?: number }) {
+    const words = text.split(" ");
+    return (
+        <Tag
+            className={className}
+            initial="initial"
+            animate="animate"
+            variants={{ animate: { transition: { staggerChildren: 0.26, delayChildren: delay } } }}
+        >
+            {words.map((word, i) => (
+                <Fragment key={`${word}-${i}`}>
+                    <motion.span className="inline-block" variants={WORD}>
+                        {word}
+                    </motion.span>
+                    {i < words.length - 1 ? " " : null}
+                </Fragment>
+            ))}
+        </Tag>
+    );
+}
 
 const MAX_POLL_RETRIES = 600;
 
@@ -32,15 +72,6 @@ const PROVIDER_LABELS: Record<string, string> = {
 const providerLabel = (prefix: string) => PROVIDER_LABELS[prefix] || prefix;
 
 type StatusType = "EMPTY" | "PENDING" | "COMPLETED" | "ERROR";
-
-function useDebounce<T>(value: T, delay: number): T {
-    const [debounced, setDebounced] = useState(value);
-    useEffect(() => {
-        const timer = setTimeout(() => setDebounced(value), delay);
-        return () => clearTimeout(timer);
-    }, [value, delay]);
-    return debounced;
-}
 
 interface RunningAnalysis {
     analysis_id?: string;
@@ -134,51 +165,34 @@ function RunningNow({ agents }: { agents?: any[] }) {
     );
 }
 
-function StepSection({ n, title, done, collapsed, onToggle, summary, children }: { n: string; title: string; done: boolean; collapsed?: boolean; onToggle?: () => void; summary?: string; children: any }) {
+function StepSection({ done, collapsed, onToggle, summary, children }: { done: boolean; collapsed?: boolean; onToggle?: () => void; summary?: string; children: any }) {
     const headerIsButton = !!collapsed && !!onToggle;
     return (
         <Box as={motion.div} variants={staggerItem} py={{ base: 4, md: 5 }}>
-            <Flex
-                as={headerIsButton ? "button" : "div"}
-                type={headerIsButton ? "button" : undefined}
-                onClick={headerIsButton ? onToggle : undefined}
-                align="center"
-                gap={2.5}
-                mb={4}
-                w="full"
-                cursor={headerIsButton ? "pointer" : undefined}
-                aria-expanded={headerIsButton ? false : undefined}
-            >
-                <Text
-                    fontSize="12px"
-                    fontFamily="var(--font-mono)"
-                    fontWeight={500}
-                    color="var(--accent-primary)"
+            {headerIsButton && (
+                <Flex
+                    as="button"
+                    type="button"
+                    onClick={onToggle}
+                    align="center"
+                    gap={2.5}
+                    mb={4}
+                    w="full"
+                    cursor="pointer"
+                    aria-expanded={false}
+                    textAlign="left"
                 >
-                    {n}
-                </Text>
-                <Text
-                    fontSize="10.5px"
-                    fontWeight={500}
-                    color="var(--ink-secondary)"
-                    textTransform="uppercase"
-                    letterSpacing="0.06em"
-                >
-                    {title}
-                </Text>
-                <Box flex={1} h="1px" bg="var(--hairline)" />
-                {collapsed && summary && (
-                    <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-secondary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" maxW="60%">
-                        {summary}
-                    </Text>
-                )}
-                {done && <MdCheck size={12} color="var(--signal-positive)" aria-label={`${title} selected`} />}
-                {headerIsButton && (
-                    <Text fontSize="10px" color="var(--ink-tertiary)" textTransform="uppercase" letterSpacing="0.05em" flexShrink={0}>
+                    {summary && (
+                        <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-secondary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" maxW="70%">
+                            {summary}
+                        </Text>
+                    )}
+                    {done && <MdCheck size={12} color="var(--signal-positive)" aria-label="Selected" />}
+                    <Text fontSize="10px" color="var(--ink-tertiary)" textTransform="uppercase" letterSpacing="0.05em" flexShrink={0} ml="auto">
                         Edit
                     </Text>
-                )}
-            </Flex>
+                </Flex>
+            )}
             {collapsed ? null : children}
         </Box>
     );
@@ -202,41 +216,7 @@ function FieldLabel({ children }: { children: any }) {
 const modelPrefix = (id: string) => id.split("/")[0];
 const modelName = (id: string) => id.split("/").slice(1).join("/") || id;
 
-function SegmentedControl({ value, onChange, options }: {
-    value: string;
-    onChange: (v: string) => void;
-    options: { value: string; label: string }[];
-}) {
-    return (
-        <Flex role="group" aria-label="Market source" border="1px solid var(--hairline)" borderRadius="2px" overflow="hidden">
-            {options.map((o) => {
-                const active = value === o.value;
-                return (
-                    <Box
-                        as="button"
-                        key={o.value}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => onChange(o.value)}
-                        flex={1}
-                        py={2}
-                        minH="44px"
-                        textAlign="center"
-                        fontSize="13px"
-                        fontWeight={active ? 600 : 500}
-                        color={active ? "#fff" : "var(--ink-secondary)"}
-                        bg={active ? "var(--accent-primary)" : "transparent"}
-                        _hover={{ bg: active ? "var(--accent-primary)" : "var(--surface-recessed)", color: active ? "#fff" : "var(--ink-primary)" }}
-                        transition="background 160ms, color 160ms"
-                        cursor="pointer"
-                    >
-                        {o.label}
-                    </Box>
-                );
-            })}
-        </Flex>
-    );
-}
+
 
 /** One compact selection chip used across both rail variants. */
 function RailChip({ icon, label, sub, muted }: { icon?: React.ReactNode; label: string; sub?: string; muted?: boolean }) {
@@ -264,28 +244,31 @@ function RailChip({ icon, label, sub, muted }: { icon?: React.ReactNode; label: 
     );
 }
 
-function RailWebSearch({ hasTavily, webSearch, setWebSearch }: { hasTavily: boolean; webSearch: boolean; setWebSearch: (v: boolean) => void }) {
+function RailWebSearch({ id, hasTavily, webSearch, setWebSearch }: { id: string; hasTavily: boolean; webSearch: boolean; setWebSearch: (v: boolean) => void }) {
     return (
-        <Flex align="center" justify="space-between" gap={2} py={2}>
-            <Box minW={0}>
-                <Text fontSize="11.5px" fontWeight={500} color="var(--ink-secondary)">Web search</Text>
-                <Text fontSize="10.5px" color="var(--ink-tertiary)" noOfLines={1}>
+        <div className="flex items-center justify-between gap-3 py-2">
+            <div className="min-w-0">
+                <Label htmlFor={id} className="cursor-pointer text-[11.5px] font-medium text-[var(--ink-secondary)]">
+                    Web search
+                </Label>
+                <p className="truncate text-[10.5px] text-[var(--ink-tertiary)]">
                     {hasTavily ? "Live sources beyond filings" : "Needs a Tavily key"}
-                </Text>
-            </Box>
+                </p>
+            </div>
             {hasTavily ? (
-                <Switch.Root checked={webSearch} onCheckedChange={(e) => setWebSearch(e.checked)} colorPalette="blue" size="sm" flexShrink={0}>
-                    <Switch.HiddenInput />
-                    <Switch.Control>
-                        <Switch.Thumb />
-                    </Switch.Control>
-                </Switch.Root>
+                <Switch
+                    id={id}
+                    size="sm"
+                    checked={webSearch}
+                    onCheckedChange={(next) => setWebSearch(!!next)}
+                    className="shrink-0"
+                />
             ) : (
-                <Link to="/settings" style={{ flexShrink: 0 }}>
-                    <Text fontSize="10.5px" color="var(--accent-primary)">Add</Text>
+                <Link to="/settings" className="shrink-0 text-[10.5px] text-[var(--accent-primary)] hover:underline">
+                    Add
                 </Link>
             )}
-        </Flex>
+        </div>
     );
 }
 
@@ -305,8 +288,6 @@ function AnalysisSummaryRail(props: {
     agentObj: any;
     model: string;
     isDefaultModel: boolean;
-    dataStatus: any;
-    dataStatusLoading: boolean;
     hasTavily: boolean;
     webSearch: boolean;
     setWebSearch: (v: boolean) => void;
@@ -324,21 +305,10 @@ function AnalysisSummaryRail(props: {
     const companyLabel = props.share ? (props.shareName || props.share) : null;
 
     // ── Shared pieces ─────────────────────────────────────────────
-    const dataAvailIcon =
-        props.dataStatusLoading ? (
-            <Spinner size="xs" borderWidth="1px" color="var(--ink-tertiary)" />
-        ) : props.dataStatus ? (
-            props.dataStatus.available ? (
-                <MdCheck size={13} color="var(--signal-positive)" />
-            ) : (
-                <MdInfoOutline size={13} color="var(--signal-caution)" />
-            )
-        ) : null;
-
     const companyChip = (
         <RailChip
             icon={<SourceMark source={props.source === "SEC" ? "sec" : "nse"} size={14} />}
-            label={companyLabel || "—"}
+            label={companyLabel || "Not set"}
             sub={props.share ? props.share.toUpperCase() : undefined}
             muted={!companyLabel}
         />
@@ -346,14 +316,14 @@ function AnalysisSummaryRail(props: {
     const agentChip = (
         <RailChip
             icon={props.agentName ? <AgentAvatar agent={props.agentObj ?? props.agentName} size={18} /> : undefined}
-            label={props.agentName || "—"}
+            label={props.agentName || "Not set"}
             muted={!props.agentName}
         />
     );
     const modelChip = (
         <RailChip
             icon={props.model ? <ModelLogo model={props.model} size={15} /> : undefined}
-            label={props.model ? modelName(props.model) : "—"}
+            label={props.model ? modelName(props.model) : "Not set"}
             sub={props.model ? providerLabel(modelPrefix(props.model)) : undefined}
             muted={!props.model}
         />
@@ -363,14 +333,6 @@ function AnalysisSummaryRail(props: {
         <Flex direction="column" gap={2.5}>
             <Flex direction="column" gap={2.5}>
                 {companyChip}
-                <Flex align="center" gap={1.5} pl={0.5} minH="13px">
-                    {dataAvailIcon}
-                    {props.dataStatus && !props.dataStatus.available && (
-                        <Text fontSize="10px" color="var(--ink-tertiary)" noOfLines={1}>
-                            {props.dataStatus.keyed === false ? "Live data isn't set up yet" : "Data will be pulled at run time"}
-                        </Text>
-                    )}
-                </Flex>
                 {agentChip}
                 {modelChip}
                 {props.isDefaultModel && props.model && (
@@ -379,7 +341,7 @@ function AnalysisSummaryRail(props: {
                     </Text>
                 )}
                 <Box borderTop="1px solid var(--hairline)" my={0.5} />
-                <RailWebSearch hasTavily={props.hasTavily} webSearch={props.webSearch} setWebSearch={props.setWebSearch} />
+                <RailWebSearch id="web-search-rail" hasTavily={props.hasTavily} webSearch={props.webSearch} setWebSearch={props.setWebSearch} />
             </Flex>
         </Flex>
     );
@@ -412,16 +374,16 @@ function AnalysisSummaryRail(props: {
                             </Text>
                         )}
                     </HStack>
-                    <HStack gap={2} w="full">
+                    <div className="flex w-full gap-2">
                         {props.correlationId && (
-                            <Link to={`/analysis-result/${props.correlationId}`} style={{ flex: 1 }}>
-                                <Button size="md" w="full" variant="surface" colorPalette="blue">View report</Button>
-                            </Link>
+                            <Button asChild className="flex-1">
+                                <Link to={`/analysis-result/${props.correlationId}`}>View report</Link>
+                            </Button>
                         )}
-                        <Button size="md" variant="subtle" color="var(--ink-secondary)" _hover={{ color: "var(--ink-primary)" }} fontWeight={500} onClick={props.onReset}>
+                        <Button variant="outline" onClick={props.onReset}>
                             Run again
                         </Button>
-                    </HStack>
+                    </div>
                     {idleBody}
                 </Flex>
             );
@@ -433,14 +395,16 @@ function AnalysisSummaryRail(props: {
                         <MdClose size={16} color="var(--signal-negative)" />
                         <Text fontSize="13px" fontWeight={600} color="var(--signal-negative)">Failed</Text>
                     </HStack>
-                    <HStack gap={2} w="full">
+                    <div className="flex w-full gap-2">
                         {props.correlationId && (
-                            <Link to={`/analysis-result/${props.correlationId}`} style={{ flex: 1 }}>
-                                <Button size="md" variant="subtle" color="var(--ink-secondary)" _hover={{ color: "var(--ink-primary)" }} fontWeight={500} w="full">View report</Button>
-                            </Link>
+                            <Button asChild variant="outline" className="flex-1">
+                                <Link to={`/analysis-result/${props.correlationId}`}>View report</Link>
+                            </Button>
                         )}
-                        <Button size="md" variant="subtle" colorPalette="red" fontWeight={500} onClick={props.onReset} w="full">Try again</Button>
-                    </HStack>
+                        <Button variant="outline" onClick={props.onReset} className="flex-1">
+                            Try again
+                        </Button>
+                    </div>
                     {idleBody}
                 </Flex>
             );
@@ -448,7 +412,7 @@ function AnalysisSummaryRail(props: {
         // Idle / configuring (or resuming an in-flight run from a deep link)
         if (props.resuming) {
             return (
-                <Button size="lg" w="full" variant="surface" colorPalette="blue" disabled>
+                <Button size="lg" className="w-full" disabled>
                     <HStack gap={2}>
                         <Spinner size="sm" borderWidth="2px" />
                         <Text fontSize="14px" fontWeight={600}>Resuming analysis…</Text>
@@ -463,11 +427,7 @@ function AnalysisSummaryRail(props: {
                 </Text>
                 <Button
                     size="lg"
-                    w="full"
-                    variant="surface"
-                    colorPalette="blue"
-                    fontWeight={600}
-                    fontSize="15px"
+                    className="w-full font-semibold"
                     onClick={props.onRun}
                     disabled={!props.canRun}
                 >
@@ -493,34 +453,31 @@ function AnalysisSummaryRail(props: {
                 w="320px"
                 flexShrink={0}
             >
-                <Box
-                    position="sticky"
-                    top="60px"
-                    border="1px solid var(--hairline)"
-                    borderRadius="2px"
-                    bg="var(--surface-panel)"
-                    p={4}
-                >
-                    <Text fontSize="10.5px" fontWeight={500} color="var(--ink-tertiary)" textTransform="uppercase" letterSpacing="0.06em" mb={3}>
-                        Run summary
-                    </Text>
-                    {status === "PENDING" ? (
-                        <Flex direction="column" gap={3}>
-                            {actionArea}
-                            <Flex direction="column" gap={1.5} pt={1} borderTop="1px solid var(--hairline)">
-                                {companyChip}
-                                {agentChip}
-                                {modelChip}
+                <Card className="sticky top-[60px] gap-3 rounded-lg py-4 shadow-none">
+                    <CardHeader className="px-4 pb-0">
+                        <CardTitle className="text-[11px] font-medium tracking-[0.06em] text-muted-foreground uppercase">
+                            Run summary
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-4">
+                        {status === "PENDING" ? (
+                            <Flex direction="column" gap={3}>
+                                {actionArea}
+                                <Flex direction="column" gap={1.5} pt={1} borderTop="1px solid var(--hairline)">
+                                    {companyChip}
+                                    {agentChip}
+                                    {modelChip}
+                                </Flex>
                             </Flex>
-                        </Flex>
-                    ) : (
-                        <Flex direction="column" gap={3}>
-                            {idleBody}
-                            <Box borderTop="1px solid var(--hairline)" />
-                            {actionArea}
-                        </Flex>
-                    )}
-                </Box>
+                        ) : (
+                            <Flex direction="column" gap={3}>
+                                {idleBody}
+                                <Box borderTop="1px solid var(--hairline)" />
+                                {actionArea}
+                            </Flex>
+                        )}
+                    </CardContent>
+                </Card>
             </Box>
         );
     }
@@ -563,9 +520,7 @@ function AnalysisSummaryRail(props: {
                 ) : null}
                 <Flex align="center" gap={2} minW={0} flex={1} overflow="hidden">
                     {companyChip}
-                    <Text fontSize="11px" color="var(--ink-tertiary)">·</Text>
                     {agentChip}
-                    <Text fontSize="11px" color="var(--ink-tertiary)">·</Text>
                     {modelChip}
                 </Flex>
                 {status === "PENDING" && props.elapsedTime > 0 && (
@@ -582,34 +537,34 @@ function AnalysisSummaryRail(props: {
             <Box pt={2.5}>
                 {status === "EMPTY" && !props.resuming ? (
                     <Button
-                        size="md"
-                        w="full"
-                        variant="surface"
-                        colorPalette="blue"
-                        fontWeight={600}
+                        className="w-full font-semibold"
                         onClick={props.onRun}
                         disabled={!props.canRun}
                     >
                         Start Analysis
                     </Button>
                 ) : status === "PENDING" ? null : status === "COMPLETED" ? (
-                    <HStack gap={2} mt={2.5}>
+                    <div className="mt-2.5 flex gap-2">
                         {props.correlationId && (
-                            <Link to={`/analysis-result/${props.correlationId}`} style={{ flex: 1 }}>
-                                <Button size="md" w="full" variant="surface" colorPalette="blue">View report</Button>
-                            </Link>
+                            <Button asChild className="flex-1">
+                                <Link to={`/analysis-result/${props.correlationId}`}>View report</Link>
+                            </Button>
                         )}
-                        <Button size="md" variant="subtle" color="var(--ink-secondary)" _hover={{ color: "var(--ink-primary)" }} fontWeight={500} onClick={props.onReset}>Run again</Button>
-                    </HStack>
+                        <Button variant="outline" onClick={props.onReset}>
+                            Run again
+                        </Button>
+                    </div>
                 ) : status === "ERROR" ? (
-                    <HStack gap={2} mt={2.5}>
+                    <div className="mt-2.5 flex gap-2">
                         {props.correlationId && (
-                            <Link to={`/analysis-result/${props.correlationId}`} style={{ flex: 1 }}>
-                                <Button size="md" w="full" variant="subtle" color="var(--ink-secondary)" _hover={{ color: "var(--ink-primary)" }} fontWeight={500}>View report</Button>
-                            </Link>
+                            <Button asChild variant="outline" className="flex-1">
+                                <Link to={`/analysis-result/${props.correlationId}`}>View report</Link>
+                            </Button>
                         )}
-                        <Button size="md" variant="subtle" colorPalette="red" fontWeight={500} onClick={props.onReset}>Try again</Button>
-                    </HStack>
+                        <Button variant="outline" onClick={props.onReset} className="flex-1">
+                            Try again
+                        </Button>
+                    </div>
                 ) : null}
             </Box>
         </Box>
@@ -620,7 +575,6 @@ export default function Analysis() {
     const { id } = useParams();
     const navigate = useNavigate();
 
-    const [latestAnalysis, setLatestAnalysis] = useState<any>(null);
     const [recentRuns, setRecentRuns] = useState<any[]>([]);
     const [availableAgents, setAvailableAgents] = useState<any[]>([]);
     const [correlationId, setCorrelationId] = useState<string>(id || "");
@@ -630,8 +584,6 @@ export default function Analysis() {
     const [elapsedTime, setElapsedTime] = useState(0);
     const [steps, setSteps] = useState<RunStep[]>([]);
 
-    const [dataStatus, setDataStatus] = useState<any>(null);
-    const [dataStatusLoading, setDataStatusLoading] = useState(false);
     const [startedAt, setStartedAt] = useState<number | undefined>(undefined);
 
     useEffect(() => {
@@ -651,10 +603,6 @@ export default function Analysis() {
             .then((data) => {
                 if (cancelled || !Array.isArray(data)) return;
                 setRecentRuns(data);
-                if (data.length === 0) return;
-                setLatestAnalysis(data.reduce((a, b) =>
-                    +new Date(a.created_at ?? 0) > +new Date(b.created_at ?? 0) ? a : b
-                ));
             })
             .catch(() => { });
         return () => { cancelled = true; };
@@ -667,8 +615,6 @@ export default function Analysis() {
         agent: "",
     });
 
-    const exchangeSource: SourceKey = config.source === "NSE" ? "nse" : "sec";
-
     const sourceKeyMap: Record<string, { mainKey: string; secondaryKey: string; nameField: string }> = {
         SEC: { mainKey: "ticker", secondaryKey: "name", nameField: "name" },
         NSE: { mainKey: "SYMBOL", secondaryKey: "NAME", nameField: "NAME" },
@@ -676,76 +622,52 @@ export default function Analysis() {
 
     const sourceKeys = sourceKeyMap[config.source] || sourceKeyMap.SEC;
 
-    const agentOptions = useMemo(() => {
-        const items = availableAgents.map((p: any) => ({ label: p.name, value: p._id || p.id || p.name }));
-        return createListCollection({
-            items,
-            itemToString: (item: any) => item.label,
-            itemToValue: (item: any) => item.value,
-        });
-    }, [availableAgents]);
+    // Company search runs server-side: the combobox only renders what the
+    // endpoint returns for the current market, debounced while typing.
+    const [stockQuery, setStockQuery] = useState("");
+    const [stockItems, setStockItems] = useState<any[]>([]);
+    const [stockLoading, setStockLoading] = useState(false);
+    const stockAbortRef = useRef<AbortController | null>(null);
+    const stockDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    useEffect(() => {
+        if (stockDebounceRef.current) clearTimeout(stockDebounceRef.current);
+        if (stockAbortRef.current) stockAbortRef.current.abort();
+        const query = stockQuery.trim();
+        const source = config.source;
+        stockDebounceRef.current = setTimeout(async () => {
+            if (!query) {
+                setStockItems([]);
+                setStockLoading(false);
+                return;
+            }
+            setStockLoading(true);
+            const controller = new AbortController();
+            stockAbortRef.current = controller;
+            try {
+                const params = new URLSearchParams({ query, source });
+                const response = await fetch(`${API_BASE}/stocks/search?${params}`, {
+                    signal: controller.signal,
+                });
+                const data = await response.json();
+                if (!controller.signal.aborted) setStockItems(Array.isArray(data) ? data : []);
+            } catch (err: any) {
+                if (err?.name !== "AbortError") setStockItems([]);
+            } finally {
+                if (!controller.signal.aborted) setStockLoading(false);
+            }
+        }, 300);
+        return () => {
+            if (stockDebounceRef.current) clearTimeout(stockDebounceRef.current);
+        };
+    }, [stockQuery, config.source]);
 
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [defaultModel, setDefaultModel] = useState("");
     const [providerCount, setProviderCount] = useState(0);
     const [selectedModel, setSelectedModel] = useState("");
-    const [modelQuery, setModelQuery] = useState("");
     const [hasTavily, setHasTavily] = useState(false);
     const [webSearch, setWebSearch] = useState(true);
-    const debouncedModelQuery = useDebounce(modelQuery, 200);
-    const [showModelList, setShowModelList] = useState(false);
-    const modelRef = useRef<HTMLDivElement>(null);
-    const [dropUp, setDropUp] = useState(false);
     const [modelValidated, setModelValidated] = useState(false);
-
-    const filteredModels = useMemo(() => {
-        if (!debouncedModelQuery.trim()) return availableModels;
-        const q = debouncedModelQuery.toLowerCase();
-        return availableModels.filter(m => m.toLowerCase().includes(q));
-    }, [availableModels, debouncedModelQuery]);
-
-    // Group the (filtered) models by provider so the list scans by maker
-    // first, model second. The recommended model's group leads, and the
-    // recommended model itself leads within its group.
-    const groupedModels = useMemo(() => {
-        const order: string[] = [];
-        const byPrefix: Record<string, string[]> = {};
-        for (const m of filteredModels) {
-            const p = modelPrefix(m);
-            if (!byPrefix[p]) {
-                byPrefix[p] = [];
-                order.push(p);
-            }
-            byPrefix[p].push(m);
-        }
-        if (defaultModel) {
-            const dp = modelPrefix(defaultModel);
-            if (order.includes(dp)) {
-                order.splice(order.indexOf(dp), 1);
-                order.unshift(dp);
-                byPrefix[dp] = [defaultModel, ...byPrefix[dp].filter(m => m !== defaultModel)];
-            }
-        }
-        return order.map(prefix => ({ prefix, models: byPrefix[prefix] }));
-    }, [filteredModels, defaultModel]);
-
-    const openModelList = useCallback(() => {
-        // Flip the panel upward when there isn't room below (mobile keyboards
-        // shrink the viewport; bottom-of-page inputs would clip).
-        const rect = modelRef.current?.getBoundingClientRect();
-        setDropUp(!!rect && window.innerHeight - rect.bottom < 260);
-        setShowModelList(true);
-    }, []);
-
-    useEffect(() => {
-        const handleClick = (e: MouseEvent) => {
-            if (modelRef.current && !modelRef.current.contains(e.target as Node)) {
-                setShowModelList(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClick);
-        return () => document.removeEventListener("mousedown", handleClick);
-    }, []);
 
     const fetchModels = useCallback(async () => {
         try {
@@ -761,10 +683,15 @@ export default function Analysis() {
             setHasTavily(hasTv);
             setWebSearch(hasTv);
             setProviderCount(keys.filter((k) => k !== "tavily").length);
-            const models = keys.length > 0
+            // LLM keys only — Tavily is web search, not a model provider, and
+            // counting it left keyless users with Ollama-only model lists.
+            const llmKeys = keys.filter((k) => k !== "tavily");
+            const models = llmKeys.length > 0
                 ? allModels.filter((m: string) => {
                     const provider = m.split("/")[0];
-                    return provider === "ollama" || keys.includes(provider);
+                    // Server-free providers (groq, gemini, cerebras, openrouter,
+                    // …) run on the server's key pool — always offer them.
+                    return provider === "ollama" || llmKeys.includes(provider) || isServerFreeModel(m);
                 })
                 : allModels;
             setAvailableModels(models);
@@ -788,6 +715,8 @@ export default function Analysis() {
     }, [sourceKeys]);
 
     const handleSourceChange = useCallback((value: string) => {
+        setStockQuery("");
+        setStockItems([]);
         setConfig(prev => ({
             ...prev,
             source: value,
@@ -844,6 +773,7 @@ export default function Analysis() {
     }, [selectedModel, status, id, checkModel]);
 
     const [starting, setStarting] = useState(false);
+    const [runError, setRunError] = useState<string | null>(null);
     const runAnalysis = async () => {
         // In-flight guard: the model check below awaits a network round-trip
         // before the POST fires, and during that window the button is still
@@ -852,6 +782,7 @@ export default function Analysis() {
         if (!config.source || !config.share || !config.agent) return;
 
         setStarting(true);
+        setRunError(null);
         try {
             // Validate model first
             const isValid = await checkModel(selectedModel || availableModels[0]);
@@ -872,8 +803,13 @@ export default function Analysis() {
                 setStartedAt(Date.now());
                 setStatus("PENDING");
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Run analysis error:", error);
+            setRunError(
+                error?.response?.data?.error ||
+                error?.message ||
+                "The run could not be started. Check your selection and try again."
+            );
             setStatus("ERROR");
         } finally {
             setStarting(false);
@@ -967,29 +903,6 @@ export default function Analysis() {
         }
     }, [status, correlationId, navigate]);
 
-    useEffect(() => {
-        if (!config.share || status !== "EMPTY" || id) {
-            setDataStatus(null);
-            return;
-        }
-        let cancelled = false;
-        setDataStatusLoading(true);
-        DataService.getDataStatus(config.share, config.source)
-            .then((d) => {
-                if (!cancelled) setDataStatus(d);
-            })
-            .catch(() => {
-                if (!cancelled) setDataStatus({ available: false, error: "Availability check failed." });
-            })
-            .finally(() => {
-                if (!cancelled) setDataStatusLoading(false);
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [config.share, config.source, status, id]);
-
-    const searchParams = useMemo(() => ({ source: config.source }), [config.source]);
     const selectedAgent = useMemo(
         () => availableAgents.find((a: any) => (a._id || a.id) === config.agent || a.name === config.agent),
         [availableAgents, config.agent]
@@ -1007,13 +920,9 @@ export default function Analysis() {
     const [personaOpen, setPersonaOpen] = useState(false);
     useEffect(() => { setPersonaOpen(false); }, [config.agent]);
 
-    // Collapse a step once it's complete and the user has moved on: company
-    // collapses when an agent is chosen, agent when a model exists, model only
-    // when the run actually starts. Editing re-opens the step.
-    useEffect(() => {
-        if (config.share && config.agent) setCollapsedSteps(p => ({ ...p, company: true }));
-        if (config.share && config.agent && selectedModel) setCollapsedSteps(p => ({ ...p, agent: true }));
-    }, [config.share, config.agent, selectedModel]);
+    // Steps stay open while the user configures the run — selecting a company
+    // or an agent must not fold the form away under them. Everything collapses
+    // only once a run is actually in flight.
     useEffect(() => {
         if (status === "PENDING" || status === "COMPLETED" || status === "ERROR") {
             setCollapsedSteps({ company: true, agent: true, model: true });
@@ -1053,182 +962,166 @@ export default function Analysis() {
         >
             <Box flex={1} w="full" minW={0}>
                 <Flex direction="column" maxW="1240px" mx="auto" px={{ base: 4, md: 8 }} py={{ base: 4, md: 6 }}>
-                    {/* Header */}
-                    <Box w="full" mb={{ base: 3, md: 4 }}>
-                        <PageHero>
-                            <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={4} wrap="wrap">
-                                <Flex direction="column" gap={1}>
-                                    <Text
-                                        fontSize="10.5px"
-                                        fontWeight={500}
-                                        color="var(--ink-tertiary)"
-                                        textTransform="uppercase"
-                                        letterSpacing="0.06em"
-                                    >
-                                        Stock Analysis
-                                    </Text>
-                                    <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
-                                        Run an analysis
-                                    </Text>
-                                    <Text fontSize="13px" color="var(--ink-secondary)">
-                                        Configure the market, company, agent, and model — then start the run.
-                                    </Text>
-                                </Flex>
-                                <Flex direction={{ base: "row", md: "column" }} align={{ base: "center", md: "flex-end" }} gap={{ base: 4, md: 1.5 }}>
-                                    <Link to="/analysis-list" style={{ display: "block" }}>
-                                        <Flex
-                                            align="center"
-                                            gap={1.5}
-                                            fontSize="13px"
-                                            fontWeight={500}
-                                            color="var(--ink-secondary)"
-                                            _hover={{ color: "var(--ink-primary)" }}
-                                            cursor="pointer"
-                                        >
-                                            View past analyses
-                                            <MdArrowForward size={15} color="var(--ink-tertiary)" />
-                                        </Flex>
-                                    </Link>
-                                    {latestAnalysis && (
-                                        <Link
-                                            to={`/analysis-result/${latestAnalysis.analysis_id || latestAnalysis._id || latestAnalysis.id}`}
-                                            title={`Latest analysis: ${latestAnalysis.share_name || latestAnalysis.symbol || ""}`}
-                                            style={{ display: "block", whiteSpace: "nowrap" }}
-                                        >
-                                            <Flex align="center" gap={1}>
-                                                <Text fontSize="11px" fontFamily="var(--font-tabular)" color="var(--ink-tertiary)" _hover={{ color: "var(--ink-secondary)" }}>
-                                                    Latest{" "}
-                                                    <Text as="span" color="var(--ink-secondary)">
-                                                        {new Date(latestAnalysis.created_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
-                                                    </Text>{" "}
-                                                    ·{" "}
-                                                    <Text as="span" display="inline-block" maxW="80px" overflow="hidden" textOverflow="ellipsis" verticalAlign="bottom">{latestAnalysis.symbol || latestAnalysis.share_name}</Text>
-                                                </Text>
-                                                <MdArrowForward size={12} color="var(--ink-tertiary)" />
-                                            </Flex>
-                                        </Link>
-                                    )}
-                                </Flex>
-                            </Flex>
-                        </PageHero>
+                    {/* Opening line — the only untriggered motion on the page. */}
+                    <Box w="full" mb={{ base: 5, md: 7 }}>
+                        <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={4} wrap="wrap">
+                            <Box>
+                                <Staggered
+                                    as={motion.h1}
+                                    text={HEADLINE}
+                                    className="text-[26px] leading-[1.15] font-semibold tracking-tight text-[var(--ink-primary)] md:text-[34px]"
+                                />
+                                <Staggered
+                                    as={motion.p}
+                                    text={TAGLINE}
+                                    delay={1.1}
+                                    className="mt-2 text-[13px] md:text-[15px] text-[var(--ink-tertiary)]"
+                                />
+                            </Box>
+                            <Button variant="ghost" asChild className="shrink-0 gap-1.5 text-[13px]">
+                                <Link to="/analysis-list">
+                                    View past analyses
+                                    <MdArrowForward size={15} color="var(--ink-tertiary)" />
+                                </Link>
+                            </Button>
+                        </Flex>
                     </Box>
 
                     {/* Running now strip */}
                     <RunningNow agents={availableAgents} />
 
+                    {/* A start that fails is reported here, in place. */}
+                    <AnimatePresence initial={false}>
+                        {status === "ERROR" && runError && (
+                            <Box
+                                as={motion.div}
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                transition={{ duration: dur.base, ease }}
+                                overflow="hidden"
+                                mb={3}
+                            >
+                                <Alert variant="destructive" className="max-w-2xl">
+                                    <AlertCircleIcon />
+                                    <AlertTitle>Analysis did not start</AlertTitle>
+                                    <AlertDescription>{runError}</AlertDescription>
+                                </Alert>
+                            </Box>
+                        )}
+                    </AnimatePresence>
+
                     {/* Two-zone layout: steps (main) + sticky summary rail (side). The rail
                         renders in normal flow below on mobile. */}
                     <Flex direction={{ base: "column", lg: "row" }} gap={{ base: 0, lg: 8 }} align={{ lg: "flex-start" }}>
                     <Flex direction="column" flex={1} minW={0} as={motion.div} variants={stagger} initial="initial" animate="animate">
-                        {/* 01 — Company */}
-                        <StepSection n="01" title="Company" done={!!config.share} collapsed={!!collapsedSteps["company"]} onToggle={() => setCollapsedSteps(p => ({ ...p, company: !p["company"] }))} summary={stepSummary("company")}>
+                        {/* Company: market + ticker */}
+                        <StepSection done={!!config.share} collapsed={!!collapsedSteps["company"]} onToggle={() => setCollapsedSteps(p => ({ ...p, company: !p["company"] }))} summary={stepSummary("company")}>
                             <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
-                                <Box w={{ base: "full", md: "200px" }} flexShrink={0}>
+                                <Box w={{ base: "full", md: "180px" }} flexShrink={0}>
                                     <FieldLabel>Market</FieldLabel>
-                                    <SegmentedControl
+                                    <ToggleGroup
+                                        type="single"
                                         value={config.source}
-                                        onChange={handleSourceChange}
-                                        options={[
-                                            { value: "NSE", label: "NSE" },
-                                            { value: "SEC", label: "SEC" },
-                                        ]}
-                                    />
-                                    <Flex
-                                        align="center"
-                                        gap={1.5}
-                                        mt={2}
-                                        title={`${SOURCE_DEFS[exchangeSource].full} · ${SOURCE_DEFS.voyager.full}`}
+                                        onValueChange={(v: string) => { if (v) handleSourceChange(v); }}
+                                        aria-label="Market"
                                     >
-                                        <SourceMark source={exchangeSource} size={17} />
-                                        <SourceMark source="voyager" size={17} />
-                                    </Flex>
+                                        <ToggleGroupItem value="NSE" aria-label="NSE, India">NSE</ToggleGroupItem>
+                                        <ToggleGroupItem value="SEC" aria-label="SEC, United States">SEC</ToggleGroupItem>
+                                    </ToggleGroup>
                                 </Box>
                                 <Box flex={1} minW={0}>
                                     <FieldLabel>Company</FieldLabel>
-                                    <SearchBar
+                                    <Combobox
                                         key={config.source}
-                                        url={`${API_BASE}/stocks/search`}
-                                        mainKey={sourceKeys.mainKey}
-                                        secondaryKey={sourceKeys.secondaryKey}
-                                        onChange={handleConfigChange}
-                                        field="share"
-                                        params={searchParams}
-                                        placeholder={config.source === "SEC" ? "Search US stocks (e.g., AAPL)" : "Search Indian stocks (e.g., RELIANCE)"}
-                                    />
-                                    {config.share && (
-                                        <Flex align="center" gap={1.5} mt={2} minH="16px">
-                                            {dataStatusLoading ? (
-                                                <Spinner size="xs" borderWidth="1px" color="var(--ink-tertiary)" />
-                                            ) : dataStatus ? (
-                                                dataStatus.available ? (
-                                                    <>
-                                                        <MdCheck size={12} color="var(--signal-positive)" />
-                                                        <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
-                                                            Live data on file · {config.source}
-                                                        </Text>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <MdInfoOutline size={12} color="var(--signal-caution)" />
-                                                        <Text
-                                                            fontSize="11px"
-                                                            fontFamily="var(--font-mono)"
-                                                            color="var(--ink-tertiary)"
-                                                            title={dataStatus.error || undefined}
-                                                        >
-                                                        {dataStatus.keyed === false
-                                                            ? "Live data isn't set up for this market yet — the run may be limited"
-                                                            : "First analysis here — data will be pulled when the run starts"}
-                                                        </Text>
-                                                    </>
-                                                )
-                                            ) : null}
-                                        </Flex>
-                                    )}
+                                        items={stockItems}
+                                        value={config.share}
+                                        filter={false}
+                                        displayValue={config.share ? config.shareName || config.share : ""}
+                                        itemToValue={(s: any) => s[sourceKeys.mainKey]}
+                                        onQueryChange={setStockQuery}
+                                        onValueChange={(v) => {
+                                            if (!v) {
+                                                setConfig(prev => ({ ...prev, share: "", shareName: "" }));
+                                                return;
+                                            }
+                                            const item = stockItems.find((s: any) => s[sourceKeys.mainKey] === v);
+                                            handleConfigChange("share", v, item);
+                                        }}
+                                    >
+                                        <ComboboxInput
+                                            placeholder={config.source === "SEC" ? "Search US stocks (e.g., AAPL)" : "Search Indian stocks (e.g., RELIANCE)"}
+                                            showClear
+                                        />
+                                        <ComboboxContent>
+                                            {stockLoading && (
+                                                <div className="flex items-center justify-center gap-2 py-5 text-[13px] text-muted-foreground">
+                                                    <Spinner size="xs" borderWidth="1px" color="var(--ink-tertiary)" />
+                                                    Searching…
+                                                </div>
+                                            )}
+                                            <ComboboxEmpty>
+                                                {stockQuery
+                                                    ? `Nothing matches “${stockQuery}”.`
+                                                    : "Type a company name or ticker to search."}
+                                            </ComboboxEmpty>
+                                            <ComboboxList>
+                                                {(stock: any) => (
+                                                    <ComboboxItem
+                                                        key={stock[sourceKeys.mainKey]}
+                                                        value={stock[sourceKeys.mainKey]}
+                                                    >
+                                                        <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                                                            <span className="truncate text-[13px] font-medium">
+                                                                {stock[sourceKeys.mainKey]}
+                                                            </span>
+                                                            <span className="truncate text-[11px] text-muted-foreground">
+                                                                {stock[sourceKeys.secondaryKey]}
+                                                            </span>
+                                                        </span>
+                                                    </ComboboxItem>
+                                                )}
+                                            </ComboboxList>
+                                        </ComboboxContent>
+                                    </Combobox>
                                 </Box>
                             </Flex>
                         </StepSection>
 
-                        {/* 02 — Agent */}
-                        <StepSection n="02" title="Agent" done={!!config.agent} collapsed={!!collapsedSteps["agent"]} onToggle={() => setCollapsedSteps(p => ({ ...p, agent: !p["agent"] }))} summary={stepSummary("agent")}>
+                        {/* Agent */}
+                        <StepSection done={!!config.agent} collapsed={!!collapsedSteps["agent"]} onToggle={() => setCollapsedSteps(p => ({ ...p, agent: !p["agent"] }))} summary={stepSummary("agent")}>
                             <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
                                 <Box w={{ base: "full", md: "380px" }} flexShrink={0}>
                                     <FieldLabel>Agent</FieldLabel>
-                                    <Select.Root
-                                        collection={agentOptions}
-                                        value={config.agent ? [config.agent] : []}
-                                        onValueChange={(e) => {
-                                            setConfig({ ...config, agent: e.value[0] });
-                                        }}
+                                    <Combobox
+                                        items={availableAgents}
+                                        value={config.agent}
+                                        itemToValue={(a: any) => a._id || a.id || a.name}
+                                        itemToString={(a: any) => a.name}
+                                        onValueChange={(v) => setConfig(prev => ({ ...prev, agent: v }))}
                                     >
-                                        <Select.HiddenSelect />
-                                        <Select.Control>
-                                            <Select.Trigger borderColor="var(--hairline)">
-                                                <Select.ValueText placeholder="Select Agent" />
-                                            </Select.Trigger>
-                                            <Select.IndicatorGroup>
-                                                <Select.Indicator />
-                                            </Select.IndicatorGroup>
-                                        </Select.Control>
-                                        <Portal>
-                                            <Select.Positioner>
-                                                <Select.Content>
-                                                    {agentOptions.items.map((item: any) => {
-                                                        const agent = availableAgents.find((p: any) => (p._id || p.id || p.name) === item.value);
-                                                        return (
-                                                            <Select.Item item={item} key={item.value}>
-                                                                <Flex align="center" gap={2} minW={0} flex={1}>
-                                                                    <AgentAvatar agent={agent ?? item.label} size={22} />
-                                                                    <Select.ItemText>{item.label}</Select.ItemText>
-                                                                </Flex>
-                                                                <Select.ItemIndicator />
-                                                            </Select.Item>
-                                                        );
-                                                    })}
-                                                </Select.Content>
-                                            </Select.Positioner>
-                                        </Portal>
-                                    </Select.Root>
+                                        <ComboboxInput placeholder="Select an agent" showClear />
+                                        <ComboboxContent>
+                                            <ComboboxEmpty>No agents found.</ComboboxEmpty>
+                                            <ComboboxList>
+                                                {(agent: any) => {
+                                                    const value = agent._id || agent.id || agent.name;
+                                                    const skillCount = (agent.skills || []).length;
+                                                    return (
+                                                        <ComboboxItem key={value} value={value} searchText={agent.name}>
+                                                            <AgentAvatar agent={agent} size={22} />
+                                                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                                                                {agent.name}
+                                                            </span>
+                                                            <span className="shrink-0 text-[11px] text-muted-foreground/60">
+                                                                {skillCount} skill{skillCount === 1 ? "" : "s"}
+                                                            </span>
+                                                        </ComboboxItem>
+                                                    );
+                                                }}
+                                            </ComboboxList>
+                                        </ComboboxContent>
+                                    </Combobox>
                                     <Flex align="center" gap={1.5} mt={1.5}>
                                         <MdInfoOutline size={12} color="var(--ink-tertiary)" />
                                         <Text fontSize="11px" color="var(--ink-tertiary)">
@@ -1250,14 +1143,9 @@ export default function Analysis() {
                                                 </Text>
                                                 <Text fontSize="12px" color="var(--ink-tertiary)" whiteSpace="nowrap">
                                                     <Text as="span" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" fontWeight={600} color="var(--ink-secondary)">
-                                                        {selectedAgent.asset_evaluation?.qualitative?.length || 0}
+                                                        {selectedAgent.skills?.length || 0}
                                                     </Text>{" "}
-                                                    qual
-                                                    <Text as="span" color="var(--ink-tertiary)" mx={1.5}>·</Text>
-                                                    <Text as="span" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" fontWeight={600} color="var(--ink-secondary)">
-                                                        {selectedAgent.asset_evaluation?.quantitative?.length || 0}
-                                                    </Text>{" "}
-                                                    quant
+                                                    skill{selectedAgent.skills?.length === 1 ? "" : "s"}
                                                 </Text>
                                             </Flex>
                                                 {persona && (
@@ -1281,9 +1169,20 @@ export default function Analysis() {
                                                             )}
                                                         </AnimatePresence>
                                                         {!personaOpen && (
-                                                            <Text fontSize="12px" color="var(--ink-tertiary)" lineHeight="1.6" noOfLines={2}>
-                                                                {persona}
-                                                            </Text>
+                                                            <Flex align="flex-start" gap={1.5} minW={0}>
+                                                                <Text fontSize="12px" color="var(--ink-tertiary)" lineHeight="1.6" noOfLines={1} flex={1} minW={0}>
+                                                                    {persona}
+                                                                </Text>
+                                                                <Link
+                                                                    to={`/agent/${selectedAgent._id || selectedAgent.id || selectedAgent.name}`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    aria-label={`Open ${selectedAgent.name} in a new tab`}
+                                                                    style={{ flexShrink: 0, marginTop: "2px", color: "var(--ink-tertiary)" }}
+                                                                >
+                                                                    <MdOutlineOpenInNew size={12} />
+                                                                </Link>
+                                                            </Flex>
                                                         )}
                                                         <Text
                                                             as="button"
@@ -1302,166 +1201,117 @@ export default function Analysis() {
                                         </Flex>
                                     ) : (
                                         <Text fontSize="12px" color="var(--ink-tertiary)">
-                                            Select an agent to see its parameters
+                                            Select an agent to see its skills and persona
                                         </Text>
                                     )}
                                 </Box>
                             </Flex>
                         </StepSection>
 
-                        {/* 03 — Model */}
-                        <StepSection n="03" title="Model" done={!!selectedModel} collapsed={!!collapsedSteps["model"]} onToggle={() => setCollapsedSteps(p => ({ ...p, model: !p["model"] }))} summary={stepSummary("model")}>
+                        {/* Model */}
+                        <StepSection done={!!selectedModel} collapsed={!!collapsedSteps["model"]} onToggle={() => setCollapsedSteps(p => ({ ...p, model: !p["model"] }))} summary={stepSummary("model")}>
                             <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
                                 <Box w={{ base: "full", md: "380px" }} flexShrink={0}>
                                     <FieldLabel>Model</FieldLabel>
-                                    <Box width="full" position="relative" ref={modelRef}>
-                                        <Input
-                                            placeholder="Search model (e.g., qwen, gpt, claude)..."
-                                            value={showModelList ? modelQuery : selectedModel}
-                                            onChange={(e) => {
-                                                setModelQuery(e.target.value);
-                                                openModelList();
-                                            }}
-                                            onFocus={() => {
-                                                setModelQuery(selectedModel);
-                                                openModelList();
-                                            }}
-                                            size="sm"
-                                            borderColor="var(--hairline)"
-                                            borderRadius="2px"
-                                            _focus={{ borderColor: "var(--accent-primary)" }}
-                                        />
-                                        <AnimatePresence>
-                                            {showModelList && (
-                                                <Box
-                                                    as={motion.div}
-                                                    initial={{ opacity: 0, y: dropUp ? 4 : -4, height: 0 }}
-                                                    animate={{ opacity: 1, y: 0, height: "auto" }}
-                                                    exit={{ opacity: 0, y: dropUp ? 4 : -4, height: 0 }}
-                                                    transition={{ duration: dur.base, ease }}
-                                                    position="absolute"
-                                                    top={dropUp ? undefined : "100%"}
-                                                    bottom={dropUp ? "100%" : undefined}
-                                                    left={0}
-                                                    right={0}
-                                                    zIndex={10}
-                                                    mt={dropUp ? 0 : 1}
-                                                    mb={dropUp ? 1 : 0}
-                                                    maxH="240px"
-                                                    overflowY="auto"
-                                                    border="1px solid var(--hairline)"
-                                                    borderRadius="2px"
-                                                    bg="var(--surface-panel)"
-                                                >
-                                                    {groupedModels.length > 0 ? (
-                                                        groupedModels.map(g => (
-                                                            <Box key={g.prefix}>
-                                                                <Flex
-                                                                    px={2.5}
-                                                                    py={1.5}
-                                                                    bg="var(--surface-recessed)"
-                                                                    align="center"
-                                                                    gap={1.5}
-                                                                    position="sticky"
-                                                                    top={0}
-                                                                    zIndex={1}
-                                                                >
-                                                                    <ModelLogo model={g.prefix} size={12} />
-                                                                    <Text
-                                                                        fontSize="10px"
-                                                                        fontWeight={600}
-                                                                        color="var(--ink-tertiary)"
-                                                                        textTransform="uppercase"
-                                                                        letterSpacing="0.06em"
-                                                                    >
-                                                                        {providerLabel(g.prefix)}
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <button
+                                                type="button"
+                                                className="flex w-full items-center gap-2 rounded-sm border border-hairline bg-surface-panel px-3 py-1.5 text-left transition-colors hover:border-ink-tertiary focus-visible:border-accent-primary"
+                                                style={{ borderColor: "var(--hairline)", background: "var(--surface-panel)", minHeight: "36px" }}
+                                                aria-label="Model"
+                                            >
+                                                {selectedModel ? (
+                                                    <>
+                                                        <ModelLogo model={selectedModel} size={15} />
+                                                        <span className="min-w-0 flex-1">
+                                                            <span className="block truncate text-[12.5px] font-medium leading-tight" style={{ color: "var(--ink-primary)" }}>
+                                                                {modelName(selectedModel)}
+                                                            </span>
+                                                            <span className="block truncate font-mono text-[10px] leading-tight" style={{ color: "var(--ink-tertiary)" }}>
+                                                                {selectedModel}
+                                                            </span>
+                                                        </span>
+                                                    </>
+                                                ) : (
+                                                    <span className="flex-1 text-[12.5px]" style={{ color: "var(--ink-tertiary)" }}>Select model</span>
+                                                )}
+                                                <ChevronDown size={14} color="var(--ink-tertiary)" style={{ flexShrink: 0 }} />
+                                            </button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="start" sideOffset={4} className="max-h-80 w-72 overflow-y-auto">
+                                            {(() => {
+                                                const groups = new Map<string, string[]>();
+                                                for (const m of availableModels) {
+                                                    const p = modelPrefix(m);
+                                                    if (!groups.has(p)) groups.set(p, []);
+                                                    groups.get(p)!.push(m);
+                                                }
+                                                // Recommended model's group leads, and the model leads within it.
+                                                const order = [...groups.keys()];
+                                                if (defaultModel) {
+                                                    const dp = modelPrefix(defaultModel);
+                                                    if (order.includes(dp)) {
+                                                        order.splice(order.indexOf(dp), 1);
+                                                        order.unshift(dp);
+                                                        groups.set(dp, [defaultModel, ...groups.get(dp)!.filter(m => m !== defaultModel)]);
+                                                    }
+                                                }
+                                                return order.map((prefix) => (
+                                                    <DropdownMenuGroup key={prefix}>
+                                                        <DropdownMenuLabel>
+                                                            <Flex align="center" gap={1.5}>
+                                                                <ModelLogo model={prefix} size={12} />
+                                                                <Text fontSize="10px" fontWeight={600} color="var(--ink-tertiary)" textTransform="uppercase" letterSpacing="0.06em">
+                                                                    {providerLabel(prefix)}
+                                                                </Text>
+                                                                <Text fontSize="10px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" ml="auto">
+                                                                    {groups.get(prefix)!.length}
+                                                                </Text>
+                                                            </Flex>
+                                                        </DropdownMenuLabel>
+                                                        {groups.get(prefix)!.map((m) => (
+                                                            <DropdownMenuItem key={m} value={m} onClick={() => { setSelectedModel(m); setModelError(null); }}>
+                                                                <ModelLogo model={m} size={15} />
+                                                                <Box minW={0} flex={1}>
+                                                                    <Text as="span" display="block" fontSize="12.5px" fontWeight={m === selectedModel ? 600 : 500} color="var(--ink-primary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" lineHeight="1.3">
+                                                                        {modelName(m)}
                                                                     </Text>
-                                                                    <Text fontSize="10px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" ml="auto">
-                                                                        {g.models.length}
+                                                                    <Text as="span" display="block" fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" lineHeight="1.3">
+                                                                        {m}
                                                                     </Text>
-                                                                </Flex>
-                                                                {g.models.map(m => (
-                                                                    <Flex
-                                                                        key={m}
-                                                                        align="center"
-                                                                        gap={2.5}
-                                                                        px={2.5}
-                                                                        py={2}
-                                                                        minH="44px"
-                                                                        cursor="pointer"
-                                                                        bg={m === selectedModel ? "var(--surface-recessed)" : undefined}
-                                                                        _hover={{ bg: "var(--surface-recessed)" }}
-                                                                        transition="background 160ms"
-                                                                        onClick={() => {
-                                                                            setSelectedModel(m);
-                                                                            setModelError(null);
-                                                                            setModelQuery("");
-                                                                            setShowModelList(false);
-                                                                        }}
-                                                                    >
-                                                                        <ModelLogo model={m} size={15} />
-                                                                        <Box minW={0} flex={1}>
-                                                                            <Text
-                                                                                as="span"
-                                                                                display="block"
-                                                                                fontSize="12.5px"
-                                                                                fontWeight={m === selectedModel ? 600 : 500}
-                                                                                color="var(--ink-primary)"
-                                                                                overflow="hidden"
-                                                                                textOverflow="ellipsis"
-                                                                                whiteSpace="nowrap"
-                                                                            >
-                                                                                {modelName(m)}
-                                                                            </Text>
-                                                                            <Text
-                                                                                as="span"
-                                                                                display="block"
-                                                                                fontSize="10.5px"
-                                                                                fontFamily="var(--font-mono)"
-                                                                                color="var(--ink-tertiary)"
-                                                                                overflow="hidden"
-                                                                                textOverflow="ellipsis"
-                                                                                whiteSpace="nowrap"
-                                                                            >
-                                                                                {m}
-                                                                            </Text>
-                                                                        </Box>
-                                                                        {m === defaultModel && (
-                                                                            <Text
-                                                                                fontSize="9.5px"
-                                                                                fontWeight={600}
-                                                                                color="var(--accent-primary)"
-                                                                                textTransform="uppercase"
-                                                                                letterSpacing="0.05em"
-                                                                                flexShrink={0}
-                                                                            >
-                                                                                Recommended
-                                                                            </Text>
-                                                                        )}
-                                                                        {m === selectedModel && <MdCheck size={13} color="var(--signal-positive)" flexShrink={0} />}
-                                                                    </Flex>
-                                                                ))}
-                                                            </Box>
-                                                        ))
-                                                    ) : (
-                                                        <Text p={2} fontSize="12px" color="var(--ink-tertiary)">
-                                                            No models found
-                                                        </Text>
-                                                    )}
-                                                </Box>
+                                                                </Box>
+                                                                {m === defaultModel && (
+                                                                    <Text fontSize="9.5px" fontWeight={600} color="var(--accent-primary)" textTransform="uppercase" letterSpacing="0.05em" flexShrink={0}>
+                                                                        Recommended
+                                                                    </Text>
+                                                                )}
+                                                                {m === selectedModel && <MdCheck size={13} color="var(--signal-positive)" flexShrink={0} />}
+                                                            </DropdownMenuItem>
+                                                        ))}
+                                                    </DropdownMenuGroup>
+                                                ));
+                                            })()}
+                                            {availableModels.length === 0 && (
+                                                <DropdownMenuItem disabled>No models available</DropdownMenuItem>
                                             )}
-                                        </AnimatePresence>
-                                    </Box>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
                                     {modelError && (
-                                        <Text mt={1.5} fontSize="11.5px" color="var(--signal-negative)">
+                                        <Text mt={2} fontSize="11.5px" color="var(--signal-negative)">
                                             {modelError}
                                         </Text>
                                     )}
                                     {validatingModel && (
                                         <Flex align="center" gap={1.5} mt={1.5}>
                                             <Spinner size="xs" color="var(--ink-secondary)" />
-                                            <Text fontSize="11px" color="var(--ink-secondary)">Checking model access...</Text>
+                                            <Text fontSize="11px" color="var(--ink-secondary)">Checking model access…</Text>
                                         </Flex>
+                                    )}
+                                    {!validatingModel && !modelError && modelValidated && (
+                                        <Text mt={2} fontSize="11.5px" color="var(--signal-positive)">
+                                            {modelName(selectedModel)} responded. Access verified.
+                                        </Text>
                                     )}
                                     <Flex align="center" gap={1.5} mt={2}>
                                         <MdInfoOutline size={12} color="var(--ink-tertiary)" />
@@ -1508,8 +1358,6 @@ export default function Analysis() {
                                                 </Flex>
                                             ) : modelError ? (
                                                 <Text fontSize="11px" color="var(--signal-negative)">Access could not be verified</Text>
-                                            ) : modelValidated ? (
-                                                <Text fontSize="11px" color="var(--signal-positive)">Access verified</Text>
                                             ) : null}
                                             {selectedModel === defaultModel && (
                                                 <Text fontSize="11px" color="var(--accent-primary)" fontFamily="var(--font-mono)">
@@ -1541,8 +1389,6 @@ export default function Analysis() {
                         agentObj={resolveAgent(config.agent, availableAgents)}
                         model={selectedModel || ""}
                         isDefaultModel={!!selectedModel && selectedModel === defaultModel}
-                        dataStatus={dataStatus}
-                        dataStatusLoading={dataStatusLoading}
                         hasTavily={hasTavily}
                         webSearch={webSearch}
                         setWebSearch={setWebSearch}
@@ -1554,6 +1400,7 @@ export default function Analysis() {
                         correlationId={correlationId}
                         onReset={() => {
                             setStatus("EMPTY");
+                            setRunError(null);
                             setSteps([]);
                         }}
                     />
@@ -1579,7 +1426,7 @@ export default function Analysis() {
                                 <Flex justify="space-between" align="center" mb={3}>
                                     <HStack gap={3} color="var(--ink-secondary)">
                                         <Spinner size="sm" borderWidth="2px" />
-                                        <Text fontSize="13px">Analysis in progress — this page updates automatically.</Text>
+                                        <Text fontSize="13px">Analysis in progress. This page updates automatically.</Text>
                                     </HStack>
                                     {elapsedTime > 0 && (
                                         <Text
@@ -1593,6 +1440,12 @@ export default function Analysis() {
                                         </Text>
                                     )}
                                 </Flex>
+                                <Box maxW="460px" mb={4}>
+                                    <Progress value={runProgressPct(steps)}>
+                                        <ProgressLabel>Analysis progress</ProgressLabel>
+                                        <ProgressValue />
+                                    </Progress>
+                                </Box>
                                 <AgentActivity
                                     title={`Analyzing ${config.shareName || config.share} with ${agentDisplayName(config.agent, availableAgents) || config.agent}`}
                                     subtitle={`${selectedModel || "default model"} · gathering data, searching, scoring`}
@@ -1632,8 +1485,6 @@ export default function Analysis() {
                     agentObj={resolveAgent(config.agent, availableAgents)}
                     model={selectedModel || ""}
                     isDefaultModel={!!selectedModel && selectedModel === defaultModel}
-                    dataStatus={dataStatus}
-                    dataStatusLoading={dataStatusLoading}
                     hasTavily={hasTavily}
                     webSearch={webSearch}
                     setWebSearch={setWebSearch}

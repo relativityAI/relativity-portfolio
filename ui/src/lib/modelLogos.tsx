@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import { Box, Text } from "@chakra-ui/react";
+import { TbBrandOpenai } from "react-icons/tb";
 import {
     SiAnthropic,
     SiGooglegemini,
@@ -7,9 +8,17 @@ import {
     SiMistralai,
     SiNvidia,
     SiOllama,
-    SiOpenai,
     SiPerplexity,
 } from "react-icons/si";
+import grokLogo from "@/assets/llm_grok.svg";
+import cohereLogo from "@/assets/llm_cohere.svg";
+import openrouterLogo from "@/assets/llm_openrouter.svg";
+import groqLogo from "@/assets/llm_groq.svg";
+import deepseekLogo from "@/assets/llm_deepseek.svg";
+import mistralAiLogo from "@/assets/llm_mistral-ai.svg";
+import qwenLogo from "@/assets/llm_qwen.svg";
+import zAiLogo from "@/assets/llm_z-ai.svg";
+import cerebrasLogo from "@/assets/llm_cerebras.svg";
 
 /**
  * Provider marks for LLM models, keyed by the model-id prefix used
@@ -25,24 +34,36 @@ export function modelProvider(model?: string | null): string {
     if (prefix === "meta-llama" || prefix === "meta") return "meta";
     if (prefix === "gemini" || prefix === "google") return "google";
     if (prefix === "mistralai" || prefix === "mistral") return "mistral";
+    if (prefix === "z-ai") return "zai";
     return prefix;
 }
 
 interface ProviderVisual {
     label: string;
     Icon?: ComponentType<{ size?: number | string; color?: string }>;
+    image?: string;
     color?: string;
+    /** currentColor SVG — needs a dark-mode invert to stay visible. */
+    invert?: boolean;
 }
 
 const PROVIDERS: Record<string, ProviderVisual> = {
-    openai: { label: "OpenAI", Icon: SiOpenai, color: "#10A37F" },
+    openai: { label: "OpenAI", Icon: TbBrandOpenai, color: "#10A37F" },
     anthropic: { label: "Anthropic", Icon: SiAnthropic, color: "#D97757" },
     google: { label: "Google Gemini", Icon: SiGooglegemini, color: "#4285F4" },
     meta: { label: "Meta Llama", Icon: SiMeta, color: "#0668E1" },
-    mistral: { label: "Mistral AI", Icon: SiMistralai, color: "#FA500F" },
+    mistral: { label: "Mistral AI", image: mistralAiLogo },
     nvidia: { label: "NVIDIA", Icon: SiNvidia, color: "#76B900" },
     ollama: { label: "Ollama", Icon: SiOllama },
     perplexity: { label: "Perplexity", Icon: SiPerplexity, color: "#20808D" },
+    grok: { label: "Grok", image: grokLogo, invert: true },
+    cohere: { label: "Cohere", image: cohereLogo, invert: true },
+    openrouter: { label: "OpenRouter", image: openrouterLogo, invert: true },
+    groq: { label: "Groq", image: groqLogo, invert: true },
+    deepseek: { label: "DeepSeek", image: deepseekLogo },
+    qwen: { label: "Qwen", image: qwenLogo, invert: true },
+    zai: { label: "Z.AI", image: zAiLogo },
+    cerebras: { label: "Cerebras", image: cerebrasLogo, invert: true },
 };
 
 const FALLBACK_LABELS: Record<string, string> = {
@@ -64,12 +85,33 @@ export function providerDisplayName(model?: string | null): string {
 }
 
 /**
+ * The provider's raster/SVG asset for non-React hosts (ECharts tooltip HTML).
+ * `invert` mirrors the `.llm-mark` rule for currentColor marks in dark mode.
+ */
+export function modelLogoAsset(model?: string | null): { src: string; invert?: boolean } | null {
+    const vis = PROVIDERS[modelProvider(model)];
+    return vis?.image ? { src: vis.image, invert: vis.invert } : null;
+}
+
+/**
  * The provider's mark at text size. Falls back to a mono initial chip
  * for providers whose logo isn't available in react-icons.
  */
 export function ModelLogo({ model, size = 14 }: { model?: string | null; size?: number }) {
     const p = modelProvider(model);
     const vis = PROVIDERS[p];
+    const asset = modelLogoAsset(model);
+    if (asset) {
+        return (
+            <img
+                src={asset.src}
+                alt=""
+                aria-hidden="true"
+                className={asset.invert ? "llm-mark" : undefined}
+                style={{ width: size, height: size, objectFit: "contain", display: "inline-block", flexShrink: 0 }}
+            />
+        );
+    }
     if (vis?.Icon) {
         const Icon = vis.Icon;
         return <Icon size={size} color={vis.color} aria-hidden />;

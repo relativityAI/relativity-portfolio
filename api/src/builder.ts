@@ -14,46 +14,36 @@ import { buildAgentBuilderSystemPrompt, buildBuilderRecoveryPrompt, buildDocumen
 import { buildWebSearchTool, getToolCatalog } from "./tools.js";
 import { getDb } from "./db.js";
 import { runAgentTurn, type HarnessTraceEvent } from "./harness.js";
+import { classifyModelError } from "./modelcheck.js";
 import { keyPool } from "./keypool.js";
+import { listAllSkillsForUser, loadBuiltinSkills } from "./skills/store.js";
+import { log } from "./logger.js";
 
-const qualitativeParamSchema = z.object({
-  parameter: z.string().describe("Short parameter name, e.g., Market Leadership"),
-  content: z.string().describe("Scoring checklist or criteria rules (1-3 sentences)"),
-  weightage: z.number().describe("Weightage 1 to 10"),
-});
-
-const quantitativeRuleSchema = z.object({
-  metric: z.string().describe("Metric ID from available catalog, e.g. return_on_equity"),
-  metric_name: z.string().optional().describe("Human readable metric name"),
-  metric_type: z.string().optional().describe("Metric type: number, percentage, currency, ratio"),
-  operator: z.enum(["gt", "gte", "lt", "lte", "eq", "between"]).describe("Comparison operator"),
-  value: z.any().describe("Target threshold value"),
-  value_upper: z.any().optional().describe("Upper bound if operator is between"),
-  weightage: z.number().describe("Weightage 1 to 10"),
-});
-
+/**
+ * The agent shape is v3: identity + philosophy + horizon/risk + a weighted
+ * skill list. The v2 quantitative/qualitative rule blocks are gone — a skill
+ * document owns its own method and anchors, so the builder's only job for
+ * "criteria" is choosing skills and their weights.
+ */
 export const agentDraftSchema = z.object({
   name: z.string().optional().describe("Short name for the agent"),
-  style: z.string().optional().describe("Investment style identifier (value, growth, momentum, etc)"),
+  description: z.string().optional().describe("One line describing who this agent is and how it invests"),
   philosophy: z.string().optional().describe("Comprehensive 2-3 paragraph investment philosophy"),
   configuration: z
     .object({
       investment_horizon: z.string().optional().describe("e.g. Long-term (years)"),
-      risk_appetite: z.string().optional().describe("e.g. Aggressive (7)"),
+      risk_appetite: z.number().int().min(1).max(10).optional().describe("1 (very conservative) to 10 (very aggressive)"),
     })
     .optional(),
-  asset_evaluation: z
-    .object({
-      qualitative: z.array(qualitativeParamSchema).optional().describe("Qualitative asset evaluation checklist parameters"),
-      quantitative: z.array(quantitativeRuleSchema).optional().describe("Quantitative asset evaluation metrics"),
-    })
-    .optional(),
-  macro_evaluation: z
-    .object({
-      qualitative: z.array(qualitativeParamSchema).optional().describe("Qualitative macro evaluation checklist parameters"),
-      quantitative: z.array(quantitativeRuleSchema).optional().describe("Quantitative macro evaluation metrics"),
-    })
-    .optional(),
+  skills: z
+    .array(
+      z.object({
+        skill_id: z.string().describe("Skill id from the available skill library"),
+        weight: z.number().int().min(1).max(10).describe("Relative importance 1-10"),
+      })
+    )
+    .optional()
+    .describe("3-6 skills from the library, weighted by how central they are to this investor's method"),
 });
 
 export const builderResponseSchema = z.object({
@@ -99,6 +89,8 @@ export interface BuilderRequest {
   metrics: MetricDef[];
   document_texts: { filename: string; text: string }[];
   user_response?: string;
+  /** Skills the user can pick from (built-ins + their own). Defaults to built-ins. */
+  skill_catalog?: { id: string; name: string; description: string; category: string }[];
 }
 
 export interface BuilderResponse {
@@ -188,38 +180,91 @@ export function extractSearchResults(steps: any[]): { query: string; title: stri
   return out;
 }
 
-// Map display-name-only quantitative rules back to catalog metric ids and sync schema fields.
-function normalizeDraft(update: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+/**
+ * Map display-name-only quantitative rules back to catalog metric ids and sync schema fields.
+ * `catalog` lets us resolve skill display names ("DCF Valuation") and near-miss
+ * spellings to real library ids, so a model that writes prose instead of ids
+ * still attaches the right skills instead of having them silently dropped.
+ */
+function normalizeDraft(
+  update: Record<string, unknown> | undefined,
+  catalog?: { id: string; name: string }[],
+): Record<string, unknown> | undefined {
   if (!update) return update;
   const next: Record<string, unknown> = { ...update };
 
-  // Sync top-level philosophy and persona.philosophy_and_mindset
-  const phil = (next.philosophy as string) || (next.persona as any)?.philosophy_and_mindset;
+  // id -> skill, keyed by normalized id AND normalized display name, so both
+  // "moat-analysis" and "Moat Analysis" resolve.
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const byIdOrName = new Map<string, { id: string; name: string }>();
+  for (const s of catalog || []) {
+    byIdOrName.set(norm(s.id), s);
+    byIdOrName.set(norm(s.name), s);
+  }
+  const resolveSkill = (raw: string): { id: string; name: string } | null => {
+    const n = norm(raw);
+    if (!n) return null;
+    const exact = byIdOrName.get(n);
+    if (exact) return exact;
+    // Substring fallback: "QGLP growth skill" contains "growthanalysis".
+    for (const s of byIdOrName.values()) {
+      if (n.includes(norm(s.id)) || n.includes(norm(s.name)) || norm(s.name).includes(n)) return s;
+    }
+    return null;
+  };
+
+  // v3 reads the philosophy from persona.philosophy. The builder used to write
+  // persona.philosophy_and_mindset, which v3 ignores — so the philosophy was
+  // silently dropped and the agent came out blank.
+  const phil = (next.philosophy as string) || (next.persona as any)?.philosophy || (next.persona as any)?.philosophy_and_mindset;
   if (phil) {
     next.philosophy = phil;
     next.persona = {
       ...(typeof next.persona === "object" && next.persona ? (next.persona as any) : {}),
-      philosophy_and_mindset: phil,
+      philosophy: phil,
     };
   }
 
-  // Normalize risk_appetite if expressed as string like "Aggressive (7)"
+  // risk_appetite may arrive as "Aggressive (7)".
   if (next.configuration && typeof next.configuration === "object") {
     const cfg = { ...(next.configuration as Record<string, unknown>) };
     if (typeof cfg.risk_appetite === "string") {
       const match = cfg.risk_appetite.match(/\d+/);
       if (match) cfg.risk_appetite = Number(match[0]);
     }
+    const risk = Number(cfg.risk_appetite);
+    if (Number.isFinite(risk)) cfg.risk_appetite = Math.min(10, Math.max(1, Math.round(risk)));
     next.configuration = cfg;
   }
 
-  for (const key of ["asset_evaluation", "macro_evaluation"]) {
-    const sec = next[key];
-    if (sec && typeof sec === "object" && !Array.isArray(sec)) {
-      const s = sec as Record<string, unknown>;
-      if (Array.isArray(s.quantitative)) s.quantitative = normalizeQuantRules(s.quantitative);
+  // Skills: resolve ids, names, and near-misses to real library skills; clamp
+  // weights; drop duplicates. An unknown id would fail to resolve at run time
+  // and silently drop the skill.
+  if (Array.isArray(next.skills)) {
+    const seen = new Set<string>();
+    const skills: { skill_id: string; weight: number }[] = [];
+    for (const raw of next.skills as any[]) {
+      const rawId = typeof raw?.skill_id === "string" ? raw.skill_id.trim() : "";
+      if (!rawId) continue;
+      const match = resolveSkill(rawId);
+      if (!match) {
+        log.warn("builder", `dropped unresolvable skill "${rawId}" from draft (no catalog match)`);
+        continue;
+      }
+      if (seen.has(match.id)) continue;
+      seen.add(match.id);
+      const w = Math.round(Number(raw?.weight));
+      skills.push({ skill_id: match.id, weight: Number.isFinite(w) ? Math.min(10, Math.max(1, w)) : 5 });
     }
+    if (skills.length) next.skills = skills;
+    else delete next.skills;
   }
+
+  // v2 leftovers: the agent form has no such sections, so never pass them on.
+  delete next.asset_evaluation;
+  delete next.macro_evaluation;
+  delete next.style;
+
   return next;
 }
 
@@ -278,12 +323,25 @@ export async function processBuilderTurn(
   opts: { onTrace?: (ev: HarnessTraceEvent) => void } = {},
 ): Promise<BuilderResponse> {
   const { onTrace } = opts;
-  const schema = getSchemaDescriptor();
   const { apiKey, keyRef } = keyPool.pickKey(req.model_id, req.llm_keys as Record<string, string | undefined>);
   const provider = req.model_id.split("/")[0];
   const model = buildModel(req.model_id, req.llm_keys, apiKey);
   const toolCatalog = getToolCatalog();
-  console.log(`[builder] model_id=${req.model_id} keys=${Object.keys(req.llm_keys).join(",")}`);
+
+  // The skill library is the source of truth for what an agent can be built
+  // from — resolve it server-side so the model can only pick real skill ids.
+  let catalog = req.skill_catalog;
+  if (!catalog?.length) {
+    try {
+      const skills = req.user_id ? await listAllSkillsForUser(req.user_id) : loadBuiltinSkills();
+      catalog = skills.map((s) => ({ id: s.id, name: s.name, description: s.description, category: s.category }));
+    } catch (e: any) {
+      log.warn("builder", `skill catalog unavailable: ${e?.message}`);
+      catalog = [];
+    }
+  }
+
+  console.log(`[builder] model_id=${req.model_id} keys=${Object.keys(req.llm_keys).join(",")} skills=${catalog.length}`);
 
   // Build conversation context for the LLM
   const conversationHistory = req.messages
@@ -318,19 +376,12 @@ export async function processBuilderTurn(
     userMessage +
     "\n\nRespond with JSON only.";
 
-  const tools = req.llm_keys.tavily
-    ? { web_search: buildWebSearchTool(req.llm_keys.tavily) }
-    : undefined;
+  // Web search is always on (free DuckDuckGo default; Tavily when configured).
+  const tools = { web_search: buildWebSearchTool(req.llm_keys.tavily) };
 
   // When the user explicitly asks to search the web, force the tool so the
   // model can't shortcut straight to memory.
   const explicitSearch = /\b(?:search\w*|research\w*|look\w*\s+up|find\w*\s+out)\b/i.test(req.user_response || "");
-  if (explicitSearch && !tools) {
-    return {
-      message:
-        "Web search needs a Tavily API key — add it in Settings, then try again.",
-    };
-  }
 
   // Run through the shared harness so the builder streams the same trace
   // events (thinking, tool calls) as the analysis pipeline.
@@ -342,7 +393,7 @@ export async function processBuilderTurn(
 
   const turn = await runAgentTurn({
     model,
-    system: buildAgentBuilderSystemPrompt(schema, req.metrics, toolCatalog),
+    system: buildAgentBuilderSystemPrompt(toolCatalog, catalog),
     prompt,
     temperature: 0.4,
     maxOutputTokens: 4096,
@@ -363,9 +414,11 @@ export async function processBuilderTurn(
   });
 
   // A forced-tool refusal (model answered with zero tool calls) is best-effort
-  // here: answer from context. Provider/network failures propagate to the route.
+  // here: answer from context. Provider/network failures propagate to the route
+  // classified (auth vs rate limit vs outage) so the UI can say what to do.
   if (turn.error && !/without calling any data tools/i.test(turn.error)) {
-    throw new Error(turn.userMessage ? `${turn.userMessage} ${turn.error}` : turn.error);
+    const failure = classifyModelError(new Error(turn.error));
+    throw new Error(turn.userMessage ? `${turn.userMessage} ${failure.message}` : failure.message);
   }
   if (turn.error) {
     console.warn(`[builder] forced tool use not honored: ${turn.error}`);
@@ -383,7 +436,7 @@ export async function processBuilderTurn(
     try {
       const retry = await generateText({
         model,
-        instructions: buildAgentBuilderSystemPrompt(schema, req.metrics, toolCatalog),
+        instructions: buildAgentBuilderSystemPrompt(toolCatalog, catalog),
         prompt: buildBuilderRecoveryPrompt(prompt, rawText),
         temperature: 0.3,
       } as any);
@@ -449,7 +502,7 @@ export async function processBuilderTurn(
   const response: BuilderResponse = {
     message: parsed.message || "Let me know if you'd like to adjust anything.",
     options: options?.length ? options : undefined,
-    agent_draft_update: normalizeDraft(parsed.agent_draft_update || undefined),
+    agent_draft_update: normalizeDraft(parsed.agent_draft_update || undefined, catalog),
     thinking: parsed.thinking || undefined,
     sources: sources.length ? sources : undefined,
     search_results: searchResults.length ? searchResults : undefined,
@@ -489,7 +542,7 @@ export async function extractDocumentSignals(
 
   const result = await generateText({
     model,
-    prompt: buildDocumentExtractionPrompt(docContent, getToolCatalog()),
+    prompt: buildDocumentExtractionPrompt(docContent),
     temperature: 0.3,
     maxOutputTokens: 2000,
   });

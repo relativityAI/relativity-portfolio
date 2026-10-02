@@ -2,11 +2,23 @@
 # Live model discovery happens via provider /v1/models APIs (models.ts).
 # Models here get nice display names and priority ordering; any model not
 # here still appears if a provider's live API returns it.
+#
+# Priority blocks 1-2 are the SERVER-FREE providers: no user key needed at
+# all (server key pools + free-tier providers that only need a free signup
+# key). Paid providers (openai/anthropic) rank last — they only appear when
+# the user has added their own keys.
 models:
+  # ── Google AI Studio — free tier, no credit card (Flashes: 1,000-1,500 RPD) ──
   - id: "gemini/gemini-3.5-flash-lite"
     provider: google
     name: "Gemini 3.5 Flash-Lite (fastest)"
     priority: 1
+  - id: "gemini/gemini-3.7-flash"
+    provider: google
+    name: "Gemini 3.7 Flash"
+    priority: 16
+
+  # ── Groq — free forever, no credit card (~30 RPM, up to 14.4k RPD) ──
   - id: "groq/llama-3.3-70b-versatile"
     provider: groq
     name: "Llama 3.3 70B (Groq, free)"
@@ -35,6 +47,58 @@ models:
     provider: groq
     name: "Qwen3 32B (Groq)"
     priority: 8
+
+  # ── Mistral La Plateforme — free Experiment tier, no credit card (~1 req/s) ──
+  - id: "mistral/mistral-small-latest"
+    provider: mistral
+    name: "Mistral Small (free tier)"
+    priority: 25
+  - id: "mistral/mistral-medium-latest"
+    provider: mistral
+    name: "Mistral Medium (free tier)"
+    priority: 26
+  - id: "mistral/open-mistral-nemo"
+    provider: mistral
+    name: "Mistral Nemo (free tier)"
+    priority: 27
+
+  # ── NVIDIA NIM — free tier, no credit card (40 RPM, ~1k free credits) ──
+  # NOTE: llama-3.3-70b-instruct hit EOL on NIM (2026-08-26, HTTP 410) and was
+  # replaced with live-probed Nemotron models.
+  - id: "nvidia/nvidia/nemotron-3-super-120b-a12b"
+    provider: nvidia
+    name: "Nemotron 3 Super 120B (NVIDIA NIM)"
+    priority: 28
+  - id: "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b"
+    provider: nvidia
+    name: "Nemotron 3.5 Lightning 30B (NVIDIA NIM)"
+    priority: 29
+  - id: "nvidia/mistralai/mistral-nemotron"
+    provider: nvidia
+    name: "Mistral Nemotron (NVIDIA NIM)"
+    priority: 30
+
+  # ── Cohere — trial keys free, no credit card (20 RPM, 1k calls/month) ──
+  - id: "cohere/command-a"
+    provider: cohere
+    name: "Command A (Cohere trial)"
+    priority: 32
+  - id: "cohere/command-r7b-12-2024"
+    provider: cohere
+    name: "Command R7B (Cohere trial, fast)"
+    priority: 33
+
+  # ── Z.AI — GLM Flash models free, no credit card (~1k RPD) ──
+  - id: "zai/glm-4.7-flash"
+    provider: zai
+    name: "GLM 4.7 Flash (Z.AI, free)"
+    priority: 34
+  - id: "zai/glm-4.5-flash"
+    provider: zai
+    name: "GLM 4.5 Flash (Z.AI, free)"
+    priority: 35
+
+  # ── OpenRouter free models — no credit card (20 RPM; 50-1,000 RPD) ──
   - id: "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
     provider: openrouter
     name: "Nemotron 3 Ultra (OpenRouter, free)"
@@ -63,18 +127,22 @@ models:
     provider: openrouter
     name: "GPT-OSS 20B (OpenRouter, free)"
     priority: 15
-  - id: "gemini/gemini-3.7-flash"
-    provider: google
-    name: "Gemini 3.7 Flash"
-    priority: 16
-  - id: "openai/gpt-5.6-luna"
-    provider: openai
-    name: "GPT-5.6 Luna (budget)"
-    priority: 17
+
+  # ── Cerebras — free tier, no credit card (~1M tokens/day) ──
   - id: "cerebras/gpt-oss-120b"
     provider: cerebras
     name: "GPT-OSS 120B (Cerebras)"
     priority: 18
+  - id: "cerebras/llama-3.3-70b"
+    provider: cerebras
+    name: "Llama 3.3 70B (Cerebras)"
+    priority: 36
+
+  # ── Paid providers — appear only when the user adds their own keys ──
+  - id: "openai/gpt-5.6-luna"
+    provider: openai
+    name: "GPT-5.6 Luna (budget)"
+    priority: 17
   - id: "anthropic/claude-haiku-4-5"
     provider: anthropic
     name: "Claude Haiku 4.5 (fast)"

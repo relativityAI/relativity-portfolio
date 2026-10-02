@@ -6,7 +6,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── server-side LLM key pools (multiple keys per provider for rotation) ──
 
-export const LLM_PROVIDERS = ["openai", "gemini", "anthropic", "cerebras", "groq", "openrouter"] as const;
+export const LLM_PROVIDERS = [
+  "openai",
+  "gemini",
+  "anthropic",
+  "cerebras",
+  "groq",
+  "openrouter",
+  // Free-tier providers (no credit card needed for an API key) — supported in
+  // buildModel + provider discovery so users can pick them without their own
+  // paid keys:
+  "mistral", // La Plateforme free "Experiment" tier (~1 req/s)
+  "nvidia", // NVIDIA NIM free tier (40 RPM, 1k free credits on signup)
+  "cohere", // Cohere trial keys (20 RPM, 1k calls/month)
+  "zai", // Z.AI GLM Flash models (free, ~1k RPD)
+] as const;
 
 /** Parse a comma-separated env value into a trimmed, non-empty array. */
 export function parseCsv(value: string | undefined): string[] {
@@ -50,6 +64,12 @@ export const DEFAULT_DAILY_REQUESTS: Record<string, number> = {
   openrouter: 1000,
   openai: 500,
   anthropic: 500,
+  // Free-tier providers (no credit card). Caps mirror each provider's
+  // published free-tier daily limits (researched Sep 2026).
+  mistral: 20000, // ~1 req/s free Experiment tier
+  nvidia: 5000, // 40 RPM free tier (~1,000 free credits)
+  cohere: 33, // trial key: 1,000 calls/month ≈ 33/day
+  zai: 1000, // GLM Flash free tier
 };
 
 /** Per-provider daily request caps used by the quota algorithm ({PROVIDER}_DAILY_REQUESTS). */

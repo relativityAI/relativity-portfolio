@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Box, Flex, Text } from "@chakra-ui/react";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease } from "@/lib/motion";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 type Preset = {
   id: string;
@@ -9,6 +11,7 @@ type Preset = {
   tagline: string;
   horizon: string;
   risk: number;
+  philosophy: string;
   qual: { label: string; weight: number }[];
   quant: { metric: string; rule: string; weight: number }[];
 };
@@ -20,13 +23,14 @@ const PRESETS: Preset[] = [
     tagline: "Great businesses at a fair price, held for years",
     horizon: "Long-term",
     risk: 4,
+    philosophy: "Focus on wide economic moats, predictable earnings, excellent management integrity, and conservative capital allocation.",
     qual: [
-      { label: "Economic moat", weight: 9 },
-      { label: "Margin of safety", weight: 9 },
-      { label: "Management integrity", weight: 8 },
+      { label: "Economic moat & pricing power", weight: 9 },
+      { label: "Margin of safety on intrinsic value", weight: 9 },
+      { label: "Management integrity & capital allocation", weight: 8 },
     ],
     quant: [
-      { metric: "Return on Equity", rule: "> 15%", weight: 8 },
+      { metric: "Return on Equity (ROE)", rule: "> 15%", weight: 8 },
       { metric: "Debt to Equity", rule: "< 0.5", weight: 7 },
       { metric: "P/E Ratio", rule: "< 25", weight: 6 },
     ],
@@ -37,15 +41,16 @@ const PRESETS: Preset[] = [
     tagline: "CAN SLIM — buy leaders breaking out, cut losses fast",
     horizon: "Positional",
     risk: 8,
+    philosophy: "Combine strong quarterly/annual earnings acceleration with technical breakout setups and institutional support.",
     qual: [
-      { label: "Current quarterly earnings", weight: 9 },
-      { label: "New catalyst", weight: 8 },
-      { label: "Leader vs laggard", weight: 8 },
+      { label: "Current quarterly earnings acceleration", weight: 9 },
+      { label: "New product, management or market high catalyst", weight: 8 },
+      { label: "Market leader vs sector laggard", weight: 8 },
     ],
     quant: [
-      { metric: "EPS Growth", rule: "> 25%", weight: 9 },
-      { metric: "RSI (14)", rule: "\u2265 55", weight: 5 },
-      { metric: "SMA 200", rule: "> 0", weight: 6 },
+      { metric: "EPS Growth (YoY)", rule: "> 25%", weight: 9 },
+      { metric: "RSI (14-day)", rule: "≥ 55", weight: 5 },
+      { metric: "Price vs 200 SMA", rule: "> 0", weight: 6 },
     ],
   },
   {
@@ -54,15 +59,16 @@ const PRESETS: Preset[] = [
     tagline: "Growth at a reasonable price — compounders, not story stocks",
     horizon: "Positional",
     risk: 7,
+    philosophy: "Target well-run growth companies trading at reasonable valuations relative to their underlying earnings growth rate.",
     qual: [
-      { label: "Growth I can understand", weight: 9 },
-      { label: "Pricing power", weight: 8 },
-      { label: "Capital discipline", weight: 7 },
+      { label: "Simple, understandable business model", weight: 9 },
+      { label: "High gross margin & pricing power", weight: 8 },
+      { label: "Disciplined capital expenditure", weight: 7 },
     ],
     quant: [
       { metric: "PEG Ratio", rule: "< 1.5", weight: 9 },
       { metric: "Gross Margin", rule: "> 50%", weight: 7 },
-      { metric: "Revenue Growth", rule: "> 15%", weight: 8 },
+      { metric: "Revenue Growth (3Y CAGR)", rule: "> 15%", weight: 8 },
     ],
   },
 ];
@@ -72,6 +78,8 @@ function usePreset(id: string) {
 }
 
 function CriteriaPanel({ preset }: { preset: Preset }) {
+  const [activeTab, setActiveTab] = useState<"overview" | "persona" | "rules">("rules");
+
   return (
     <motion.div
       key={preset.id}
@@ -79,76 +87,146 @@ function CriteriaPanel({ preset }: { preset: Preset }) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       transition={{ duration: dur.base, ease }}
+      className="flex flex-col gap-4"
     >
-      <Flex direction="column" gap={5}>
-        {/* Qualitative checklist */}
-        <Flex direction="column" gap={2}>
-          <Text fontFamily="var(--font-mono)" fontSize="10px" fontWeight={600} letterSpacing="0.12em" color="var(--ink-tertiary)">
-            QUALITATIVE — SCORED AS A CHECKLIST
-          </Text>
-          {preset.qual.map((q, i) => (
-            <Flex key={q.label} align="center" justify="space-between" gap={3} py={2} borderTop="1px solid var(--hairline)">
-              <Flex align="center" gap={2.5} minW={0}>
-                <Text fontFamily="var(--font-mono)" fontSize="10px" color="var(--ink-tertiary)" w="16px" flexShrink={0}>
-                  {String(i + 1).padStart(2, "0")}
-                </Text>
-                <Text fontSize="sm" fontWeight={500} color="var(--ink-primary)" truncate>
-                  {q.label}
-                </Text>
-              </Flex>
-              <Flex align="center" gap={2} flexShrink={0}>
-                <Flex gap="3px" aria-label={`weight ${q.weight} of 10`}>
-                  {Array.from({ length: 10 }).map((_, j) => (
-                    <Box
-                      key={j}
-                      w="3px"
-                      h="10px"
-                      borderRadius="1px"
-                      bg={j < q.weight ? "var(--accent-primary)" : "var(--surface-recessed)"}
-                      border={j < q.weight ? "none" : "1px solid var(--hairline)"}
-                    />
-                  ))}
-                </Flex>
-                <Text fontFamily="var(--font-mono)" fontSize="10px" color="var(--ink-tertiary)" w="18px" textAlign="right">
-                  {q.weight}
-                </Text>
-              </Flex>
-            </Flex>
-          ))}
-        </Flex>
+      {/* Agent Card Header (copied from real Agent Settings UI) */}
+      <div className="flex flex-col gap-3 p-4 rounded-lg bg-[var(--surface-canvas)] border border-[var(--hairline)]">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/30 flex items-center justify-center font-[family-name:var(--font-mono)] font-bold text-sm text-[var(--accent-primary)]">
+              {preset.name.charAt(0)}
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-[var(--ink-primary)] leading-tight">
+                {preset.name}
+              </h3>
+              <p className="text-xs text-[var(--ink-secondary)]">
+                {preset.tagline}
+              </p>
+            </div>
+          </div>
+          <Badge variant="outline" className="font-[family-name:var(--font-mono)] text-[10px] uppercase text-[var(--signal-positive)] border-[var(--signal-positive)]/30 bg-[var(--signal-positive)]/5">
+            Active Agent
+          </Badge>
+        </div>
 
-        {/* Quantitative rules */}
-        <Flex direction="column" gap={2}>
-          <Text fontFamily="var(--font-mono)" fontSize="10px" fontWeight={600} letterSpacing="0.12em" color="var(--ink-tertiary)">
-            QUANTITATIVE — DETERMINISTIC GATES
-          </Text>
-          {preset.quant.map((q) => (
-            <Flex key={q.metric} align="center" justify="space-between" gap={3} py={2} borderTop="1px solid var(--hairline)">
-              <Text fontSize="sm" fontWeight={500} color="var(--ink-primary)" truncate>
-                {q.metric}
-              </Text>
-              <Flex align="center" gap={3} flexShrink={0}>
-                <Text
-                  fontFamily="var(--font-mono)"
-                  fontSize="xs"
-                  fontWeight={600}
-                  color="var(--accent-primary)"
-                  bg="var(--surface-recessed)"
-                  border="1px solid var(--hairline)"
-                  borderRadius="sm"
-                  px={2}
-                  py={0.5}
-                >
-                  {q.rule}
-                </Text>
-                <Text fontFamily="var(--font-mono)" fontSize="10px" color="var(--ink-tertiary)" w="26px" textAlign="right">
-                  w {q.weight}
-                </Text>
-              </Flex>
-            </Flex>
-          ))}
-        </Flex>
-      </Flex>
+        {/* Configuration summary bar */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-[var(--hairline)]">
+          <div>
+            <span className="block font-[family-name:var(--font-mono)] text-[10px] text-[var(--ink-tertiary)] uppercase">Horizon</span>
+            <span className="text-xs font-semibold text-[var(--ink-primary)]">{preset.horizon}</span>
+          </div>
+          <div>
+            <span className="block font-[family-name:var(--font-mono)] text-[10px] text-[var(--ink-tertiary)] uppercase">Risk Appetite</span>
+            <span className="text-xs font-semibold text-[var(--ink-primary)]">{preset.risk} / 10</span>
+          </div>
+          <div>
+            <span className="block font-[family-name:var(--font-mono)] text-[10px] text-[var(--ink-tertiary)] uppercase">Qualitative</span>
+            <span className="text-xs font-semibold text-[var(--ink-primary)]">{preset.qual.length} Criteria</span>
+          </div>
+          <div>
+            <span className="block font-[family-name:var(--font-mono)] text-[10px] text-[var(--ink-tertiary)] uppercase">Quantitative</span>
+            <span className="text-xs font-semibold text-[var(--ink-primary)]">{preset.quant.length} Gates</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs matching real Agent.tsx navigation */}
+      <div className="flex border-b border-[var(--hairline)] gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setActiveTab("rules")}
+          className={cn(
+            "rounded-none border-b-2 font-[family-name:var(--font-mono)] text-xs h-8 px-2.5",
+            activeTab === "rules"
+              ? "border-[var(--accent-primary)] text-[var(--accent-primary)] font-semibold"
+              : "border-transparent text-[var(--ink-tertiary)] hover:text-[var(--ink-primary)]"
+          )}
+        >
+          Asset Evaluation
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setActiveTab("persona")}
+          className={cn(
+            "rounded-none border-b-2 font-[family-name:var(--font-mono)] text-xs h-8 px-2.5",
+            activeTab === "persona"
+              ? "border-[var(--accent-primary)] text-[var(--accent-primary)] font-semibold"
+              : "border-transparent text-[var(--ink-tertiary)] hover:text-[var(--ink-primary)]"
+          )}
+        >
+          Agent Persona
+        </Button>
+      </div>
+
+      {activeTab === "rules" ? (
+        <div className="flex flex-col gap-4 pt-1">
+          {/* Qualitative checklist */}
+          <div className="flex flex-col gap-2">
+            <p className="font-[family-name:var(--font-mono)] text-[10px] font-semibold tracking-[0.12em] text-[var(--ink-tertiary)]">
+              QUALITATIVE — SCORED AS A CHECKLIST
+            </p>
+            {preset.qual.map((q, i) => (
+              <div key={q.label} className="flex items-center justify-between gap-3 py-1.5 border-t border-t-[var(--hairline)]">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--ink-tertiary)] w-[16px] shrink-0">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <p className="text-xs font-medium text-[var(--ink-primary)] truncate">
+                    {q.label}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex gap-[3px]" aria-label={`weight ${q.weight} of 10`}>
+                    {Array.from({ length: 10 }).map((_, j) => (
+                      <div
+                        key={j}
+                        className={cn("w-[3px] h-[10px] rounded-[1px]", j < q.weight ? "bg-[var(--accent-primary)] border-none" : "bg-[var(--surface-recessed)] border border-[var(--hairline)]")}
+                      />
+                    ))}
+                  </div>
+                  <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--ink-tertiary)] w-[18px] text-right">
+                    {q.weight}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Quantitative rules */}
+          <div className="flex flex-col gap-2">
+            <p className="font-[family-name:var(--font-mono)] text-[10px] font-semibold tracking-[0.12em] text-[var(--ink-tertiary)]">
+              QUANTITATIVE — DETERMINISTIC GATES
+            </p>
+            {preset.quant.map((q) => (
+              <div key={q.metric} className="flex items-center justify-between gap-3 py-1.5 border-t border-t-[var(--hairline)]">
+                <p className="text-xs font-medium text-[var(--ink-primary)] truncate">
+                  {q.metric}
+                </p>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="font-[family-name:var(--font-mono)] text-xs font-semibold text-[var(--accent-primary)] bg-[var(--surface-recessed)] border border-[var(--hairline)] rounded-sm px-2 py-0.5">
+                    {q.rule}
+                  </span>
+                  <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--ink-tertiary)] w-[26px] text-right">
+                    w {q.weight}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 py-2">
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-semibold tracking-[0.12em] text-[var(--ink-tertiary)]">
+            PHILOSOPHY & MINDSET
+          </p>
+          <p className="text-xs text-[var(--ink-secondary)] leading-relaxed italic bg-[var(--surface-canvas)] p-3 rounded border border-[var(--hairline)]">
+            "{preset.philosophy}"
+          </p>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -158,77 +236,58 @@ export default function AgentShowcase() {
   const preset = usePreset(activeId);
 
   return (
-    <Flex direction="column" gap={{ base: 6, md: 8 }}>
-      <Flex direction="column" gap={2} maxW="560px">
-        <Text fontFamily="var(--font-mono)" fontSize="xs" fontWeight={600} letterSpacing="0.12em" color="var(--accent-primary)">
-          START FROM A LEGEND
-        </Text>
-        <Text as="h2" fontSize={{ base: "xl", md: "2xl" }} fontWeight={700} color="var(--ink-primary)" lineHeight="tight">
-          Or borrow a proven investing style
-        </Text>
-        <Text fontSize={{ base: "sm", md: "md" }} color="var(--ink-secondary)" lineHeight="relaxed">
-          Every agent — preset or custom — is a readable spec: qualitative criteria scored as checklists, quantitative rules
-          enforced by code. Nothing hidden.
-        </Text>
-      </Flex>
+    <div className="flex flex-col gap-6 md:gap-8">
+      <div className="flex flex-col gap-2 max-w-[560px]">
+        <p className="font-[family-name:var(--font-mono)] text-xs font-semibold tracking-[0.12em] text-[var(--accent-primary)]">
+          CUSTOMIZABLE AGENT PROFILE
+        </p>
+        <h2 className="text-xl md:text-2xl font-bold text-[var(--ink-primary)] leading-tight">
+          Borrow a legend or construct your own spec
+        </h2>
+        <p className="text-sm md:text-base text-[var(--ink-secondary)] leading-relaxed">
+          Every agent is built using real settings UI: define qualitative checklists, quantitative gates, and investment philosophy.
+        </p>
+      </div>
 
-      <Flex
-        direction={{ base: "column", md: "row" }}
-        gap={{ base: 6, md: 10 }}
-        align={{ base: "stretch", md: "flex-start" }}
-      >
+      <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-stretch md:items-start">
         {/* Preset selector */}
-        <Flex direction="column" gap={2} flex={1} minW={0}>
+        <div className="flex flex-col gap-2.5 flex-1 min-w-0">
           {PRESETS.map((p) => {
             const active = p.id === activeId;
             return (
-              <Box
+              <button
                 key={p.id}
-                as="button"
-                textAlign="left"
                 onClick={() => setActiveId(p.id)}
-                cursor="pointer"
-                border="1px solid"
-                borderColor={active ? "var(--accent-primary)" : "var(--hairline)"}
-                bg={active ? "var(--surface-panel)" : "transparent"}
-                borderRadius="lg"
-                px={4}
-                py={3}
-                transition="border-color 0.2s, background 0.2s"
-                _hover={{ borderColor: active ? "var(--accent-primary)" : "var(--grid-line)" }}
-                _active={{ transform: "scale(0.985)" }}
+                className={cn(
+                  "text-left cursor-pointer border rounded-lg px-4 py-3 transition-all duration-200 active:scale-[0.985]",
+                  active
+                    ? "border-[var(--accent-primary)] bg-[var(--surface-panel)] shadow-sm"
+                    : "border-[var(--hairline)] bg-transparent hover:border-[var(--grid-line)]"
+                )}
               >
-                <Flex align="center" justify="space-between" gap={3} mb={1}>
-                  <Text fontSize="sm" fontWeight={700} color={active ? "var(--accent-primary)" : "var(--ink-primary)"}>
+                <div className="flex items-center justify-between gap-3 mb-1">
+                  <span className={cn("text-sm font-bold", active ? "text-[var(--accent-primary)]" : "text-[var(--ink-primary)]")}>
                     {p.name}
-                  </Text>
-                  <Text fontFamily="var(--font-mono)" fontSize="10px" color="var(--ink-tertiary)">
+                  </span>
+                  <span className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--ink-tertiary)]">
                     {p.horizon} · risk {p.risk}/10
-                  </Text>
-                </Flex>
-                <Text fontSize="xs" color="var(--ink-secondary)" lineHeight="short">
+                  </span>
+                </div>
+                <p className="text-xs text-[var(--ink-secondary)] leading-snug">
                   {p.tagline}
-                </Text>
-              </Box>
+                </p>
+              </button>
             );
           })}
-        </Flex>
+        </div>
 
-        {/* Criteria preview */}
-        <Box
-          flex={1.4}
-          minW={0}
-          border="1px solid var(--hairline)"
-          borderRadius="xl"
-          bg="var(--surface-panel)"
-          px={{ base: 4, md: 6 }}
-          py={{ base: 4, md: 5 }}
-        >
+        {/* Real Agent Settings UI Preview */}
+        <div className="flex-[1.4] min-w-0 border border-[var(--hairline)] rounded-xl bg-[var(--surface-panel)] px-4 py-4 md:px-5 md:py-5 shadow-lg">
           <AnimatePresence mode="wait">
             <CriteriaPanel preset={preset} />
           </AnimatePresence>
-        </Box>
-      </Flex>
-    </Flex>
+        </div>
+      </div>
+    </div>
   );
 }

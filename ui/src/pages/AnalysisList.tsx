@@ -1,16 +1,21 @@
-import { Text, Flex, Button, Table, Box, HStack, Spinner } from "@chakra-ui/react";
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MdArrowUpward, MdArrowDownward, MdExpandMore, MdChevronRight } from "react-icons/md";
 import { AnalysisService, AgentService } from "@/db";
 import { agentDisplayName } from "@/utils";
 import AgentAvatar from "@/components/shared/AgentAvatar";
+import Echart from "@/components/shared/Echart";
 import { resolveAgent } from "@/lib/agentIdentity";
-import { ModelLogo } from "@/lib/modelLogos";
+import { ModelLogo, modelLogoAsset } from "@/lib/modelLogos";
+import { mixHex, resolvedTheme, tooltipStyle, type ECOption, type ResolvedTheme } from "@/lib/echarts";
+import { useColorMode } from "@/components/ui/color-mode";
 import { motion, AnimatePresence } from "motion/react";
-import { ease, stagger, staggerItem, CountUp } from "@/lib/motion";
+import { ease, stagger, staggerItem, CountUp, dur } from "@/lib/motion";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import PageHero from "@/components/PageHero";
+import { cn } from "@/lib/utils";
 
 type SortKey = "share" | "created_at" | "score" | "status" | "agent" | "model" | "duration";
 
@@ -61,42 +66,136 @@ function timeAgo(dateStr: string): string {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
     return (
-        <Text
-            fontSize="10.5px"
-            fontWeight={500}
-            color="var(--ink-tertiary)"
-            letterSpacing="0.06em"
-            textTransform="uppercase"
-            mb={3}
-        >
+        <div className="text-[10.5px] font-medium tracking-[0.06em] text-[var(--ink-tertiary)] uppercase">
             {children}
-        </Text>
+        </div>
     );
 }
 
 function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
     const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
     return (
-        <Box
-            flex={1}
-            h="6px"
-            bg="var(--surface-recessed)"
-            borderRadius="2px"
-            overflow="hidden"
-            minW={0}
-        >
-            <Box as={motion.div} h="full" bg={color} initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.6, ease }} />
-        </Box>
+        <div className="h-6px min-w-0 flex-1 overflow-hidden rounded-[2px] bg-[var(--surface-recessed)]">
+            <motion.div
+                className="h-full"
+                style={{ background: color }}
+                initial={{ width: 0 }}
+                animate={{ width: `${pct}%` }}
+                transition={{ duration: 0.6, ease }}
+            />
+        </div>
     );
+}
+
+/** Two loading states use it; not worth a shadcn wrapper. */
+function Spinner({ className }: { className?: string }) {
+    return (
+        <span
+            aria-hidden
+            className={cn("inline-block size-3.5 animate-spin rounded-full border-2 border-current border-t-transparent", className)}
+        />
+    );
+}
+
+const OTHER_KEY = "__other__";
+
+/** Escape untrusted labels before they go into ECharts tooltip HTML. */
+function esc(s: string): string {
+    return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+}
+
+/**
+ * Monochrome ramp for a donut: every slice is a shade of one anchor color,
+ * ordered by rank so magnitude reads without a legend lookup. The mix runs
+ * toward ink-primary rather than the surface, so the ramp always moves AWAY
+ * from the card background — mixing toward the panel would drop the low ranks
+ * into the surface in dark mode.
+ */
+function shadeRamp(t: ResolvedTheme, anchor: string, i: number, n: number): string {
+    const k = n > 1 ? i / (n - 1) : 0;
+    return mixHex(anchor, t.ink.primary, 0.18 + 0.56 * k);
+}
+
+/**
+ * An ECharts legend can't render images (legend text is rich-text, not HTML),
+ * so the model plot carries its own logo legend instead. Names only — the
+ * counts stay in the tooltip.
+ */
+function LogoLegend({ items }: { items: { key: string; label: string; model: string }[] }) {
+    return (
+        <div className="mt-2 flex flex-col gap-1.5">
+            {items.map((it) => (
+                <div key={it.key} className="flex min-w-0 items-center gap-1.5">
+                    <ModelLogo model={it.model} size={12} />
+                    <div
+                        title={it.label}
+                        className="truncate font-app-mono text-[10.5px] text-[var(--ink-secondary)]"
+                    >
+                        {it.label}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+/**
+ * Rounded donut shared by the score-band and model plots: same slice rounding,
+ * same legend treatment, only the data and tooltip body differ.
+ */
+function donutOption(
+    t: ResolvedTheme,
+    anim: ECOption["animation"],
+    slices: { name: string; value: number; itemStyle: { color: string } }[],
+    tooltipBody: (index: number, percent: number) => string,
+    showLegend = true
+): ECOption {
+    return {
+        animation: anim,
+        legend: showLegend
+            ? {
+                  // Legend carries the labels; the counts live in the tooltip so
+                  // the card isn't a table with a chart stuck to it.
+                  type: "scroll",
+                  bottom: 0,
+                  left: "center",
+                  itemWidth: 8,
+                  itemHeight: 8,
+                  itemGap: 10,
+                  icon: "circle",
+                  textStyle: { color: t.ink.secondary, fontSize: 10, fontFamily: t.fonts.mono },
+                  formatter: (name: string) => (name.length > 16 ? `${name.slice(0, 15)}…` : name),
+              }
+            : { show: false },
+        tooltip: {
+            ...tooltipStyle(t),
+            trigger: "item",
+            confine: true,
+            formatter: (params: any) => {
+                const p = Array.isArray(params) ? params[0] : params;
+                return tooltipBody(p.dataIndex, p.percent);
+            },
+        },
+        series: [
+            {
+                type: "pie",
+                radius: ["48%", "72%"],
+                // Sit higher when the legend owns the bottom strip.
+                center: showLegend ? ["50%", "43%"] : ["50%", "50%"],
+                label: { show: false },
+                labelLine: { show: false },
+                itemStyle: { borderColor: t.surface.panel, borderWidth: 2, borderRadius: 4 },
+                data: slices,
+            },
+        ],
+    };
 }
 
 function Sparkline({ data, agents, height = 40 }: { data: any[]; agents: any[]; height?: number }) {
     const [tip, setTip] = useState<number | null>(null);
     if (data.length < 2) {
         return (
-            <Text fontSize="11px" color="var(--ink-tertiary)">
-                Not enough completed runs yet
-            </Text>
+            <div className="text-[11px] text-[var(--ink-tertiary)]">Not enough completed runs yet</div>
         );
     }
     const W = 100;
@@ -109,7 +208,7 @@ function Sparkline({ data, agents, height = 40 }: { data: any[]; agents: any[]; 
     const line = pts.map(({ x, y }) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
     const area = `0,${height} ${line} ${W},${height}`;
     return (
-        <Box position="relative" width="full">
+        <div className="relative w-full">
             <svg
                 width="100%"
                 height={height}
@@ -138,67 +237,68 @@ function Sparkline({ data, agents, height = 40 }: { data: any[]; agents: any[]; 
                 const agent = agentDisplayName(item.agent_name || item.agent, agents) || "—";
                 const score = typeof item.total_score === "number" ? item.total_score.toFixed(0) : "—";
                 return (
-                    <Box
+                    <div
                         key={i}
-                        position="absolute"
-                        left={`${x}%`}
-                        top={`${y}px`}
-                        w="18px"
-                        h="18px"
-                        transform="translate(-50%, -50%)"
-                        style={{ cursor: "default" }}
+                        className="absolute h-[18px] w-[18px] cursor-default"
+                        style={{ left: `${x}%`, top: `${y}px`, transform: "translate(-50%, -50%)" }}
                         onMouseEnter={() => setTip(i)}
                         onMouseLeave={() => setTip(null)}
                     >
-                        <Box
-                            position="absolute"
-                            top="50%"
-                            left="50%"
-                            w="6px"
-                            h="6px"
-                            borderRadius="50%"
-                            bg="var(--surface-panel)"
-                            border="1.5px solid var(--accent-primary)"
-                            transform="translate(-50%, -50%)"
+                        <div
+                            className="absolute h-[6px] w-[6px] rounded-full border-[1.5px] border-[var(--accent-primary)] bg-[var(--surface-panel)]"
+                            style={{ top: "50%", left: "50%", transform: "translate(-50%, -50%)" }}
                         />
                         {tip === i && (
-                            <Box
-                                position="absolute"
-                                bottom="10px"
-                                left={i === 0 ? "0%" : i === pts.length - 1 ? "100%" : "50%"}
-                                transform={i === 0 ? "none" : i === pts.length - 1 ? "translateX(-100%)" : "translateX(-50%)"}
-                                bg="var(--surface-panel)"
-                                border="1px solid var(--hairline)"
-                                borderRadius="8px"
-                                px={2.5}
-                                py={1.5}
-                                boxShadow="0 8px 24px rgba(0,0,0,0.14)"
-                                zIndex={20}
-                                whiteSpace="nowrap"
-                                pointerEvents="none"
+                            <div
+                                className="pointer-events-none absolute z-20 rounded-lg border border-[var(--hairline)] bg-[var(--surface-panel)] px-2.5 py-1.5 whitespace-nowrap shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
+                                style={{
+                                    bottom: "10px",
+                                    left: i === 0 ? "0%" : i === pts.length - 1 ? "100%" : "50%",
+                                    transform:
+                                        i === 0 ? "none" : i === pts.length - 1 ? "translateX(-100%)" : "translateX(-50%)",
+                                }}
                             >
-                                <Text color="var(--ink-primary)" fontWeight={600} fontSize="11px">
-                                    {symbol}
-                                </Text>
-                                <Flex gap={1.5} align="center" color="var(--ink-tertiary)" fontSize="10.5px" flexWrap="wrap">
-                                    <Text>{date}</Text>
-                                    <Text>·</Text>
+                                <div className="text-[11px] font-semibold text-[var(--ink-primary)]">{symbol}</div>
+                                <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] text-[var(--ink-tertiary)]">
+                                    <span>{date}</span>
+                                    <span>·</span>
                                     <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={12} />
-                                    <Text>{agent}</Text>
-                                </Flex>
-                                <Text fontSize="11px" fontWeight={600} color="var(--signal-positive)">
+                                    <span>{agent}</span>
+                                </div>
+                                <div className="text-[11px] font-semibold text-[var(--signal-positive)]">
                                     Fit {score}
-                                </Text>
-                            </Box>
+                                </div>
+                            </div>
                         )}
-                    </Box>
+                    </div>
                 );
             })}
-        </Box>
+        </div>
     );
 }
 
 type GroupMode = "individual" | "date" | "agent" | "stock" | "model";
+
+/**
+ * Masthead stat: a light, small-caps label under a tabular figure. The two
+ * weights and two ink shades do the work a divider or a box would otherwise.
+ */
+function Stat({ value, label }: { value: string; label: string }) {
+    return (
+        <span className="inline-flex items-baseline gap-1.5">
+            <span className="font-app-tabular text-[13px] leading-none font-medium tabular-nums text-[var(--ink-secondary)]">
+                {value}
+            </span>
+            <span className="text-[10.5px] leading-none font-medium tracking-[0.08em] text-[var(--ink-tertiary)] uppercase">
+                {label}
+            </span>
+        </span>
+    );
+}
+
+function Sep() {
+    return <span className="text-[var(--grid-line)]">/</span>;
+}
 
 const GROUP_VIEWS: { key: GroupMode; label: string }[] = [
     { key: "individual", label: "All runs" },
@@ -243,46 +343,33 @@ function GroupHeaderRow({
     onToggle: () => void;
 }) {
     return (
-        <Table.Row
-            bg="var(--surface-recessed)"
-            cursor="pointer"
+        <tr
+            className="cursor-pointer bg-[var(--surface-recessed)]"
             onClick={onToggle}
-            _hover={{ bg: "var(--surface-recessed)" }}
             aria-expanded={expanded}
         >
-            <Table.Cell colSpan={8} px={4} py={2}>
-                <Flex align="center" gap={2} minW={0}>
-                    {expanded ? (
-                        <Box flexShrink={0} display="flex">
+            <td colSpan={8} className="px-4 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                    <span className="flex shrink-0">
+                        {expanded ? (
                             <MdExpandMore size={15} color="var(--ink-tertiary)" />
-                        </Box>
-                    ) : (
-                        <Box flexShrink={0} display="flex">
+                        ) : (
                             <MdChevronRight size={15} color="var(--ink-tertiary)" />
-                        </Box>
-                    )}
+                        )}
+                    </span>
                     {avatar}
-                    <Text fontSize="12.5px" fontWeight={600} color="var(--ink-primary)" truncate>
-                        {label}
-                    </Text>
-                    <Text fontSize="11px" fontFamily="var(--font-tabular)" color="var(--ink-tertiary)" flexShrink={0}>
+                    <span className="truncate text-[12.5px] font-semibold text-[var(--ink-primary)]">{label}</span>
+                    <span className="shrink-0 font-app-tabular text-[11px] text-[var(--ink-tertiary)]">
                         {count} {count === 1 ? "run" : "runs"}
-                    </Text>
+                    </span>
                     {avg != null && (
-                        <Text
-                            ml="auto"
-                            fontSize="11.5px"
-                            fontFamily="var(--font-tabular)"
-                            fontVariantNumeric="tabular-nums"
-                            color="var(--ink-secondary)"
-                            flexShrink={0}
-                        >
+                        <span className="ml-auto shrink-0 font-app-tabular text-[11.5px] tabular-nums text-[var(--ink-secondary)]">
                             avg match {avg.toFixed(0)}%
-                        </Text>
+                        </span>
                     )}
-                </Flex>
-            </Table.Cell>
-        </Table.Row>
+                </div>
+            </td>
+        </tr>
     );
 }
 
@@ -492,27 +579,41 @@ export default function AnalysisList() {
         return bands;
     }, [completed]);
 
-    const quantAvg = useMemo(() => {
-        const vals = completed.map((a) => a.quantitative_score).filter((v) => typeof v === "number");
-        return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
-    }, [completed]);
-
-    const qualAvg = useMemo(() => {
-        const vals = completed.map((a) => a.qualitative_score).filter((v) => typeof v === "number");
-        return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
-    }, [completed]);
-
+    // Top 5 models by run count; everything past the top 5 is one "Other"
+    // slice so the pie never silently drops runs.
     const modelUsage = useMemo(() => {
         const map = new Map<string, number>();
         uniqueAnalysis.forEach((a) => {
             const m = a.model || "unknown";
             map.set(m, (map.get(m) || 0) + 1);
         });
-        return Array.from(map.entries())
+        const all = Array.from(map.entries())
             .map(([model, count]) => ({ model, count }))
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 5);
+            .sort((a, b) => b.count - a.count);
+        const top = all.slice(0, 5);
+        const rest = all.slice(5).reduce((s, m) => s + m.count, 0);
+        return rest > 0 ? [...top, { model: OTHER_KEY, count: rest }] : top;
     }, [uniqueAnalysis]);
+
+    // Best score per stock over a rolling 30-day window.
+    const topStocks = useMemo(() => {
+        const cutoff = Date.now() - 30 * 86400000;
+        const best = new Map<string, number>();
+        completed.forEach((a) => {
+            const label = String(a.share_name || a.symbol || "").trim();
+            if (!label || typeof a.total_score !== "number") return;
+            const when = +new Date(a.created_at ?? 0);
+            if (!(when >= cutoff)) return;
+            const prev = best.get(label);
+            if (prev == null || a.total_score > prev) best.set(label, a.total_score);
+        });
+        return Array.from(best.entries())
+            .map(([label, score]) => ({ label, score }))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 5);
+    }, [completed]);
+
+    const modelRuns = useMemo(() => modelUsage.reduce((s, m) => s + m.count, 0), [modelUsage]);
 
     const trend = useMemo(() => {
         return [...completed]
@@ -522,488 +623,393 @@ export default function AnalysisList() {
 
     const colSpan = 8;
 
+    const { colorMode } = useColorMode();
+    const chartTheme = useMemo(() => resolvedTheme(colorMode === "dark"), [colorMode]);
+    const chartAnim = useMemo(
+        () => (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? false : { duration: dur.base, easing: "cubicOut" }),
+        []
+    );
+
+    const modelPie = useMemo(() => {
+        const t = chartTheme;
+        const n = modelUsage.length;
+        return donutOption(
+            t,
+            chartAnim,
+            modelUsage.map((m, i) => ({
+                name: m.model === OTHER_KEY ? "Other models" : m.model,
+                value: m.count,
+                itemStyle: { color: shadeRamp(t, t.accent, i, n) },
+            })),
+            (i, percent) => {
+                const m = modelUsage[i];
+                if (!m) return "";
+                const other = m.model === OTHER_KEY;
+                const asset = other ? null : modelLogoAsset(m.model);
+                const mark = asset
+                    ? `<img src="${asset.src}"${asset.invert ? ' class="llm-mark"' : ""} style="width:14px;height:14px;object-fit:contain;vertical-align:-3px;margin-right:6px;" alt="" />`
+                    : "";
+                return `${mark}<b>${other ? "Other models" : esc(m.model)}</b><br/><span style="color:${t.ink.tertiary}">${percent}% · ${m.count}${other ? "" : " runs"}</span>`;
+            },
+            false // logos come from LogoLegend below the chart
+        );
+    }, [modelUsage, chartTheme, chartAnim]);
+
+    /**
+     * Stock leaderboard — horizontal bars, not a donut. A ranking is read by
+     * comparing lengths down a shared axis; a donut makes that comparison
+     * harder than it needs to be. Fixed 0–100 domain so bar length means the
+     * same thing on every run.
+     */
+    const stockBars = useMemo(() => {
+        const t = chartTheme;
+        const n = topStocks.length;
+        return {
+            animation: chartAnim,
+            // Explicit label gutter; grid.containLabel is legacy in ECharts 6.
+            grid: { left: 104, right: 30, top: 4, bottom: 2 },
+            tooltip: {
+                ...tooltipStyle(t),
+                trigger: "item",
+                confine: true,
+                axisPointer: { show: false },
+                formatter: (params: any) => {
+                    const p = Array.isArray(params) ? params[0] : params;
+                    const s = topStocks[p.dataIndex];
+                    if (!s) return "";
+                    return `<b>${esc(s.label)}</b><br/><span style="color:${t.ink.tertiary}">${s.score.toFixed(1)} match · best in 30d</span>`;
+                },
+            },
+            xAxis: { type: "value", min: 0, max: 100, show: false },
+            yAxis: {
+                type: "category",
+                inverse: true, // rank 1 on top
+                show: false,
+                data: topStocks.map((s) => s.label),
+                axisLabel: {
+                    color: t.ink.secondary,
+                    fontSize: 10,
+                    fontFamily: t.fonts.mono,
+                    width: 96,
+                    overflow: "truncate",
+                },
+            },
+            series: [
+                {
+                    type: "bar",
+                    barWidth: 9,
+                    data: topStocks.map((s, i) => ({
+                        value: s.score,
+                        itemStyle: { color: shadeRamp(t, t.signals.positive, i, n) },
+                    })),
+                    itemStyle: { borderRadius: [0, 4, 4, 0] },
+                    label: {
+                        show: true,
+                        position: "right",
+                        distance: 6,
+                        color: t.ink.primary,
+                        fontSize: 10,
+                        fontFamily: t.fonts.tabular,
+                        formatter: (p: any) => p.value.toFixed(1),
+                    },
+                },
+            ],
+        };
+    }, [topStocks, chartTheme, chartAnim]);
+
+    const scorePie = useMemo(() => {
+        const t = chartTheme;
+        return donutOption(
+            t,
+            chartAnim,
+            // Bands are ordered severity, so they keep the app's signal colors
+            // rather than a monochrome ramp. Resolved to concrete values —
+            // ECharts cannot read var(--x).
+            scoreBands.map((b) => ({
+                name: b.label,
+                value: b.count,
+                itemStyle: {
+                    color: b.key === "high" ? t.signals.positive : b.key === "mid" ? t.signals.caution : t.signals.negative,
+                },
+            })),
+            (i, percent) => {
+                const b = scoreBands[i];
+                if (!b) return "";
+                return `<b>${esc(b.label)} match</b><br/><span style="color:${t.ink.tertiary}">${percent}% · ${b.count} run${b.count === 1 ? "" : "s"}</span>`;
+            }
+        );
+    }, [scoreBands, chartTheme, chartAnim]);
+
     const onRowClick = (id: string) => {
         navigate("/analysis-result/" + id);
     };
 
     return (
-        <Box bg="var(--surface-canvas)" minH="100%">
-            <Flex direction="column" gap={6} maxW="1600px" mx="auto" py={6}>
-                {/* Page header */}
-                <PageHero>
-                    <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={3} wrap="wrap">
-                        <Flex direction="column" gap={0.5}>
-                            <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
-                                Share Analysis
-                            </Text>
-                            <Text fontSize="11.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
-                                {total} RUN{total === 1 ? "" : "S"}
-                                {completed.length > 0 && ` · ${completed.length} COMPLETED`}
-                                {avgScore != null && ` · AVG ${avgScore.toFixed(1)}`}
-                            </Text>
-                        </Flex>
-                        <Button
-                            as={motion.button}
-                            whileHover={{ y: -1 }}
-                            whileTap={{ scale: 0.97 }}
-                            size="sm"
-                            onClick={() => navigate("/")}
-                            variant="surface"
-                            colorPalette="blue"
-                            px={4}
-                            _hover={{ opacity: 0.9 }}
-                            borderRadius="3px"
-                        >
+        <div className="min-h-full bg-[var(--surface-canvas)]">
+            <div className="mx-auto flex max-w-[1600px] flex-col gap-6 py-6">
+                {/*
+                 * Masthead. No panel around it: the title carries the weight and
+                 * the stat line carries the data, separated by tracking, weight
+                 * and three shades of ink rather than by a box.
+                 */}
+                <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-0.5">
+                    <div className="min-w-0">
+                        <h1 className="text-[26px] leading-[1.1] font-semibold tracking-[-0.02em] text-[var(--ink-primary)] md:text-[30px]">
+                            Share Analysis
+                        </h1>
+                        <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            <Stat value={String(total)} label={total === 1 ? "run" : "runs"} />
+                            {completed.length > 0 && (
+                                <>
+                                    <Sep />
+                                    <Stat value={String(completed.length)} label="completed" />
+                                </>
+                            )}
+                            {avgScore != null && (
+                                <>
+                                    <Sep />
+                                    <Stat value={avgScore.toFixed(1)} label="avg match" />
+                                </>
+                            )}
+                        </div>
+                    </div>
+                    <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} className="shrink-0">
+                        <Button size="sm" onClick={() => navigate("/")} className="rounded-[3px] px-4">
                             + New Analysis
                         </Button>
-                    </Flex>
-                </PageHero>
+                    </motion.div>
+                </header>
 
                 {/* Body: sidebar + table */}
-                <Flex gap={6} align="flex-start" wrap={{ base: "wrap", lg: "nowrap" }}>
-                    {/* Sidebar — single flattened panel */}
-                    <Flex
-                        direction="column"
-                        w={{ base: "full", lg: "280px" }}
-                        flexShrink={0}
-                        border="1px solid var(--hairline)"
-                        borderRadius="2px"
-                        bg="var(--surface-panel)"
-                        as={motion.div}
+                <div className="flex flex-wrap items-start gap-6 lg:flex-nowrap">
+                    {/* Insights — one tall card, same shell as the run summary */}
+                    <motion.div
                         variants={stagger}
                         initial="initial"
                         animate="animate"
+                        className="w-full lg:w-[280px] lg:shrink-0"
                     >
+                        <Card className="gap-3 rounded-lg py-4 shadow-none">
+                            <CardHeader className="px-4 pb-0">
+                                <CardTitle className="text-[11px] font-medium tracking-[0.06em] text-muted-foreground uppercase">
+                                    Insights
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="flex flex-col gap-3 px-4">
                         {/* Run health */}
-                        <Box px={4} py={3} as={motion.div} variants={staggerItem}>
+                        <motion.div variants={staggerItem}>
                             <SectionLabel>Run Health</SectionLabel>
-                            <Flex direction="column" gap={3}>
-                                <Flex justify="space-between" align="baseline">
-                                    <Text fontSize="13px" color="var(--ink-secondary)">
-                                        Completed
-                                    </Text>
-                                    <Text
-                                        fontSize="24px"
-                                        fontWeight={600}
-                                        fontFamily="var(--font-tabular)"
-                                        fontVariantNumeric="tabular-nums"
-                                        color="var(--ink-primary)"
-                                        lineHeight="1"
-                                    >
+                            <div className="flex flex-col gap-3">
+                                <div className="flex items-baseline justify-between">
+                                    <span className="text-[13px] text-[var(--ink-secondary)]">Completed</span>
+                                    <span className="font-app-tabular text-[24px] leading-none font-semibold tabular-nums text-[var(--ink-primary)]">
                                         <CountUp value={completed.length} decimals={0} />
-                                    </Text>
-                                </Flex>
-                                <Flex justify="space-between" align="baseline">
-                                    <Text fontSize="13px" color="var(--ink-secondary)">
-                                        Failed
-                                    </Text>
-                                    <Text
-                                        fontSize="24px"
-                                        fontWeight={600}
-                                        fontFamily="var(--font-tabular)"
-                                        fontVariantNumeric="tabular-nums"
-                                        color={failed.length > 0 ? "var(--signal-negative)" : "var(--ink-primary)"}
-                                        lineHeight="1"
+                                    </span>
+                                </div>
+                                <div className="flex items-baseline justify-between">
+                                    <span className="text-[13px] text-[var(--ink-secondary)]">Failed</span>
+                                    <span
+                                        className={cn(
+                                            "font-app-tabular text-[24px] leading-none font-semibold tabular-nums",
+                                            failed.length > 0 ? "text-[var(--signal-negative)]" : "text-[var(--ink-primary)]"
+                                        )}
                                     >
                                         <CountUp value={failed.length} decimals={0} />
-                                    </Text>
-                                </Flex>
+                                    </span>
+                                </div>
                                 {total > 0 && (
-                                    <Flex align="center" gap={2}>
+                                    <div className="flex items-center gap-2">
                                         <MiniBar value={completed.length} max={total} color="var(--signal-positive)" />
-                                        <Text
-                                            fontSize="12px"
-                                            fontFamily="var(--font-tabular)"
-                                            fontVariantNumeric="tabular-nums"
-                                            color="var(--ink-secondary)"
-                                            flexShrink={0}
-                                        >
+                                        <span className="shrink-0 font-app-tabular text-[12px] tabular-nums text-[var(--ink-secondary)]">
                                             {Math.round(successRate * 100)}%
-                                        </Text>
-                                    </Flex>
+                                        </span>
+                                    </div>
                                 )}
                                 {avgScore != null && (
-                                    <Text fontSize="11px" color="var(--ink-tertiary)">
+                                    <p className="text-[11px] text-[var(--ink-tertiary)]">
                                         Avg match{" "}
-                                        <Text
-                                            as="span"
-                                            fontFamily="var(--font-tabular)"
-                                            fontVariantNumeric="tabular-nums"
-                                            color="var(--ink-primary)"
-                                            fontWeight={500}
-                                        >
+                                        <span className="font-app-tabular font-medium tabular-nums text-[var(--ink-primary)]">
                                             {avgScore.toFixed(1)}
-                                        </Text>
-                                    </Text>
+                                        </span>
+                                    </p>
                                 )}
-                            </Flex>
-                        </Box>
+                            </div>
+                        </motion.div>
 
-                        <Box mx={4} borderTop="1px solid var(--hairline)" />
+                        <div className="border-t border-[var(--hairline)]" />
 
                         {/* Score distribution */}
-                        <Box px={4} py={3} as={motion.div} variants={staggerItem}>
+                        <motion.div variants={staggerItem}>
                             <SectionLabel>Score Distribution</SectionLabel>
                             {completed.length === 0 ? (
-                                <Text fontSize="12px" color="var(--ink-tertiary)">
-                                    No completed runs yet
-                                </Text>
+                                <p className="text-[12px] text-[var(--ink-tertiary)]">No completed runs yet</p>
                             ) : (
-                                <Flex direction="column" gap={2.5}>
-                                    {scoreBands.map((b) => (
-                                        <Flex direction="column" gap={1} key={b.key}>
-                                            <Flex justify="space-between" align="baseline">
-                                                <Text fontSize="11px" color="var(--ink-secondary)">
-                                                    {b.label}
-                                                </Text>
-                                                <Text
-                                                    fontSize="12px"
-                                                    fontFamily="var(--font-tabular)"
-                                                    fontVariantNumeric="tabular-nums"
-                                                    color="var(--ink-primary)"
-                                                    fontWeight={500}
-                                                >
-                                                    {b.count}
-                                                </Text>
-                                            </Flex>
-                                            <MiniBar value={b.count} max={completed.length} color={b.color} />
-                                        </Flex>
-                                    ))}
-                                </Flex>
+                                <Echart
+                                    height={168}
+                                    aria-label={`Match score bands across ${completed.length} completed runs. ${scoreBands
+                                        .map((b) => `${b.label}: ${b.count}`)
+                                        .join(", ")}`}
+                                    option={scorePie}
+                                />
                             )}
-                        </Box>
+                        </motion.div>
 
-                        <Box mx={4} borderTop="1px solid var(--hairline)" />
-
-                        {/* Quant vs Qual */}
-                        <Box px={4} py={3} as={motion.div} variants={staggerItem}>
-                            <SectionLabel>Quant vs Qual</SectionLabel>
-                            {completed.length === 0 ? (
-                                <Text fontSize="12px" color="var(--ink-tertiary)">
-                                    No completed runs yet
-                                </Text>
-                            ) : (
-                                <Flex direction="column" gap={2.5}>
-                                    <Flex direction="column" gap={1}>
-                                        <Flex justify="space-between" align="baseline">
-                                            <Text fontSize="11px" color="var(--ink-secondary)">
-                                                Quantitative
-                                            </Text>
-                                            <Text
-                                                fontSize="12px"
-                                                fontFamily="var(--font-tabular)"
-                                                fontVariantNumeric="tabular-nums"
-                                                color="var(--ink-primary)"
-                                                fontWeight={500}
-                                            >
-                                                {quantAvg != null ? quantAvg.toFixed(1) : "—"}
-                                            </Text>
-                                        </Flex>
-                                        <MiniBar value={quantAvg ?? 0} max={100} color="var(--accent-primary)" />
-                                    </Flex>
-                                    <Flex direction="column" gap={1}>
-                                        <Flex justify="space-between" align="baseline">
-                                            <Text fontSize="11px" color="var(--ink-secondary)">
-                                                Qualitative
-                                            </Text>
-                                            <Text
-                                                fontSize="12px"
-                                                fontFamily="var(--font-tabular)"
-                                                fontVariantNumeric="tabular-nums"
-                                                color="var(--ink-primary)"
-                                                fontWeight={500}
-                                            >
-                                                {qualAvg != null ? qualAvg.toFixed(1) : "—"}
-                                            </Text>
-                                        </Flex>
-                                        <MiniBar value={qualAvg ?? 0} max={100} color="var(--signal-positive)" />
-                                    </Flex>
-                                </Flex>
-                            )}
-                        </Box>
-
-                        <Box mx={4} borderTop="1px solid var(--hairline)" />
+                        <div className="border-t border-[var(--hairline)]" />
 
                         {/* Recent trend */}
-                        <Box px={4} py={3} as={motion.div} variants={staggerItem}>
+                        <motion.div variants={staggerItem}>
                             <SectionLabel>Recent Trend</SectionLabel>
                             <Sparkline data={trend} agents={agents} />
                             {trend.length > 0 && (
-                                <Text fontSize="11px" color="var(--ink-tertiary)" mt={2}>
+                                <p className="mt-2 text-[11px] text-[var(--ink-tertiary)]">
                                     Last{" "}
-                                    <Text
-                                        as="span"
-                                        fontFamily="var(--font-tabular)"
-                                        fontVariantNumeric="tabular-nums"
-                                        color="var(--ink-primary)"
-                                        fontWeight={500}
-                                    >
+                                    <span className="font-app-tabular font-medium tabular-nums text-[var(--ink-primary)]">
                                         {trend.length}
-                                    </Text>{" "}
+                                    </span>{" "}
                                     completed runs · oldest → newest
-                                </Text>
+                                </p>
                             )}
-                        </Box>
+                        </motion.div>
 
-                        <Box mx={4} borderTop="1px solid var(--hairline)" />
+                        <div className="border-t border-[var(--hairline)]" />
 
                         {/* Model usage */}
-                        <Box px={4} py={3} as={motion.div} variants={staggerItem}>
+                        <motion.div variants={staggerItem}>
                             <SectionLabel>Model Usage</SectionLabel>
                             {modelUsage.length === 0 ? (
-                                <Text fontSize="12px" color="var(--ink-tertiary)">
-                                    No runs yet
-                                </Text>
+                                <p className="text-[12px] text-[var(--ink-tertiary)]">No runs yet</p>
                             ) : (
-                                <Flex direction="column" gap={2.5}>
-                                    {modelUsage.map((m) => (
-                                        <Flex direction="column" gap={1} key={m.model}>
-                                            <Flex justify="space-between" gap={2} align="baseline">
-                                                <Text
-                                                    fontSize="11px"
-                                                    fontFamily="var(--font-mono)"
-                                                    color="var(--ink-secondary)"
-                                                    maxW="150px"
-                                                    overflow="hidden"
-                                                    textOverflow="ellipsis"
-                                                    whiteSpace="nowrap"
-                                                    title={m.model}
-                                                >
-                                                    {m.model}
-                                                </Text>
-                                                <Text
-                                                    fontSize="12px"
-                                                    fontFamily="var(--font-tabular)"
-                                                    fontVariantNumeric="tabular-nums"
-                                                    color="var(--ink-primary)"
-                                                    fontWeight={500}
-                                                    flexShrink={0}
-                                                >
-                                                    {m.count}
-                                                </Text>
-                                            </Flex>
-                                            <MiniBar value={m.count} max={modelUsage[0].count} color="var(--ink-secondary)" />
-                                        </Flex>
-                                    ))}
-                                </Flex>
+                                <div>
+                                    <Echart
+                                        height={140}
+                                        aria-label={`Runs by model across ${modelRuns} runs. ${modelUsage
+                                            .map((m) => `${m.model} ${m.count}`)
+                                            .join(", ")}`}
+                                        option={modelPie}
+                                    />
+                                    <LogoLegend
+                                        items={modelUsage.map((m) => ({
+                                            key: m.model,
+                                            label: m.model === OTHER_KEY ? "Other models" : m.model,
+                                            model: m.model,
+                                        }))}
+                                    />
+                                </div>
                             )}
-                        </Box>
-                    </Flex>
+                        </motion.div>
+
+                        <div className="border-t border-[var(--hairline)]" />
+
+                        {/* Top stocks */}
+                        <motion.div variants={staggerItem}>
+                            <SectionLabel>Top Stocks</SectionLabel>
+                            {topStocks.length === 0 ? (
+                                <p className="text-[12px] text-[var(--ink-tertiary)]">No scored runs in the last 30 days</p>
+                            ) : (
+                                <Echart
+                                    height={topStocks.length * 26 + 12}
+                                    aria-label={`Top ${topStocks.length} stocks by best match score over the last 30 days. ${topStocks
+                                        .map((s) => `${s.label} ${s.score.toFixed(1)}`)
+                                        .join(", ")}`}
+                                    option={stockBars}
+                                />
+                            )}
+                            <p className="mt-2 text-[11px] text-[var(--ink-tertiary)]">
+                                Best match per stock · last 30 days
+                            </p>
+                        </motion.div>
+                            </CardContent>
+                        </Card>
+                    </motion.div>
 
                     {/* Main table */}
-                    <Box flex={1} minW={0}>
+                    <div className="min-w-0 flex-1">
                         {/* View switcher */}
-                        <Flex gap={1} mb={3} wrap="wrap">
+                        <ToggleGroup
+                            type="single"
+                            value={viewMode}
+                            onValueChange={(v) => v && setViewMode(v as GroupMode)}
+                            className="mb-3 h-auto flex-wrap gap-1 rounded-[3px] border-0 bg-transparent p-0"
+                        >
                             {GROUP_VIEWS.map((v) => (
-                                <Box
+                                <ToggleGroupItem
                                     key={v.key}
-                                    as="button"
-                                    px={2.5}
-                                    py={1}
-                                    fontSize="11.5px"
-                                    fontWeight={viewMode === v.key ? 600 : 400}
-                                    color={viewMode === v.key ? "var(--ink-primary)" : "var(--ink-secondary)"}
-                                    bg={viewMode === v.key ? "var(--surface-recessed)" : "transparent"}
-                                    border="1px solid"
-                                    borderColor={viewMode === v.key ? "var(--hairline)" : "transparent"}
-                                    borderRadius="2px"
-                                    cursor="pointer"
-                                    _hover={{ color: "var(--ink-primary)" }}
-                                    transition="background 160ms"
-                                    onClick={() => setViewMode(v.key)}
+                                    value={v.key}
+                                    className="h-auto flex-none rounded-[2px] border px-2.5 py-1 text-[11.5px] font-normal whitespace-nowrap hover:bg-transparent hover:text-[var(--ink-primary)] data-[state=on]:border-[var(--hairline)] data-[state=on]:bg-[var(--surface-recessed)] data-[state=on]:font-semibold data-[state=on]:text-[var(--ink-primary)] data-[state=on]:shadow-none"
                                 >
                                     {v.label}
-                                </Box>
+                                </ToggleGroupItem>
                             ))}
-                        </Flex>
+                        </ToggleGroup>
                         {loading && uniqueAnalysis.length === 0 ? (
-                            <Flex justify="center" py={16} gap={3} color="var(--ink-secondary)">
-                                <Spinner size="sm" borderWidth="2px" />
-                                <Text fontSize="13px">Loading analyses…</Text>
-                            </Flex>
+                            <div className="flex justify-center gap-3 py-16 text-[var(--ink-secondary)]">
+                                <Spinner />
+                                <span className="text-[13px]">Loading analyses…</span>
+                            </div>
                         ) : (
-                            <Box
-                                border="1px solid var(--hairline)"
-                                borderRadius="2px"
-                                overflow="hidden"
-                                bg="var(--surface-panel)"
-                            >
-                                <Box overflowX="auto">
-                                    <Table.Root size="sm" variant="line" minWidth="1000px">
-                                        <Table.Header>
-                                            <Table.Row bg="var(--surface-recessed)">
-                                                <Table.ColumnHeader
-                                                    fontSize="10.5px"
-                                                    fontWeight={500}
-                                                    letterSpacing="0.06em"
-                                                    textTransform="uppercase"
-                                                    color="var(--ink-tertiary)"
-                                                    py={3}
-                                                    px={4}
-                                                    cursor="pointer"
-                                                    onClick={() => toggleSort("share")}
-                                                    userSelect="none"
-                                                >
-                                                    <HStack gap={1}>
-                                                        <span>Share</span>
-                                                        <SortIcon column="share" />
-                                                    </HStack>
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10.5px"
-                                                    fontWeight={500}
-                                                    letterSpacing="0.06em"
-                                                    textTransform="uppercase"
-                                                    color="var(--ink-tertiary)"
-                                                    py={3}
-                                                    px={4}
-                                                    cursor="pointer"
-                                                    onClick={() => toggleSort("agent")}
-                                                    userSelect="none"
-                                                >
-                                                    <HStack gap={1}>
-                                                        <span>Agent</span>
-                                                        <SortIcon column="agent" />
-                                                    </HStack>
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10.5px"
-                                                    fontWeight={500}
-                                                    letterSpacing="0.06em"
-                                                    textTransform="uppercase"
-                                                    color="var(--ink-tertiary)"
-                                                    py={3}
-                                                    px={4}
-                                                    cursor="pointer"
-                                                    onClick={() => toggleSort("model")}
-                                                    userSelect="none"
-                                                >
-                                                    <HStack gap={1}>
-                                                        <span>Model</span>
-                                                        <SortIcon column="model" />
-                                                    </HStack>
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10.5px"
-                                                    fontWeight={500}
-                                                    letterSpacing="0.06em"
-                                                    textTransform="uppercase"
-                                                    color="var(--ink-tertiary)"
-                                                    py={3}
-                                                    px={4}
-                                                    cursor="pointer"
-                                                    onClick={() => toggleSort("score")}
-                                                    userSelect="none"
-                                                >
-                                                    <HStack gap={1}>
-                                                        <span>Match</span>
-                                                        <SortIcon column="score" />
-                                                    </HStack>
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10.5px"
-                                                    fontWeight={500}
-                                                    letterSpacing="0.06em"
-                                                    textTransform="uppercase"
-                                                    color="var(--ink-tertiary)"
-                                                    py={3}
-                                                    px={4}
-                                                    cursor="pointer"
-                                                    onClick={() => toggleSort("duration")}
-                                                    userSelect="none"
-                                                >
-                                                    <HStack gap={1}>
-                                                        <span>Duration</span>
-                                                        <SortIcon column="duration" />
-                                                    </HStack>
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10.5px"
-                                                    fontWeight={500}
-                                                    letterSpacing="0.06em"
-                                                    textTransform="uppercase"
-                                                    color="var(--ink-tertiary)"
-                                                    py={3}
-                                                    px={4}
-                                                    cursor="pointer"
-                                                    onClick={() => toggleSort("created_at")}
-                                                    userSelect="none"
-                                                >
-                                                    <HStack gap={1}>
-                                                        <span>Created</span>
-                                                        <SortIcon column="created_at" />
-                                                    </HStack>
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader
-                                                    fontSize="10.5px"
-                                                    fontWeight={500}
-                                                    letterSpacing="0.06em"
-                                                    textTransform="uppercase"
-                                                    color="var(--ink-tertiary)"
-                                                    py={3}
-                                                    px={4}
-                                                    cursor="pointer"
-                                                    onClick={() => toggleSort("status")}
-                                                    userSelect="none"
-                                                >
-                                                    <HStack gap={1}>
-                                                        <span>Status</span>
-                                                        <SortIcon column="status" />
-                                                    </HStack>
-                                                </Table.ColumnHeader>
-                                                <Table.ColumnHeader py={3} px={4} w="48px" />
-                                            </Table.Row>
-                                        </Table.Header>
-                                        <Table.Body as={motion.tbody} variants={stagger} initial="initial" animate="animate">
+                            <div className="overflow-hidden rounded-[2px] border border-[var(--hairline)] bg-[var(--surface-panel)]">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full min-w-[1000px] border-collapse text-sm">
+                                        <thead>
+                                            <tr className="bg-[var(--surface-recessed)]">
+                                                {(
+                                                    [
+                                                        ["share", "Share"],
+                                                        ["agent", "Agent"],
+                                                        ["model", "Model"],
+                                                        ["score", "Match"],
+                                                        ["duration", "Duration"],
+                                                        ["created_at", "Created"],
+                                                        ["status", "Status"],
+                                                    ] as const
+                                                ).map(([key, label]) => (
+                                                    <th
+                                                        key={key}
+                                                        onClick={() => toggleSort(key)}
+                                                        className="cursor-pointer px-4 py-3 text-left text-[10.5px] font-medium tracking-[0.06em] text-[var(--ink-tertiary)] uppercase select-none"
+                                                    >
+                                                        <span className="inline-flex items-center gap-1">
+                                                            {label}
+                                                            <SortIcon column={key} />
+                                                        </span>
+                                                    </th>
+                                                ))}
+                                                <th className="w-[48px] px-4 py-3" />
+                                            </tr>
+                                        </thead>
+                                        <motion.tbody variants={stagger} initial="initial" animate="animate">
                                             <AnimatePresence initial={false}>
                                             {loading ? (
-                                                <Table.Row as={motion.tr} key="loading" variants={staggerItem} exit={{ opacity: 0 }}>
-                                                    <Table.Cell colSpan={colSpan} py={12}>
-                                                        <Flex justify="center" gap={3} color="var(--ink-secondary)">
-                                                            <Spinner size="sm" borderWidth="2px" />
-                                                            <Text fontSize="13px">Loading analyses…</Text>
-                                                        </Flex>
-                                                    </Table.Cell>
-                                                </Table.Row>
+                                                <motion.tr key="loading" variants={staggerItem} exit={{ opacity: 0 }}>
+                                                    <td colSpan={colSpan} className="py-12">
+                                                        <div className="flex justify-center gap-3 text-[var(--ink-secondary)]">
+                                                            <Spinner />
+                                                            <span className="text-[13px]">Loading analyses…</span>
+                                                        </div>
+                                                    </td>
+                                                </motion.tr>
                                             ) : fetchError ? (
-                                                <Table.Row as={motion.tr} key="error" variants={staggerItem} exit={{ opacity: 0 }}>
-                                                    <Table.Cell
-                                                        colSpan={colSpan}
-                                                        py={8}
-                                                        px={4}
-                                                    >
-                                                        <Box
-                                                            borderLeft="3px solid var(--signal-negative)"
-                                                            pl={3}
-                                                        >
-                                                            <Text
-                                                                fontSize="13px"
-                                                                color="var(--ink-primary)"
-                                                            >
+                                                <motion.tr key="error" variants={staggerItem} exit={{ opacity: 0 }}>
+                                                    <td colSpan={colSpan} className="px-4 py-8">
+                                                        <div className="border-l-[3px] border-[var(--signal-negative)] pl-3">
+                                                            <p className="text-[13px] text-[var(--ink-primary)]">
                                                                 Failed to fetch analysis data.
-                                                            </Text>
-                                                            <Text
-                                                                fontSize="12px"
-                                                                color="var(--ink-secondary)"
-                                                                mt={1}
-                                                            >
+                                                            </p>
+                                                            <p className="mt-1 text-[12px] text-[var(--ink-secondary)]">
                                                                 Check if the backend service is running.
-                                                            </Text>
-                                                        </Box>
-                                                    </Table.Cell>
-                                                </Table.Row>
+                                                            </p>
+                                                        </div>
+                                                    </td>
+                                                </motion.tr>
                                             ) : sorted.length === 0 && !loading ? (
-                                                <Table.Row as={motion.tr} key="empty" variants={staggerItem} exit={{ opacity: 0 }}>
-                                                    <Table.Cell
+                                                <motion.tr key="empty" variants={staggerItem} exit={{ opacity: 0 }}>
+                                                    <td
                                                         colSpan={colSpan}
-                                                        textAlign="center"
-                                                        color="var(--ink-tertiary)"
-                                                        py={12}
-                                                        fontSize="13px"
+                                                        className="py-12 text-center text-[13px] text-[var(--ink-tertiary)]"
                                                     >
                                                         No analyses found.
-                                                    </Table.Cell>
-                                                </Table.Row>
+                                                    </td>
+                                                </motion.tr>
                                             ) : (
                                                 visibleSections.flatMap((sec) => [
                                                     ...(viewMode === "individual"
@@ -1017,7 +1023,7 @@ export default function AnalysisList() {
                                                                     ) : viewMode === "model" ? (
                                                                         <ModelLogo model={sec.key} size={14} />
                                                                     ) : viewMode === "stock" ? (
-                                                                        <Box w="8px" h="8px" borderRadius="1px" bg="var(--grid-line)" flexShrink={0} />
+                                                                        <span className="h-2 w-2 shrink-0 rounded-[1px] bg-[var(--grid-line)]" />
                                                                     ) : null
                                                                 }
                                                                 label={viewMode === "date" ? formatGroupDate(sec.key) : sec.key}
@@ -1048,131 +1054,81 @@ export default function AnalysisList() {
                                                         itemStatus === "success";
 
                                                     return (
-                                                        <Table.Row
-                                                            as={motion.tr}
+                                                        <motion.tr
                                                             variants={staggerItem}
                                                             exit={{ opacity: 0 }}
                                                             layout={false}
                                                             key={id}
-                                                            cursor="pointer"
                                                             onClick={() => onRowClick(id)}
-                                                            _hover={{
-                                                                bg: "var(--surface-recessed)",
-                                                            }}
-                                                            transition="background 160ms"
+                                                            className="cursor-pointer transition-colors duration-[160ms] hover:bg-[var(--surface-recessed)]"
                                                         >
                                                             {/* Share — plain text, not badge */}
-                                                            <Table.Cell
-                                                                fontSize="13.5px"
-                                                                fontWeight={500}
-                                                                color="var(--ink-primary)"
-                                                                px={4}
-                                                                py={3}
-                                                            >
-                                                                <Flex direction="column">
-                                                                    <Text lineHeight="short">
+                                                            <td className="px-4 py-3">
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-[13.5px] leading-snug font-medium text-[var(--ink-primary)]">
                                                                         {item.share_name ||
                                                                             item.symbol ||
                                                                             "—"}
-                                                                    </Text>
+                                                                    </span>
                                                                     {item.share_name &&
                                                                         item.symbol && (
-                                                                            <Text
-                                                                                fontSize="11px"
-                                                                                fontFamily="var(--font-mono)"
-                                                                                color="var(--ink-tertiary)"
-                                                                            >
+                                                                            <span className="font-app-mono text-[11px] text-[var(--ink-tertiary)]">
                                                                                 {item.symbol}
-                                                                            </Text>
+                                                                            </span>
                                                                         )}
-                                                                </Flex>
-                                                            </Table.Cell>
+                                                                </div>
+                                                            </td>
 
                                                             {/* Agent */}
-                                                            <Table.Cell
-                                                                maxW="140px"
-                                                                overflow="hidden"
-                                                                px={4}
-                                                                py={3}
-                                                            >
-                                                                <Flex align="center" gap={2} minW={0}>
+                                                            <td className="max-w-[140px] overflow-hidden px-4 py-3">
+                                                                <div className="flex min-w-0 items-center gap-2">
                                                                     <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={24} />
-                                                                    <Text fontSize="13px" color="var(--ink-secondary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                                                                    <span className="truncate text-[13px] text-[var(--ink-secondary)]">
                                                                         {agentName(item.agent_name || item.agent)}
-                                                                    </Text>
-                                                                </Flex>
-                                                            </Table.Cell>
+                                                                    </span>
+                                                                </div>
+                                                            </td>
 
                                                             {/* Model */}
-                                                            <Table.Cell
-                                                                maxW="200px"
-                                                                overflow="hidden"
-                                                                px={4}
-                                                                py={3}
+                                                            <td
+                                                                className="max-w-[200px] overflow-hidden px-4 py-3"
                                                                 title={item.model || undefined}
                                                             >
-                                                                <Flex align="center" gap={2} minW={0}>
+                                                                <div className="flex min-w-0 items-center gap-2">
                                                                     <ModelLogo model={item.model} size={13} />
-                                                                    <Text fontSize="13px" fontFamily="var(--font-mono)" color="var(--ink-secondary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                                                                    <span className="truncate font-app-mono text-[13px] text-[var(--ink-secondary)]">
                                                                         {item.model || "—"}
-                                                                    </Text>
-                                                                </Flex>
-                                                            </Table.Cell>
+                                                                    </span>
+                                                                </div>
+                                                            </td>
 
                                                             {/* Match — tabular-nums + signal dot */}
-                                                            <Table.Cell px={4} py={3}>
+                                                            <td className="px-4 py-3">
                                                                 {itemScore != null ? (
-                                                                    <HStack
-                                                                        gap={1.5}
-                                                                        justify="flex-start"
-                                                                    >
-                                                                        <Box
-                                                                            w="5px"
-                                                                            h="5px"
-                                                                            borderRadius="50%"
-                                                                            bg={signalColor(sig!)}
-                                                                            flexShrink={0}
+                                                                    <span className="inline-flex items-center gap-1.5">
+                                                                        <span
+                                                                            className="h-[5px] w-[5px] shrink-0 rounded-full"
+                                                                            style={{ background: signalColor(sig!) }}
                                                                         />
-                                                                        <Text
-                                                                            fontSize="13.5px"
-                                                                            fontFamily="var(--font-tabular)"
-                                                                            fontVariantNumeric="tabular-nums"
-                                                                            fontWeight={500}
-                                                                            color="var(--ink-primary)"
-                                                                        >
+                                                                        <span className="font-app-tabular text-[13.5px] font-medium tabular-nums text-[var(--ink-primary)]">
                                                                             {itemScore.toFixed(1)}
-                                                                        </Text>
-                                                                    </HStack>
+                                                                        </span>
+                                                                    </span>
                                                                 ) : (
-                                                                    <Text
-                                                                        fontSize="13px"
-                                                                        color="var(--ink-tertiary)"
-                                                                    >
-                                                                        —
-                                                                    </Text>
+                                                                    <span className="text-[13px] text-[var(--ink-tertiary)]">—</span>
                                                                 )}
-                                                            </Table.Cell>
+                                                            </td>
 
                                                             {/* Duration — tabular */}
-                                                            <Table.Cell
-                                                                fontSize="13px"
-                                                                fontFamily="var(--font-tabular)"
-                                                                fontVariantNumeric="tabular-nums"
-                                                                color="var(--ink-secondary)"
-                                                                px={4}
-                                                                py={3}
-                                                            >
+                                                            <td className="px-4 py-3 font-app-tabular text-[13px] tabular-nums text-[var(--ink-secondary)]">
                                                                 {item.duration != null
                                                                     ? formatDuration(item.duration)
                                                                     : "—"}
-                                                            </Table.Cell>
+                                                            </td>
 
                                                             {/* Created — relative time */}
-                                                            <Table.Cell
-                                                                fontSize="13px"
-                                                                color="var(--ink-secondary)"
-                                                                px={4}
-                                                                py={3}
+                                                            <td
+                                                                className="px-4 py-3 text-[13px] text-[var(--ink-secondary)]"
                                                                 title={
                                                                     item.created_at
                                                                         ? new Date(
@@ -1184,63 +1140,41 @@ export default function AnalysisList() {
                                                                 {item.created_at
                                                                     ? timeAgo(item.created_at)
                                                                     : "—"}
-                                                            </Table.Cell>
+                                                            </td>
 
                                                             {/* Status — dot + label */}
-                                                            <Table.Cell px={4} py={3}>
-                                                                <HStack gap={1.5}>
-                                                                    <Box
-                                                                        w="5px"
-                                                                        h="5px"
-                                                                        borderRadius="50%"
-                                                                        bg={
-                                                                            isItemError
+                                                            <td className="px-4 py-3">
+                                                                <span className="inline-flex items-center gap-1.5">
+                                                                    <span
+                                                                        className="h-[5px] w-[5px] shrink-0 rounded-full"
+                                                                        style={{
+                                                                            background: isItemError
                                                                                 ? "var(--signal-negative)"
                                                                                 : isItemComplete
                                                                                 ? "var(--signal-positive)"
-                                                                                : "var(--signal-caution)"
-                                                                        }
-                                                                        flexShrink={0}
+                                                                                : "var(--signal-caution)",
+                                                                        }}
                                                                     />
-                                                                    <Text
-                                                                        fontSize="12px"
-                                                                        color="var(--ink-secondary)"
-                                                                    >
+                                                                    <span className="text-[12px] text-[var(--ink-secondary)]">
                                                                         {isItemError
                                                                             ? "Failed"
                                                                             : isItemComplete
                                                                             ? "Complete"
                                                                             : "Running"}
-                                                                    </Text>
-                                                                </HStack>
-                                                            </Table.Cell>
+                                                                    </span>
+                                                                </span>
+                                                            </td>
 
                                                             {/* Delete — hover-revealed */}
-                                                            <Table.Cell px={2} py={3}>
-                                                                <Button
-                                                                    size="xs"
-                                                                    variant="subtle"
+                                                            <td className="px-2 py-3">
+                                                                <button
+                                                                    type="button"
                                                                     onClick={(e) => {
-                                        e.stopPropagation();
-                                        setDeleteTarget(item);
+                                                                        e.stopPropagation();
+                                                                        setDeleteTarget(item);
                                                                     }}
-                                                                    color="var(--ink-tertiary)"
-                                                                    _hover={{
-                                                                        color: "var(--signal-negative)",
-                                                                        bg: "transparent",
-                                                                    }}
-                                                                    px={1}
-                                                                    h="auto"
-                                                                    minW={{ base: "44px", md: "auto" }}
-                                                                    minH={{ base: "44px", md: "auto" }}
-                                                                    opacity={{ base: 1, md: 0.4 }}
-                                                                    css={{
-                                                                        "@media (min-width: 768px)": {
-                                                                            "tr:hover &": {
-                                                                                opacity: 1,
-                                                                            },
-                                                                        },
-                                                                    }}
+                                                                    aria-label="Delete analysis"
+                                                                    className="flex h-11 w-11 items-center justify-center text-[var(--ink-tertiary)] opacity-100 transition-[color,opacity] hover:text-[var(--signal-negative)] focus-visible:ring-[1px] focus-visible:ring-ring focus-visible:outline-none md:h-auto md:w-auto md:opacity-40 md:[tr:hover_&]:opacity-100"
                                                                 >
                                                                     <svg
                                                                         width="14"
@@ -1256,22 +1190,22 @@ export default function AnalysisList() {
                                                                         <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
                                                                         <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
                                                                     </svg>
-                                                                </Button>
-                                                            </Table.Cell>
-                                                        </Table.Row>
+                                                                </button>
+                                                            </td>
+                                                        </motion.tr>
                                                     );
                                                 }),
                                             ])
                                             )}
-                                            </AnimatePresence>
-                                        </Table.Body>
-                                    </Table.Root>
-                                </Box>
-                            </Box>
+</AnimatePresence>
+                                        </motion.tbody>
+                                    </table>
+                                </div>
+                            </div>
                         )}
-                    </Box>
-                </Flex>
-            </Flex>
+                    </div>
+                </div>
+            </div>
 
             {/* Delete confirmation */}
             <ConfirmDialog
@@ -1291,6 +1225,6 @@ deleteTarget.agent_name || deleteTarget.agent
                     handleDelete(deleteTarget?.analysis_id || deleteTarget?._id || deleteTarget?.id)
                 }
             />
-        </Box>
+        </div>
     );
 }

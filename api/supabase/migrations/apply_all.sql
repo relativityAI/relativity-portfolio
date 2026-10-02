@@ -66,3 +66,39 @@ ALTER TABLE analysis_runs
   ADD COLUMN IF NOT EXISTS fit_low NUMERIC,
   ADD COLUMN IF NOT EXISTS fit_high NUMERIC,
   ADD COLUMN IF NOT EXISTS coverage NUMERIC;
+
+-- ─── 011: v2 pipeline (rubric/judge/KB) — retired by the skill redesign ────
+-- (tables created by 011_v2_pipeline.sql remain harmless if present)
+
+-- ─── 013: skill-based pipeline ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS skills (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  skill_id text NOT NULL,
+  markdown text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, skill_id)
+);
+
+ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS skill_outputs jsonb;
+ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS pipeline_version text DEFAULT 'v3';
+
+CREATE INDEX IF NOT EXISTS skills_user_idx ON skills (user_id);
+
+-- ─── 014: per-preset deletion tracking ─────────────────────────────────
+-- Supersedes the all-or-nothing defaults_deleted boolean (006): deleting one
+-- preset must not suppress the other three on re-seed.
+ALTER TABLE user_settings
+  ADD COLUMN IF NOT EXISTS deleted_preset_keys JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- ─── 015: true run-start clock ──────────────────────────────────────────
+-- started_at is stamped once on the PENDING→RUNNING edge; the UI's elapsed
+-- timer anchors here so reloads show the run's total actual time.
+ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS started_at timestamptz;
+UPDATE analysis_runs SET started_at = created_at WHERE started_at IS NULL;
+
+-- ─── 016: market snapshot at run date ──────────────────────────────────
+-- { price, as_of, market_cap, market_cap_source, currency, candles, fetched_at }
+-- frozen at run time so a result viewed later shows the market as it was.
+ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS market_snapshot JSONB;

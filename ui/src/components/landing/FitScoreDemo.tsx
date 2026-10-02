@@ -1,5 +1,4 @@
 import { useEffect, useReducer, useRef, useCallback } from "react";
-import { Box, Flex, Text } from "@chakra-ui/react";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease, CountUp } from "@/lib/motion";
 import { SOURCES } from "@/lib/dataSources";
@@ -114,24 +113,18 @@ export default function FitScoreDemo() {
   const typedText = thesis.text.slice(0, state.charIdx);
 
   return (
-    <Box
-      position="relative"
-      w="100%"
-      maxW="520px"
-      border="1px solid var(--hairline)"
-      borderRadius="xl"
-      bg="var(--surface-panel)"
-      overflow="hidden"
+    <div
+      className="relative w-full max-w-[520px] border border-[var(--hairline)] rounded-xl bg-[var(--surface-panel)] overflow-hidden"
       onMouseEnter={() => (paused.current = true)}
       onMouseLeave={() => (paused.current = false)}
       onFocus={() => (paused.current = true)}
       onBlur={() => (paused.current = false)}
     >
-      <Box px={{ base: 4, md: 5 }} pt={{ base: 4, md: 5 }} pb={3}>
-        <Text fontFamily="var(--font-mono)" fontSize="xs" fontWeight={500} color="var(--ink-tertiary)" letterSpacing="0.04em" mb={3}>
+      <div className="px-4 md:px-5 pt-4 md:pt-5 pb-3">
+        <p className="font-[family-name:var(--font-mono)] text-xs font-medium text-[var(--ink-tertiary)] tracking-[0.04em] mb-3">
           Thesis
-        </Text>
-        <Box minH={{ base: "3.2em", md: "2.4em" }}>
+        </p>
+        <div className="min-h-[3.2em] md:min-h-[2.4em]">
           <AnimatePresence mode="wait">
             <motion.div
               key={state.phase === "typing" ? `typing-${state.thesisIdx}` : `other-${state.thesisIdx}`}
@@ -140,28 +133,22 @@ export default function FitScoreDemo() {
               exit={{ opacity: 0 }}
               transition={{ duration: dur.fast, ease }}
             >
-              <Text fontSize={{ base: "sm", md: "md" }} fontWeight={500} color="var(--ink-primary)" lineHeight="short">
+              <p className="text-sm md:text-base font-medium text-[var(--ink-primary)] leading-snug">
                 {state.phase === "typing" ? (
                   <>
                     {typedText}
-                    <Box
-                      as="span"
-                      display="inline-block"
-                      w="2px"
-                      h="1em"
-                      bg="var(--accent-primary)"
-                      ml="1px"
-                      verticalAlign="text-bottom"
+                    <span
+                      className="inline-block w-[2px] h-[1em] bg-[var(--accent-primary)] ml-[1px] align-text-bottom"
                     />
                   </>
                 ) : (
                   thesis.text
                 )}
-              </Text>
+              </p>
             </motion.div>
           </AnimatePresence>
-        </Box>
-      </Box>
+        </div>
+      </div>
 
       <AnimatePresence mode="wait">
         {state.phase === "scanning" && (
@@ -172,12 +159,12 @@ export default function FitScoreDemo() {
             exit={{ opacity: 0 }}
             transition={{ duration: dur.fast, ease }}
           >
-            <Flex px={{ base: 4, md: 5 }} py={3} borderTop="1px solid var(--hairline)" align="center" gap={2}>
-              <Box w={2} h={2} borderRadius="full" bg="var(--accent-primary)" />
-              <Text fontFamily="var(--font-mono)" fontSize="xs" color="var(--accent-primary)" fontWeight={500}>
+            <div className="flex px-4 md:px-5 py-3 border-t border-t-[var(--hairline)] items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-[var(--accent-primary)]" />
+              <p className="font-[family-name:var(--font-mono)] text-xs text-[var(--accent-primary)] font-medium">
                 Scanning {SCANNING_LABELS[state.scanIdx]}...
-              </Text>
-            </Flex>
+              </p>
+            </div>
           </motion.div>
         )}
 
@@ -189,50 +176,50 @@ export default function FitScoreDemo() {
             exit={{ opacity: 0 }}
             transition={{ duration: dur.base, ease }}
           >
-            <Box px={{ base: 4, md: 5 }} py={3} borderTop="1px solid var(--hairline)">
-              <Flex align="center" justify="space-between" mb={3}>
-                <Flex align="baseline" gap={2}>
-                  <Text fontFamily="var(--font-mono)" fontSize="lg" fontWeight={700} color="var(--ink-primary)" letterSpacing="-0.02em">
+            <div className="px-4 md:px-5 py-3 border-t border-t-[var(--hairline)]">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-baseline gap-2">
+                  <p className="font-[family-name:var(--font-mono)] text-lg font-bold text-[var(--ink-primary)] tracking-[-0.02em]">
                     {thesis.ticker}
-                  </Text>
-                  <Text fontFamily="var(--font-mono)" fontSize="xs" color="var(--ink-tertiary)">
+                  </p>
+                  <p className="font-[family-name:var(--font-mono)] text-xs text-[var(--ink-tertiary)]">
                     NSE
-                  </Text>
-                </Flex>
-                <Flex align="baseline" gap={1}>
-                  <Text fontFamily="var(--font-mono)" fontSize={{ base: "2xl", md: "3xl" }} fontWeight={800} color="var(--accent-primary)" lineHeight={1} letterSpacing="-0.03em">
+                  </p>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <p className="font-[family-name:var(--font-mono)] text-2xl md:text-3xl font-extrabold text-[var(--accent-primary)] leading-none tracking-[-0.03em]">
                     <CountUp value={thesis.score} decimals={1} duration={0.8} />
-                  </Text>
-                  <Text fontFamily="var(--font-mono)" fontSize="xs" fontWeight={500} color="var(--ink-tertiary)">
+                  </p>
+                  <p className="font-[family-name:var(--font-mono)] text-xs font-medium text-[var(--ink-tertiary)]">
                     FIT
-                  </Text>
-                </Flex>
-              </Flex>
-              <Flex direction="column" gap={1.5}>
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
                 {thesis.why.map((w, i) => (
-                  <Flex key={i} align="flex-start" gap={2}>
-                    <Box mt="6px" w={1} h={1} borderRadius="full" bg="var(--accent-primary)" opacity={0.5} flexShrink={0} />
-                    <Text fontSize="xs" color="var(--ink-secondary)" lineHeight="short">
+                  <div key={i} className="flex items-start gap-2">
+                    <div className="mt-[6px] w-1 h-1 rounded-full bg-[var(--accent-primary)] opacity-50 shrink-0" />
+                    <p className="text-xs text-[var(--ink-secondary)] leading-snug">
                       {w}
-                    </Text>
-                  </Flex>
+                    </p>
+                  </div>
                 ))}
-              </Flex>
-            </Box>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <Flex px={{ base: 4, md: 5 }} py={2.5} borderTop="1px solid var(--hairline)" gap={1.5} flexWrap="wrap">
+      <div className="flex px-4 md:px-5 py-2.5 border-t border-t-[var(--hairline)] gap-1.5 flex-wrap">
         {SOURCES.slice(0, 5).map((s) => (
-          <Flex key={s.label} align="center" gap={1} borderRadius="full" border="1px solid var(--hairline)" bg="var(--surface-recessed)" px={2} py={0.5}>
+          <div key={s.label} className="flex items-center gap-1 rounded-full border border-[var(--hairline)] bg-[var(--surface-recessed)] px-2 py-0.5">
             <s.icon size={10} color="var(--ink-tertiary)" />
-            <Text fontFamily="var(--font-mono)" fontSize="10px" color="var(--ink-tertiary)" fontWeight={500} whiteSpace="nowrap">
+            <p className="font-[family-name:var(--font-mono)] text-[10px] text-[var(--ink-tertiary)] font-medium whitespace-nowrap">
               {s.label}
-            </Text>
-          </Flex>
+            </p>
+          </div>
         ))}
-      </Flex>
-    </Box>
+      </div>
+    </div>
   );
 }

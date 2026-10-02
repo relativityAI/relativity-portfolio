@@ -1,4 +1,4 @@
-import { Accordion, Box, Flex, Text } from "@chakra-ui/react";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { motion } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 
@@ -33,30 +33,29 @@ export default function LandingFaq() {
       viewport={{ once: true, margin: "-15%" }}
       transition={{ duration: dur.base, ease }}
     >
-      <Flex direction="column" gap={4}>
-        <Text as="h2" fontSize={{ base: "xl", md: "2xl" }} fontWeight={700} color="var(--ink-primary)" lineHeight="tight">
+      <div className="flex flex-col gap-4">
+        <h2 className="text-xl md:text-2xl font-bold text-[var(--ink-primary)] leading-tight">
           Frequently asked questions
-        </Text>
-        <Accordion.Root variant="plain" collapsible>
+        </h2>
+        <Accordion type="single" collapsible>
           {FAQS.map((f) => (
-            <Accordion.Item key={f.q} value={f.q} borderBottom="1px solid var(--hairline)">
-              <Accordion.ItemTrigger py={4} _hover={{ color: "var(--accent-primary)" }}>
-                <Text flex={1} fontSize={{ base: "sm", md: "md" }} fontWeight={600} color="var(--ink-primary)" textAlign="left">
+            <AccordionItem key={f.q} value={f.q} className="border-b border-b-[var(--hairline)]">
+              <AccordionTrigger className="py-4 text-[var(--ink-primary)] hover:text-[var(--accent-primary)] hover:no-underline [&[data-state=open]]:text-[var(--accent-primary)]">
+                <span className="flex-1 text-sm md:text-base font-semibold text-left">
                   {f.q}
-                </Text>
-                <Accordion.ItemIndicator color="var(--ink-tertiary)" />
-              </Accordion.ItemTrigger>
-              <Accordion.ItemContent pb={4}>
-                <Box>
-                  <Text fontSize={{ base: "sm", md: "md" }} color="var(--ink-secondary)" lineHeight="relaxed">
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="pb-4">
+                <div>
+                  <p className="text-sm md:text-base text-[var(--ink-secondary)] leading-relaxed">
                     {f.a}
-                  </Text>
-                </Box>
-              </Accordion.ItemContent>
-            </Accordion.Item>
+                  </p>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
           ))}
-        </Accordion.Root>
-      </Flex>
+        </Accordion>
+      </div>
     </motion.div>
   );
 }

@@ -259,20 +259,58 @@ export class VoyagerClient {
     return this.get("/pull/jobs", { limit });
   }
 
-  // ── DCF valuation ───────────────────────────────────────────────────
+  // ── Discovery ──────────────────────────────────────────────────────
 
-  async getDcfValuation(
+  /**
+   * GET /search — case-insensitive substring symbol search over everything in
+   * the DB. The tool-facing way to resolve a company NAME to its ticker
+   * ("relian" → RELIANCE). Requires q ≥ 2 chars; results are ranked by data
+   * coverage and carry record_counts + latest period.
+   */
+  async searchSymbols(q: string, opts: { source?: string; limit?: number } = {}): Promise<any> {
+    return this.get("/search", { q, source: opts.source, limit: opts.limit });
+  }
+
+  // ── Computed metrics ───────────────────────────────────────────────
+
+  /**
+   * GET /technicals — the Advanced Data Suite Technicals report: ~60 sections
+   * of computed indicators (trend, momentum, volume, volatility, S/R levels,
+   * scenarios) across daily/weekly/monthly timeframes, all point-in-time as
+   * of the response's `as_of`. Sections ride inside `sections.<name>` with
+   * `{ status, data }`; individual sections can be unavailable without
+   * failing the whole report — consumers must degrade per-section.
+   */
+  async getTechnicals(
     symbol: string,
-    source: string,
-    params: {
-      growth_rate?: number;
-      terminal_growth_rate?: number;
-      discount_rate?: number;
-      years?: number;
-      beta?: number;
-    } = {},
+    opts: { source?: string; timeframes?: string[]; sections?: string[] } = {},
   ): Promise<any> {
-    return this.get("/dcf", { symbol, source, ...params });
+    return this.get("/technicals", {
+      symbol,
+      source: opts.source,
+      timeframes: opts.timeframes?.join(","),
+      sections: opts.sections?.join(","),
+    });
+  }
+
+  /**
+   * GET /financial-metrics/batch — up to 10 symbols in ONE call (400 beyond
+   * that). Per-symbol isolation: a symbol without data gets
+   * { data_available: false } inside `metrics` — the batch never fails
+   * because one symbol is bad. Always prefer this over N parallel singles
+   * (rate limit: 60 req/min per key).
+   */
+  async getMetricsBatch(
+    symbols: string[],
+    opts: { source?: string; consolidated?: boolean; filing_type?: string; fields?: string } = {},
+  ): Promise<any> {
+    return this.get("/financial-metrics/batch", {
+      symbols: symbols.join(","),
+      source: opts.source,
+      consolidated: opts.consolidated,
+      filing_type: opts.filing_type,
+      fields: opts.fields,
+    });
   }
 
   // ── News (these accept an explicit country param) ───────────────────
@@ -312,24 +350,13 @@ export class VoyagerClient {
 
   // ── Documents ───────────────────────────────────────────────────────
 
+  /** POST /documents/parse — async; returns { job_id, status, status_url }. */
   async parseDocument(url: string, symbol?: string, source?: string): Promise<any> {
     return this.post("/documents/parse", { url, symbol, source });
   }
 
   async getDocumentIndex(documentId: number): Promise<any> {
     return this.get(`/documents/${documentId}/index`);
-  }
-
-  // ── Sentiment ───────────────────────────────────────────────────────
-
-  async analyzeManagementSentiment(params: {
-    url?: string;
-    text?: string;
-    symbol?: string;
-    source?: string;
-    model?: string;
-  }): Promise<any> {
-    return this.post("/sentiment/management", params);
   }
 }
 

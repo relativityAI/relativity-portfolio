@@ -269,10 +269,8 @@ describe("resolveWebSearch", () => {
     expect(resolveWebSearch(true, "adequate", "tk")).toEqual({ effective: "user" });
   });
 
-  it("explicit true without key → off + note", () => {
-    const r = resolveWebSearch(true, "adequate");
-    expect(r.effective).toBe("off");
-    expect(r.note).toBeTruthy();
+  it("explicit true without key → user (DDG search needs no key)", () => {
+    expect(resolveWebSearch(true, "adequate")).toEqual({ effective: "user" });
   });
 
   it("explicit false always off, no note", () => {
@@ -285,10 +283,11 @@ describe("resolveWebSearch", () => {
     expect(r.note).toContain("sparse");
   });
 
-  it("no auto without key, but notes the gap", () => {
+  it("auto-on when inadequate even without any key (DDG fallback)", () => {
     const r = resolveWebSearch(undefined, "inadequate");
-    expect(r.effective).toBe("off");
-    expect(r.note).toContain("Tavily");
+    expect(r.effective).toBe("auto");
+    expect(r.note).toContain("inadequate");
+    expect(r.note).not.toContain("Tavily");
   });
 
   it("adequate data stays off", () => {
@@ -309,38 +308,57 @@ describe("getToolCatalog", () => {
     }
   });
 
-  it("includes the core analysis and data-pull tools", () => {
+  it("includes the core analysis tools (v3 audited catalog)", () => {
     const names = new Set(cat.map((t) => t.name));
     for (const expected of [
       "get_financial_metrics",
+      "compare_financial_metrics",
+      "search_symbol",
       "get_income_statements",
       "get_cash_flows",
-      "trigger_data_pull",
-      "get_pull_status",
       "read_latest_transcript",
       "get_ticker_news",
+      "search_news",
+      "get_price_history",
+      "get_macro_snapshot",
       "web_search",
     ]) {
       expect(names.has(expected)).toBe(true);
     }
   });
+
+  it("excludes pull-orchestration tools from the analyst-facing catalog (v3 D6)", () => {
+    const names = new Set(cat.map((t) => t.name));
+    for (const removed of ["trigger_data_pull", "get_pull_status", "list_pull_jobs"]) {
+      expect(names.has(removed)).toBe(false);
+    }
+  });
+
+  it("excludes tools whose Voyager endpoints no longer exist (2026-09-29 API report)", () => {
+    const names = new Set(cat.map((t) => t.name));
+    for (const removed of ["get_dcf_valuation", "analyze_management_sentiment"]) {
+      expect(names.has(removed)).toBe(false);
+    }
+  });
 });
 
 describe("builder prompt tool guidance", () => {
-  const system = buildAgentBuilderSystemPrompt(getSchemaDescriptor(), getFlatCatalog(), getToolCatalog());
+  const system = buildAgentBuilderSystemPrompt(getToolCatalog(), [
+    { id: "dcf-valuation", name: "DCF Valuation", description: "Discounted cash flow value estimate", category: "valuation" },
+    { id: "moat-analysis", name: "Moat Analysis", description: "Competitive advantage assessment", category: "qualitative" },
+  ]);
   const draft = buildDraftParametersPrompt("legacy investor", 3, "company-level qualitative parameters", getToolCatalog());
   const doc = buildDocumentExtractionPrompt("## doc\ncontent", getToolCatalog());
 
-  it("lists available data tools and recommends independent judgment", () => {
-    expect(system).toContain("Available Data Tools");
-    expect(system).toContain("- get_financial_metrics:");
-    expect(system.toLowerCase()).toContain("use your own decision-making");
+  it("lists the skill library with exact ids and forbids invented ones", () => {
+    expect(system).toContain("Available Skill Library");
+    expect(system).toContain("id: dcf-valuation | name: DCF Valuation");
+    expect(system).toContain("must be the exact id");
   });
 
-  it("directs the builder to name tools inside qualitative content", () => {
-    expect(system.toLowerCase()).toContain("name the specific data tools");
-    expect(draft).toContain("data tools the scorer should look at");
-    expect(doc).toContain("data tools to consult for this aspect");
+  it("requires 3-6 weighted skills on a first build and names real investors' methods", () => {
+    expect(system).toContain("\"skills\" is REQUIRED on a first build");
+    expect(system).toContain("William O'Neil = CAN SLIM");
   });
 });
 

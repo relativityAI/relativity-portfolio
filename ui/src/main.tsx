@@ -5,6 +5,7 @@ import { HelmetProvider } from "react-helmet-async"
 import { Provider } from "@/components/ui/provider"
 
 import './index.css'
+import './console.css'
 import App from './App.tsx'
 
 const router = createBrowserRouter([

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { describeInputError, RETRYABLE_ERROR, buildForceToolsPrepareStep, buildToolCallRepair } from "../src/harness.js";
+import {
+  describeInputError,
+  RETRYABLE_ERROR,
+  buildForceToolsPrepareStep,
+  buildToolCallRepair,
+  retryLlmCall,
+} from "../src/harness.js";
+import { clampMaxOutputTokensForTest, runAgentTurn } from "../src/harness.js";
 import { MockLanguageModelV4 } from "ai/test";
 
 describe("buildToolCallRepair", () => {
@@ -91,6 +98,20 @@ describe("RETRYABLE_ERROR", () => {
   });
 });
 
+describe("clampMaxOutputTokens", () => {
+  it("clamps Cohere requests to its 4096 output cap (live-probed EOL of TOO_MANY_TOKENS 400)", () => {
+    expect(clampMaxOutputTokensForTest("cohere.chat", 8192)).toBe(4096);
+    expect(clampMaxOutputTokensForTest("cohere.chat", 4096)).toBe(4096);
+    expect(clampMaxOutputTokensForTest("cohere.chat", 2000)).toBe(2000);
+  });
+
+  it("leaves other providers untouched", () => {
+    expect(clampMaxOutputTokensForTest("groq.chat", 8192)).toBe(8192);
+    expect(clampMaxOutputTokensForTest("google.generative-ai", 8192)).toBe(8192);
+    expect(clampMaxOutputTokensForTest("", 8192)).toBe(8192);
+  });
+});
+
 describe("buildForceToolsPrepareStep", () => {
   it("forces a tool call on step 0 so research is grounded, then frees the model", async () => {
     const prepareStep = buildForceToolsPrepareStep(["get_financials", "web_search"]);
@@ -100,5 +121,146 @@ describe("buildForceToolsPrepareStep", () => {
     });
     expect(await prepareStep({ stepNumber: 1 })).toEqual({});
     expect(await prepareStep({ stepNumber: 2 })).toEqual({});
+  });
+});
+
+describe("runAgentTurn error attribution", () => {
+  it("names the in-repo throw site for a bare TypeError", async () => {
+    const boom = new TypeError("Cannot read properties of undefined (reading 'type')");
+    boom.stack = [
+      "TypeError: Cannot read properties of undefined (reading 'type')",
+      "    at /app/src/harness.ts:237:12",
+      "    at node_modules/ai/dist/index.js:1:1",
+    ].join("\n");
+    const res = await runAgentTurn({
+      model: {
+        specificationVersion: "v4",
+        provider: "test",
+        modelId: "m",
+        doGenerate: async () => { throw boom; },
+        doStream: async () => { throw boom; },
+      } as any,
+      system: "s",
+      prompt: "p",
+    });
+    expect(res.error).toContain("Cannot read properties of undefined");
+    expect(res.error).toMatch(/\[thrown at .*src\/harness\.ts:\d+/);
+    expect(res.error).not.toContain("node_modules");
+  });
+});
+
+describe("retryLlmCall", () => {
+  it("retries a transient failure and returns the later success", async () => {
+    let calls = 0;
+    const res = await retryLlmCall(
+      "test call",
+      async () => {
+        calls += 1;
+        if (calls < 2) throw new Error("empty stream: provider hiccup");
+        return { value: "ok" };
+      },
+      { attempts: 3, delayMs: 0 },
+    );
+    expect(res.value).toBe("ok");
+    expect(calls).toBe(2);
+  });
+
+  it("retries a result the checker rejects, then accepts a valid one", async () => {
+    let calls = 0;
+    const res = await retryLlmCall(
+      "extraction",
+      async () => {
+        calls += 1;
+        return { blocks: calls >= 3 ? ["b"] : [] };
+      },
+      { attempts: 3, delayMs: 0, check: (r) => r.blocks.length > 0 },
+    );
+    expect(res.blocks).toEqual(["b"]);
+    expect(calls).toBe(3);
+  });
+
+  it("fails fast on permanent errors (auth) without burning attempts", async () => {
+    let calls = 0;
+    await expect(
+      retryLlmCall(
+        "synthesis",
+        async () => {
+          calls += 1;
+          throw new Error("invalid api key provided");
+        },
+        { attempts: 3, delayMs: 0 },
+      ),
+    ).rejects.toThrow(/invalid api key/);
+    expect(calls).toBe(1);
+  });
+
+  it("throws the last error after exhausting all attempts", async () => {
+    let calls = 0;
+    await expect(
+      retryLlmCall(
+        "planning",
+        async () => {
+          calls += 1;
+          throw new Error(`transient ${calls}`);
+        },
+        { attempts: 3, delayMs: 0 },
+      ),
+    ).rejects.toThrow("transient 3");
+    expect(calls).toBe(3);
+  });
+
+  it("reports each failure to onError with the attempt number", async () => {
+    const seen: Array<[string, number]> = [];
+    await expect(
+      retryLlmCall(
+        "extraction",
+        async () => {
+          throw new Error("rate limited");
+        },
+        { attempts: 2, delayMs: 0, onError: (msg, attempt) => seen.push([msg, attempt]) },
+      ),
+    ).rejects.toThrow(/rate limited/);
+    expect(seen).toEqual([
+      ["rate limited", 1],
+      ["rate limited", 2],
+    ]);
+  });
+
+  it("retries unknown error classes — resilience is the default", async () => {
+    let calls = 0;
+    const res = await retryLlmCall(
+      "weird provider",
+      async () => {
+        calls += 1;
+        if (calls === 1) throw new TypeError("Cannot read properties of undefined");
+        return "recovered";
+      },
+      { attempts: 3, delayMs: 0 },
+    );
+    expect(res).toBe("recovered");
+    expect(calls).toBe(2);
+  });
+});
+
+describe("runAgentTurn partial text", () => {
+  it("returns what the model already said when the turn dies mid-stream", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: new ReadableStream({
+          start(c) {
+            c.enqueue({ type: "stream-start", warnings: [] });
+            c.enqueue({ type: "text-start", id: "0" });
+            c.enqueue({ type: "text-delta", id: "0", delta: "RELIANCE looks cheap." });
+            // Malformed part: the SDK's own transform throws on it, which is how
+            // a real provider frame aborts a turn after the model has spoken.
+            c.enqueue({ type: "text-delta" });
+            c.close();
+          },
+        }),
+      }),
+    });
+    const res = await runAgentTurn({ model, system: "s", prompt: "p", maxToolSteps: 1, streamRetries: 0 } as any);
+    expect(res.text).toContain("RELIANCE looks cheap.");
+    expect(res.error).toBeTruthy(); // this is the failed-turn branch, not a matched turn
   });
 });

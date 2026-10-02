@@ -2,9 +2,12 @@ import { z } from "zod";
 import { tool } from "ai";
 import { VoyagerClient } from "./voyager.js";
 import { config } from "./config.js";
+import { getMacroSnapshot, getPriceHistory, priceHistoryDigest, quoteDigest } from "./marketdata.js";
+import { webSearch, newsSearch, toToolResult, newsToToolResult } from "./websearch.js";
 
 export interface ToolContext {
   voyager: VoyagerClient;
+  /** Optional Tavily key — upgrades web_search beyond the free DuckDuckGo default. */
   tavilyKey?: string;
   symbol: string;
   country: string;
@@ -145,46 +148,32 @@ function announcementFilter(
     .slice(0, limit);
 }
 
+/**
+ * Web search is ALWAYS available: it runs on DuckDuckGo's free HTML endpoint
+ * by default, and a configured Tavily key upgrades it to richer extraction.
+ * The old key-gated version left analysts with nothing when internal data was
+ * thin — the default now degrades from Voyager to the open web instead.
+ */
 export function buildWebSearchTool(tavilyKey?: string, opts?: { querySuffix?: string; webSources?: string[]; recencyDays?: number }) {
   const querySuffix = opts?.querySuffix;
-  const webSources = opts?.webSources;
   return tool({
     description:
-      "Search the live web for recent news, analyst commentary, or context. Requires the Tavily API key to be configured in Settings.",
+      "Search the live web for recent news, analyst commentary, filings coverage, or context. Always available (free DuckDuckGo provider; uses Tavily for richer extraction when configured).",
     inputSchema: z.object({
       query: z.string(),
     }),
     execute: async (args) => {
-      if (!tavilyKey) {
-        return {
-          message:
-            "Web search is not available: no Tavily API key configured. Rely on the other data tools.",
-        };
+      const q = querySuffix ? `${args.query} ${querySuffix}` : args.query;
+      try {
+        const out = await webSearch(q, {
+          tavilyKey,
+          webSources: opts?.webSources,
+          recencyDays: opts?.recencyDays,
+        });
+        return toToolResult(out, tavilyKey);
+      } catch (e: any) {
+        return { message: `Web search failed: ${e?.message || e}`, query: args.query, count: 0, results: [] };
       }
-      const res = await fetch(config.tavilyUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          api_key: tavilyKey,
-          query: querySuffix ? `${args.query} ${querySuffix}` : args.query,
-          max_results: 5,
-          // Prefer recent results (plan 0.6 / B6): news recency window when set.
-          ...(opts?.recencyDays ? { topic: "news", days: opts.recencyDays } : {}),
-          ...(webSources?.length ? { include_domains: webSources } : {}),
-        }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (!res.ok) {
-        return { message: `Web search failed with status ${res.status}.` };
-      }
-      const data = await res.json();
-      const results = (data.results || []).map((r: any) => ({
-        title: r.title,
-        url: r.url,
-        published_date: r.published_date,
-        content: r.content ? wrapUntrusted("web search", truncate(r.content, 2000)) : undefined,
-      }));
-      return { query: args.query, count: results.length, results };
     },
   });
 }
@@ -199,12 +188,16 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
   const tools = {
     get_financial_metrics: tool({
       description:
-        "Fetch a single-period financial metrics snapshot (ratios, margins, growth, valuation, per-share figures) for a company. Use filing_type=ttm for trailing-twelve-months figures, quarterly/annual for point-in-time statements. Note: if the response has price_data=\"unavailable\", price-derived fields (current_price, market cap, PE/PB/PS, EV, technicals) are omitted and only filings-based ratios are present.",
+        "Fetch a single-period financial metrics snapshot (ratios, margins, growth, valuation, per-share figures) for a company. Use filing_type=ttm for trailing-twelve-months figures, quarterly/annual for point-in-time statements. Pass fields (comma-separated metric names) to receive only what you need — the full unfiltered snapshot is ~59 keys. The response carries data_available=false for a symbol with no pulled data (check it before reading values; null means not computable — never default it to 0). Percent fields are already percent values (revenue_growth 14.74 = 14.74%).",
       inputSchema: z.object({
-        symbol: z.string().describe("Stock symbol, e.g. RELIANCE or NVDA."),
+        symbol: z.string().describe("Stock symbol, e.g. RELIANCE or NVDA. Ignored — the analyzed company's symbol is used."),
         source: z.enum(["nse", "sec"]).optional().describe("Defaults to the analyzed company's source."),
         consolidated: z.boolean().optional(),
         filing_type: z.enum(["ttm", "annual", "quarterly"]).optional(),
+        fields: z
+          .string()
+          .optional()
+          .describe("Comma-separated metric names to keep (e.g. price_to_earnings_ratio,return_on_equity). Unknown names are silently ignored."),
       }),
       execute: async (args) => {
         const data = await guard(() =>
@@ -213,12 +206,67 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
             source,
             consolidated: args.consolidated ?? true,
             filing_type: args.filing_type || "ttm",
+            fields: args.fields,
           }),
         );
+        // Voyager returns 200 with data_available:false for valid symbols that
+        // have never been pulled — surface that as an explicit message rather
+        // than an empty-looking success the model could misread.
+        if (data && (data as any).data_available === false) {
+          return {
+            message: `No metrics on file for ${symbol} (${source}). The data has not been pulled yet — rely on other tools or web search for this run.`,
+            data_available: false,
+          };
+        }
         if (!data || Object.keys(data).length <= 3) {
           return { message: "No financial metrics available for this symbol.", data: {} };
         }
         return data;
+      },
+    }),
+
+    compare_financial_metrics: tool({
+      description:
+        "Fetch the same metrics snapshot for up to 10 companies in ONE call — use for peer benchmarking instead of repeated single calls. Per-symbol isolation: a symbol without data returns data_available:false inside the metrics map and never fails the batch. Always pass fields (comma-separated) so the response stays compact.",
+      inputSchema: z.object({
+        symbols: z
+          .array(z.string())
+          .min(1)
+          .max(10)
+          .describe("2-10 stock symbols to compare, e.g. [\"RELIANCE\", \"TCS\"]. The analyzed company is always included first."),
+        source: z.enum(["nse", "sec"]).optional().describe("Defaults to the analyzed company's source."),
+        filing_type: z.enum(["ttm", "annual", "quarterly"]).optional(),
+        fields: z.string().optional().describe("Comma-separated metric names to keep (recommended)."),
+      }),
+      execute: async (args) => {
+        // The analyzed symbol leads and duplicates are dropped — a peer list
+        // that forgot the subject still answers the benchmarking question.
+        const symbols = [symbol, ...args.symbols.filter((s) => s && s.toUpperCase() !== symbol.toUpperCase())].slice(0, 10);
+        const data = await guard(() =>
+          voyager.getMetricsBatch(symbols, {
+            source,
+            consolidated: true,
+            filing_type: args.filing_type || "ttm",
+            fields: args.fields,
+          }),
+        );
+        const metrics = (data as any)?.metrics;
+        if (!metrics || typeof metrics !== "object") {
+          return { message: "The comparison service returned no metrics.", metrics: {} };
+        }
+        return data;
+      },
+    }),
+
+    search_symbol: tool({
+      description:
+        "Resolve a company NAME (or partial ticker) to its stock symbol in the data provider, e.g. \"relian\" → RELIANCE, or \"Amazon\" → AMZN. Use this whenever you need a peer's or competitor's ticker before calling compare_financial_metrics. Results are ranked by data coverage; each carries record counts and the latest period on file.",
+      inputSchema: z.object({
+        query: z.string().min(2).describe("Company name or ticker fragment, minimum 2 characters."),
+        limit: z.number().int().min(1).max(20).optional(),
+      }),
+      execute: async (args) => {
+        return guard(() => voyager.searchSymbols(args.query, { source, limit: args.limit ?? 10 }));
       },
     }),
 
@@ -506,30 +554,25 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       },
     }),
 
-    // ── Advanced Data Suite: valuation, news, social, documents, sentiment ──
+    // ── News, social, documents ─────────────────────────────────────────
 
-    get_dcf_valuation: tool({
+    search_news: tool({
       description:
-        "Run a two-stage discounted cash flow (DCF) valuation. Returns intrinsic value per share, margin of safety versus the current price, and every assumption used (stage-1 FCF growth rate, terminal growth, discount/WACC rate, years, beta, risk-free rate, market premium). Use for fair-value, upside, or margin-of-safety checks. For NSE companies pass source=nse; for US companies source=sec.",
+        "Search NEWS coverage (publishers, journalists, press) for a topic, company, or event — distinct from web_search's general pages. Returns headline, publisher, URL, publish date, and excerpt for each story. Use for recent company-specific news flow, market reaction to results, deal coverage, and sector headlines; narrow with days. Can return zero stories for thinly covered tickers — that is an honest empty, not a failure.",
       inputSchema: z.object({
-        symbol: z.string().describe("Stock symbol, e.g. RELIANCE or AMZN."),
-        source: z.enum(["nse", "sec"]).optional().describe("Defaults to the analyzed company's source."),
-        growth_rate: z.number().min(0).max(0.5).describe("Stage-1 FCF growth rate as a decimal (0.15 = 15%). Defaults to revenue growth.").optional(),
-        terminal_growth_rate: z.number().min(0).max(0.1).describe("Terminal growth rate as a decimal (default 0.04).").optional(),
-        discount_rate: z.number().min(0).max(0.5).describe("WACC/discount rate as a decimal. Defaults to CAPM cost of equity.").optional(),
-        years: z.number().int().min(1).max(20).describe("Stage-1 projection years (default 5).").optional(),
-        beta: z.number().describe("Beta used for the CAPM discount rate (default 1.0).").optional(),
+        query: z.string().describe("News query, e.g. 'KEI Industries results', 'RELIANCE dividend', 'steel demand India'."),
+        days: z.number().int().min(1).max(30).describe("Look-back window in days (default 14). Narrow to 1-7 for fresh events.").optional(),
       }),
       execute: async (args) => {
-        return guard(() =>
-          voyager.getDcfValuation(symbol, source, {
-            growth_rate: args.growth_rate,
-            terminal_growth_rate: args.terminal_growth_rate,
-            discount_rate: args.discount_rate,
-            years: args.years,
-            beta: args.beta,
-          }),
-        );
+        try {
+          const out = await newsSearch(args.query, {
+            tavilyKey: ctx.tavilyKey,
+            recencyDays: args.days ?? 14,
+          });
+          return newsToToolResult(out, ctx.tavilyKey);
+        } catch (e: any) {
+          return { message: `News search failed: ${e?.message || e}`, query: args.query, count: 0, results: [] };
+        }
       },
     }),
 
@@ -637,91 +680,85 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       },
     }),
 
-    analyze_management_sentiment: tool({
+    // ── Market data (D5): price history from the server-side market-data
+    // client. Symbol is closure-bound like every other analyst tool.
+    get_current_price: tool({
       description:
-        "Submit a transcript URL or raw text of management commentary (earnings call, interview, letter) to be analyzed for facts, guidance, and tone. Async: returns a job_id. Poll get_pull_job_status with that job_id to retrieve the analysis when the job is done. Supply one of 'url' or 'text'.",
+        "Fetch the CURRENT MARKET PRICE of the analyzed company: last close, as-of date, 52-week range, and trailing 1/3/6-month returns. Use this whenever a valuation ratio needs a live price (P/E, earnings yield, price-to-book, margin-of-safety) and the metrics snapshot does not carry one, or reports price_data=unavailable. Grounds price-dependent analysis in a real market quote instead of marking it INSUFFICIENT.",
       inputSchema: z.object({
-        url: z.string().describe("PDF/transcript URL to analyze. Provide this or 'text', not both.").optional(),
-        text: z.string().describe("Raw management commentary text to analyze. Provide this or 'url', not both.").optional(),
-        symbol: z.string().optional().describe("Stock symbol, defaults to the analyzed company."),
-        source: z.enum(["nse", "sec"]).optional().describe("Defaults to the analyzed company's source."),
-        model: z.string().optional().describe("Optional LLM model override."),
+        symbol: z.string().optional().describe("Ignored — the analyzed company's symbol is used."),
+      }),
+      execute: async () => {
+        const history = await getPriceHistory(symbol, "2y", ctx.source);
+        if (!history) {
+          return {
+            unavailable: true,
+            reason: "price_unavailable",
+            message:
+              "No live market price is available for this symbol right now. Mark price-dependent anchors INSUFFICIENT — do not estimate a price.",
+          };
+        }
+        return quoteDigest(history);
+      },
+    }),
+
+    get_price_history: tool({
+      description:
+        "Fetch ~1 year of daily OHLCV price history with computed SMA 20/50/200, RSI(14), 52-week range, and trailing returns. Use for trend, momentum, volume, and range analysis. Returns a compact summary plus downsampled series for plotting.",
+      inputSchema: z.object({
+        symbol: z.string().optional().describe("Ignored — the analyzed company's symbol is used."),
+      }),
+      execute: async () => {
+        const history = await getPriceHistory(symbol, "2y", ctx.source);
+        if (!history) {
+          return {
+            unavailable: true,
+            reason: "price_history_unavailable",
+            message: "Price history is unavailable for this symbol right now. Rely on snapshot indicators (RSI, SMA levels from get_financial_metrics) instead.",
+          };
+        }
+        return {
+          digest: priceHistoryDigest(history),
+          candles_recent: history.candles.slice(-130).map((c) => ({ date: c.date, c: c.close, v: c.volume })),
+          sma20: history.sma20.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value })),
+          sma50: history.sma50.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value })),
+          sma200: history.sma200.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value })),
+          rsi14: history.rsi14.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value })),
+          fifty_two_week: history.fifty_two_week,
+        };
+      },
+    }),
+
+    get_macro_snapshot: tool({
+      description:
+        "Fetch the macro snapshot: index levels and market direction for the analyzed market, assembled in code from live index price history. Use for rate-sensitivity and market-direction context.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        return guard(() => getMacroSnapshot(ctx.country || "in"));
+      },
+    }),
+
+    get_technicals: tool({
+      description:
+        "Fetch the Advanced Data Suite Technicals report: ~60 sections of computed technical indicators — trend/market structure, SMA/EMA alignment, RSI, MACD, stochastic, ADX/CCI/Williams %R, OBV, ATR, Bollinger Bands, Ichimoku, Fibonacci levels, support/resistance, volume profile, divergences, entry/exit/stop/target levels, and bullish/bearish scenario triggers — across daily, weekly, and monthly timeframes. Use for technical analysis, trend classification, momentum, and key-level mapping. Returns point-in-time values (no intraday history); cite section names for every figure.",
+      inputSchema: z.object({
+        symbol: z.string().optional().describe("Ignored — the analyzed company's symbol is used."),
+        sections: z
+          .string()
+          .optional()
+          .describe(
+            "Comma-separated section names to fetch a subset, e.g. 'trend_analysis,momentum_analysis,support_resistance'. Omit for the full report.",
+          ),
       }),
       execute: async (args) => {
-        if (!args.url && !args.text) {
-          return { message: "Provide either 'url' or 'text' for management sentiment analysis." };
-        }
         return guard(() =>
-          voyager.analyzeManagementSentiment({
-            url: args.url,
-            text: args.text ? wrapUntrusted("management commentary", args.text) : undefined,
-            symbol,
-            source,
-            model: args.model,
+          voyager.getTechnicals(symbol, {
+            source: ctx.source.toLowerCase(),
+            sections: args.sections
+              ? args.sections.split(",").map((s) => s.trim()).filter(Boolean)
+              : undefined,
           }),
         );
-      },
-    }),
-
-    // ── Data availability & pulls ──
-
-    get_pull_status: tool({
-      description:
-        "Check what data exists for a stock in the database: record counts and period ranges by collection (income statements, balance sheets, cash flows, shareholdings), last pull time, and whether data is available. Use to determine if a symbol has adequate coverage before analyzing it.",
-      inputSchema: z.object({
-        symbol: z.string().describe("Stock symbol, e.g. RELIANCE or AMZN."),
-        source: z.enum(["nse", "sec"]).optional().describe("Defaults to the analyzed company's source."),
-      }),
-      execute: async (args) => {
-        const s = source;
-        const c = s === "sec" ? "us" : "in";
-        return guard(() => voyager.getPullStatus(symbol, c, s));
-      },
-    }),
-
-    trigger_data_pull: tool({
-      description:
-        "Trigger an async job to pull raw stock data (XBRL filings) from the exchange into the database. Use when get_pull_status shows a stock has no data. Returns a job_id — poll get_pull_job_status until it is 'done'. Do not call for symbols that already have data.",
-      inputSchema: z.object({
-        symbol: z.string().describe("Stock symbol to pull, e.g. RELIANCE or AMZN."),
-        source: z.enum(["nse", "sec"]).optional().describe("Defaults to the analyzed company's source."),
-        filing_type: z.enum(["quarterly", "annual"]).describe("Which filings to pull (default quarterly).").optional(),
-        refresh: z.boolean().describe("Re-download and re-parse filings already in the DB (default false).").optional(),
-      }),
-      execute: async (args) => {
-        const s = source;
-        const c = s === "sec" ? "us" : "in";
-        return guard(() =>
-          voyager.triggerPull(
-            symbol,
-            c,
-            s,
-            args.filing_type || "quarterly",
-            args.refresh ?? false,
-          ),
-        );
-      },
-    }),
-
-    get_pull_job_status: tool({
-      description:
-        "Check the status of any async Voyager job by job_id: data pulls (trigger_data_pull), document parsing (parse_pdf_document), and management sentiment analysis (analyze_management_sentiment). While status is 'running' or 'queued', wait and poll again. When 'done', the 'result' field holds the output.",
-      inputSchema: z.object({
-        job_id: z.string().describe("Job ID returned by trigger_data_pull, parse_pdf_document, or analyze_management_sentiment."),
-      }),
-      execute: async (args) => {
-        return guard(() => voyager.getPullJobStatus(args.job_id));
-      },
-    }),
-
-    list_pull_jobs: tool({
-      description:
-        "List recent async Voyager jobs (data pulls, document parses, sentiment analyses) with their status and results.",
-      inputSchema: z.object({
-        limit: z.number().int().min(1).max(100).describe("Number of jobs (default 20).").optional(),
-      }),
-      execute: async (args) => {
-        return guard(() => voyager.listPullJobs(args.limit ?? 20));
       },
     }),
 
@@ -736,11 +773,15 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
 
   if (!opts.analyst) return tools;
 
-  // Analyst toolset (plan 0.5 / C2): read-only + bound to the analyzed symbol.
-  // trigger_data_pull (side effects) and list_pull_jobs (cross-symbol
-  // visibility) are excluded — the orchestrator handles pulls.
+  // Analyst toolset (D6 audit): read-only + bound to the analyzed symbol.
+  // Pull orchestration (get_pull_status / trigger_data_pull / list_pull_jobs)
+  // is pipeline-owned — analysts never trigger or poll pulls. get_pull_job_status
+  // stays ONLY for the async document jobs analysts can start
+  // (parse_pdf_document); symbol-bound here.
   const ANALYST_TOOLS = new Set([
     "get_financial_metrics",
+    "compare_financial_metrics",
+    "search_symbol",
     "get_financials",
     "get_income_statements",
     "get_balance_sheets",
@@ -752,17 +793,19 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
     "read_latest_transcript",
     "read_latest_presentation",
     "read_pdf",
-    "get_dcf_valuation",
     "get_market_news",
     "get_ticker_news",
+    "search_news",
     "search_reddit",
     "search_youtube",
     "get_youtube_transcript",
     "parse_pdf_document",
     "get_document_index",
-    "analyze_management_sentiment",
-    "get_pull_status",
     "get_pull_job_status",
+    "get_price_history",
+    "get_current_price",
+    "get_technicals",
+    "get_macro_snapshot",
     "web_search",
   ]);
   return Object.fromEntries(Object.entries(tools).filter(([name]) => ANALYST_TOOLS.has(name))) as typeof tools;

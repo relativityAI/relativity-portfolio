@@ -19,7 +19,7 @@ export interface TraceEvent {
   tool?: string;
   args?: unknown;
   result?: unknown;
-  status?: "pending" | "running" | "completed" | "failed" | "skipped" | "OK" | "ERR";
+  status?: "pending" | "running" | "completed" | "degraded" | "failed" | "skipped" | "OK" | "ERR";
   duration_ms?: number;
   score?: number;
   value?: unknown;

@@ -5,22 +5,23 @@ import { fetchUserKeys } from "./provision.js";
 import { config } from "./config.js";
 import { getModelIds } from "./models.js";
 import { VoyagerClient, toCountrySource, pullLastPulled, pullRecordCount, type PullStatus } from "./voyager.js";
-import { runQuantitative, runQuantitativeLLM, applyQuantOverlay, fetchMetricsSnapshot, assessDataAdequacy, unscoredQuantResult, type DataAdequacy } from "./quant.js";
-import { runQualitativeAll, synthesizeReport, sanitizeReport, planAnalyze, normalizeQuantScale, parseQualStructure, buildScoreTables, scoreTablesToBlocks } from "./agent.js";
+import { fetchMetricsSnapshot, assessDataAdequacy, type DataAdequacy } from "./quant.js";
+import { synthesizeSkillReport, sanitizeReport, buildSourcesBlocks } from "./agent.js";
 import { getAnalystToolCatalog } from "./tools.js";
-import { combinePillars } from "./scoring.js";
+import { buildMarketSnapshot } from "./marketdata.js";
 import { keyPool } from "./keypool.js";
 import { ensureFreshData } from "./freshness.js";
 import type { LlmKeys, TraceCallback } from "./agent.js";
 import { log } from "./logger.js";
 import { inngest } from "./inngest.js";
 import { TraceCollector, traceHub } from "./trace.js";
-import { mdHash, loadRubricForMd } from "./rubricStore.js";
-import { deriveFeatures, persistFeatures, FEATURES_DATA_VERSION } from "./kb/features.js";
-import { loadKbRows } from "./kb/store.js";
-import { scoreRubric, parameterOutcomesToAnalysis } from "./v2/score.js";
-import { scoreChecklist } from "./scoring.js";
-import { v2ShadowEnabled } from "./v2/judge.js";
+import { resolveSkillsForAgent, type ResolvedSkill } from "./skills/resolve.js";
+import { runAllSkills } from "./skills/skillrun.js";
+import { aggregateSkillOutputs } from "./skills/aggregate.js";
+import { assembleSkillCharts, buildSkillScoreCharts, toolEvidenceForCharts } from "./skills/charts.js";
+import { runQuantScreen } from "./skills/quantscreen.js";
+import { buildSkillScoreTables } from "./skills/tables.js";
+import { isScoreDisplayable, MIN_COVERAGE_FOR_SCORE } from "./skills/aggregate.js";
 
 // ── Numeric integrity (spec Section 3) ────────────────────────────────────
 // Every number in a synthesized report's table cells and chart data points
@@ -102,6 +103,10 @@ export function toolEvidenceDigest(toolCalls: Record<string, unknown[]> | undefi
 }
 
 const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+// Stateless checker: /g/ regexes carry lastIndex across .test() calls, which
+// made the uuid guard below intermittently MISS inside this loop and leave
+// uuid-shaped ids in tool output (they then leaked into reports/PDFs).
+const UUID_TEST_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
 
 /**
  * Remove infrastructure identifiers (uuid-shaped ids) from tool output so the
@@ -113,7 +118,7 @@ export function stripIdentifiers(v: unknown): unknown {
   if (v && typeof v === "object") {
     const o: Record<string, unknown> = {};
     for (const [k, val] of Object.entries(v)) {
-      const looksUuid = typeof val === "string" && UUID_RE.test(val);
+      const looksUuid = typeof val === "string" && UUID_TEST_RE.test(val);
       if ((k === "id" || k.endsWith("_id")) && looksUuid) continue;
       o[k] = stripIdentifiers(val);
     }
@@ -156,7 +161,10 @@ export async function withDeadline<T>(p: Promise<T>, ms: number, msg: string): P
   }
 }
 
-export type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+// "degraded" marks a step that finished without full success — the data check
+// timing out, say — so the UI can render an honest mid-state instead of a green
+// check carrying a failure message.
+export type StepStatus = "pending" | "running" | "completed" | "degraded" | "failed" | "skipped";
 
 export interface RunStep {
   key: string;
@@ -172,9 +180,8 @@ const STEP_DEFS: { key: string; label: string }[] = [
   { key: "agent", label: "Load agent configuration" },
   { key: "data", label: "Check data availability" },
   { key: "pull", label: "Ensure fresh data" },
-  { key: "quantitative", label: "Quantitative scoring" },
-  { key: "qualitative", label: "Qualitative scoring" },
-  { key: "scorecard", label: "Summarize scoring tables" },
+  { key: "skills", label: "Run agent skills" },
+  { key: "scorecard", label: "Aggregate skill scores" },
   { key: "finalize", label: "Finalize report" },
 ];
 
@@ -246,28 +253,20 @@ class StepTracker {
   }
 }
 
-// ── web search resolution ──────────────────────────────────────────────
-// Explicit user choice wins; otherwise auto-enable when internal data is
-// inadequate and a Tavily key exists.
+// ── web search resolution ──────────────────────────────────────────
+// Web search is now ALWAYS available (free DuckDuckGo provider): explicit
+// user choice wins, otherwise it auto-enables whenever internal data is
+// inadequate. A Tavily key upgrades the provider but is no longer required.
 
 export function resolveWebSearch(
   requested: boolean | undefined,
   adequacy: DataAdequacy,
-  tavilyKey?: string,
+  _tavilyKey?: string,
 ): { effective: "user" | "auto" | "off"; note?: string } {
-  if (requested === true) {
-    if (tavilyKey) return { effective: "user" };
-    return { effective: "off", note: "Web search was requested but no Tavily API key is configured." };
-  }
+  if (requested === true) return { effective: "user" };
   if (requested === false) return { effective: "off" };
   if (adequacy !== "adequate") {
-    if (tavilyKey) {
-      return { effective: "auto", note: `Web search auto-enabled: internal data is ${adequacy}.` };
-    }
-    return {
-      effective: "off",
-      note: `Internal data is ${adequacy}; add a Tavily API key in Settings to enable automatic web search.`,
-    };
+    return { effective: "auto", note: `Web search auto-enabled: internal data is ${adequacy}.` };
   }
   return { effective: "off" };
 }
@@ -275,16 +274,20 @@ export function resolveWebSearch(
 // ── run orchestration ──────────────────────────────────────────────────
 
 // Maximum age (ms) before a RUNNING/PENDING run is considered stale and auto-failed.
-const STALE_RUN_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
+// Sized above the worst legitimate run: 300s pull + ⌈8/2⌉ × 180s skill turns at
+// concurrency 2 + 180s synthesis ≈ 27 min; 35 gives headroom without leaving a
+// genuinely dead run visible for hours.
+const STALE_RUN_THRESHOLD_MS = 35 * 60 * 1000;
 
 /**
- * Check if a run is stale (stuck in RUNNING/PENDING with no progress for >10min)
- * and mark it FAILED if so. Returns true if the run was marked stale.
+ * Check if a run is stale (stuck in RUNNING/PENDING with no progress) and mark it
+ * FAILED if so. Returns true if the run was marked stale.
  */
-export async function checkAndFailStaleRun(runId: string): Promise<boolean> {
+export async function checkAndFailStaleRun(runId: string, opts?: { scopeToUser?: string }): Promise<boolean> {
   const db = getDb();
-  const { data } = await db.from("analysis_runs").select("status, updated_at, created_at, steps").eq("id", runId).single();
+  const { data } = await db.from("analysis_runs").select("status, updated_at, created_at, steps, user_id").eq("id", runId).single();
   if (!data) return false;
+  if (opts?.scopeToUser && data.user_id !== opts.scopeToUser) return false;
   const s = (data.status || "").toUpperCase();
   if (s !== "PENDING" && s !== "RUNNING") return false;
 
@@ -299,32 +302,82 @@ export async function checkAndFailStaleRun(runId: string): Promise<boolean> {
     status: "FAILED",
     error: `Analysis timed out — no progress for ${Math.round(age / 60000)} minutes. This usually means the backend execution was interrupted. Please try again.`,
     updated_at: new Date().toISOString(),
-  }).eq("id", runId);
+  }).eq("id", runId).eq("user_id", data.user_id);
   return true;
 }
 
-export async function createRun(req: RunRequest): Promise<{ analysis_id: string }> {
+// Server-side staleness sweep: checkAndFailStaleRun was previously reachable
+// ONLY from the client-polled read route, so a closed tab meant a dead run sat
+// in RUNNING forever (or a healthy 24-min run got killed at the old 10-min
+// threshold). A real interval sweeps independently of any client.
+export function startStaleRunSweeper(): NodeJS.Timeout {
+  const sweep = async (): Promise<void> => {
+    try {
+      const db = getDb();
+      const cutoff = new Date(Date.now() - STALE_RUN_THRESHOLD_MS).toISOString();
+      const { data, error } = await db
+        .from("analysis_runs")
+        .select("id")
+        .in("status", ["PENDING", "RUNNING"])
+        .or(`updated_at.lt.${cutoff},and(updated_at.is.null,created_at.lt.${cutoff})`)
+        .limit(50);
+      if (error) throw error;
+      for (const row of data || []) {
+        await checkAndFailStaleRun(row.id).catch(() => {});
+      }
+    } catch (e) {
+      log.warn("[run sweeper]", "stale-run sweep failed:", e instanceof Error ? e.message : String(e));
+    }
+  };
+  const timer = setInterval(() => void sweep(), 60_000);
+  timer.unref?.();
+  return timer;
+}
+
+export interface ExistingRunInfo {
+  agent_name: string | null;
+  model: string | null;
+  status: string | null;
+}
+
+export interface CreateRunResult {
+  analysis_id: string;
+  /** True when an active run for the same user+symbol+source already existed and was returned instead. */
+  deduped?: boolean;
+  /** Present only when deduped — lets the UI say whose run the user is about to see. */
+  existing_run?: ExistingRunInfo;
+}
+
+export async function createRun(req: RunRequest): Promise<CreateRunResult> {
   const db = getDb();
 
-  // Dedupe: one active run per user + symbol. The UI guard makes accidental
-  // double-submits unlikely, but a double-click, retry, or two tabs can still
-  // slip a second request through — and both would burn LLM + data-pull quota
-  // on the same analysis. Redirect to the existing run instead of starting a
-  // duplicate. (The Inngest path additionally serializes same-symbol runs via
+  // Dedupe: one active run per user + symbol + source (market). The UI guard
+  // makes accidental double-submits unlikely, but a double-click, retry, or
+  // two tabs can still slip a second request through — and both would burn
+  // LLM + data-pull quota on the same analysis. Redirect to the existing run
+  // instead of starting a duplicate. Source is part of the key because NSE:RELIANCE
+  // and SEC:RELIANCE are different instruments — one must not block the other.
+  // The Inngest path additionally serializes same-symbol runs via
   // its concurrency key; this covers the local runner and the window before
-  // the first run flips out of PENDING.)
+  // the first run flips out of PENDING.
+  const source = req.source || "NSE";
   const { data: active, error: activeErr } = await db
     .from("analysis_runs")
-    .select("id")
+    .select("id, agent_name, model, status")
     .eq("user_id", req.userId)
     .eq("symbol", req.symbol)
+    .eq("source", source)
     .in("status", ["PENDING", "RUNNING"])
     .limit(1)
     .maybeSingle();
   if (activeErr) throw activeErr;
   if (active?.id) {
-    log.info(`[run]`, `dedupe: active run ${active.id} already exists for ${req.symbol}, returning it`);
-    return { analysis_id: active.id };
+    log.info(`[run]`, `dedupe: active run ${active.id} already exists for ${source}:${req.symbol}, returning it`);
+    return {
+      analysis_id: active.id,
+      deduped: true,
+      existing_run: { agent_name: active.agent_name ?? null, model: active.model ?? null, status: active.status ?? null },
+    };
   }
 
   const runId = randomUUID();
@@ -335,12 +388,19 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
     symbol: req.symbol,
     share_name: req.share_name || req.symbol,
     agent_name: req.agent_name,
+    // Placeholder only — executeRun resolves the real quota-aware default once
+    // user keys are known; the run row must never persist a model nobody can
+    // call (paid provider with no key configured).
     model: req.model || getModelIds()[0],
     documents: req.documents || [],
     web_search: req.web_search ?? false,
     web_sources: req.web_sources || [],
     source: null,
     created_at: new Date().toISOString(),
+    // The run's true start clock (set when the run leaves PENDING). The UI
+    // anchors the live elapsed timer to this — created_at is queue time, and
+    // a page reload mid-run must never reset the counter to zero.
+    started_at: null,
     duration: null,
     error: null,
     steps: initialSteps(),
@@ -419,7 +479,7 @@ export async function createRun(req: RunRequest): Promise<{ analysis_id: string 
 // with PGRST204 "Could not find the '…' column … in the schema cache" — which
 // would 503 every run insert/update. Instead: detect the error, strip the
 // unknown columns, retry once, and log loudly so the migration gets applied.
-const KNOWN_OPTIONAL_COLUMNS = new Set(["fit_low", "fit_high", "coverage"]);
+const KNOWN_OPTIONAL_COLUMNS = new Set(["fit_low", "fit_high", "coverage", "market_snapshot"]);
 let missingColumnsWarned = false;
 
 function stripUnknownColumns(patch: Record<string, unknown>): Record<string, unknown> {
@@ -511,6 +571,13 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
 
   const tracker = new StepTracker(saveSteps, traceStep);
   const traceQual = (key: string, ev: Parameters<TraceCallback>[0]) => {
+    // skillrun failure diagnostics arrive as log events (outside the
+    // TraceCallback union) — persist them so a failed skill still
+    // leaves its reasoning and raw error in the trace.
+    if ((ev as any).type === "log") {
+      collector.push("log", key, { text: (ev as any).text });
+      return;
+    }
     switch (ev.type) {
       case "thought":
         collector.push("thought", key, { text: ev.text });
@@ -551,20 +618,23 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     if (modelId !== req.model) {
       await write(() => updateRun(runId, { model: modelId }));
     }
-    await write(() => updateRun(runId, { status: "RUNNING", source }));
+    // Stamp the true start clock once, on the PENDING→RUNNING edge. The UI's
+    // elapsed timer anchors here, so reloads show total actual time.
+    await write(() => updateRun(runId, { status: "RUNNING", source, started_at: new Date().toISOString() }));
     log.info(runTag, `start symbol=${req.symbol} agent="${agent.name}" model=${modelId} source=${source}`);
 
-    if (!voyagerKey) {
-      const msg = "No Voyager API key configured. A key will be generated automatically on your next login.";
-      await write(() => updateRun(runId, { status: "FAILED", error: msg }));
-      log.error(runTag, msg);
-      return;
-    }
+    // Keyless runs are supported: without a Voyager key the run proceeds on
+    // the free web-search provider instead of hard-failing. The data steps
+    // degrade to "skipped" and every internal tool call returns a clean
+    // no-data message the analyst can act on.
     const voyager = new VoyagerClient(config.voyagerUrl, voyagerKey, config.voyagerRpm);
 
     // ---- data availability ----
     await tracker.begin("data");
     let dataAvailability: PullStatus | null = null;
+    if (!voyagerKey) {
+      await tracker.end("data", "skipped", "No data-provider key configured — this run uses live web search only.");
+    } else {
     try {
       dataAvailability = await withDeadline(
         voyager.getPullStatus(req.symbol, cs.country, cs.source),
@@ -578,12 +648,16 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     } catch (e: any) {
       const detail = e?.message || String(e);
       await write(() => updateRun(runId, { data_availability: { error: detail } }));
-      await tracker.end("data", "completed", detail);
+      await tracker.end("data", "degraded", `Data check did not complete — ${detail} The run continues with existing data.`);
       log.warn(runTag, `data availability check failed (continuing): ${detail}`);
+    }
     }
 
     // ---- pull (ensure fresh data) ----
     await tracker.begin("pull");
+    if (!voyagerKey) {
+      await tracker.end("pull", "skipped", "No data-provider key — skipping the data pull step.");
+    } else {
     try {
       const pullResult = await ensureFreshData(voyager, req.symbol, cs.country, cs.source, req.userId);
       if (pullResult.pulled) {
@@ -603,45 +677,28 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
       await tracker.end("pull", "failed", `Pull failed: ${detail}. Proceeding with existing data.`);
       log.warn(runTag, `pull step failed (continuing): ${detail}`);
     }
-
-    // ---- quantitative (single metrics snapshot feeds scoring + adequacy) ----
-    await tracker.begin("quantitative");
-    const snap = await fetchMetricsSnapshot(voyager, req.symbol, cs.country, cs.source);
-    // Outage ≠ no-data (plan 0.2 / A3 / B7), revised after field feedback: a
-    // provider outage no longer kills the run — it DEGRADES it. The quant
-    // pillar is marked fully unscored (null scores with an explicit reason),
-    // so the total becomes a qual-only estimate: no fake zeros, the band
-    // widens, coverage drops, and the report states the gap. The research that
-    // CAN run still runs, and the user gets the remaining work instead of an
-    // error page.
-    // Start from the fully-unscored shape and overwrite with real scores only
-    // when the provider answered — assignment is then unconditional.
-    let quant = unscoredQuantResult(agent, snap.price_data, "error");
-    let metricsOutage: string | null = null;
-    if (snap.outage) {
-      metricsOutage = snap.outage_error || "metrics provider outage";
-      await tracker.end(
-        "quantitative",
-        "failed",
-        `Metrics provider outage — quantitative criteria unscored: ${metricsOutage.slice(0, 160)}`,
-      );
-      log.warn(runTag, `metrics outage — degrading to qual-only scoring: ${metricsOutage}`);
-    } else {
-      await tracker.end("quantitative", "completed");
-      const metrics = snap.metrics;
-      const price_data = snap.price_data;
-      quant = runQuantitative(agent, metrics, price_data);
-      const quantOverlay = await runQuantitativeLLM({ modelId, llmKeys, entries: quant.quantitative_analysis });
-      applyQuantOverlay(quant, quantOverlay);
-      if (Object.keys(quantOverlay).length) log.info(runTag, `quant LLM-judged ${Object.keys(quantOverlay).length} criteria`);
-    }
-    const metrics = snap.metrics;
-    const price_data = snap.price_data;
+    }    // ---- metrics snapshot (feeds deterministic quant-screen skills + adequacy) ----
+    await tracker.begin("skills");
+    const snap = voyagerKey
+      ? await fetchMetricsSnapshot(voyager, req.symbol, cs.country, cs.source)
+      : { outage: true, outage_error: "no data-provider key configured", metrics: {}, price_data: "unknown" };
+    const metrics = snap.outage ? {} : snap.metrics;
+    const price_data = snap.outage ? "unknown" : snap.price_data;
+    // Freeze the market context (price, market cap, trailing 6-month chart)
+    // for this run date. Best-effort: a failure leaves the run's snapshot
+    // null and the result UI degrades honestly.
+    const marketSnapshot = await buildMarketSnapshot(req.symbol, snap.outage ? null : metrics);
     const adequacy = assessDataAdequacy(dataAvailability, metrics);
-    log.info(
-      runTag,
-      `quant done score=${quant.quantitative_score} coverage=${quant.coverage} price_data=${price_data} adequacy=${adequacy}${metricsOutage ? " (OUTAGE — qual-only)" : ""}`,
-    );
+    if (!voyagerKey) {
+      collector.push("log", "data", {
+        text: "No data-provider key — this run grounds every verdict in live web search instead.",
+      });
+    } else if (snap.outage) {
+      log.warn(runTag, `metrics outage — rule-screen skills will be unscored: ${snap.outage_error}`);
+      collector.push("log", "data", {
+        text: `Metrics provider outage — rule-screen skills cannot be scored this run (${snap.outage_error || "no metrics available"}).`,
+      });
+    }
 
     // Resolve effective web search now that adequacy is known.
     const web = resolveWebSearch(req.web_search, adequacy, llmKeys.tavily);
@@ -664,287 +721,288 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
       webSources: req.web_sources || [],
     };
 
-    // ---- plan (agent decides research tactics + report outline) ----
-    const plan = await planAnalyze({
+    // ---- skills: resolve the agent's skill list and fan out analysts (D4) ----
+    const persona = agent.persona?.philosophy || "";
+    const resolved = await resolveSkillsForAgent(req.userId, agent);
+    tracker.setDetail("skills", `${resolved.length} skill(s) loaded`);
+    log.info(runTag, `skills: ${resolved.map((s) => s.skill.id).join(", ") || "(none)"}`);
+
+    if (resolved.length === 0) {
+      await tracker.end("skills", "failed", "The agent has no skills attached — add skills in the agent builder.");
+      throw new Error("Agent has no skills attached");
+    }
+
+    const skillCtx = {
+      toolCtx,
       modelId,
       llmKeys,
-      persona: agent.persona?.philosophy_and_mindset || "",
-      agentDisplayName: agent.name,
-      quant: Object.entries(quant.quantitative_analysis).map(([key, e]: [string, any]) => ({
-        key,
-        metric_name: e.metric_name || key,
-        value: e.value,
-        threshold: e.threshold,
-        operator: e.operator,
-        score: e.score ?? 0,
-      })),
-      qual: [
-        ...(agent?.asset_evaluation?.qualitative || []).map((p: any) => ({ parameter: p.parameter, content: p.content, section: "asset_evaluation" })),
-        ...(agent?.macro_evaluation?.qualitative || []).map((p: any) => ({ parameter: p.parameter, content: p.content, section: "macro_evaluation" })),
-      ],
-      adequacy,
+      persona,
+      documents: req.documents || [],
       webSearch: web.effective !== "off",
-      tools: getAnalystToolCatalog(),
-      subject: `${req.share_name || req.symbol} (${req.symbol}) on ${source}`,
-    });
-    log.info(runTag, `plan: ${plan.params.length} param tactics, ${plan.report.charts.length} chart(s), ${plan.report.tables.length} table(s)`);
-
-    // ---- qualitative ----
-    const qualParams = [
-      ...(agent?.asset_evaluation?.qualitative || []),
-      ...(agent?.macro_evaluation?.qualitative || []),
-    ];
-    await tracker.begin("qualitative");
-    let qual: {
-      qualitative_analysis: Record<string, unknown>;
-      qualitative_tool_calls: Record<string, unknown[]>;
-      qualitative_score: number | null;
-      fit_low: number;
-      fit_high: number;
-      coverage: number;
-    } | null = null;
-    let qualErrors: string[] = [];
-    if (qualParams.length === 0) {
-      await tracker.end("qualitative", "skipped", "No qualitative parameters");
-      qual = {
-        qualitative_analysis: {},
-        qualitative_tool_calls: {},
-        qualitative_score: null,
-        fit_low: 0,
-        fit_high: 0,
-        coverage: 0,
-      };
-    } else {
-      qual = await runQualitativeAll(
-        modelId,
-        llmKeys,
-        toolCtx,
-        agent,
-        req.documents || [],
-        web.effective !== "off",
-        adequacy,
-        (done, total, label) => {
-          tracker.setDetail("qualitative", `${done} of ${total} parameters scored — ${label}`);
-        },
-        traceQual,
-        plan,
-      );
-      qualErrors = Object.entries(qual.qualitative_analysis)
-        .filter(([, e]) => !!(e as any)?.error)
-        .map(([label, e]) => `${label}: ${(e as any).error}`);
-      await tracker.end(
-        "qualitative",
-        qualErrors.length ? "failed" : "completed",
-        qualErrors.length
-          ? `${qualErrors.length} qualitative parameter${qualErrors.length > 1 ? "s" : ""} failed`
-          : undefined,
-      );
-      log.info(runTag, `qual done score=${qual.qualitative_score} coverage=${qual.coverage}`);
-    }
-
-    // ---- aggregate scores (pillar-weighted, honest — plan 0.2/0.3) ----
-    // A quant score of 0 is a REAL 0 when metrics were scored — the old
-    // `score > 0` test silently turned (0, 80) into 80. Nulls (unscored
-    // pillars) are excluded from the point estimate and widen the band.
-    const quantScore = quant.quantitative_score;
-    const qualScore = qual?.qualitative_score ?? null;
-    const totalAgg = combinePillars([
-      {
-        key: "quantitative",
-        result: {
-          score: quantScore,
-          fit_low: quant.fit_low,
-          fit_high: quant.fit_high,
-          coverage: quant.coverage,
-          totalWeight: Object.keys(quant.quantitative_analysis).length,
-          allWeight: Object.keys(quant.quantitative_analysis).length,
-          weightedSum: 0,
-        },
-        weight: 1,
+      toolCatalog: getAnalystToolCatalog(),
+      // skillrun envelopes every event as { parameter, section, type, data }:
+      // the real harness event lives in `data`, keyed by the skill name.
+      // Passing the envelope itself (the old `traceQual as …` cast) made
+      // traceQual read `.type` off `undefined` — a TypeError inside the
+      // analyst's stream loop that failed every skill on this path.
+      onTrace: (raw: any) =>
+        traceQual(String(raw?.parameter ?? "skills"), raw?.data ?? raw),
+      // Live per-skill progress: emit a trace log per skill state so the run
+      // view can show exactly which skills are running/done instead of one
+      // opaque spinner on the whole step.
+      onSkillStart: ({ name }: { id: string; name: string }) => {
+        collector.push("log", "skills", { text: `▸ ${name} — running` });
       },
-      {
-        key: "qualitative",
-        result: {
-          score: qualScore,
-          fit_low: qual?.fit_low ?? 0,
-          fit_high: qual?.fit_high ?? 0,
-          coverage: qual?.coverage ?? 0,
-          totalWeight: qual ? Object.keys(qual.qualitative_analysis).length : 0,
-          allWeight: qual ? Object.keys(qual.qualitative_analysis).length : 0,
-          weightedSum: 0,
-        },
-        weight: 1,
-      },
-    ]);
-    const total = totalAgg.score; // null when neither pillar produced a score
-    const totalCoverage = totalAgg.coverage;
-    const totalLow = totalAgg.fit_low;
-    const totalHigh = totalAgg.fit_high;
-
-    // Persist the parsed per-parameter structure (checklist verdicts + risks) so
-    // the UI, PDF, scorecard and synthesis render "why this score" structurally.
-    const parsedQual = parseQualStructure(qual?.qualitative_analysis || {});
-
-    // ---- v2 shadow scoring (plan §6, off by default: V2_SHADOW_SCORING=1) ----
-    // Runs the compiled rubric's predicates + micro-judge over the KB in
-    // parallel to v1 and persists ONLY the audit trail (criterion_verdicts +
-    // prompt_versions marker) — v1 scores, report and status are untouched.
-    // Failure here is always non-fatal: shadow mode must never break a run.
-    if (v2ShadowEnabled()) {
-      try {
-        const { row: agentRow } = await loadAgent(req.userId, req.agent_name).then((r) => ({ row: r.row }));
-        const md = agentRow.md_config || "";
-        const rubricRow = await loadRubricForMd(String(agentRow.id), md);
-        if (rubricRow) {
-          const feat = deriveFeatures(snap.metrics);
-          const asOf = String(snap.metrics?.period_end_date || "") || null;
-          await persistFeatures(req.symbol, source, snap.metrics, asOf).catch(() => {});
-          const kb = await loadKbRows(req.symbol, cs.source);
-          const outcomes = await scoreRubric(rubricRow.rubric.criteria, {
-            symbol: req.symbol,
-            source: cs.source,
-            model: modelId,
-            llmKeys: llmKeys as any,
-            runId,
-            features: feat.features,
-            featureRows: kb.features as any,
-            eventRows: kb.events as any,
-            chunkRows: kb.chunks as any,
-          });
-          const v2Analysis = parameterOutcomesToAnalysis(outcomes);
-          for (const p of outcomes) {
-            const scored = scoreChecklist(v2Analysis[p.parameter].checklist);
-            v2Analysis[p.parameter].score = scored.score;
-          }
-          const v2Summary = Object.fromEntries(
-            Object.entries(v2Analysis).map(([k, v]: [string, any]) => [
-              k,
-              { score: v.score, coverage: scoreChecklist(v.checklist).coverage, criteria: v.checklist.length },
-            ]),
-          );
-          log.info("[v2-shadow]", `rubric ${rubricRow.rubric.id} scored: ${JSON.stringify(v2Summary)}`);
-          await write(() =>
-            updateRun(runId, {
-              pipeline_version: "v2-shadow",
-              rubric_id: rubricRow.rubric.id,
-              rubric_hash: mdHash(md),
-              prompt_versions: { features: FEATURES_DATA_VERSION, v2_shadow: "1" },
-            }),
-          );
+      onSkillEnd: (
+        { name }: { id: string; name: string },
+        out: { error?: string; verdicts?: unknown[]; findings?: unknown[] },
+        durationMs: number,
+      ) => {
+        const secs = (durationMs / 1000).toFixed(1);
+        if (out.error) {
+          collector.push("log", "skills", { text: `✗ ${name} — failed (${secs}s): ${String(out.error).slice(0, 140)}` });
         } else {
-          log.info("[v2-shadow]", "no compiled rubric for this md hash — skipping shadow scoring");
+          const n = (out.verdicts?.length ?? 0) + (out.findings?.length ?? 0);
+          collector.push("log", "skills", { text: `✓ ${name} — done (${secs}s, ${n} item${n === 1 ? "" : "s"})` });
         }
-      } catch (e: any) {
-        log.warn("[v2-shadow]", `shadow scoring failed (non-fatal): ${e?.message}`);
+        done += 1;
+        tracker.setDetail("skills", `${done}/${resolved.length} skills finished — ${name} ${out.error ? "failed" : "completed"}`);
+      },
+    };
+
+    let done = 0;
+
+    const weights = Object.fromEntries(resolved.map((r: ResolvedSkill) => [r.skill.id, r.weight]));
+    let outputs = await runAllSkills(skillCtx, resolved);
+
+    // Deterministic rule-screen skills are scored in code against the metrics
+    // snapshot — the LLM never evaluates a numeric rule (decision D4).
+    outputs = await Promise.all(
+      outputs.map(async (out) => {
+        const entry = resolved.find((r) => r.skill.id === out.skill_id);
+        if (entry?.skill.category !== "custom" || !/quant-screen|quant screen/i.test(entry.skill.name)) return out;
+        return runQuantScreen(entry.skill, out, snap.outage ? null : snap.metrics, price_data);
+      }),
+    );
+
+    const skillErrors = outputs.filter((o) => o.error).map((o) => `${o.skill_name}: ${o.error}`);
+    await tracker.end(
+      "skills",
+      skillErrors.length === outputs.length ? "failed" : skillErrors.length ? "completed" : "completed",
+      skillErrors.length ? `${skillErrors.length} skill(s) reported problems` : `${outputs.length} skill(s) completed`,
+    );
+    log.info(runTag, `skills done: ${outputs.length - skillErrors.length}/${outputs.length} usable`);
+
+    // ---- aggregate scores (code-side, honest — decision D4/0.2) ----
+    const agg = aggregateSkillOutputs(outputs, weights);
+    // Attach the computed per-skill scores back onto the stored outputs —
+    // the report UI reads score_0_100/coverage from each skill card, and a
+    // skill with verdicts but no attached score would render a false N/A.
+    for (const s of agg.per_skill) {
+      const out = outputs.find((o) => o.skill_id === s.skill_id);
+      if (out) {
+        out.score_0_100 = s.score_0_100 ?? undefined;
+        out.coverage = s.coverage;
       }
     }
+    // A headline number that rests on mostly-unassessed anchors misleads the
+    // investor (it reads as a verdict when it is a guess). When too little of
+    // the rubric was scoreable, total_score is stored as null — the run still
+    // COMPLETES with full skill reports, fit band, and coverage, but no hero
+    // number is manufactured. That is the fix for "skills produced no score
+    // yet a total appeared": no score in, no score out.
+    const total = isScoreDisplayable(agg) ? agg.total_score : null;
+    const totalCoverage = Math.round(agg.coverage * 1000) / 10;
+    const totalLow = agg.fit_low;
+    const totalHigh = agg.fit_high;
+    const scoredOutputs = outputs.filter((o) => !o.error);
 
-    // ---- scorecard: deterministic tables rendered by CODE (plan 0.2 / D2) ----
+    // ---- scorecard: deterministic tables rendered by CODE (D2 preserved) ----
     await tracker.begin("scorecard");
-    const scoreTables = buildScoreTables({
-      quantAnalysis: normalizeQuantScale(quant.quantitative_analysis),
-      qualAnalysis: parsedQual,
-      quantScore,
-      qualScore,
-      totalScore: total,
-      coverage: totalCoverage,
-    });
+    const scoreTables = buildSkillScoreTables(outputs, agg, agent.name);
     await tracker.end("scorecard", "completed", `${scoreTables.length} deterministic table(s)`);
-    log.info(runTag, `scorecard: ${scoreTables.length} code-rendered table(s)`);
-
-    // ---- finalize ----
-    // The run fails only when EVERYTHING failed to score (no honest number
-    // exists); partial results complete with per-parameter errors preserved.
+    log.info(runTag, `scorecard: ${scoreTables.length} code-rendered table(s)`);    // ---- finalize ----
+    // The run fails only when EVERY skill failed to score (no honest number
+    // exists); partial results complete with per-skill errors preserved.
     await tracker.begin("finalize");
-    const qualTotal = Object.keys(qual?.qualitative_analysis || {}).length;
-    const allQualFailed = qualTotal > 0 && qualErrors.length === qualTotal;
-    const nothingScored = quantScore == null && qualScore == null;
-    const qualErrorSummary = allQualFailed
-      ? `Qualitative scoring failed — ${qualErrors.join("; ")}`
-      : nothingScored && qualTotal === 0 && Object.keys(quant.quantitative_analysis).length === 0
-        ? "No scoring criteria were configured for this agent."
-        : null;
-    const finalStatus = qualErrorSummary ? "FAILED" : "COMPLETED";
+    const errorSummary =
+      agg.status === "failed"
+        ? `All skills failed to produce a score — ${
+            skillErrors.length
+              ? skillErrors.slice(0, 3).join("; ")
+              : agg.failure_reason || "every anchor came back without usable data"
+          }`
+        : total == null && agg.scored_count === 0
+          ? `No skill produced a scoreable verdict — ${
+              skillErrors.length
+                ? skillErrors.slice(0, 3).join("; ")
+                : "every anchor came back without usable data"
+            }`
+          : null;
+    // "failed" = nothing was scoreable at all (no honest number exists).
+    // A run with SOME scoreable-but-thin coverage completes with the score
+    // suppressed — skill reports are still worth reading.
+    const finalStatus = agg.scored_count === 0 ? "FAILED" : "COMPLETED";
 
+    // A user cancel must win over a racing worker: the cancel endpoint wrote
+    // CANCELED while skills were still running, and this patch would silently
+    // resurrect the run to COMPLETED. If canceled, keep the terminal state and
+    // stop before any further writes.
+    const { data: currentRow } = await db
+      .from("analysis_runs")
+      .select("status")
+      .eq("id", runId)
+      .single();
+    if (String((currentRow as any)?.status || "").toUpperCase() === "CANCELED") {
+      log.info(runTag, "run canceled by user — abandoning finalize (results already persisted)");
+      return;
+    }
+
+    // Persist the deterministic results BEFORE any LLM-dependent work: skills
+    // can cost minutes, and a throw in report synthesis must not void the
+    // computed score. The final patch below then only adds the report.
+    await write(() =>
+      updateRun(runId, {
+        status: finalStatus,
+        error: errorSummary,
+        skill_outputs: outputs,
+        total_score: total,
+        fit_low: totalLow,
+        fit_high: totalHigh,
+        coverage: totalCoverage,
+        price_data: price_data || null,
+        market_snapshot: marketSnapshot,
+        pipeline_version: "v3-skills",
+      }),
+    );
+
+    // Assemble skill-declared charts from real tool results (code-grounded).
+    // The trace collector holds every tool_result this run's analysts observed;
+    // series specs (revenue_by_quarter, peer_benchmark, …) ground against it.
+    const chartEvidence = toolEvidenceForCharts(
+      traceToolCallMap(
+        collector.snapshot().filter((ev) => ev.type === "tool_result" && ev.status !== "ERR"),
+      ),
+    );
+    const chartBlocks = await assembleSkillCharts(outputs, resolved, req.symbol, chartEvidence, voyager, cs.source);
+
+    // The executive summary exists for EVERY run that produced usable
+    // skill output — including runs whose headline score was suppressed
+    // for thin coverage (totalScore: null tells the model not to invent
+    // a headline number). Only a run where every skill failed outright
+    // (no usable output at all) skips synthesis.
     let report = null;
-    if (total != null || quantScore != null || qualScore != null) {
+    if (scoredOutputs.length > 0) {
       tracker.setDetail("finalize", "Synthesizing final report...");
-      report = await synthesizeReport({
+      report = await synthesizeSkillReport({
         modelId,
         llmKeys,
-        agentPersona: agent.persona?.philosophy_and_mindset || "",
+        agentPersona: persona,
         agentDisplayName: agent.name || "Analysis Agent",
-        quantAnalysis: normalizeQuantScale(quant.quantitative_analysis),
-        qualAnalysis: parsedQual,
-        totalScore: total ?? 0,
-        quantScore,
-        qualScore,
+        outputs: scoredOutputs,
+        totalScore: total,
         fitLow: totalLow,
         fitHigh: totalHigh,
         coverage: totalCoverage,
         asOf: new Date().toISOString().slice(0, 10),
-        degraded: metricsOutage
-          ? `the metrics provider was unreachable, so all ${Object.keys(quant.quantitative_analysis).length} quantitative criteria are unscored`
-          : undefined,
-        partial: !!qualErrorSummary,
-        plan,
-        toolEvidence: toolEvidenceDigest(qual?.qualitative_tool_calls),
+        degraded:
+          skillErrors.length > 0
+            ? `${skillErrors.length} of ${outputs.length} skills reported problems: ${skillErrors.slice(0, 2).join("; ")}`
+            : agg.status === "degraded"
+              ? "some skills could not assess every anchor (INSUFFICIENT data) — coverage is below 100%"
+              : total == null
+                ? "the headline total score was suppressed (coverage below the reliability floor) — do not invent a headline number"
+                : undefined,
+        toolEvidence: toolEvidenceDigest(buildToolCallMap(outputs)),
       });
 
-      // Score summary tables are appended from CODE-rendered ScoreTables
-      // (plan 0.2/D2): no LLM transcription, no invented totals, no rescaling.
-      if (scoreTables.length) {
-        const scoreBlocks = [
-          { type: "heading", level: 2, text: "Score Summary" } as const,
-          ...scoreTablesToBlocks(scoreTables),
-        ];
-        report = { ...report, blocks: [...report.blocks, ...scoreBlocks] };
+      // Resilience visibility: synthesis retries internally and degrades
+      // to the deterministic fallback when the LLM still fails. Surface
+      // that in the reasoning trace so a degraded summary is never silent.
+      if (report.source === "fallback") {
+        collector.push("log", "finalize", {
+          text: "Executive summary degraded to the deterministic fallback — LLM synthesis failed after retries",
+        });
       }
+
+      // Score summary tables are appended from CODE-rendered tables (D2):
+      // no LLM transcription, no invented totals, no rescaling.
+      if (scoreTables.length) {
+        report = { ...report, blocks: [...report.blocks, ...scoreTables] };
+      }
+
+      // Skill-declared charts (code-assembled from real tool data) follow.
+      const chartBlocksResolved = await chartBlocks;
+      if (chartBlocksResolved.length) {
+        report = { ...report, blocks: [...report.blocks, ...chartBlocksResolved] };
+      }
+
+      // Score visualizations: the run's own computed results, plotted from
+      // the aggregate — placed with the other code-assembled sections, before
+      // the numeric gate (these figures ARE the scored values by construction).
+      // Rendered even when the headline total is suppressed: per-skill
+      // scores still exist and are worth plotting.
+      const scoreChartBlocks = buildSkillScoreCharts(outputs, agg.per_skill, total);
+      if (scoreChartBlocks.length) {
+        report = { ...report, blocks: [...report.blocks, ...scoreChartBlocks] };
+      }
+
+      // Sources & raw data: deterministic code-rendered section appended to
+      // every report — the verbatim tool observations and their external URLs.
+      // Appended AFTER the sanitizer's inputs are collected (it contains raw
+      // observed numbers by design) but BEFORE sanitize runs, so the gate sees
+      // the same allowlist and cannot drop its own provenance section.
+      const sourceBlocks = buildSourcesBlocks(outputs);
 
       // Numeric integrity hard gate (spec Section 3): any bullet in a table or
       // chart that can't trace back to a scored value or tool observation drops
       // the block. The stored report therefore never ships an invented figure.
-      const known = collectKnownValues(
-        normalizeQuantScale(quant.quantitative_analysis),
-        parsedQual,
-        total ?? 0,
-        quantScore ?? 0,
-        qualScore ?? 0,
-        qual?.qualitative_tool_calls,
-      );
+      const known = collectSkillKnownValues(outputs, total ?? 0);
+      report = { ...report, blocks: [...report.blocks, ...sourceBlocks] };
       const { report: cleanReport, dropped } = sanitizeReport(report, known);
       if (dropped.length) {
         log.warn(runTag, `report sanitized — dropped ${dropped.length} block(s): ${dropped.slice(0, 5).join("; ")}`);
       }
       report = cleanReport;
-      // The hero number is OUR stored total, not the model's (plan 0.2/D2):
+      // The hero number is OUR stored total, not the model's (D2):
       // clamp heroPct to the deterministic aggregate so the headline can never
       // drift from the persisted total_score.
       report = { ...report, heroPct: total != null ? Math.round(total * 10) / 10 : report.heroPct };
       log.info(runTag, `report ready (source=${report.source})`);
     }
 
+    // Same guard for the report patch: the user may cancel while the LLM is
+    // synthesizing. Never let a late worker patch flip CANCELED to anything.
+    const { data: stillActive } = await db
+      .from("analysis_runs")
+      .select("status")
+      .eq("id", runId)
+      .single();
+    if (String((stillActive as any)?.status || "").toUpperCase() === "CANCELED") {
+      log.info(runTag, "run canceled during synthesis — discarding report patch");
+      return;
+    }
+
     await write(() =>
       updateRun(runId, {
         status: finalStatus,
-        error: qualErrorSummary,
+        error: errorSummary,
         duration: (Date.now() - started) / 1000,
-        quantitative_analysis: quant.quantitative_analysis,
-        qualitative_analysis: parsedQual,
-        qualitative_tool_calls: qual?.qualitative_tool_calls || {},
-        quantitative_score: quantScore,
-        qualitative_score: qualScore,
-        total_score: total,
-        fit_low: totalLow,
-        fit_high: totalHigh,
-        coverage: totalCoverage,
-        price_data: price_data || null,
         report,
         steps: finishStep(tracker.steps, "finalize", "completed"),
       }),
     );
+
     collector.push("log", "finalize", {
-      text: `${finalStatus}${total != null ? ` — total score ${total} (coverage ${totalCoverage}%, band ${totalLow}\u2013${totalHigh})` : " — nothing scored"}`,
+      text: `${finalStatus}${
+        total != null
+          ? ` — total score ${total} (coverage ${totalCoverage}%, band ${totalLow}\u2013${totalHigh})`
+          : agg.scored_count > 0
+            ? ` — score suppressed (coverage ${totalCoverage}% is below the ${Math.round(
+                MIN_COVERAGE_FOR_SCORE * 100,
+              )}% reliability floor) — read the skill reports`
+            : " — nothing scored"
+      }`,
     });
     await collector.flush();
     log.info(runTag, `${finalStatus} total=${total} coverage=${totalCoverage} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
@@ -956,4 +1014,62 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     log.error(runTag, "execution failed:", e);
     await markFailed(runId, e, started);
   }
+}
+
+/** Flatten per-skill tool histories into the map shape the evidence digest expects. */
+function buildToolCallMap(outputs: { skill_name: string; tools_used?: string[]; error?: string }[]): Record<string, unknown[]> {
+  const map: Record<string, unknown[]> = {};
+  for (const o of outputs) {
+    map[o.skill_name] = (o.tools_used || []).map((t) => ({ tool: t, status: o.error ? "ERR" : "OK" }));
+  }
+  return map;
+}
+
+/**
+ * Group trace tool_result events into the per-skill map shape the chart
+ * grounder reads — every result kept, not just the last one per skill.
+ */
+function traceToolCallMap(events: { key: string; tool?: string; result?: unknown }[]): Record<string, unknown[]> {
+  const map: Record<string, unknown[]> = {};
+  for (const ev of events) {
+    if (!ev.tool) continue;
+    (map[ev.key] ||= []).push({ tool_name: ev.tool, status: "OK", result: ev.result });
+  }
+  return map;
+}
+
+/**
+ * Numeric-integrity allowlist for the skills pipeline: totals, per-skill
+ * scores (raw + the rounded value the score chart prints), and every number
+ * appearing in skill findings/verdict evidence, so the sanitize gate accepts
+ * figures the pipeline itself computed or the analysts legitimately observed.
+ */
+function collectSkillKnownValues(outputs: { findings: { title: string; detail: string }[]; verdicts: { evidence: string }[]; score_0_100?: number | null }[], totalScore: number): Set<number> {
+  const known = new Set<number>();
+  known.add(Math.round(totalScore * 10) / 10);
+  for (const o of outputs) {
+    if (typeof o?.score_0_100 === "number" && Number.isFinite(o.score_0_100)) {
+      known.add(Math.round(o.score_0_100 * 10) / 10);
+      known.add(Math.round(o.score_0_100));
+    }
+  }
+  const visit = (v: unknown): void => {
+    if (typeof v === "number" && Number.isFinite(v)) {
+      known.add(Math.round(v * 10) / 10);
+    } else if (typeof v === "string") {
+      for (const m of v.matchAll(/-?\d+(?:\.\d+)?/g)) {
+        const n = parseFloat(m[0]);
+        if (Number.isFinite(n)) known.add(Math.round(n * 10) / 10);
+      }
+    } else if (Array.isArray(v)) {
+      v.forEach(visit);
+    } else if (v && typeof v === "object") {
+      Object.values(v).forEach(visit);
+    }
+  };
+  for (const o of outputs) {
+    o.findings?.forEach((f) => visit(f));
+    o.verdicts?.forEach((v) => visit(v.evidence));
+  }
+  return known;
 }
