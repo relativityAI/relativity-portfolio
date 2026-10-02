@@ -8,22 +8,26 @@ import { fetchUserKeys, ensureUserSettings } from "./provision.js";
 import { getModelIds, getAvailableModelsForUser } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
 import { getMetricsCatalog, buildFieldList, getFlatCatalog, mergeCatalogFields, normalizeQuantRules, type MetricDef } from "./metrics.js";
-import { createRun, checkAndFailStaleRun, type RunRequest } from "./run.js";
+import { createRun, checkAndFailStaleRun, startStaleRunSweeper, type RunRequest } from "./run.js";
 import { keyPool } from "./keypool.js";
 import { draftParameters, type LlmKeys } from "./agent.js";
+import { classifyModelError } from "./modelcheck.js";
 import { processBuilderTurn, extractDocumentSignals, type BuilderRequest } from "./builder.js";
 import { getSchemaDescriptor } from "./schema.js";
+import { getToolCatalog } from "./tools.js";
 import { getPreset, listPresets, buildSeedAgents } from "./presets.js";
-import { agentFromRow, buildAgentConfig, validateConfig, type AgentRow } from "./agentstore.js";
-import { ensureCompiledRubric, getRubricForAgent, approveRubric, featureCatalogPrompt } from "./rubricStore.js";
-import { parseMd } from "./mdconfig.js";
+import { agentFromRow, buildAgentConfigV3, type AgentRow } from "./agentstore.js";
+import { parseAgentMd, serializeAgentMd, validateAgentV3 } from "./agentmd.js";
+import { listAllSkillsForUser, saveCustomSkill, deleteCustomSkill, loadBuiltinSkills, serializeSkill } from "./skills/store.js";
+import { parseSkillMarkdown } from "./skills/parse.js";
+import { skillDraftTurn, type SkillDraftRequest } from "./skills/draft.js";
 import { extractText } from "./upload.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
 import multer from "multer";
 import { isDataFresh, FRESHNESS_FUNDAMENTAL_MS } from "./freshness.js";
 import { requireAuth, type AuthedRequest } from "./auth.js";
 import { log, paint } from "./logger.js";
-import { buildReportPdf } from "./pdf.js";
+import { buildReportPdf, isUuid } from "./pdf.js";
 import { initTelemetry } from "./telemetry.js";
 import { serve } from "inngest/express";
 import { inngest, analysisRunFn, kbIngestFn } from "./inngest.js";
@@ -274,19 +278,28 @@ app.get("/agents", requireAuth, async (req, res) => {
     const docs = data || [];
 
     // Plant the built-in default profiles for anyone who doesn't have them yet
-    // (unless they deliberately deleted a default). Check the insert error so
+    // (unless they deliberately deleted them). Check the insert error so
     // we never return rows that didn't actually persist — a phantom seed list
     // made fresh accounts show defaults that 404'd on open/save.
+    // Suppression is per-preset: deleting Buffett must not resurrect-kill
+    // O'Neil/Growth/Lynch. Legacy boolean (pre-migration) still suppresses all.
     const hasDefault = docs.some((a: any) => a.source === "default");
     if (!hasDefault) {
       const { data: settings } = await db
         .from("user_settings")
-        .select("defaults_deleted")
+        .select("defaults_deleted, deleted_preset_keys")
         .eq("user_id", userId)
         .single();
-      const defaultsDeleted = settings?.defaults_deleted === true;
-      if (!defaultsDeleted) {
-        const seeds = buildSeedAgents(userId);
+      const deletedKeys: string[] = Array.isArray(settings?.deleted_preset_keys)
+        ? settings.deleted_preset_keys
+        : [];
+      const legacyAllDeleted = settings?.defaults_deleted === true;
+      const seeds = buildSeedAgents(userId).filter((s) => {
+        const key = String((s as any).preset_key || "");
+        if (legacyAllDeleted && deletedKeys.length === 0) return false;
+        return !deletedKeys.includes(key);
+      });
+      if (seeds.length > 0) {
         const { error: insErr } = await db.from("agents").insert(seeds);
         if (insErr) {
           log.error("[agents]", `default agent seeding failed for ${userId}: ${insErr.message}`);
@@ -297,8 +310,13 @@ app.get("/agents", requireAuth, async (req, res) => {
     }
 
     docs.sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
-    // Surface parsed markdown content (list omits `md` to keep payloads small).
-    res.json(docs.map((row: AgentRow) => ({ ...row, ...(agentFromRow(row).config || {}) })));
+    // Surface parsed v3 config (list omits `md` to keep payloads small).
+    const out = [];
+    for (const row of docs as AgentRow[]) {
+      const { config } = await agentFromRow(row);
+      out.push({ ...row, ...(config || {}), persona: { philosophy: row.persona?.philosophy || row.persona?.philosophy_and_mindset || "" } });
+    }
+    res.json(out);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -311,7 +329,12 @@ app.get("/agents/search", requireAuth, async (req, res) => {
     const q = String(req.query.query || "");
     const { data, error } = await db.from("agents").select("*").eq("user_id", userId).ilike("name", `%${q}%`).limit(25);
     if (error) throw error;
-    res.json((data || []).map((row: AgentRow) => ({ ...row, ...(agentFromRow(row).config || {}) })));
+    const out = [];
+    for (const row of (data || []) as AgentRow[]) {
+      const { config } = await agentFromRow(row);
+      out.push({ ...row, ...(config || {}) });
+    }
+    res.json(out);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -325,9 +348,9 @@ app.post("/agents/validate-md", requireAuth, async (req, res) => {
   try {
     const md = String(req.body?.md || "");
     if (!md.trim()) return res.status(400).json({ valid: false, issues: [{ line: 1, message: "empty markdown", severity: "error" }] });
-    const { agent, issues } = parseMd(md);
+    const { agent, issues } = parseAgentMd(md);
     if (!agent) return res.json({ valid: false, parsed: null, issues });
-    const check = validateConfig(agent);
+    const check = validateAgentV3(agent);
     const all = check.ok ? issues : check.issues.concat(issues);
     const hasErrors = all.some((i) => i.severity === "error");
     if (hasErrors) return res.json({ valid: false, parsed: agent, issues: all });
@@ -344,7 +367,7 @@ app.post("/agents", requireAuth, async (req, res) => {
     const id = req.body?.id || req.body?._id || randomUUID();
     let built;
     try {
-      built = buildAgentConfig(req.body || {});
+      built = buildAgentConfigV3(req.body || {});
     } catch (e: any) {
       if (e.issues) return res.status(400).json({ error: e.message, issues: e.issues });
       throw e;
@@ -357,8 +380,6 @@ app.post("/agents", requireAuth, async (req, res) => {
       name: config.name,
       persona: config.persona,
       configuration: config.configuration,
-      asset_evaluation: config.asset_evaluation,
-      macro_evaluation: config.macro_evaluation,
       md_config: md,
       created_at: now,
       updated_at: now,
@@ -377,17 +398,10 @@ app.get("/agents/:id", requireAuth, async (req, res) => {
     const userId = (req as AuthedRequest).user.id;
     const { data, error } = await db.from("agents").select("*").eq("id", req.params.id).eq("user_id", userId).single();
     if (error || !data) return res.status(404).json({ error: "Agent not found" });
-    // Markdown-first: surface parsed config, the raw md, and any parse warnings.
+    // Markdown-first: surface parsed v3 config, the raw md, and any parse issues.
     const row = data as AgentRow;
-    if (row.md_config?.trim()) {
-      const { config, issues, md } = agentFromRow(row);
-      res.json({ ...row, ...(config || {}), md, md_issues: issues });
-    } else {
-      row.asset_evaluation = normalizeEval(row.asset_evaluation);
-      row.macro_evaluation = normalizeEval(row.macro_evaluation);
-      const { md } = agentFromRow(row);
-      res.json({ ...row, md, md_issues: [] });
-    }
+    const { config, issues, md } = await agentFromRow(row);
+    res.json({ ...row, ...(config || {}), md, md_issues: issues });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -403,7 +417,7 @@ app.put("/agents/:id", requireAuth, async (req, res) => {
 
     let built;
     try {
-      built = buildAgentConfig(req.body || {}, existing as AgentRow);
+      built = buildAgentConfigV3(req.body || {}, existing as AgentRow);
     } catch (e: any) {
       if (e.issues) {
         console.error("[PUT /agents] 400 – body:", JSON.stringify(req.body, null, 2));
@@ -421,8 +435,6 @@ app.put("/agents/:id", requireAuth, async (req, res) => {
       name: config.name,
       persona: config.persona,
       configuration: config.configuration,
-      asset_evaluation: config.asset_evaluation,
-      macro_evaluation: config.macro_evaluation,
       md_config: md,
       created_at: existing.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -430,18 +442,6 @@ app.put("/agents/:id", requireAuth, async (req, res) => {
 
     const { error } = await db.from("agents").update(doc).eq("id", id).eq("user_id", userId);
     if (error) throw error;
-    // v2: compile the rubric on md change (fire-and-forget; a 23505-winner or
-    // missing compiler model simply leaves the last rubric in place).
-    setTimeout(() => {
-      fetchUserKeys(userId)
-        .then(({ llmKeys }) =>
-          ensureCompiledRubric(String(id), md, config.persona?.philosophy_and_mindset || "", [
-            ...config.asset_evaluation.qualitative.map((p: any) => ({ ...p, section: "asset_evaluation" })),
-            ...config.macro_evaluation.qualitative.map((p: any) => ({ ...p, section: "macro_evaluation" })),
-          ], { llmKeys }),
-        )
-        .catch((e: any) => log.warn("[rubric]", `background compile failed for ${id}: ${String(e?.message || e)}`));
-    }, 0);
     res.json({ ...doc, ...config, md, md_issues: issues });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
@@ -455,16 +455,31 @@ app.delete("/agents/:id", requireAuth, async (req, res) => {
     const id = req.params.id;
     // Remember if the user deletes a default profile so it doesn't get
     // re-seeded on the next list fetch ("unless they chose to delete it").
-    const { data: existing } = await db.from("agents").select("source").eq("id", id).eq("user_id", userId).single();
+    const { data: existing } = await db.from("agents").select("source, preset_key").eq("id", id).eq("user_id", userId).single();
     const { error } = await db.from("agents").delete().eq("id", id).eq("user_id", userId);
     if (error) throw error;
     if (existing?.source === "default") {
+      // Scope the suppression to the deleted preset only. The old boolean flag
+      // nuked ALL four presets on any single delete — irreversible and
+      // undisclosed. Re-seeding is per-preset below; this just records intent.
+      const presetKey = String(existing.preset_key || "");
+      const { data: settings } = await db
+        .from("user_settings")
+        .select("defaults_deleted, deleted_preset_keys")
+        .eq("user_id", userId)
+        .single();
+      const prior: string[] = Array.isArray(settings?.deleted_preset_keys) ? settings.deleted_preset_keys : [];
+      const deletedKeys = prior.includes(presetKey) && presetKey ? prior : [...prior, presetKey].filter(Boolean);
+      const patch: Record<string, unknown> = { deleted_preset_keys: deletedKeys };
+      // Back-compat: also set the legacy boolean once every preset is gone, so
+      // a pre-migration server reading only `defaults_deleted` still behaves.
+      if (deletedKeys.length >= 4) patch.defaults_deleted = true;
       const { data: hasRow } = await db.from("user_settings").select("user_id").eq("user_id", userId).single();
       const q = hasRow
-        ? db.from("user_settings").update({ defaults_deleted: true }).eq("user_id", userId)
-        : db.from("user_settings").insert({ user_id: userId, defaults_deleted: true });
+        ? db.from("user_settings").update(patch).eq("user_id", userId)
+        : db.from("user_settings").insert({ user_id: userId, ...patch });
       const { error: setErr } = await q;
-      if (setErr) log.error("[agents]", `failed to mark defaults_deleted for ${userId}: ${setErr.message}`);
+      if (setErr) log.error("[agents]", `failed to record deleted preset for ${userId}: ${setErr.message}`);
     }
     res.json({ deleted: true });
   } catch (e: any) {
@@ -472,58 +487,128 @@ app.delete("/agents/:id", requireAuth, async (req, res) => {
   }
 });
 
-// ---- rubric endpoints (plan §6.3) ----
-app.get("/agents/:id/rubric", requireAuth, async (req, res) => {
+// ---- skills (built-in library + per-user custom skills) ----
+
+/** List every skill available to the user: built-ins plus their own customs. */
+app.get("/skills", requireAuth, async (req, res) => {
   try {
-    const db = getDb();
     const userId = (req as AuthedRequest).user.id;
-    const id = String(req.params.id);
-    const { data: agent } = await db.from("agents").select("id").eq("id", id).eq("user_id", userId).single();
-    if (!agent) return res.status(404).json({ error: "Agent not found" });
-    const rubric = await getRubricForAgent(id);
-    res.json({ rubric, featureCatalog: featureCatalogPrompt().split("\n") });
+    const skills = await listAllSkillsForUser(userId);
+    res.json(skills.map((s) => ({ ...s, markdown: undefined })));
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
 });
 
-app.post("/agents/:id/rubric/compile", requireAuth, async (req, res) => {
+/** Full markdown of one skill (builtin or custom) for the editor. */
+app.get("/skills/:id", requireAuth, async (req, res) => {
   try {
-    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const skills = await listAllSkillsForUser(userId);
+    const skill = skills.find((s) => s.id === req.params.id);
+    if (!skill) return res.status(404).json({ error: "Skill not found" });
+    res.json({ ...skill, markdown: skill.markdown || serializeSkill(skill) });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+/** Validate skill markdown without saving (editor live-check). */
+app.post("/skills/validate", requireAuth, async (req, res) => {
+  try {
+    const md = String(req.body?.markdown || "");
+    if (!md.trim()) {
+      return res.json({ valid: false, issues: [{ line: 1, message: "empty markdown", severity: "error" }] });
+    }
+    const { skill, issues } = parseSkillMarkdown(md, "custom");
+    res.json({ valid: !!skill, parsed: skill, issues });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+/** Create or update a custom skill from markdown. */
+app.post("/skills", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const markdown = String(req.body?.markdown || "");
+    if (!markdown.trim()) return res.status(400).json({ error: "markdown is required" });
+    const { skill, issues } = await saveCustomSkill(userId, markdown);
+    if (!skill) {
+      const hard = issues.filter((i) => i.severity === "error");
+      return res.status(400).json({ error: "skill failed validation", issues: hard.length ? hard : issues });
+    }
+    res.status(201).json({ skill, issues });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+// Update a skill's markdown. Works for custom skills (saved in place) and
+// built-ins (fork-on-save: the user's edit is stored as a custom skill with
+// the same id, which shadows the builtin for this user from then on).
+app.put("/skills/:id", requireAuth, async (req, res) => {
+  try {
     const userId = (req as AuthedRequest).user.id;
     const id = String(req.params.id);
-    const { data: row, error } = await db.from("agents").select("*").eq("id", id).eq("user_id", userId).single();
-    if (error || !row) return res.status(404).json({ error: "Agent not found" });
-    const { config: cfg, md } = agentFromRow(row as AgentRow);
+    const markdown = String(req.body?.markdown || "");
+    if (!markdown.trim()) return res.status(400).json({ error: "markdown is required" });
+
+    const { skill: parsed, issues } = parseSkillMarkdown(markdown, "custom");
+    if (!parsed) {
+      const hard = issues.filter((i) => i.severity === "error");
+      return res.status(400).json({ error: "skill failed validation", issues: hard.length ? hard : issues });
+    }
+    if (parsed.id !== id) {
+      return res.status(400).json({
+        error: `The document's name ("${parsed.id}") does not match the skill being edited ("${id}"). Fix the name line in the frontmatter.`,
+        issues,
+      });
+    }
+    const { skill } = await saveCustomSkill(userId, markdown);
+    res.json({ skill, issues });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+app.delete("/skills/:id", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    if (loadBuiltinSkills().some((s) => s.id === req.params.id)) {
+      return res.status(400).json({ error: "Built-in skills cannot be deleted" });
+    }
+    await deleteCustomSkill(userId, String(req.params.id));
+    res.json({ deleted: true });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+// ---- AI skill authoring (conversational, validated drafts) ----
+app.post("/skills/draft", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const body = req.body || {};
     const { llmKeys } = await fetchUserKeys(userId);
-    const started = Date.now();
-    const outcome = await ensureCompiledRubric(
-      id,
-      md,
-      cfg?.persona?.philosophy_and_mindset || "",
-      [
-        ...(cfg?.asset_evaluation?.qualitative || []).map((p: any) => ({ ...p, section: "asset_evaluation" })),
-        ...(cfg?.macro_evaluation?.qualitative || []).map((p: any) => ({ ...p, section: "macro_evaluation" })),
-      ],
-      { llmKeys },
-    );
-    res.json({ ...outcome, duration_ms: Date.now() - started });
+    const draftReq: SkillDraftRequest = {
+      user_id: userId,
+      model_id: String(body.model_id || keyPool.getDefaultModel(llmKeys)),
+      llm_keys: llmKeys,
+      messages: Array.isArray(body.messages) ? body.messages : [],
+      requirements: typeof body.requirements === "string" ? body.requirements : "",
+      current_draft: typeof body.current_draft === "string" ? body.current_draft : "",
+    };
+    const out = await skillDraftTurn(draftReq);
+    res.json(out);
   } catch (e: any) {
-    res.status(503).json({ error: e.message });
-  }
-});
-
-app.post("/agents/:id/rubric/:rubricId/approve", requireAuth, async (req, res) => {
-  try {
-    const db = getDb();
-    const userId = (req as AuthedRequest).user.id;
-    const id = String(req.params.id);
-    const { data: agent } = await db.from("agents").select("id").eq("id", id).eq("user_id", userId).single();
-    if (!agent) return res.status(404).json({ error: "Agent not found" });
-    const rubric = await approveRubric(id, String(req.params.rubricId), userId);
-    res.json({ rubric });
-  } catch (e: any) {
-    res.status(503).json({ error: e.message });
+    console.error("[skills/draft] FAILED:", e?.name, e?.message);
+    if (e?.stack) console.error("[skills/draft] stack:", e.stack);
+    const friendly =
+      /No API key|api key/i.test(String(e?.message))
+        ? e.message
+        : `Skill drafting failed: ${e?.message || "unknown error"}. Try again or pick a different model.`;
+    res.status(503).json({ error: friendly });
   }
 });
 
@@ -562,7 +647,7 @@ app.get("/analysis", requireAuth, async (req, res) => {
     const userId = (req as AuthedRequest).user.id;
     const { data, error } = await db
       .from("analysis_runs")
-      .select("id, symbol, share_name, agent_name, status, total_score, quantitative_score, qualitative_score, created_at, updated_at, duration, model, source, error")
+      .select("id, symbol, share_name, agent_name, status, total_score, quantitative_score, qualitative_score, created_at, updated_at, duration, model, source, error, coverage, fit_low, fit_high")
       .eq("user_id", userId);
     if (error) throw error;
     const docs = (data || []).sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
@@ -585,7 +670,7 @@ app.get("/analysis/data-status", requireAuth, async (req, res) => {
       symbol,
       available: false,
       keyed: false,
-      error: "No Voyager API key configured. A key will be generated automatically on your first login.",
+      error: "No Voyager data key is available for your account. Add one in Settings → Data provider to enable live data.",
     });
   }
   const cs = toCountrySource(source);
@@ -622,12 +707,44 @@ app.get("/analysis/data-status", requireAuth, async (req, res) => {
   }
 });
 
+// Cancel a run: flips a PENDING/RUNNING row to CANCELED. The worker's next
+// step write matches zero rows (see executeRun) and aborts early, so quota
+// stops burning as soon as the current step yields.
+app.post("/analysis/:id/cancel", requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const id = String(req.params.id);
+    const { data } = await db
+      .from("analysis_runs")
+      .select("status")
+      .eq("id", id)
+      .eq("user_id", userId)
+      .single();
+    if (!data) return res.status(404).json({ error: "Analysis not found" });
+    const s = String(data.status || "").toUpperCase();
+    if (s !== "PENDING" && s !== "RUNNING") {
+      return res.status(409).json({ error: `Run already ${s.toLowerCase()}; nothing to cancel` });
+    }
+    const { error } = await db
+      .from("analysis_runs")
+      .update({ status: "CANCELED", error: "Canceled by the user.", updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("user_id", userId);
+    if (error) throw error;
+    res.json({ canceled: true });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
 app.get("/analysis/:id", requireAuth, async (req, res) => {
   try {
     const db = getDb();
     const userId = (req as AuthedRequest).user.id;
-    // Fast-path staleness check on every poll
-    await checkAndFailStaleRun(String(req.params.id));
+    // Fast-path staleness check on every poll — scoped to the caller so a
+    // known run id can never fail someone else's run.
+    await checkAndFailStaleRun(String(req.params.id), { scopeToUser: userId });
     const { data, error } = await db.from("analysis_runs").select("*").eq("id", req.params.id).eq("user_id", userId).single();
     if (error || !data) return res.status(404).json({ error: "Analysis not found" });
     res.json(data);
@@ -657,6 +774,18 @@ app.get("/analysis/:id/pdf", requireAuth, async (req, res) => {
     if (error || !data) return res.status(404).json({ error: "Analysis not found" });
     if (!data.quantitative_analysis && !data.qualitative_analysis && !data.report) {
       return res.status(409).json({ error: "No analysis to export" });
+    }
+    // Legacy runs stored the agent's UUID in agent_name. Resolve it to the real
+    // agent name for the report header/footer (and fall back to the masked
+    // label inside the PDF builder if the agent no longer exists).
+    if (data.agent_name && isUuid(data.agent_name)) {
+      const { data: agentRow } = await db
+        .from("agents")
+        .select("name")
+        .eq("user_id", userId)
+        .or(`id.eq.${data.agent_name},name.eq.${data.agent_name}`)
+        .maybeSingle();
+      (data as any).agent_display_name = agentRow?.name || "";
     }
     const pdf = await buildReportPdf(data);
     res.setHeader("Content-Type", "application/pdf");
@@ -755,20 +884,12 @@ app.post("/models/validate", requireAuth, async (req, res) => {
 
     res.json({ valid: true });
   } catch (e: any) {
-    const msg = e?.message || String(e);
-    let error = msg;
-    if (/401|unauthorized|invalid.*key/i.test(msg)) {
-      error = "API key is invalid or expired.";
-    } else if (/403|forbidden|insufficient/i.test(msg)) {
-      error = "API key doesn't have access to this model. Check your plan or permissions.";
-    } else if (/429|rate.limit|quota/i.test(msg)) {
-      error = "Rate limit or quota exceeded for this API key.";
-    } else if (/404|not.found|does not exist/i.test(msg)) {
-      error = "Model not found. It may have been deprecated or is not available on your plan.";
-    } else if (/timeout|abort/i.test(msg)) {
-      error = "Validation timed out. The provider may be temporarily unavailable.";
-    }
-    res.json({ valid: false, error });
+    // One classifier for every provider (see modelcheck.ts): maps the real
+    // failure — bad key, exhausted Gemini free quota (400 RESOURCE_EXHAUSTED,
+    // not 429!), rate limit, unknown model, outage — to a message and a
+    // machine-readable reason the UI can act on.
+    const failure = classifyModelError(e);
+    res.json({ valid: false, error: failure.message, reason: failure.reason, retryable: failure.retryable, needs_key: failure.needsKey });
   }
 });
 
@@ -845,6 +966,13 @@ app.get("/metrics/fields", requireAuth, async (req, res) => {
 
 app.get("/agent-schema", (_req, res) => {
   res.json(getSchemaDescriptor());
+});
+
+// Read-only catalog of the tools an agent's skills can call, with their
+// descriptions — powers the console Tools reference and the skill editor's
+// data-source picker. Static; no auth-sensitive data.
+app.get("/tool-catalog", (_req, res) => {
+  res.json(getToolCatalog());
 });
 
 app.get("/builder/presets", (_req, res) => {
@@ -1004,6 +1132,7 @@ const server = app.listen(config.port, async () => {
     "[api]",
     `config: supabase=${config.supabaseUrl ? "set" : "unset"} voyager=${config.voyagerUrl} rateLimit=${config.rateLimitPerMin}/min logLevel=${process.env.LOG_LEVEL || "info"}`,
   );
+  startStaleRunSweeper();
 });
 
 async function shutdown() {

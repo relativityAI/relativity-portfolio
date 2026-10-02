@@ -127,6 +127,81 @@ export const AnalysisService = {
     }
 };
 
+/**
+ * Skill library — built-ins plus the user's own custom skills.
+ * A SkillSummary is the list payload (no markdown); readSkill returns the
+ * full document for editors. Mirrors the API's SkillDefinition.
+ */
+export interface SkillSummary {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    version: number;
+    source: "builtin" | "custom";
+}
+
+export const SkillService = {
+    async listSkills(): Promise<SkillSummary[]> {
+        const response = await axios.get(`${API_BASE}/skills`);
+        return response.data;
+    },
+
+    async readSkill(id: string): Promise<SkillSummary & { markdown: string }> {
+        const response = await axios.get(`${API_BASE}/skills/${encodeURIComponent(id)}`);
+        return response.data;
+    },
+
+    async validateMarkdown(markdown: string): Promise<{ valid: boolean; issues: { line: number; message: string; severity: string }[] }> {
+        const response = await axios.post(`${API_BASE}/skills/validate`, { markdown });
+        return response.data;
+    },
+
+    async saveSkill(markdown: string): Promise<{ skill: SkillSummary; issues: { line: number; message: string; severity: string }[] }> {
+        const response = await axios.post(`${API_BASE}/skills`, { markdown });
+        return response.data;
+    },
+
+    async updateSkill(id: string, markdown: string): Promise<{ skill: SkillSummary; issues: { line: number; message: string; severity: string }[] }> {
+        const response = await axios.put(`${API_BASE}/skills/${encodeURIComponent(id)}`, { markdown });
+        return response.data;
+    },
+
+    async deleteSkill(id: string): Promise<{ deleted: boolean }> {
+        const response = await axios.delete(`${API_BASE}/skills/${encodeURIComponent(id)}`);
+        return response.data;
+    },
+
+    async draftSkill(params: {
+        messages: { role: string; content: string }[];
+        requirements: string;
+        current_draft: string;
+        web_search?: boolean;
+        model_id?: string;
+    }): Promise<{ message: string; valid?: boolean; skill_markdown?: string; issues?: { line: number; message: string; severity: string }[]; search_results?: { query: string; title: string; url: string }[] }> {
+        const response = await axios.post(`${API_BASE}/skills/draft`, params);
+        return response.data;
+    }
+};
+
+export const ToolService = {
+    async getCatalog(): Promise<{ name: string; description: string }[]> {
+        const response = await axios.get(`${API_BASE}/tool-catalog`);
+        return response.data;
+    }
+};
+
+/**
+ * Providers that run without a user key: local Ollama plus the free-tier
+ * cloud providers the server's key pool supplies. Kept in sync with the
+ * API's KEYLESS_PROVIDERS set in api/src/models.ts.
+ */
+const KEYLESS_PROVIDERS = new Set(["ollama", "groq", "gemini", "cerebras", "openrouter", "mistral", "nvidia", "cohere", "zai"]);
+
+export function isServerFreeModel(modelId: string): boolean {
+    return KEYLESS_PROVIDERS.has(String(modelId).split("/")[0]);
+}
+
 export const VoyagerService = {
     async getAvailableMetrics(source: string) {
         const response = await axios.get(`${API_BASE}/metrics/fields?source=${encodeURIComponent(source)}`);

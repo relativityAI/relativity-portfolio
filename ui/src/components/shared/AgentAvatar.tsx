@@ -72,21 +72,18 @@ export default function AgentAvatar({ agent, size = 24, label }: AgentAvatarProp
             aria-label={label}
             aria-hidden={label ? undefined : true}
         >
-            <Box
-                as="span"
-                w="90%"
-                h="90%"
-                display="block"
-                dangerouslySetInnerHTML={{ __html: svg }}
-                css={{
-                    "& > svg": {
-                        width: "100%",
-                        height: "100%",
-                        display: "block",
-                        // Sepia wash — engraved-ink portraits, not cartoons.
-                        filter: "sepia(0.52) saturate(0.72) contrast(0.96)",
-                    },
+            {/* Inline styles, not Chakra props: the `css` prop silently drops
+                nested selectors, and with no sized parent the portrait's
+                width/height=100% resolved against zero and vanished. */}
+            <span
+                style={{
+                    width: "90%",
+                    height: "90%",
+                    display: "block",
+                    // Sepia wash — engraved-ink portraits, not cartoons.
+                    filter: "sepia(0.52) saturate(0.72) contrast(0.96)",
                 }}
+                dangerouslySetInnerHTML={{ __html: svg }}
             />
         </Box>
     );

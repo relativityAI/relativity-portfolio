@@ -76,6 +76,32 @@ function getData(block: ChartBlock): { data: Datum[]; keys: string[]; xKey: stri
   return { data, keys, xKey };
 }
 
+/** Daily close line for candlestick data (candles don't fit a static A4 SVG). */
+function candlestickSvg(block: ChartBlock): string {
+  const data = (block.data || []).filter((d: any) => Number.isFinite(Number(d.close)));
+  if (data.length < 2) return "";
+  // Downsample to keep the SVG bounded, mirroring the UI's ~120-point cap.
+  const step = Math.max(1, Math.ceil(data.length / 120));
+  const pts = data.filter((_: Datum, i: number) => i % step === 0);
+  const closes = pts.map((d: any) => Number(d.close));
+  const maxV = Math.max(...closes);
+  const minV = Math.min(...closes);
+  const y = (v: number) => M.top + PH - ((v - minV) / Math.max(maxV - minV, 1e-9)) * PH;
+  const band = PW / Math.max(pts.length, 1);
+  const line = pts
+    .map((d: any, i: number) => `${i === 0 ? "M" : "L"}${(M.left + band * i + band / 2).toFixed(1)},${y(Number(d.close)).toFixed(1)}`)
+    .join(" ");
+  const area = `${line} L${(M.left + PW).toFixed(1)},${y(minV)} L${(M.left + band / 2).toFixed(1)},${y(minV)} Z`;
+  const xLabels = pts
+    .filter((_: Datum, i: number) => i % Math.max(1, Math.floor(pts.length / 5)) === 0)
+    .map((d: any) => {
+      const i = pts.indexOf(d);
+      return `<text x="${(M.left + band * i + band / 2).toFixed(1)}" y="${H - 30}" font-size="11" fill="${AXIS}" text-anchor="middle">${esc(String(d.date ?? ""))}</text>`;
+    })
+    .join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Helvetica, Arial, sans-serif"><g>${legendSvg([{ key: "close", color: CHART_COLORS[0], kind: "line" }])}</g><path d="${area}" fill="${CHART_COLORS[0]}" opacity="0.08"/><path d="${line}" fill="none" stroke="${CHART_COLORS[0]}" stroke-width="2"/>${xLabels}</svg>`;
+}
+
 function barLineAreaSvg(block: ChartBlock): string {
   const { data, keys, xKey } = getData(block);
   const values = data.flatMap((d) => keys.map((k) => Number(d[k] ?? NaN))).filter((v) => Number.isFinite(v));
@@ -238,6 +264,8 @@ function pieSvg(block: ChartBlock): string {
 /** Draw a chart report block as SVG, mirroring the UI's chart styling. */
 export function renderChartSvg(block: ChartBlock): string {
   switch (block.chartType) {
+    case "candlestick":
+      return candlestickSvg(block);
     case "bar":
     case "line":
     case "area":
@@ -262,6 +290,13 @@ export function chartBlockToPng(block: ChartBlock): Buffer {
 
 /** Strip the light markdown the model uses (###, **, bullets) to plain PDF text. */
 const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+// Stateless checker: a /g/ regex's .test() carries lastIndex between calls,
+// which made the uuid guard below intermittently MISS (it printed raw uuids
+// in the "Prepared for" line whenever an earlier .test() advanced the index).
+const UUID_TEST_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
+export function isUuid(v: unknown): boolean {
+  return UUID_TEST_RE.test(String(v || ""));
+}
 function plain(text: string): string {
   return String(text || "")
     .replace(/^#{1,6}\s*/gm, "")
@@ -319,9 +354,37 @@ function evidenceLookupFor(run: any): Record<string, string> {
 function evidenceLine(keys: string[] | undefined, lookup: Record<string, string>): PdfContent {
   // Drop infrastructure ids (uuid-shaped keys) — they are never human-facing
   // data points and leak internal row ids into the report.
-  const resolved = (keys || []).filter((k) => k !== "scored_data" && !UUID_RE.test(k));
+  const resolved = (keys || []).filter(
+    (k) => k !== "scored_data" && k !== "skill_outputs" && !isUuid(k) && (lookup[k] || /^https?:\/\//i.test(k)),
+  );
   if (resolved.length === 0) return [];
-  return [{ text: `Based on: ${resolved.map((k) => lookup[k] ?? k).join(" · ")}`, style: "meta", margin: [0, 1, 0, 5] }];
+  // URL-shaped keys become clickable domain links (pdfmake `link`); other
+  // keys resolve through the lookup to their human line.
+  const nodes: PdfNode[] = [];
+  resolved.forEach((k, i) => {
+    const isUrl = /^https?:\/\//i.test(k);
+    if (isUrl) {
+      let domain = k;
+      try { domain = new URL(k).hostname.replace(/^www\./, ""); } catch { /* keep full */ }
+      nodes.push({
+        text: `${domain} \u2197`,
+        link: k,
+        color: "#23747D",
+        decoration: "underline",
+      });
+    } else {
+      nodes.push({ text: lookup[k] ?? k });
+    }
+    if (i < resolved.length - 1) nodes.push({ text: "  \u00b7  ", color: "#9CA3AF" });
+  });
+  return [
+    {
+      text: "Source:  ",
+      style: "meta",
+      margin: [0, 1, 0, 5],
+    },
+    ...nodes.map((n) => ({ ...n, fontSize: 8, margin: [0, 1, 0, 5] })),
+  ];
 }
 
 async function blockToPdfContent(block: ReportBlock, lookup: Record<string, string>): Promise<PdfContent> {
@@ -329,8 +392,13 @@ async function blockToPdfContent(block: ReportBlock, lookup: Record<string, stri
     case "heading":
       return [{ text: plain(block.text), style: block.level === 2 ? "h2" : "h3" }];
     case "paragraph": {
+      // Strip citation litter the older synthesizer baked into prose — the
+      // PDF renders structured citations itself (never "(Source: tool: url)").
+      const text = String(block.text || "").includes("(Source:")
+        ? String(block.text).replace(/\s*\(Source:[^)]*\)\s*/g, " ").replace(/\s{2,}/g, " ").trim()
+        : String(block.text || "");
       return [
-        ...markdownText(block.text).map((ln) => ({ text: ln, style: "body" })),
+        ...markdownText(text).map((ln) => ({ text: ln, style: "body" })),
         ...evidenceLine(block.citedKeys, lookup),
       ];
     }
@@ -399,22 +467,32 @@ async function blockToPdfContent(block: ReportBlock, lookup: Record<string, stri
  * monogram chip. Degrades to the plain text line if rasterization fails.
  */
 function identityTitleBand(run: any): PdfNode {
+  // agent_name may be a raw uuid (older runs stored the id, not the display
+  // name) — never print a uuid in the client-facing report. The pdf route
+  // resolves the uuid to the agent's real name before we get here; this
+  // fallback only covers callers that didn't.
+  const agentLabel = isUuid(run.agent_name)
+    ? run.agent_display_name || "Investor agent"
+    : run.agent_name || "Agent";
   const plainLine =
-    `Prepared for the "${run.agent_name || "Agent"}" mandate` +
+    `Prepared for the "${agentLabel}" mandate` +
     (run.model ? ` · ${run.model}` : "") +
     ` · ${run.created_at ? new Date(run.created_at).toLocaleDateString() : ""}`;
   try {
+    // Report-size portrait: the agent visibly authors this document, the way
+    // an analyst signs a research note — not a 30px chip lost in the header.
     return {
       columns: [
         {
-          image: `data:image/png;base64,${agentChipPng(agentSeed(run.agent_name || "Agent")).toString("base64")}`,
-          width: 30,
-          height: 30,
-          margin: [0, 0, 12, 0],
+          image: `data:image/png;base64,${agentChipPng(agentSeed(run.agent_name || "Agent"), 128).toString("base64")}`,
+          width: 58,
+          height: 58,
+          margin: [0, 0, 14, 0],
         },
         {
           stack: [
-            { text: `Prepared for the "${run.agent_name || "Agent"}" mandate`, style: "meta" },
+            { text: agentLabel, style: "h3", margin: [0, 2, 0, 1] },
+            { text: `Prepared for the "${agentLabel}" mandate`, style: "meta" },
             run.model
               ? {
                   columns: [
@@ -443,14 +521,263 @@ function identityTitleBand(run: any): PdfNode {
   }
 }
 
+/** The display domain of a URL ("nseindia.com"), or null when unparsable. */
+function domainOfUrl(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+/** Compact citation line: "nseindia.com · get_financial_metrics" style. */
+function citationLine(citations: any[] | undefined): string {
+  if (!citations?.length) return "";
+  return citations
+    .map((c: any) => {
+      const domain = c.url ? domainOfUrl(c.url) : null;
+      // Web sources read as the site they came from; internal feeds as the tool.
+      const src = domain || c.label || c.source || "source";
+      return src;
+    })
+    .filter((v: string, i: number, arr: string[]) => arr.indexOf(v) === i)
+    .join("  ·  ");
+}
+
+/**
+ * Inline source note under a claim: "Source: ⟨chips⟩" — web citations as
+ * clickable domains with the external glyph, internal feeds as their feed
+ * name. Mirrors the UI's branded citation chips.
+ */
+function sourceNoteNodes(citations: any[]): PdfNode[] {
+  const nodes: PdfNode[] = [{ text: "Source:  ", style: "sourceLine" }];
+  const seen = new Set<string>();
+  const list = citations.filter((c: any) => {
+    const key = c.url || c.label || c.source;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  list.forEach((c: any, i: number) => {
+    const domain = c.url ? domainOfUrl(c.url) : null;
+    if (c.url && domain) {
+      nodes.push({
+        text: [`${domain} \u2197`, c.value ? String(c.value).slice(0, 80) : null].filter(Boolean).join(" — "),
+        link: c.url,
+        color: "#23747D",
+        decoration: "underline",
+        fontSize: 7.5,
+        margin: [1, 0, 0, 4],
+      });
+    } else {
+      nodes.push({ text: c.label || c.source || "source", style: "sourceLine" });
+    }
+    if (i < list.length - 1) nodes.push({ text: "  \u00b7  ", color: "#9CA3AF", fontSize: 7.5, margin: [1, 0, 0, 4] });
+  });
+  return [{ columns: nodes, columnGap: 2, margin: [1, 0, 0, 4] }];
+}
+
+/** Full citation references for the Sources section: label + domain + url. */
+function citationRefLine(c: any): string {
+  const domain = c.url ? domainOfUrl(c.url) : null;
+  const name = c.label || c.source || domain || "source";
+  const parts = [name];
+  if (domain && domain !== name) parts.push(domain);
+  if (c.url && (!domain || !c.url.includes(domain))) parts.push(c.url);
+  if (c.value) parts.push(String(c.value).slice(0, 140));
+  return parts.filter(Boolean).join("  —  ");
+}
+
+/** One-line human summary of an observation's JSON payload (key: value pairs). */
+function observationSummary(o: any): string | null {
+  const raw = String(o.result || "");
+  if (!(raw.startsWith("{") || raw.startsWith("["))) return null;
+  try {
+    const j = JSON.parse(raw);
+    const flat: string[] = [];
+    const visit = (v: unknown, prefix = ""): void => {
+      if (flat.length >= 6) return;
+      if (v == null) return;
+      if (typeof v === "object") {
+        for (const [k, val] of Object.entries(v as Record<string, unknown>).slice(0, 10)) visit(val, prefix ? `${prefix}.${k}` : k);
+      } else if (typeof v === "number" || typeof v === "string") {
+        const sv = String(v);
+        if (sv.length <= 60 && !/^https?:/.test(sv)) flat.push(`${prefix}: ${sv}`);
+      }
+    };
+    visit(j);
+    return flat.length ? flat.join("   ") : null;
+  } catch {
+    return null;
+  }
+}
+
+interface WebStory {
+  title: string;
+  url: string;
+  source: string | null;
+  date: string | null;
+  snippet: string | null;
+}
+
+/**
+ * Pull readable web stories out of a web-search/news observation's payload —
+ * the PDF renders these as a source list (headline first, clickable domain),
+ * never as raw JSON. Returns null for non-story payloads.
+ */
+function webStoriesFromPayload(o: any): WebStory[] | null {
+  const raw = String(o.result || "");
+  if (!(raw.startsWith("{") || raw.startsWith("["))) return null;
+  try {
+    const j = JSON.parse(raw);
+    const arr: any[] = Array.isArray(j) ? j : Array.isArray(j.results) ? j.results : [];
+    const stories: WebStory[] = [];
+    for (const it of arr.slice(0, 8)) {
+      if (!it || typeof it !== "object") continue;
+      const url = typeof it.url === "string" && /^https?:/i.test(it.url) ? it.url : null;
+      const title = typeof it.title === "string" && it.title.trim() ? plain(it.title.trim()) : null;
+      if (!title && !url) continue;
+      stories.push({
+        title: title || domainOfUrl(url) || "story",
+        url: url || "",
+        source: typeof it.source === "string" ? plain(it.source) : null,
+        date: typeof it.published_date === "string" ? it.published_date.slice(0, 16) : null,
+        snippet: typeof it.content === "string" ? plain(it.content.replace(/\s+/g, " ")).slice(0, 220) : null,
+      });
+    }
+    return stories.length > 0 ? stories : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Per-skill section (v3 pipeline): findings with citation lines, verdict
+ * anchors with verdict + evidence + citations, and a "Sources & raw data"
+ * block rendered as facsimile — each observation leads with where the data
+ * came from (site domain for web results, feed name for internal data),
+ * followed by a readable one-line summary and the verbatim payload.
+ */
+function skillSectionBlocks(output: any): PdfContent {
+  const out: PdfContent = [];
+  const score = output.score_0_100;
+  out.push({
+    text: `${output.skill_name || output.skill_id || "Skill"}${score != null ? ` — score ${score}` : " — no score"} · weight ${output.weight ?? "—"}`,
+    style: "h2",
+  });
+  out.push({
+    text: "",
+    style: "spacer",
+  });
+  if (output.error) {
+    out.push({ text: `This skill could not complete: ${plain(String(output.error)).slice(0, 200)}`, style: "callout", background: "#F6EFDC", color: "#7A5A1F" });
+    return out;
+  }
+
+  for (const f of output.findings || []) {
+    const title = typeof f === "string" ? "" : plain(f.title || "");
+    const detail = typeof f === "string" ? f : plain(f.detail || f.text || f.finding || "");
+    if (title) out.push({ text: title, style: "h3" });
+    if (detail) out.push({ text: detail, style: "body" });
+    if (typeof f === "object" && f.citations?.length) out.push(...sourceNoteNodes(f.citations));
+  }
+
+  for (const v of output.verdicts || []) {
+    out.push({
+      columns: [
+        { text: `${plain(v.anchor || "—")}${v.evidence ? ` — ${plain(String(v.evidence)).slice(0, 200)}` : ""}`, style: "cell", width: "*" },
+        { text: String(v.verdict || ""), style: "verdictPill", width: "auto", color: signalColor(v.verdict === "YES" ? 100 : v.verdict === "PARTIAL" ? 50 : v.verdict === "NO" ? 10 : null) },
+      ],
+      columnGap: 8,
+      margin: [0, 2, 0, 0],
+    });
+    if (v.citations?.length) out.push(...sourceNoteNodes(v.citations));
+  }
+
+  const citations: any[] = output.citations || [];
+  const observations: any[] = output.raw_observations || [];
+  if (citations.length > 0 || observations.length > 0) {
+    out.push({ text: "Sources & raw data", style: "tableTitle" });
+
+    // Cited sources: one row each, full reference (name, domain, url, value).
+    for (const c of citations.slice(0, 12)) {
+      out.push({ text: `•  ${plain(citationRefLine(c))}`, style: "sourceLine" });
+    }
+
+    // Raw observations as facsimile blocks: header = where it came from,
+    // then readable content — web results render as story lists (headline
+    // first, clickable domain, date), data feeds as key readouts — and the
+    // verbatim payload only for observations the summary renderer can't read.
+    for (const o of observations.slice(0, 10)) {
+      const isWeb = !!o.url;
+      const headerLabel = isWeb ? domainOfUrl(o.url) || "web source" : plain(o.tool || "tool");
+      const statusTag =
+        o.status === "ok" ? "" : `  [${String(o.status || "no data").toUpperCase()}]`;
+
+      out.push({
+        columns: [
+          { text: `${headerLabel}${statusTag}`, style: "obsHeader", width: "auto" },
+          { text: isWeb ? plain(o.url) : plain(String(o.args || "")).slice(0, 80), style: "obsUrl", width: "*", alignment: "right" },
+        ],
+        columnGap: 8,
+        margin: [0, 5, 0, 1],
+      });
+
+      if (o.status === "ok") {
+        const stories = webStoriesFromPayload(o);
+        if (stories) {
+          // Web story list: headline (linked) — source, date, then snippet.
+          for (const s of stories) {
+            out.push({
+              columns: [
+                {
+                  text: s.url ? s.title : `${s.title} — ${s.source || ""}`,
+                  style: "obsSummary",
+                  width: "*",
+                  ...(s.url ? { link: s.url, color: "#23747D" } : {}),
+                },
+                { text: [s.source, s.date].filter(Boolean).join(" · "), style: "obsUrl", width: "auto", alignment: "right" },
+              ],
+              columnGap: 8,
+              margin: [0, 2, 0, 0],
+            });
+            if (s.snippet && s.url) {
+              out.push({ text: s.snippet, style: "obsSummary", margin: [0, 0, 0, 2] });
+            }
+          }
+          continue;
+        }
+        const sum = observationSummary(o);
+        if (sum) {
+          out.push({ text: plain(sum).slice(0, 260), style: "obsSummary" });
+          continue;
+        }
+        // No readable structure — show the verbatim payload.
+        out.push({ text: plain(String(o.result || "")).slice(0, 300), style: "obsRaw" });
+      } else {
+        out.push({
+          text: o.status === "ERR" ? "This call failed — nothing came back from the source." : "This call returned no data.",
+          style: "obsSummary",
+        });
+      }
+    }
+  }
+  return out;
+}
+
 /** Assemble the full PDF document definition for a completed run. */
 export async function buildReportPdf(run: any): Promise<Buffer> {
   pdfMake.vfs = pdfFonts?.pdfMake?.vfs ?? pdfFonts ?? {};
   const report = run.report || {};
   const blocks: ReportBlock[] = Array.isArray(report.blocks) ? report.blocks : [];
   const total = run.total_score;
-  const quant = run.quantitative_score;
-  const qual = run.qualitative_score;
+  const coverage = run.coverage;
+  const fitLow = run.fit_low;
+  const fitHigh = run.fit_high;
+  // Footer agent label: same uuid guard as the title band.
+  const footerAgent = isUuid(run.agent_name)
+    ? run.agent_display_name || ""
+    : run.agent_name || "";
   const document: any = {
     pageSize: "A4",
     pageMargins: [44, 46, 44, 60],
@@ -463,7 +790,7 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
           height: 13,
           margin: [0, 1, 0, 0],
         },
-        { text: `Relativity · ${run.share_name || run.symbol} · ${run.agent_name || "Agent"}`, style: "footer", alignment: "left", margin: [0, 3, 0, 0] },
+        { text: `Relativity · ${run.share_name || run.symbol}${footerAgent ? ` · ${footerAgent}` : ""}`, style: "footer", alignment: "left", margin: [0, 3, 0, 0] },
         { text: `page ${currentPage} of ${pageCount}`, style: "footer", alignment: "right", margin: [0, 3, 0, 0] },
       ],
       columnGap: 6,
@@ -482,32 +809,42 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
       { text: `${run.symbol || ""}${run.source ? ` · ${run.source}` : ""}`, style: "subtitle", margin: [0, 2, 0, 10] },
       identityTitleBand(run),
       { text: "", style: "spacer" },
-      // ── Hero band ──
+      // ── Hero band (v3: one fit score; coverage/band as sub-labels — the
+      // v2 Quantitative/Qualitative split no longer exists in the pipeline) ──
       {
         table: {
           headerRows: 0,
-          widths: ["*", "*", "*"],
+          widths: ["*"],
           body: [
+            [{ text: `${total ?? "—"}`, style: "hero", color: signalColor(total), alignment: "center" }],
             [
-              { text: `${total ?? "—"}`, style: "hero", color: signalColor(total), alignment: "center" },
-              { text: `${quant ?? "—"}`, style: "hero", color: signalColor(quant), alignment: "center" },
-              { text: `${qual ?? "—"}`, style: "hero", color: signalColor(qual), alignment: "center" },
-            ],
-            [
-              { text: "Overall alignment", style: "heroLabel", alignment: "center" },
-              { text: "Quantitative", style: "heroLabel", alignment: "center" },
-              { text: "Qualitative", style: "heroLabel", alignment: "center" },
+              {
+                text:
+                  total == null
+                    ? "No fit score — see the skill reports below"
+                    : `Fit to the agent's philosophy · ${coverage != null ? `${coverage}% coverage` : "coverage n/a"}${fitLow != null && fitHigh != null ? ` · band ${fitLow}–${fitHigh}` : ""}`,
+                style: "heroLabel",
+                alignment: "center",
+              },
             ],
           ],
         },
         layout: { hLineWidth: () => 0, vLineWidth: () => 0, fillColor: () => "#FAFAF9" },
         margin: [0, 4, 0, 18],
       },
-      report.partial
-        ? { text: "Partial result — some qualitative parameters failed to score; this report reflects partial data.", style: "callout", background: "#F6EFDC", color: "#7A5A1F" }
-        : {},
+      report.degraded
+        ? { text: `Partial result — ${plain(String(report.degraded)).slice(0, 220)}`, style: "callout", background: "#F6EFDC", color: "#7A5A1F" }
+        : report.partial
+          ? { text: "Partial result — some skills could not complete every anchor; this report leans on partial evidence.", style: "callout", background: "#F6EFDC", color: "#7A5A1F" }
+          : {},
     ],
     styles: {
+      verdictPill: { fontSize: 8, bold: true, color: "#4B5563", alignment: "right" },
+      sourceLine: { fontSize: 7.5, color: "#23747D", margin: [1, 0, 0, 4] },
+      obsHeader: { fontSize: 8, bold: true, color: "#16181B" },
+      obsUrl: { fontSize: 7, color: "#9CA3AF" },
+      obsSummary: { fontSize: 8, color: "#4B5563", lineHeight: 1.35, margin: [0, 0, 0, 2] },
+      obsRaw: { fontSize: 6.5, color: "#9CA3AF", lineHeight: 1.3, margin: [0, 0, 0, 4] },
       title: { fontSize: 26, bold: true, color: "#16181B" },
       subtitle: { fontSize: 12, color: "#6B7280", fontFeatures: ["tnum"] },
       meta: { fontSize: 9, color: "#9CA3AF", margin: [0, 2, 0, 0] },
@@ -530,6 +867,36 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
   for (const block of blocks) {
     const node = await blockToPdfContent(block, evidenceLookupFor(run));
     for (const n of node) document.content.push(n);
+  }
+
+  // ── Per-skill sections (v3) ──
+  const outputs: any[] = Array.isArray(run.skill_outputs) ? run.skill_outputs : [];
+  const usable = outputs.filter((o) => o && (o.skill_id || o.skill_name));
+  if (usable.length > 0) {
+    document.content.push({ text: "Skill reports", style: "h2" });
+    // Index — a real sequence: each skill's score and coverage at a glance.
+    usable.forEach((o, i) => {
+      const score = o.score_0_100;
+      document.content.push({
+        columns: [
+          { text: `${String(i + 1).padStart(2, "0")}`, style: "sourceLine", width: "auto", margin: [0, 0, 8, 0] },
+          { text: `${o.skill_name || o.skill_id || "Skill"}`, style: "cell", width: "*" },
+          {
+            text: `${score != null ? score : "no score"}${o.coverage != null ? ` · ${Math.round(o.coverage * 100)}%` : ""}`,
+            style: "sourceLine",
+            width: "auto",
+            alignment: "right",
+            color: signalColor(score),
+          },
+        ],
+        columnGap: 4,
+        margin: [0, 1, 0, 0],
+      });
+    });
+    document.content.push({ text: "", style: "spacer" });
+    usable.forEach((o) => {
+      for (const n of skillSectionBlocks(o)) document.content.push(n);
+    });
   }
 
   const pdf: any = pdfMake;

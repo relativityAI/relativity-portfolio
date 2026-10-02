@@ -101,6 +101,136 @@ export type ParseResult =
     | { ok: true; merged: Partial<AgentShape> }
     | { ok: false; issues: string[] };
 
+/* ── Whole-agent markdown (v3) ────────────────────────────────────────────
+ * The raw-file editor edits the *entire* agent document, not one section.
+ * Grammar mirrors the backend parser in api/src/agentmd.ts so a document
+ * written here round-trips through POST /agents/validate-md unchanged. */
+
+/** Just the `## Skills` block, for the export bundle's skills.md. */
+export function skillsMarkdown(agent: AgentShape): string {
+    const skills: { skill_id: string; weight: number }[] = agent.skills || [];
+    return [
+        "## Skills",
+        "",
+        ...(skills.length
+            ? skills.map((s) => `- ${s.skill_id} — weight ${s.weight ?? 5}`)
+            : ["(no skills attached)"]),
+        "",
+    ].join("\n");
+}
+
+export function agentToMarkdown(agent: AgentShape): string {
+    const horizon = agent.configuration?.investment_horizon || "";
+    const risk = agent.configuration?.risk_appetite ?? 5;
+    const skills: { skill_id: string; weight: number }[] = agent.skills || [];
+    return [
+        "---",
+        `name: ${agent.name || "Untitled agent"}`,
+        horizon ? `investment_horizon: ${horizon}` : "",
+        `risk_appetite: ${risk}`,
+        "---",
+        "",
+        "## Philosophy",
+        "",
+        agent.persona?.philosophy || "(no philosophy written)",
+        "",
+        "## Skills",
+        "",
+        ...(skills.length
+            ? skills.map((s) => `- ${s.skill_id} — weight ${s.weight ?? 5}`)
+            : ["(no skills attached)"]),
+        "",
+    ].filter((l) => l !== "" || true).join("\n");
+}
+
+/** Validate the whole document through the backend that owns the grammar. */
+export async function validateAgentMarkdown(md: string): Promise<MdIssue[]> {
+    try {
+        const res = await AgentService.validateMd(md);
+        return res.issues || [];
+    } catch {
+        return [];
+    }
+}
+
+export function parseAgentMarkdown(md: string): ParseResult {
+    const issues: string[] = [];
+    const lines = md.replace(/\r\n/g, "\n").split("\n");
+    if (lines[0]?.trim() !== "---") {
+        return { ok: false, issues: ["File must start with a --- frontmatter block."] };
+    }
+
+    let fmEnd = -1;
+    for (let i = 1; i < lines.length; i++) {
+        if (lines[i].trim() === "---") { fmEnd = i; break }
+    }
+    if (fmEnd < 0) return { ok: false, issues: ["Unterminated frontmatter — add a closing ---."] };
+
+    const merged: Partial<AgentShape> = {
+        configuration: {},
+        persona: {},
+        skills: [],
+    };
+    for (const line of lines.slice(1, fmEnd)) {
+        const m = line.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
+        if (!m) continue;
+        const [, key, rawValue] = m;
+        const value = rawValue.trim();
+        if (key === "name") merged.name = value;
+        else if (key === "investment_horizon") (merged.configuration as any).investment_horizon = value;
+        else if (key === "risk_appetite") {
+            const n = Number(value);
+            if (Number.isInteger(n) && n >= 1 && n <= 10) (merged.configuration as any).risk_appetite = n;
+            else issues.push(`risk_appetite must be a whole number from 1 to 10, got "${value}".`);
+        }
+    }
+
+    let section: "philosophy" | "skills" | null = null;
+    let sawPhilosophy = false;
+    const philosophy: string[] = [];
+    const skills: { skill_id: string; weight: number }[] = [];
+    for (const line of lines.slice(fmEnd + 1)) {
+        const h = line.match(/^#{1,2}\s+(.*)$/);
+        if (h) {
+            const name = h[1].trim().toLowerCase();
+            section = name === "philosophy" || name === "investment philosophy"
+                ? "philosophy"
+                : name === "skills" ? "skills" : null;
+            if (section === "philosophy") sawPhilosophy = true;
+            continue;
+        }
+        if (section === "philosophy") {
+            const t = line.trim();
+            // Serialize emits this sentinel for an unwritten philosophy.
+            if (t && t !== "(no philosophy written)") philosophy.push(line);
+        } else if (section === "skills") {
+            const li = line.match(/^\s*[-*]\s+(.+)$/);
+            if (!li) continue;
+            let ref = li[1].trim();
+            let weight = 5;
+            const w = ref.match(/[—–-]\s*weight\s*:?\s*(\d{1,2})\s*$/i);
+            if (w) {
+                const n = parseInt(w[1], 10);
+                if (n >= 1 && n <= 10) weight = n;
+                else issues.push(`Skill weight must be 1-10, got ${n}.`);
+                ref = ref.slice(0, w.index).trim();
+            }
+            const slug = ref.replace(/^`|`$/g, "").trim().toLowerCase().replace(/\s+/g, "-");
+            if (slug && slug !== "no-skills-attached") skills.push({ skill_id: slug, weight });
+        }
+    }
+
+    if (!merged.name?.trim()) issues.push('Frontmatter is missing a "name".');
+    if (issues.length) return { ok: false, issues };
+
+    merged.persona = {
+        // The placeholder serializes an absent philosophy — don't read it back as text.
+        philosophy: sawPhilosophy ? philosophy.join("\n").trim() : "",
+    };
+    merged.skills = skills;
+    return { ok: true, merged };
+}
+
 function parseFrontmatter(md: string): { merged: Partial<AgentShape>; issues: string[] } {
     const merged: Partial<AgentShape> = { configuration: {}, persona: {} };
     const issues: string[] = [];

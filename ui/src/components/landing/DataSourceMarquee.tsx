@@ -1,4 +1,3 @@
-import { Box, Flex, Text } from "@chakra-ui/react";
 import { SOURCES } from "@/lib/dataSources";
 import { SOURCE_DEFS, SourceMark, type SourceKey } from "@/lib/sourceLogos";
 
@@ -6,42 +5,42 @@ const SOURCE_KEYS: SourceKey[] = ["sec", "nse", "voyager", "youtube", "reddit"];
 
 function Chip({ children }: { children: React.ReactNode }) {
     return (
-        <Flex align="center" gap={1.5} borderRadius="full" border="1px solid var(--hairline)" bg="var(--surface-recessed)" px={3} py={1.5} flexShrink={0}>
+        <div className="flex items-center gap-1.5 rounded-full border border-[var(--hairline)] bg-[var(--surface-recessed)] px-3 py-1.5 shrink-0">
             {children}
-        </Flex>
+        </div>
     );
 }
 
 function Track() {
     return (
-        <Flex align="center" gap={3} px={1.5}>
+        <div className="flex items-center gap-3 px-1.5">
             {SOURCE_KEYS.map((k) => (
                 <Chip key={k}>
                     <SourceMark source={k} size={19} />
-                    <Text fontFamily="var(--font-mono)" fontSize="xs" fontWeight={500} color="var(--ink-secondary)" whiteSpace="nowrap">
+                    <span className="font-[family-name:var(--font-mono)] text-xs font-medium text-[var(--ink-secondary)] whitespace-nowrap">
                         {SOURCE_DEFS[k].label}
-                    </Text>
+                    </span>
                 </Chip>
             ))}
             {SOURCES.map((s) => (
                 <Chip key={s.label}>
                     <s.icon size={12} color="var(--ink-tertiary)" />
-                    <Text fontFamily="var(--font-mono)" fontSize="xs" fontWeight={500} color="var(--ink-secondary)" whiteSpace="nowrap">
+                    <span className="font-[family-name:var(--font-mono)] text-xs font-medium text-[var(--ink-secondary)] whitespace-nowrap">
                         {s.label}
-                    </Text>
+                    </span>
                 </Chip>
             ))}
-        </Flex>
+        </div>
     );
 }
 
 export default function DataSourceMarquee() {
     return (
-        <Box overflow="hidden" w="100%" aria-hidden="true">
-            <Box className="marquee-track">
+        <div className="overflow-hidden w-full" aria-hidden="true">
+            <div className="marquee-track">
                 <Track />
                 <Track />
-            </Box>
-        </Box>
+            </div>
+        </div>
     );
 }

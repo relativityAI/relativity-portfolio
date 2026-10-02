@@ -10,7 +10,7 @@
  * A throttled background flush persists daily aggregates to the `api_usage`
  * table, which the admin panel reads.
  */
-import { getModels } from "./models.js";
+import { getModels, isKeylessProvider } from "./models.js";
 import { getDb } from "./db.js";
 import { log } from "./logger.js";
 import { config, DEFAULT_DAILY_REQUESTS } from "./config.js";
@@ -156,9 +156,11 @@ export class KeyPool {
     if (!this.cfg.serverKeys[provider]?.length) {
       // Keyless providers (ollama) need no key; otherwise reject.
       if (provider === "ollama") return { apiKey: "", keyRef: "none" };
-      throw new Error(`No API key for "${provider}". Add one in Settings, or pick a different model.`);
-    }
-    this.ensureDay();
+      const hint = isKeylessProvider(provider) && provider !== "ollama"
+        ? ` (this provider is free to sign up for — add a ${provider} key in Settings, or pick a different model)`
+        : "";
+      throw new Error(`No API key for "${provider}"${hint}. Add one in Settings, or pick a different model.`);
+    }    this.ensureDay();
     const st = this.state(provider);
     const pool = this.cfg.serverKeys[provider];
     const cap = this.cfg.dailyCaps?.[provider] ?? DEFAULT_DAILY_REQUESTS[provider];

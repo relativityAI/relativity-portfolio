@@ -1,15 +1,15 @@
 import { useRef, useState } from "react";
-import { Box, Button, Flex, Text } from "@chakra-ui/react";
+import { Button } from "@/components/ui/button";
 import { motion, useScroll, useMotionValueEvent } from "motion/react";
 import { Helmet } from "react-helmet-async";
 import { useNavigate } from "react-router-dom";
 import { dur, ease } from "@/lib/motion";
 import Logo from "@/components/Logo";
 import resultScreenshot from "@/assets/hero-screenshot.png";
-import FitScoreDemo from "@/components/landing/FitScoreDemo";
+import secLogo from "@/assets/sec_logo.png";
+import nseLogo from "@/assets/nse_logo.png";
 import DataSourceMarquee from "@/components/landing/DataSourceMarquee";
 import HowItWorks from "@/components/landing/HowItWorks";
-import ProofSection from "@/components/landing/ProofSection";
 import TrustBlock from "@/components/landing/TrustBlock";
 import AgentShowcase from "@/components/landing/AgentShowcase";
 import LandingFaq from "@/components/landing/LandingFaq";
@@ -41,21 +41,15 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <Box
-      as="section"
+    <section
       id={id}
-      position="relative"
-      w="100%"
-      maxW="1180px"
-      mx="auto"
-      px={{ base: 4, md: 8 }}
-      py={{ base: 14, md: 20 }}
+      className="relative w-full max-w-[1180px] mx-auto px-4 md:px-8 py-14 md:py-20"
     >
-      {blob && <Box className="ambient-blob" style={BLOB_POS[blob]} />}
-      <Box position="relative" zIndex={1}>
+      {blob && <div className="ambient-blob" style={{ ...BLOB_POS[blob] }} />}
+      <div className="relative z-[1]">
         {children}
-      </Box>
-    </Box>
+      </div>
+    </section>
   );
 }
 
@@ -73,7 +67,7 @@ export default function Landing() {
   };
 
   return (
-    <Box ref={rootRef} h="100%" overflowY="auto" overflowX="hidden" position="relative" bg="var(--surface-canvas)" className="landing">
+    <div ref={rootRef} className="landing h-full overflow-y-auto overflow-x-hidden relative bg-[var(--surface-canvas)]">
       <Helmet>
         <title>Relativity AI — Customizable Agents for Stock Analysis</title>
         <meta name="description" content="Create your own research agents. They screen and analyze stocks against your thesis and return a single FIT Score — no trade calls, no recommendations." />
@@ -84,96 +78,93 @@ export default function Landing() {
       <motion.header
         initial={false}
         animate={{
-          backgroundColor: scrolled ? "var(--surface-panel)" : "var(--surface-canvas)",
-          borderColor: scrolled ? "var(--hairline)" : "transparent",
+          backgroundColor: scrolled ? "rgba(var(--surface-panel-rgb, 18, 18, 18), 0.85)" : "rgba(var(--surface-panel-rgb, 18, 18, 18), 0.65)",
+          borderColor: "var(--hairline)",
         }}
         transition={{ duration: dur.fast, ease }}
+        className="sticky top-4 z-50 max-w-[900px] mx-auto px-4 md:px-6 py-2.5 rounded-full border shadow-xl backdrop-blur-md transition-all duration-200"
         style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 100,
-          borderBottomWidth: 1,
-          borderBottomStyle: "solid",
+          borderStyle: "solid",
+          borderWidth: "1px",
         }}
       >
-        <Flex
-          align="center"
-          justify="space-between"
-          position="relative"
-          w="100%"
-          maxW="1180px"
-          mx="auto"
-          px={{ base: 4, md: 8 }}
-          py={3}
-        >
-          <Flex align="center" gap={2}>
+        <div className="flex items-center justify-between relative w-full">
+          <div className="flex items-center gap-2">
             <Logo preset="landing" />
-          </Flex>
-          <Flex align="center" gap={2}>
-            <Button size="sm" variant="outline" onClick={() => navigate("/login")}>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="rounded-full px-4" onClick={() => navigate("/login")}>
               Log in
             </Button>
-          </Flex>
-        </Flex>
+          </div>
+        </div>
       </motion.header>
 
       <Section blob="tl">
-        <Flex direction="column" gap={{ base: 8, md: 12 }} pt={{ base: 8, md: 14 }} pb={{ base: 4, md: 8 }}>
-          <Flex direction="column" gap={{ base: 5, md: 6 }} position="relative" zIndex={1} maxW="720px">
+        <div className="flex flex-col items-center text-center gap-8 md:gap-10 pt-6 md:pt-10 pb-4 md:pb-8">
+          {/* Badge: Data pulled by NSE & SEC */}
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: dur.fast, ease }}
+          >
+            <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border border-[var(--hairline)] bg-[var(--surface-panel)] shadow-sm">
+              <span className="font-[family-name:var(--font-mono)] text-xs font-semibold text-[var(--ink-secondary)]">
+                Data pulled by
+              </span>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 bg-[var(--surface-recessed)] px-1.5 py-0.5 rounded border border-[var(--hairline)]">
+                  <img src={nseLogo} alt="NSE" className="h-3.5 w-auto object-contain" />
+                  <span className="font-[family-name:var(--font-mono)] text-[10px] font-bold text-[var(--ink-primary)]">NSE</span>
+                </div>
+                <span className="text-[var(--ink-tertiary)] text-xs">&</span>
+                <div className="flex items-center gap-1 bg-[var(--surface-recessed)] px-1.5 py-0.5 rounded border border-[var(--hairline)]">
+                  <img src={secLogo} alt="SEC" className="h-3.5 w-auto object-contain" />
+                  <span className="font-[family-name:var(--font-mono)] text-[10px] font-bold text-[var(--ink-primary)]">SEC</span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+
+          <div className="flex flex-col items-center text-center gap-5 md:gap-6 relative z-[1] max-w-[800px]">
             <motion.div
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: dur.base, ease }}
             >
-              <Text
-                as="h1"
-                fontSize="clamp(2.5rem, 5.2vw, 4.5rem)"
-                lineHeight={1.04}
-                fontWeight={800}
-                letterSpacing="-0.035em"
-                color="var(--ink-primary)"
-                maxW="14ch"
-              >
+              <h1 className="text-[clamp(2.5rem,5.5vw,4.8rem)] leading-[1.04] font-extrabold tracking-[-0.035em] text-[var(--ink-primary)]">
                 Your thesis. Every stock. One score.
-              </Text>
+              </h1>
             </motion.div>
 
             <motion.div
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: dur.base, ease, delay: 0.08 }}
             >
-              <Text
-                fontSize={{ base: "md", md: "lg" }}
-                color="var(--ink-secondary)"
-                lineHeight="relaxed"
-                maxW="54ch"
-              >
-                Build an agent that invests the way you do. It reads the filings, runs the numbers, and scores every stock against your rules — with the reasoning shown, not hidden.
-              </Text>
+              <p className="text-base md:text-xl text-[var(--ink-secondary)] leading-relaxed max-w-[60ch] mx-auto">
+                Build an agent that invests the way you do. It reads filings, runs numbers, and scores every stock against your rules — with the reasoning shown, not hidden.
+              </p>
             </motion.div>
 
             <motion.div
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: dur.base, ease, delay: 0.16 }}
             >
-              <Flex align="center" gap={{ base: 3, md: 4 }}>
+              <div className="flex items-center justify-center gap-3 md:gap-4 flex-wrap">
                 <Button
                   size="lg"
-                  variant="surface"
-                  colorPalette="blue"
-                  minH="44px"
+                  variant="default"
+                  className="min-h-[44px] hover:scale-[1.02] hover:shadow-[0_10px_30px_-10px_var(--accent-primary)] active:scale-[0.98]"
                   onClick={() => navigate("/login")}
-                  _hover={{ transform: "scale(1.02)", boxShadow: "0 10px 30px -10px var(--accent-primary)" }}
-                  _active={{ transform: "scale(0.98)" }}
                 >
                   Get started
                 </Button>
-                <Button size="lg" variant="ghost" color="var(--accent-primary)" minH="44px" onClick={scrollToScoring}>
+                <Button size="lg" variant="ghost" className="text-[var(--accent-primary)] min-h-[44px]" onClick={scrollToScoring}>
                   See how scoring works
                 </Button>
-              </Flex>
+              </div>
             </motion.div>
 
             <motion.div
@@ -181,16 +172,14 @@ export default function Landing() {
               animate={{ opacity: 1 }}
               transition={{ duration: dur.slow, ease, delay: 0.3 }}
             >
-              <Flex align="center" gap={3} mt={{ base: 2, md: 4 }}>
-                <Flex align="center" gap={2}>
-                  <Box w={2} h={2} borderRadius="full" bg="var(--signal-positive)" />
-                  <Text fontFamily="var(--font-mono)" fontSize="11px" color="var(--ink-tertiary)">
-                    No trade calls, no recommendations — research only
-                  </Text>
-                </Flex>
-              </Flex>
+              <div className="flex items-center justify-center gap-2 mt-1 md:mt-2">
+                <div className="w-2 h-2 rounded-full bg-[var(--signal-positive)]" />
+                <p className="font-[family-name:var(--font-mono)] text-[11px] text-[var(--ink-tertiary)]">
+                  No trade calls, no recommendations — research only
+                </p>
+              </div>
             </motion.div>
-          </Flex>
+          </div>
 
           <motion.div
             initial={{ opacity: 0, y: 24 }}
@@ -198,71 +187,55 @@ export default function Landing() {
             transition={{ duration: dur.slow, ease, delay: 0.2 }}
             style={{ width: "100%" }}
           >
-            <Box
-              w="100%"
-              maxW="980px"
-              borderRadius="2xl"
-              overflow="hidden"
-              border="1px solid var(--hairline)"
-              bg="var(--surface-panel)"
-              boxShadow="0 40px 100px -24px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06)"
-            >
-                <Flex align="center" gap={3} px={{ base: 4, md: 5 }} py={3} borderBottom="1px solid var(--hairline)">
-                  <Flex gap={1.5} aria-hidden="true">
-                    <Box w="9px" h="9px" borderRadius="full" bg="var(--hairline)" />
-                    <Box w="9px" h="9px" borderRadius="full" bg="var(--hairline)" />
-                    <Box w="9px" h="9px" borderRadius="full" bg="var(--hairline)" />
-                  </Flex>
-                  <Text fontFamily="var(--font-mono)" fontSize={{ base: "10px", md: "11px" }} fontWeight={500} color="var(--ink-tertiary)" letterSpacing="0.08em">
-                    RELATIVITY / ANALYSIS RESULT
-                  </Text>
-                  <Box flex={1} />
-                  <Flex align="center" gap={1.5}>
-                    <Box w={2} h={2} borderRadius="full" bg="var(--signal-positive)" />
-                    <Text fontFamily="var(--font-mono)" fontSize={{ base: "10px", md: "11px" }} fontWeight={500} color="var(--signal-positive)">
-                      COMPLETE
-                    </Text>
-                  </Flex>
-                </Flex>
+            <div className="w-full max-w-[980px] mx-auto rounded-2xl overflow-hidden border border-[var(--hairline)] bg-[var(--surface-panel)] shadow-[0_40px_100px_-24px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.06)]">
+              <div className="flex items-center gap-3 px-4 md:px-5 py-3 border-b border-b-[var(--hairline)]">
+                <div className="flex gap-1.5" aria-hidden="true">
+                  <div className="w-[9px] h-[9px] rounded-full bg-[var(--hairline)]" />
+                  <div className="w-[9px] h-[9px] rounded-full bg-[var(--hairline)]" />
+                  <div className="w-[9px] h-[9px] rounded-full bg-[var(--hairline)]" />
+                </div>
+                <p className="font-[family-name:var(--font-mono)] text-[10px] md:text-[11px] font-medium text-[var(--ink-tertiary)] tracking-[0.08em]">
+                  RELATIVITY / ANALYSIS RESULT
+                </p>
+                <div className="flex-1" />
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-[var(--signal-positive)]" />
+                  <p className="font-[family-name:var(--font-mono)] text-[10px] md:text-[11px] font-medium text-[var(--signal-positive)]">
+                    COMPLETE
+                  </p>
+                </div>
+              </div>
               <img
                 src={resultScreenshot}
                 alt="Relativity analysis result: KEI Industries scored 76.8 FIT with quantitative gates and per-criterion breakdown"
                 style={{ display: "block", width: "100%", height: "auto" }}
                 fetchPriority="high"
               />
-            </Box>
+            </div>
           </motion.div>
-        </Flex>
+        </div>
       </Section>
 
-      <Box w="100%" maxW="1180px" mx="auto" px={{ base: 4, md: 8 }}>
-        <Flex align={{ base: "flex-start", md: "center" }} justify={{ base: "flex-start", md: "center" }} gap={3} mb={{ base: 6, md: 8 }} opacity={0.85}>
-          <Text fontFamily="var(--font-mono)" fontSize="xs" fontWeight={500} color="var(--ink-tertiary)">
+      <div className="w-full max-w-[1180px] mx-auto px-4 md:px-8">
+        <div className="flex items-start md:items-center justify-start md:justify-center gap-3 mb-6 md:mb-8 opacity-85">
+          <p className="font-[family-name:var(--font-mono)] text-xs font-medium text-[var(--ink-tertiary)]">
             Pulls from SEC & NSE filings, across 12 categories of market data
-          </Text>
-        </Flex>
+          </p>
+        </div>
         <DataSourceMarquee />
-      </Box>
+      </div>
 
       <Section id="how-it-works" blob="br">
         <AgentShowcase />
-        <Box h={{ base: 14, md: 20 }} />
+        <div className="h-14 md:h-20" />
 
-        <Flex direction="column" gap={{ base: 5, md: 6 }} mb={{ base: 8, md: 12 }}>
-          <Text as="h2" fontSize={{ base: "xl", md: "2xl" }} fontWeight={700} color="var(--ink-primary)" lineHeight="tight">
+        <div className="flex flex-col gap-5 md:gap-6 mb-8 md:mb-12">
+          <h2 className="text-xl md:text-2xl font-bold text-[var(--ink-primary)] leading-tight">
             How it works
-          </Text>
-        </Flex>
+          </h2>
+        </div>
         <HowItWorks />
       </Section>
-
-      <Box w="100%" maxW="1180px" mx="auto" px={{ base: 4, md: 8 }} py={{ base: 14, md: 20 }}>
-        <ProofSection />
-
-        <Flex justify="center" mt={{ base: 10, md: 14 }}>
-          <FitScoreDemo />
-        </Flex>
-      </Box>
 
       <Section>
         <TrustBlock />
@@ -274,26 +247,23 @@ export default function Landing() {
 
       <Section blob="bl">
         <motion.div {...sectionFadeUp} transition={{ duration: dur.base, ease }}>
-          <Flex direction="column" align={{ base: "flex-start", md: "center" }} textAlign={{ base: "left", md: "center" }} gap={{ base: 5, md: 6 }}>
-            <Text as="h2" fontSize={{ base: "2xl", md: "3xl" }} fontWeight={800} letterSpacing="-0.035em" color="var(--ink-primary)" maxW="16ch">
+          <div className="flex flex-col items-start md:items-center text-left md:text-center gap-5 md:gap-6">
+            <h2 className="text-2xl md:text-3xl font-extrabold tracking-[-0.035em] text-[var(--ink-primary)] max-w-[16ch]">
               Tell it your thesis. It tells you what fits.
-            </Text>
+            </h2>
             <Button
               size="lg"
-              variant="surface"
-              colorPalette="blue"
-              minH="44px"
+              variant="default"
+              className="min-h-[44px] hover:scale-[1.02] hover:shadow-[0_10px_30px_-10px_var(--accent-primary)] active:scale-[0.98]"
               onClick={() => navigate("/login")}
-              _hover={{ transform: "scale(1.02)", boxShadow: "0 10px 30px -10px var(--accent-primary)" }}
-              _active={{ transform: "scale(0.98)" }}
             >
               Get started
             </Button>
-          </Flex>
+          </div>
         </motion.div>
       </Section>
 
       <Footer />
-    </Box>
+    </div>
   );
 }

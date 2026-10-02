@@ -7,10 +7,42 @@ api/node_modules/
 api/.env
 ui/.env
 
+.agent/
 .agents/
 .freebuff/
-api/test-post.js
+.opencode/
+.claude/
+.cursor/
+.codebuddy/
+.copilot/
+.continue/
+.windsurf/
+.aider*
 
+# docs & generated artifacts (not part of the app)
+docs/
+ANALYSIS_WORKFLOW.md
+/2026-*/
+skills-lock.json
+
+# dev debug / probe / repro scratch scripts
+api/dbg-*
+api/debug-*
+api/probe-*
+api/repro-*
+api/dump-*
+api/bisect*.tsx
+api/bisect2*.tsx
+api/mini-pdf-probe.tsx
+api/skillprobe*.mjs
+api/measure-obs.mjs
+api/verify-e2e.mts
+api/wire-dumper.mts
+api/scripts/repro-tech.ts
+api/scripts/__tracecheck.ts
+
+api/test-post.js
+evals/
 
 
 # stuff
@@ -192,3 +224,6 @@ api/.env
 
 ### Admin panel ###
 admin/.credentials.json
+
+### brag output ###
+brag-output/

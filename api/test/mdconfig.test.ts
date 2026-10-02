@@ -1,61 +1,77 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { parseMd, serializeMd, parseRule, type AgentConfig } from "../src/mdconfig.js";
-import { listPresetTemplates } from "../src/presets.js";
 
-const presetDir = fileURLToPath(new URL("../config/presets/", import.meta.url));
+// The v2 preset fixtures moved to archives with the v2→v3 migration; the v2
+// parser survives ONLY as the migration grammar. These tests now cover the
+// migration path with inline v2 documents.
+const V2_SAMPLE = `---
+name: Warren Buffett
+description: moats and margin of safety
+investment_horizon: Long-term (years)
+risk_appetite: 4
+---
 
-function readPreset(key: string): string {
-  return readFileSync(`${presetDir}${key}.md`, "utf8");
-}
+## Philosophy
 
-function presetToAgent(key: string): AgentConfig {
-  const p = listPresetTemplates().find((x) => x.key === key)!.preset;
-  return {
-    name: p.name,
-    description: p.description,
-    persona: p.persona,
-    configuration: p.configuration,
-    asset_evaluation: p.asset_evaluation as AgentConfig["asset_evaluation"],
-    macro_evaluation: p.macro_evaluation as AgentConfig["macro_evaluation"],
-  };
-}
+Buy wonderful businesses at fair prices.
 
-describe("parseMd — canonical preset files", () => {
-  for (const key of ["buffett", "oneil", "growth"]) {
-    it(`${key} parses to the code template`, () => {
-      const { agent, issues } = parseMd(readPreset(key));
-      expect(issues.filter((i) => i.severity === "error")).toEqual([]);
-      expect(agent).toEqual(presetToAgent(key));
-    });
-  }
+## Asset Evaluation
+
+### Qualitative
+
+#### Economic Moat — weight 9
+
+Does the company have a durable advantage?
+
+### Quantitative
+
+| Metric | Rule | Weight |
+|---|---|---|
+| Return on Equity | > 15% | 8 |
+| Debt to Equity | < 0.5 | 7 |
+
+## Macro Evaluation
+
+### Qualitative
+
+#### Market-Wide Valuation — weight 7
+
+Is the market expensive?
+`;
+
+describe("parseMd — v2 migration grammar (legacy documents)", () => {
+  it("parses a legacy v2 agent document", () => {
+    const { agent, issues } = parseMd(V2_SAMPLE);
+    expect(issues.filter((i) => i.severity === "error")).toEqual([]);
+    expect(agent?.name).toBe("Warren Buffett");
+    expect(agent?.asset_evaluation.qualitative[0]).toMatchObject({ parameter: "Economic Moat", weightage: 9 });
+    expect(agent?.asset_evaluation.quantitative[0]).toMatchObject({ metric: "return_on_equity", operator: "gt", value: 15, weightage: 8 });
+  });
 
   it("generated md is serialization-stable (idempotent round-trip)", () => {
-    for (const key of ["buffett", "oneil", "growth"]) {
-      const agent = presetToAgent(key);
-      const md = readPreset(key);
-      expect(serializeMd(agent)).toBe(md);
-      expect(serializeMd(parseMd(md).agent!)).toBe(md);
-    }
+    const { agent } = parseMd(V2_SAMPLE);
+    const md = serializeMd(agent!);
+    expect(serializeMd(parseMd(md).agent!)).toBe(md);
   });
 });
 
 describe("serializeMd — hand-edit preservation", () => {
   it("carries opaque sections verbatim through a structured edit", () => {
-    const prev = readPreset("buffett") + "\n\n## Screening Checklist\n\n- moat widening\n- mgmt buys on dips\n";
-    const edited = { ...presetToAgent("buffett"), name: "Buffett v2" };
+    const prev = V2_SAMPLE + "\n\n## Screening Checklist\n\n- moat widening\n- mgmt buys on dips\n";
+    const agent = parseMd(V2_SAMPLE).agent!;
+    const edited = { ...agent, name: "Buffett v2" };
     const out = serializeMd(edited, prev);
     expect(out).toContain("## Screening Checklist");
     expect(out).toContain("- moat widening\n- mgmt buys on dips");
-    const { agent } = parseMd(out);
-    expect(agent!.name).toBe("Buffett v2");
-    expect(agent!.asset_evaluation.qualitative).toEqual(edited.asset_evaluation.qualitative);
+    const { agent: reparsed } = parseMd(out);
+    expect(reparsed!.name).toBe("Buffett v2");
+    expect(reparsed!.asset_evaluation.qualitative).toEqual(edited.asset_evaluation.qualitative);
   });
 
   it("keeps unknown frontmatter keys through a round-trip", () => {
     const prev = "---\nname: Growth (GARP / Fisher)\nrisk_appetite: 7\ncustom_field: foobar\n---\n\n## Philosophy\n\nhi\n";
-    const out = serializeMd(presetToAgent("growth"), prev);
+    const agent = parseMd(prev).agent!;
+    const out = serializeMd(agent, prev);
     expect(out).toContain("custom_field: foobar");
   });
 
@@ -69,7 +85,6 @@ describe("serializeMd — hand-edit preservation", () => {
     };
     const md = serializeMd(agent);
     expect(md).not.toContain("## Asset Evaluation");
-    expect(md).not.toContain("## Philosophy");
   });
 });
 

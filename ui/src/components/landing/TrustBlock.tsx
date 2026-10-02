@@ -1,4 +1,3 @@
-import { Box, Flex, Text } from "@chakra-ui/react";
 import { motion } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 
@@ -25,38 +24,28 @@ export default function TrustBlock() {
       viewport={{ once: true, margin: "-15%" }}
       transition={{ duration: dur.base, ease }}
     >
-      <Flex direction="column" gap={6}>
-        <Text as="h2" fontSize={{ base: "xl", md: "2xl" }} fontWeight={700} color="var(--ink-primary)" lineHeight="tight">
+      <div className="flex flex-col gap-6">
+        <h2 className="text-xl md:text-2xl font-bold text-[var(--ink-primary)] leading-tight">
           What this is not
-        </Text>
+        </h2>
         {/* Divided rows instead of card grid — separation via 1px lines, not boxes */}
-        <Flex direction="column">
+        <div className="flex flex-col">
           {ITEMS.map((item) => (
-            <Flex
+            <div
               key={item.title}
-              direction={{ base: "column", md: "row" }}
-              gap={{ base: 1, md: 8 }}
-              align={{ base: "stretch", md: "baseline" }}
-              py={{ base: 4, md: 5 }}
-              borderTop="1px solid var(--hairline)"
+              className="flex flex-col md:flex-row gap-1 md:gap-8 items-stretch md:items-baseline py-4 md:py-5 border-t border-t-[var(--hairline)]"
             >
-              <Text
-                fontSize={{ base: "md", md: "lg" }}
-                fontWeight={600}
-                color="var(--ink-primary)"
-                lineHeight="short"
-                flex={{ md: "0 0 240px" }}
-              >
+              <p className="text-base md:text-lg font-semibold text-[var(--ink-primary)] leading-snug md:basis-[240px] md:grow-0 md:shrink-0">
                 {item.title}
-              </Text>
-              <Text fontSize={{ base: "sm", md: "md" }} color="var(--ink-secondary)" lineHeight="relaxed" maxW="60ch">
+              </p>
+              <p className="text-sm md:text-base text-[var(--ink-secondary)] leading-relaxed max-w-[60ch]">
                 {item.body}
-              </Text>
-            </Flex>
+              </p>
+            </div>
           ))}
-          <Box borderTop="1px solid var(--hairline)" />
-        </Flex>
-      </Flex>
+          <div className="border-t border-t-[var(--hairline)]" />
+        </div>
+      </div>
     </motion.div>
   );
 }
