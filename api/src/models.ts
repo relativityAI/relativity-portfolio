@@ -27,6 +27,17 @@ export function getModelIds(): string[] {
   return getModels().map((m) => m.id);
 }
 
+/**
+ * Providers that work WITHOUT any API key: local Ollama plus the free-tier
+ * cloud providers (no credit card needed — just a free signup key, which the
+ * server pool supplies). Users with no keys of their own can still pick these.
+ */
+const KEYLESS_PROVIDERS = new Set(["ollama", "groq", "gemini", "cerebras", "openrouter", "mistral", "nvidia", "cohere", "zai"]);
+
+export function isKeylessProvider(provider: string): boolean {
+  return KEYLESS_PROVIDERS.has(provider);
+}
+
 // ── Dynamic model discovery ──────────────────────────────────────────
 
 const PROVIDER_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -87,6 +98,47 @@ const PROVIDER_ENDPOINTS: Record<string, ProviderEndpoint> = {
     }),
     extractModels: (d) => (d?.data || []).map((m: any) => m.id),
     prefix: "anthropic",
+  },
+  // Free-tier providers (no credit card needed for an API key).
+  mistral: {
+    url: "https://api.mistral.ai/v1/models",
+    headers: (k) => ({ Authorization: `Bearer ${k}` }),
+    extractModels: (d) =>
+      (d?.data || [])
+        .filter((m: any) => m.id && !m.id.includes("embed") && !m.id.includes("ocr") && !m.id.includes("moderation") && m.capabilities?.completion_chat !== false)
+        .map((m: any) => m.id),
+    prefix: "mistral",
+  },
+  nvidia: {
+    url: "https://integrate.api.nvidia.com/v1/models",
+    headers: (k) => ({ Authorization: `Bearer ${k}` }),
+    extractModels: (d) =>
+      (d?.data || [])
+        .filter((m: any) => {
+          const id = String(m.id || "");
+          // NIM serves embedding/rerank/vision-only endpoints too; keep chat models.
+          return id && !/embed|rerank|nv-embed|clip|ocr|guard|nemoretriever/i.test(id);
+        })
+        .map((m: any) => m.id),
+    prefix: "nvidia",
+  },
+  cohere: {
+    url: "https://api.cohere.ai/compatibility/v1/models",
+    headers: (k) => ({ Authorization: `Bearer ${k}` }),
+    extractModels: (d) =>
+      (d?.data || [])
+        .filter((m: any) => m.id && !/embed|rerank/i.test(String(m.id)))
+        .map((m: any) => m.id),
+    prefix: "cohere",
+  },
+  zai: {
+    url: "https://api.z.ai/api/paas/v4/models",
+    headers: (k) => ({ Authorization: `Bearer ${k}` }),
+    extractModels: (d) =>
+      (d?.data || d?.models || [])
+        .map((m: any) => String(m.id || m.model || ""))
+        .filter(Boolean),
+    prefix: "zai",
   },
 };
 
@@ -156,8 +208,16 @@ export async function getAvailableModelsForUser(
   const serverProviders = Object.keys(config.serverKeys).filter((p) => config.serverKeys[p]?.length);
   const allProviders = [...new Set([...serverProviders, ...userProviders])];
 
-  // No keys anywhere — fall back to the full curated list so the UI stays useful.
-  if (allProviders.length === 0) return getModelIds();
+  // No keys anywhere — expose ONLY the keyless/server-free providers (ollama +
+  // free-tier providers the server is NOT keyed for still need a user key, so
+  // they stay hidden too). Previously this returned the full curated list,
+  // which included paid models (OpenAI/Anthropic) users without keys could
+  // never actually call.
+  if (allProviders.length === 0) {
+    return [
+      ...getModels().filter((m) => isKeylessProvider(m.id.split("/")[0])).map((m) => m.id),
+    ];
+  }
 
   // Provider models for a keyed provider: explicit PROVIDER_MODELS env list,
   // else the curated YAML entries for that provider (in priority order).
@@ -189,7 +249,16 @@ export async function getAvailableModelsForUser(
   // ordering: explicit env models first, curated by priority, live-only models alpha.
   const seen = new Set<string>();
   const ordered: string[] = [];
-  for (const id of [...explicitModels, ...curatedModels, ...getModels().filter((m) => m.id.split("/")[0] === "ollama").map((m) => m.id)]) {
+  for (const id of [
+    ...explicitModels,
+    ...curatedModels,
+    ...getModels()
+      .filter((m) => {
+        const provider = m.id.split("/")[0];
+        return isKeylessProvider(provider) && !allProviders.includes(provider);
+      })
+      .map((m) => m.id),
+  ]) {
     if (seen.has(id)) continue;
     seen.add(id);
     ordered.push(id);

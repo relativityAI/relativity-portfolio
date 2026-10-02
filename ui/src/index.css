@@ -10,16 +10,16 @@
 
   /* Ink */
   --ink-primary: #16181B;
-  --ink-secondary: #6B7280;
-  --ink-tertiary: #9CA3AF;
+  --ink-secondary: #5A6270;
+  --ink-tertiary: #6B7280;
 
   /* Inverse surface ink (always used against --surface-inverse, near-black) */
   --ink-inverse-primary: #EDEDEC;
   --ink-inverse-secondary: #9AA0A6;
   --ink-inverse-tertiary: #6B7280;
 
-  /* Accent */
-  --accent-primary: #5B7FDE;
+  /* Accent — 4.8:1 on white panel, so it is legal as text, not just as fill */
+  --accent-primary: #426BD9;
 
   /* Ambient blobs — light value (dark overrides below) */
   --blob-opacity: 0.2;
@@ -28,7 +28,6 @@
   --signal-positive: #4C8B6B;
   --signal-caution: #B8935A;
   --signal-warning: #FFB300;
-  --cta-green: #16A34A;
   --signal-negative: #B85C5C;
 
   /* Typography */
@@ -43,17 +42,25 @@
    preference. index.html applies the initial class before first paint so there
    is no flash. */
 html.dark {
-  --surface-canvas: #0B0D10;
-  --surface-panel: #14171B;
-  --surface-floating: #1A1E24;
-  --surface-recessed: #0F1114;
-  --surface-inverse: #060709;
+  /* currentColor SVG logos render black inside <img>; invert to white */
+  .llm-mark {
+    filter: invert(1);
+  }
+
+  --surface-canvas: #191919;
+  --surface-panel: #1F1F1F;
+  --surface-floating: #262626;
+  --surface-recessed: #121212;
+  --surface-inverse: #0A0A0A;
   --hairline: #343B43;
   --grid-line: #414A54;
 
   --ink-primary: #EDEDEC;
   --ink-secondary: #9AA0A6;
-  --ink-tertiary: #5B6167;
+  --ink-tertiary: #868D95;
+
+  /* Accent lifts on dark so it stays AA as text — the light value goes to 4.0:1 here */
+  --accent-primary: #8AA6F0;
 
   --blob-opacity: 0.22;
 }
@@ -193,7 +200,7 @@ body {
     --hairline: #d1d5db;
     --ink-primary: #16181b;
     --ink-secondary: #4b5563;
-    --ink-tertiary: #9ca3af;
+    --ink-tertiary: #6b7280;
   }
 
   /* Hide everything that isn't the report body */

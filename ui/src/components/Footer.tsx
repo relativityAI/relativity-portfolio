@@ -1,51 +1,31 @@
-import { Flex, Text } from "@chakra-ui/react";
 import { Link } from "react-router-dom";
 
 export default function Footer() {
   return (
-    <Flex
-      as="footer"
-      px={{ base: 4, md: 16 }}
-      py={{ base: 3, md: 5 }}
-      mt={4}
-      borderTop="1px solid var(--hairline)"
-      justify="space-between"
-      align="center"
-      gap={3}
-      flexWrap={{ base: "wrap", md: "nowrap" }}
-    >
-      <Text fontSize="xs" color="fg.muted">
+    <footer className="flex px-4 md:px-16 py-3 md:py-5 mt-4 border-t border-t-[var(--hairline)] justify-between items-center gap-3 flex-wrap md:flex-nowrap">
+      <p className="text-xs text-muted-foreground">
         &copy; {new Date().getFullYear()} Relativity AI
-      </Text>
-      <Flex gap={{ base: 3, md: 4 }} align="center">
-        <Text
-          as={Link}
+      </p>
+      <div className="flex gap-3 md:gap-4 items-center">
+        <Link
           to="/guide"
-          fontSize="xs"
-          color="fg.muted"
-          _hover={{ color: "fg" }}
+          className="text-xs text-muted-foreground hover:text-foreground"
         >
           Guide
-        </Text>
-        <Text
-          as={Link}
+        </Link>
+        <Link
           to="/privacy"
-          fontSize="xs"
-          color="fg.muted"
-          _hover={{ color: "fg" }}
+          className="text-xs text-muted-foreground hover:text-foreground"
         >
           Privacy
-        </Text>
-        <Text
-          as={Link}
+        </Link>
+        <Link
           to="/terms"
-          fontSize="xs"
-          color="fg.muted"
-          _hover={{ color: "fg" }}
+          className="text-xs text-muted-foreground hover:text-foreground"
         >
           Terms
-        </Text>
-      </Flex>
-    </Flex>
+        </Link>
+      </div>
+    </footer>
   );
 }

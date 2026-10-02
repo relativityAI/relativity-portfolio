@@ -122,7 +122,11 @@ export function agentAvatarSvg(seed: string): string {
         scale: 140,
         translateY: 6,
         // No backgroundColor → transparent; the chip supplies the tint.
-    }).toString();
+    }).toString()
+        // DiceBear emits a viewBox with no width/height, so the SVG has no
+        // intrinsic size and collapses unless CSS sizes it. Bake the size in
+        // rather than depend on a caller-side rule.
+        .replace("<svg ", '<svg width="100%" height="100%" ');
     if (svgCache.size < 512) svgCache.set(seed, svg);
     return svg;
 }

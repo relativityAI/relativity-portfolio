@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Relativity Portfolio — Runtime Architecture",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/relativityAI/relativity-portfolio",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "2f214b1ab165f41658f381b2a1590aa9ad0e6de8"
+    }
+  },
+  "components": [
+    {
+      "id": "investor",
+      "type": "external",
+      "label": "Investor",
+      "sublabel": "browser session",
+      "pos": [40, 60],
+      "size": [190, 64]
+    },
+    {
+      "id": "spa",
+      "type": "frontend",
+      "label": "React SPA",
+      "sublabel": "Vite 8 · Chakra UI 3",
+      "brand": "react",
+      "pos": [40, 280],
+      "size": [190, 64],
+      "sources": [{ "path": "ui/src/main.tsx", "label": "SPA entry" }]
+    },
+    {
+      "id": "auth",
+      "type": "security",
+      "label": "Supabase Auth",
+      "sublabel": "GoTrue · Google token",
+      "brand": "supabase",
+      "pos": [40, 500],
+      "size": [190, 64]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Relativity API",
+      "sublabel": "Express 5 · :8080",
+      "pos": [360, 280],
+      "size": [190, 64],
+      "sources": [
+        { "path": "api/src/index.ts", "line": 60, "label": "CORS, rate limit, routes" },
+        { "path": "api/src/auth.ts", "label": "requireAuth" }
+      ]
+    },
+    {
+      "id": "pg",
+      "type": "database",
+      "label": "Supabase Postgres",
+      "sublabel": "PostgREST · 11 tables",
+      "brand": "supabase",
+      "pos": [360, 500],
+      "size": [190, 64],
+      "sources": [{ "path": "api/src/db.ts", "label": "service-role client" }]
+    },
+    {
+      "id": "inngest",
+      "type": "messagebus",
+      "label": "Inngest",
+      "sublabel": "durable run queue",
+      "pos": [680, 60],
+      "size": [190, 64],
+      "sources": [{ "path": "api/src/inngest.ts", "line": 39, "label": "analysis-run-pipeline" }]
+    },
+    {
+      "id": "orch",
+      "type": "backend",
+      "label": "Analysis Orchestrator",
+      "sublabel": "7-step run pipeline",
+      "pos": [680, 280],
+      "size": [190, 64],
+      "sources": [{ "path": "api/src/run.ts", "label": "createRun, executeRun" }]
+    },
+    {
+      "id": "key-vault",
+      "type": "security",
+      "label": "Key Vault",
+      "sublabel": "AES-256-GCM at rest",
+      "pos": [680, 500],
+      "size": [190, 64],
+      "sources": [{ "path": "api/src/crypto.ts", "label": "encrypt / decrypt" }]
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "LLM Providers",
+      "sublabel": "OpenAI · Anthropic",
+      "pos": [1000, 60],
+      "size": [190, 64]
+    },
+    {
+      "id": "agent-loop",
+      "type": "backend",
+      "label": "LLM Agent Loop",
+      "sublabel": "AI SDK · 10 tool steps",
+      "pos": [1000, 280],
+      "size": [190, 64],
+      "sources": [
+        { "path": "api/src/harness.ts", "label": "generateText / streamText" },
+        { "path": "api/src/tools.ts", "line": 151, "label": "27 analyst tools" }
+      ]
+    },
+    {
+      "id": "voyager",
+      "type": "external",
+      "label": "Voyager API",
+      "sublabel": "NSE · BSE · SEC data",
+      "pos": [1000, 500],
+      "size": [190, 64]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Relativity platform (in-repo)",
+      "wraps": ["spa", "api", "orch", "agent-loop", "key-vault"]
+    },
+    {
+      "kind": "security-group",
+      "label": "Untrusted network",
+      "wraps": ["investor", "spa"],
+      "pad": 14
+    },
+    {
+      "kind": "security-group",
+      "label": "Server trust zone",
+      "wraps": ["api", "orch", "agent-loop", "key-vault"],
+      "pad": 14
+    }
+  ],
+  "connections": [
+    { "id": "load-app", "from": "investor", "to": "spa", "label": "HTTPS", "variant": "emphasis", "labelDy": 40 },
+    { "id": "sign-in", "from": "spa", "to": "auth", "label": "Google ID token", "variant": "security", "labelDy": 40 },
+    { "id": "call-api", "from": "spa", "to": "api", "label": "HTTPS · JWT", "variant": "emphasis" },
+    { "id": "start-run", "from": "api", "to": "orch", "label": "POST /analysis", "variant": "emphasis" },
+    { "id": "dispatch", "from": "orch", "to": "inngest", "label": "dispatch or run inline", "fromSide": "top", "toSide": "bottom" },
+    { "id": "run-loop", "from": "orch", "to": "agent-loop", "label": "run qualitative" },
+    { "id": "persist", "from": "api", "to": "pg", "label": "PostgREST · service role", "labelDy": 40 },
+    { "id": "decrypt", "from": "orch", "to": "key-vault", "label": "fetchUserKeys · decrypt", "variant": "security", "labelDy": 40 },
+    { "id": "generate", "from": "agent-loop", "to": "llm", "label": "generateText · streamText", "variant": "emphasis" },
+    { "id": "pull-data", "from": "agent-loop", "to": "voyager", "label": "27 analyst tools", "variant": "emphasis", "labelDy": 40 }
+  ],
+  "cards": [
+    {
+      "dot": "slate",
+      "title": "Run pipeline",
+      "items": [
+        "7 steps: agent → data → pull → quantitative → qualitative → scorecard → finalize",
+        "An in-flight run for the same symbol is reused, not restarted"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Server trust zone",
+      "items": [
+        "LLM, Voyager, and Tavily keys are decrypted in-process and never returned unmasked",
+        "assertSafePdfUrl blocks private ranges; tool output is wrapped as [UNTRUSTED …]"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Known gaps",
+      "items": [
+        "cors() has no origin allowlist and the service-role client bypasses Postgres RLS",
+        "The SSE trace hub is in-process, so a separate Inngest worker breaks the live stream"
+      ]
+    }
+  ]
+}

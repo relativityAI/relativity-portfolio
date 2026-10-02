@@ -26,12 +26,13 @@ import {
   Cell
 } from "recharts";
 import { MdFormatQuote, MdInfo, MdCheckCircle, MdWarning, MdError } from "react-icons/md";
+import { MarketChart, type MarketChartVariant } from "./MarketChart";
 
 export type ReportBlock =
   | { type: "heading"; level: 2 | 3; text: string }
   | { type: "paragraph"; text: string; citedKeys?: string[] }
   | { type: "table"; title?: string; columns: string[]; rows: (string | number)[][]; sourceKeys: string[] }
-  | { type: "chart"; chartType: "bar" | "line" | "radar" | "area" | "scatter" | "pie"; title?: string; data: Record<string, string | number>[]; sourceKeys: string[] }
+  | { type: "chart"; chartType: "bar" | "line" | "radar" | "area" | "scatter" | "pie" | "candlestick"; title?: string; data: Record<string, string | number>[]; sourceKeys: string[] }
   | { type: "callout"; tone: "positive" | "caution" | "negative" | "neutral"; text: string }
   | { type: "quote"; text: string; attribution?: string };
 
@@ -204,22 +205,36 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
           <EvidenceNote keys={block.sourceKeys} lookup={lookup} />
         </Box>
       );
-    case "chart":
+    case "chart": {
+      // Date-keyed rows are market series (OHLCV, price+SMA, RSI,
+      // volume-over-time) — those get the TradingView treatment.
+      // Everything else (radar, pie, categorical bars keyed by
+      // `name`) stays on recharts.
+      const firstRow = block.data?.[0];
+      const isMarketSeries = firstRow != null && "date" in firstRow;
+      const marketVariant: MarketChartVariant =
+        block.chartType === "candlestick" ? "candle" : block.chartType === "bar" ? "volume" : "line";
+      // Same surface as the Run summary card on the new-analysis page.
       return (
-        <Box my={6} p={4} border="1px solid var(--hairline)" borderRadius="2px" bg="var(--surface-panel)">
+        <Box my={6} p={4} border="1px solid var(--hairline)" borderRadius="2px" bg="var(--card)">
           {block.title && (
             <Text fontSize="13px" fontWeight={600} color="var(--ink-primary)" mb={4}>
               {block.title}
             </Text>
           )}
-          <Box h={block.chartType === "radar" ? "360px" : "300px"} w="100%">
-            <ResponsiveContainer width="100%" height="100%">
-              {renderRecharts(block)}
-            </ResponsiveContainer>
-          </Box>
+          {isMarketSeries ? (
+            <MarketChart data={block.data} variant={marketVariant} height={block.chartType === "candlestick" ? 360 : 320} title={block.title} />
+          ) : (
+            <Box h={block.chartType === "radar" ? "360px" : "300px"} w="100%">
+              <ResponsiveContainer width="100%" height="100%">
+                {renderRecharts(block)}
+              </ResponsiveContainer>
+            </Box>
+          )}
           <EvidenceNote keys={block.sourceKeys} lookup={lookup} />
         </Box>
       );
+    }
     default:
       return null;
   }

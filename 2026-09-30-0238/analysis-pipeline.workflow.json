@@ -1,0 +1,96 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Relativity AI — Stock Analysis Pipeline",
+    "quality_profile": "showcase",
+    "output": "2026-09-30-0238/analysis-pipeline.html"
+  },
+  "lanes": [
+    { "id": "ui", "label": "User & API" },
+    { "id": "pipeline", "label": "Run Pipeline" },
+    { "id": "out", "label": "Score & Report" },
+    { "id": "data", "label": "Data Sources & Evidence" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "Intake", "fromCol": 0, "toCol": 1 },
+    { "id": "prep", "label": "Prepare", "fromCol": 2, "toCol": 2 },
+    { "id": "exec", "label": "Skills execution", "fromCol": 3, "toCol": 3, "variant": "emphasis" },
+    { "id": "fin", "label": "Finalize", "fromCol": 4, "toCol": 5 }
+  ],
+  "groups": [
+    { "id": "agent_loop", "label": "Per-skill agent turn", "lane": "pipeline", "fromCol": 3, "toCol": 3, "variant": "emphasis" },
+    { "id": "evidence_path", "label": "Evidence path", "lane": "data", "fromCol": 2, "toCol": 2, "variant": "dashed" },
+    { "id": "tool_work", "label": "Tool work", "lane": "data", "fromCol": 3, "toCol": 4, "variant": "dashed" }
+  ],
+  "mainPath": [
+    "config",
+    "post-run",
+    "inngest",
+    "load-agent",
+    "freshness",
+    "fanout",
+    "skill-turn",
+    "scorecard",
+    "synthesis",
+    "result-page"
+  ],
+  "nodes": [
+    { "id": "config", "lane": "ui", "col": 0, "type": "external", "label": "Config Selection", "sublabel": "symbol · market · agent · model", "width": 132 },
+    { "id": "post-run", "lane": "ui", "col": 1, "type": "frontend", "label": "POST /analysis", "sublabel": "create run (PENDING)", "width": 132 },
+    { "id": "result-page", "lane": "ui", "col": 5, "type": "frontend", "label": "Result Page", "sublabel": "score · skills · sources", "width": 132 },
+    { "id": "inngest", "lane": "pipeline", "col": 1, "type": "messagebus", "label": "Inngest Queue", "sublabel": "analysis/run.requested", "width": 132 },
+    { "id": "load-agent", "lane": "pipeline", "col": 2, "type": "backend", "label": "Resolve Agent", "sublabel": "agent md → skills", "width": 132 },
+    { "id": "freshness", "lane": "pipeline", "col": 2, "type": "backend", "label": "Data Freshness", "sublabel": "ensureFreshData", "width": 132, "yOffset": 86 },
+    { "id": "fanout", "lane": "pipeline", "col": 3, "type": "backend", "label": "Skills Fan-out", "sublabel": "one turn per skill", "width": 132 },
+    { "id": "skill-turn", "lane": "out", "col": 3, "type": "backend", "label": "Skill Analyst Turn", "sublabel": "forced tool calls", "width": 132 },
+    { "id": "scorecard", "lane": "out", "col": 4, "type": "backend", "label": "Agg. Scorecard", "sublabel": "verdicts → score in code", "width": 132 },
+    { "id": "synthesis", "lane": "out", "col": 4, "type": "backend", "label": "Report Synthesis", "sublabel": "LLM narration + sanitizer", "width": 132, "yOffset": 86 },
+    { "id": "voyager", "lane": "data", "col": 2, "type": "cloud", "label": "Voyager Engine", "sublabel": "financials · filings · price", "width": 132 },
+    { "id": "tool-call", "lane": "data", "col": 3, "type": "messagebus", "label": "Analyst Tool Calls", "sublabel": "symbol-bound catalog", "width": 132 },
+    { "id": "web", "lane": "data", "col": 4, "type": "cloud", "label": "Web & Social", "sublabel": "search · news · Reddit · YouTube", "width": 132 }
+  ],
+  "edges": [
+    { "id": "config-post", "from": "config", "to": "post-run", "label": "run analysis" },
+    { "id": "post-queue", "from": "post-run", "to": "inngest", "label": "emit run event" },
+    { "id": "queue-agent", "from": "inngest", "to": "load-agent", "label": "steps 1-2" },
+    { "id": "agent-fresh", "from": "load-agent", "to": "freshness", "variant": "dashed" },
+    { "id": "fresh-fanout", "from": "freshness", "to": "fanout", "label": "snapshot ready" },
+    { "id": "fanout-turn", "from": "fanout", "to": "skill-turn", "label": "step 4: skills fan-out" },
+    { "id": "turn-tool", "from": "skill-turn", "to": "tool-call", "label": "tools first" },
+    { "id": "tool-voyager", "from": "tool-call", "to": "voyager", "label": "financials · filings", "variant": "dashed", "role": "return" },
+    { "id": "tool-web", "from": "tool-call", "to": "web", "label": "web fallback", "variant": "dashed" },
+    { "id": "web-score", "from": "web", "to": "scorecard", "label": "cited evidence", "variant": "dashed", "role": "return", "bias": 0.3 },
+    { "id": "turn-score", "from": "skill-turn", "to": "scorecard", "label": "verdicts + citations" },
+    { "id": "score-synth", "from": "scorecard", "to": "synthesis", "label": "step 5: aggregate" },
+    { "id": "synth-page", "from": "synthesis", "to": "result-page", "label": "render result" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Config & flow",
+      "items": [
+        "User picks symbol, market (NSE/SEC), agent, model, web search; POST /analysis creates a PENDING run, then Inngest runs the pipeline (concurrency 5, retries 2)",
+        "Agent markdown resolves to skills via resolveSkillsForAgent; Voyager data is pulled fresh before any analysis"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Skill analyst turns",
+      "items": [
+        "Each skill runs its own agent turn under SKILL_ANALYST_SYSTEM_PROMPT with the investor persona injected",
+        "Tool use is forced on step 0; facts may come only from in-session tool results, copied verbatim, with mandatory citations; gaps are honest INSUFFICIENT verdicts",
+        "Analyst toolset: Voyager financials/filings/announcements/transcripts, market news, Reddit, YouTube, PDF reading, web search"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Deterministic score & report",
+      "items": [
+        "The model never scores: YES/PARTIAL/NO verdicts per anchor are scored in code, with coverage gating the headline",
+        "SKILL_REPORT_SYNTHESIS_SYSTEM_PROMPT narrates the computed numbers; a numeric-integrity sanitizer drops any figure no tool observed",
+        "Report + per-skill scores + raw observations persist to analysis_runs; the result page renders hero score, skill cards, and sources"
+      ]
+    }
+  ]
+}

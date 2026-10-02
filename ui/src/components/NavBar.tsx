@@ -4,11 +4,12 @@ import { Link, useLocation } from "react-router-dom";
 import { runHealthCheck, hasRequiredKeys } from "../utils"
 import { SettingsService, AnalysisService, AgentService } from "@/db";
 import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout, MdWarning } from "react-icons/md";
-import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX, LuBookOpen } from "react-icons/lu";
-import { ColorModeButton } from "@/components/ui/color-mode";
+import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX, LuBookOpen, LuSun, LuMoon } from "react-icons/lu";
+import { useColorMode } from "@/components/ui/color-mode";
 import { useAuth } from "@/auth/useAuth";
 import { motion } from "motion/react";
 import Logo from "@/components/Logo";
+import UserAvatar from "@/components/shared/UserAvatar";
 
 const HEALTH_CHECK_INTERVAL_MS = 15000;
 
@@ -16,6 +17,7 @@ export default function NavBar() {
 
     const location = useLocation();
     const { user, signOut } = useAuth();
+    const { toggleColorMode, colorMode } = useColorMode();
 
     const email = user?.email ?? "";
     const displayName =
@@ -119,14 +121,14 @@ export default function NavBar() {
     // Single source for both desktop links and the mobile drawer.
     const navLinks = [
         { to: "/", icon: MdAddCircleOutline, label: "New Analysis" },
-        { to: "/agents", icon: MdOutlinePeople, label: "Agents" },
+        { to: "/console", icon: MdOutlinePeople, label: "Agent Console" },
         { to: "/analysis-list", icon: MdOutlineAssessment, label: "Analysis" },
         { to: "/guide", icon: LuBookOpen, label: "Guide" },
         { to: "/settings", icon: MdOutlineSettings, label: "Settings" },
     ]
 
     const navCount = (to: string) => {
-        if (to === "/agents") return agentCount;
+        if (to === "/console") return agentCount;
         if (to === "/analysis-list") return analysisCount;
         return null;
     }
@@ -158,7 +160,7 @@ export default function NavBar() {
             borderColor="border"
             justify={"space-between"}
             align={"center"}
-            bg="bg.subtle"
+            bg="var(--surface-canvas)"
             height="44px"
         >
             <Flex align="center" gap={{ base: 5, md: 4, lg: 8 }} minW={0} flexShrink={1}>
@@ -201,43 +203,18 @@ export default function NavBar() {
                 >
                     <LuMenu size={15} />
                 </IconButton>
-                <ColorModeButton size="xs" variant="ghost" />
                 <Menu.Root>
                     <Menu.Trigger asChild>
-                        <Flex
-                            align="center"
-                            justify="center"
-                            minW="26px"
-                            minH="26px"
-                            borderRadius="full"
-                            bg={allOk ? "blue.solid" : "red.solid"}
+                        <Box
                             cursor="pointer"
-                            _hover={{ opacity: 0.85 }}
-                            title={email || "Account"}
                             position="relative"
+                            title={email || "Account"}
+                            display="flex"
+                            alignItems="center"
+                            justifyContent="center"
                         >
-                            <Text
-                                fontSize="xs"
-                                fontWeight="bold"
-                                color="white"
-                            >
-                                {initials}
-                            </Text>
-                            {!allOk && (
-                                <Box
-                                    position="absolute"
-                                    top="-1px"
-                                    right="-1px"
-                                    w="9px"
-                                    h="9px"
-                                    borderRadius="full"
-                                    bg="red.solid"
-                                    border="2px solid"
-                                    borderColor="bg.subtle"
-                                    aria-label="System issue detected"
-                                />
-                            )}
-                        </Flex>
+                            <UserAvatar seed={email} size={30} alert={!allOk} />
+                        </Box>
                     </Menu.Trigger>
                     <Menu.Positioner>
                         <Menu.Content minWidth="260px">
@@ -275,6 +252,17 @@ export default function NavBar() {
                                     {voyagerOk ? <MdCheckCircle size={12} color="green" /> : <MdError size={12} color="red" />}
                                 </Menu.Item>
                             </Menu.ItemGroup>
+                            <Menu.Separator />
+                            <Menu.Item
+                                value="theme"
+                                closeOnSelect={false}
+                                onClick={() => toggleColorMode()}
+                            >
+                                <Box as="span" display="inline-flex" alignItems="center" gap={2}>
+                                    {colorMode === "dark" ? <LuMoon size={15} /> : <LuSun size={15} />}
+                                    <Text fontSize="sm">Toggle theme</Text>
+                                </Box>
+                            </Menu.Item>
                             <Menu.Separator />
                             <Menu.Item value="signout" onClick={() => signOut()}>
                                 <MdOutlineLogout size={15} />

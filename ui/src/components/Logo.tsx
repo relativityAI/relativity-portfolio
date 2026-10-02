@@ -1,16 +1,15 @@
-import { Text, Flex } from "@chakra-ui/react";
 import { useColorModeValue } from "@/components/ui/color-mode";
 import logoLight from "@/assets/logo-light.png";
 import logoDark from "@/assets/logo-dark.png";
 
 type Preset = "nav" | "landing" | "login";
 
-const PRESETS: Record<Preset, { height: number; radius: number; textSize?: string | Record<string, string>; letterSpacing?: string; showWord: boolean }> = {
-  nav: { height: 20, radius: 5, textSize: { base: "xs", md: "sm" }, showWord: true },
+const PRESETS: Record<Preset, { height: number; radius: number; textSize?: string; letterSpacing?: string; showWord: boolean }> = {
+  nav: { height: 20, radius: 5, textSize: "text-xs md:text-sm", showWord: true },
   // Wordmark cap-height is tuned to match the 34px mark so the lockup reads
   // as one unit rather than a big glyph with a small word beside it.
-  landing: { height: 34, radius: 8, textSize: "xl", letterSpacing: "0.14em", showWord: true },
-  login: { height: 22, radius: 8, textSize: "xs", letterSpacing: "0.2em", showWord: true },
+  landing: { height: 34, radius: 8, textSize: "text-xl", letterSpacing: "tracking-[0.14em]", showWord: true },
+  login: { height: 22, radius: 8, textSize: "text-xs", letterSpacing: "tracking-[0.2em]", showWord: true },
 };
 
 /**
@@ -24,21 +23,13 @@ export default function Logo({ preset = "nav", showWordmark = true }: { preset?:
     return <img src={src} alt="Relativity" style={{ height: p.height, width: "auto", borderRadius: p.radius, flexShrink: 0 }} />;
   }
   return (
-    <Flex align="center" gap={2} minW={0}>
+    <div className="flex items-center gap-2 min-w-0">
       <img src={src} alt="Relativity" style={{ height: p.height, width: "auto", borderRadius: p.radius, flexShrink: 0 }} />
-      <Text
-        fontWeight="bold"
-        fontFamily="var(--font-mono)"
-        fontSize={p.textSize}
-        letterSpacing={p.letterSpacing ?? "tight"}
-        color="var(--ink-primary)"
-        overflow="hidden"
-        textOverflow="ellipsis"
-        whiteSpace="nowrap"
-        css={{ "@media (max-width: 379px)": { display: "none" } }}
+      <span
+        className={`font-bold font-[family-name:var(--font-mono)] ${p.textSize || ""} ${p.letterSpacing ?? "tracking-tight"} text-[var(--ink-primary)] overflow-hidden text-ellipsis whitespace-nowrap max-[379px]:hidden`}
       >
         RELATIVITY
-      </Text>
-    </Flex>
+      </span>
+    </div>
   );
 }

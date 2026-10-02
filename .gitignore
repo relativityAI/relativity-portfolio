@@ -10,7 +10,7 @@ ui/.env
 .agents/
 .freebuff/
 api/test-post.js
-
+evals/
 
 
 # stuff
@@ -192,3 +192,6 @@ api/.env
 
 ### Admin panel ###
 admin/.credentials.json
+
+### brag output ###
+brag-output/

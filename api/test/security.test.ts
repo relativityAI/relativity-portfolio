@@ -67,10 +67,20 @@ describe("analyst tool catalog (C2)", () => {
     expect(names).not.toContain("list_pull_jobs");
     expect(names).toContain("get_financials");
     expect(names).toContain("read_pdf");
+    // New data tools (2026-09-29 Voyager report) reach the analyst set…
+    expect(names).toContain("search_symbol");
+    expect(names).toContain("compare_financial_metrics");
+    expect(names).toContain("search_news");
+    // …while retired endpoints never do.
+    expect(names).not.toContain("get_dcf_valuation");
+    expect(names).not.toContain("analyze_management_sentiment");
   });
 
-  it("the full catalog keeps the pull tools (planner/orchestrator only)", () => {
+  it("the full catalog has no pull tools at all (v3 D6: pipeline-owned freshness)", () => {
     const names = getToolCatalog().map((t) => t.name);
-    expect(names).toContain("trigger_data_pull");
+    expect(names).not.toContain("trigger_data_pull");
+    expect(names).not.toContain("get_pull_status");
+    expect(names).not.toContain("list_pull_jobs");
+    expect(names).toContain("get_price_history");
   });
 });

@@ -7,6 +7,17 @@ import { useEffect, useState } from "react";
 
 export type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 
+/**
+ * Share of a run's steps that are done — the completion figure shown while a
+ * run is in flight. Returns null while the step list is still unknown, which
+ * renders as an indeterminate bar rather than a made-up percentage.
+ */
+export function runProgressPct(steps?: { status: string }[] | null): number | null {
+    if (!Array.isArray(steps) || steps.length === 0) return null;
+    const done = steps.filter((s) => s.status === "completed" || s.status === "skipped").length;
+    return Math.round((done / steps.length) * 100);
+}
+
 export interface RunStep {
     key: string;
     label: string;

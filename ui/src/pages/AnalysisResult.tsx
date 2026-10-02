@@ -8,7 +8,6 @@ import {
     Container,
     Button,
     Grid,
-    Table,
     HStack,
     VStack,
     Tabs,
@@ -18,69 +17,24 @@ import axios from "axios";
 import { formatSeconds, agentDisplayName } from "@/utils";
 import AgentAvatar from "@/components/shared/AgentAvatar";
 import { resolveAgent } from "@/lib/agentIdentity";
-import { ModelLogo } from "@/lib/modelLogos";
-import type { TraceEvent } from "./shared/TracePanel";
 import AgentActivity from "../components/shared/AgentActivity";
-import ReactMarkdown from "react-markdown";
-import { MdArrowBack, MdDownload, MdExpandMore, MdExpandLess } from "react-icons/md";
-import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+import { MdArrowBack, MdDownload } from "react-icons/md";
+import { LuDatabase } from "react-icons/lu";
+import { motion, useReducedMotion } from "motion/react";
 import { CountUp, dur, ease } from "@/lib/motion";
-import { SOURCE_DEFS, SourceMark, sourcesUsedForParam, type SourceKey } from "@/lib/sourceLogos";
 import { ReportBlockRenderer } from "../components/builder/ReportBlockRenderer";
+import SkillResultCard from "./sections/SkillResultCard";
+import { FaviconMark, SourceMark, SOURCE_DEFS } from "@/lib/sourceLogos";
+import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
+import { runProgressPct } from "./shared/RunStatus";
 import {
-    currencyForSource,
-    formatCurrencyForMarket,
     bandForScore,
-    scoreSignal as bandSignal,
-    stripScoreScaffolding,
     coverageLabel,
     insufficientCoverage,
 } from "@/lib/analysisFormat";
-import { summarizeToolResult } from "@/lib/toolResultSummary";
 
 const TABS = ["report", "reasoning"] as const;
 type Tab = (typeof TABS)[number];
-
-function scoreSignal(score: number): "positive" | "caution" | "negative" {
-    // Shared band semantics (0.7/D4): one scale, one definition.
-    return bandSignal(score);
-}
-
-function signalColor(signal: "positive" | "caution" | "negative"): string {
-    if (signal === "positive") return "var(--signal-positive)";
-    if (signal === "caution") return "var(--signal-caution)";
-    return "var(--signal-negative)";
-}
-
-function formatDuration(sec: number): string {
-    if (sec == null) return "N/A";
-    if (sec >= 60) {
-        const m = Math.floor(sec / 60);
-        const s = Math.floor(sec % 60);
-        return `${m}m ${s}s`;
-    }
-    return `${sec.toFixed(1)}s`;
-}
-
-function formatValue(val: any, type?: string, currency: "INR" | "USD" = "USD"): string {
-    if (val == null) return "—";
-    if (type === "currency" && typeof val === "number") return formatCurrencyForMarket(val, currency);
-    if (typeof val === "number") {
-        if (Number.isInteger(val)) return val.toLocaleString();
-        return val.toFixed(2);
-    }
-    return String(val);
-}
-
-function formatToolOutput(val: any): string {
-    if (val == null) return "";
-    if (typeof val === "string") return val;
-    try {
-        return JSON.stringify(val, null, 2);
-    } catch {
-        return String(val);
-    }
-}
 
 const OP_SYMBOL: Record<string, string> = {
     gt: ">", gte: "≥", lt: "<", lte: "≤", eq: "=", between: "between",
@@ -163,7 +117,6 @@ export default function AnalysisResult() {
     const [error, setError] = useState<string | null>(null);
     const [pdfState, setPdfState] = useState<"idle" | "busy" | "error">("idle");
     const [activeTab, setActiveTab] = useState<Tab>("report");
-    const [sortByScore, setSortByScore] = useState<"asc" | "desc" | null>(null);
     const [activeSection, setActiveSection] = useState<string>("");
     const [elapsed, setElapsed] = useState(0);
 
@@ -413,24 +366,13 @@ export default function AnalysisResult() {
     const s = (analysis.status || "").toLowerCase();
     const isError = s === "error" || s === "failed";
 
-    const exchangeSource: SourceKey = /nse/i.test(String(analysis.source || "")) ? "nse" : "sec";
     const quantAnalysis: Record<string, any> = analysis.quantitative_analysis || {};
     const qualAnalysis: Record<string, any> = analysis.qualitative_analysis || {};
-    const toolCalls = analysis.qualitative_tool_calls || {};
-    const docs: any[] = analysis.documents || [];
-    const webSrc: string[] = analysis.web_sources || [];
+    // Per-skill reports — what the skill pipeline actually produced for this run.
+    const skillOutputs: any[] = Array.isArray(analysis.skill_outputs) ? analysis.skill_outputs : [];
 
     const tokenUse = tokensUsed(qualAnalysis);
     const traceCount = Array.isArray(analysis.trace) ? analysis.trace.length : 0;
-
-    const assetQuant = Object.entries(quantAnalysis)
-        .filter(([, d]) => !isMacroSection(d?.section))
-        .map(([key, d]) => ({ key, ...d, _score: d.score ?? 0 }));
-    const macroQuant = Object.entries(quantAnalysis)
-        .filter(([, d]) => isMacroSection(d?.section))
-        .map(([key, d]) => ({ key, ...d, _score: d.score ?? 0 }));
-    const assetQual = Object.entries(qualAnalysis).filter(([, d]) => !isMacroSection(d?.section));
-    const macroQual = Object.entries(qualAnalysis).filter(([, d]) => isMacroSection(d?.section));
 
     const downloadPdf = async () => {
         if (!analysis) return;
@@ -454,28 +396,12 @@ export default function AnalysisResult() {
     };
 
     const totalScore: number | null = analysis.total_score;
-    const quantScore: number | null = analysis.quantitative_score;
-    const qualScore: number | null = analysis.qualitative_score;
     const coverage: number | null = analysis.coverage ?? null;
-    const runCurrency = currencyForSource(analysis.source);
     // U2: low coverage must never show a big headline number AND a suppression
     // message — the hero renders "—" and the caution callout explains why.
     const lowCoverage = insufficientCoverage(coverage);
 
     const verdictSentence = generateVerdict(totalScore, quantAnalysis, qualAnalysis);
-
-    const quantEntries = Object.entries(quantAnalysis).map(([key, data]: [string, any]) => ({
-        key,
-        ...data,
-        _score: data.score ?? 0,
-    }));
-
-    if (sortByScore) {
-        const byScore = (a, b) =>
-            sortByScore === "asc" ? a._score - b._score : b._score - a._score;
-        assetQuant.sort(byScore);
-        macroQuant.sort(byScore);
-    }
 
     const metaLine = [
         analysis.model,
@@ -662,190 +588,69 @@ export default function AnalysisResult() {
                     />
                 )}
 
-                {/* Verdict band — the 3-second read */}
+                {/* Hero: Total score (biggest) + Agent avatar (big, clearly visible) */}
                 {isComplete && (
                     <Box mb={6} as={motion.div} initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: dur.base, ease }}>
-                        <Grid
-                            templateColumns={{ base: "1fr", md: "auto 1fr 1fr" }}
-                            columnGap={{ base: 6, md: 10 }}
-                            rowGap={4}
-                            alignItems="start"
-                            mb={4}
-                        >
-                            {/* Hero score */}
+                        <Flex direction="column" align="flex-start" gap={4}>
                             <Box>
-                                <Flex align="center" gap={2} mb={1} minHeight="26px">
-                                    <AgentAvatar agent={resolveAgent(analysis.agent_name, agents)} size={26} />
-                                    <Text
-                                        fontSize="12px"
-                                        fontWeight={500}
-                                        color="var(--ink-secondary)"
-                                        noOfLines={1}
-                                    >
-                                        {analysis.report
-                                            ? analysis.report.heroLabel
-                                            : `Alignment with ${agentName(analysis.agent_name) || "Agent"}`}
-                                    </Text>
-                                </Flex>
+                                <AgentAvatar agent={resolveAgent(analysis.agent_name, agents)} size={72} />
+                            </Box>
+                            <Box>
+                                <Text fontSize="14px" fontWeight={600} color="var(--ink-tertiary)" mb={1}>
+                                    Total Score
+                                </Text>
                                 {totalScore != null && !lowCoverage ? (
                                     <HStack gap={2} align="baseline">
                                         <Text
-                                            fontSize="52px"
-                                            fontWeight={600}
-                                            lineHeight="1"
+                                            fontSize="88px"
+                                            fontWeight={800}
+                                            lineHeight="0.85"
                                             fontFamily="var(--font-tabular)"
                                             fontVariantNumeric="tabular-nums"
-                                            letterSpacing="-0.02em"
+                                            letterSpacing="-0.05em"
                                             color="var(--ink-primary)"
                                         >
                                             <CountUp value={analysis.report ? analysis.report.heroPct : totalScore} decimals={1} />
                                         </Text>
-                                        <Text fontSize="15px" color="var(--ink-tertiary)" fontWeight={500}>
+                                        <Text fontSize="24px" color="var(--ink-tertiary)" fontWeight={700}>
                                             / 100
                                         </Text>
                                     </HStack>
                                 ) : (
-                                    <Text fontSize="52px" fontWeight={600} lineHeight="1" fontFamily="var(--font-tabular)" color="var(--ink-tertiary)">
+                                    <Text fontSize="88px" fontWeight={800} lineHeight="0.85" fontFamily="var(--font-tabular)" color="var(--ink-tertiary)">
                                         —
                                     </Text>
                                 )}
-                                <Text fontSize="12px" color="var(--ink-tertiary)" mt={1} noOfLines={1}>
-                                    How well this matches {agentName(analysis.agent_name) || "the agent"}'s criteria
-                                </Text>
                             </Box>
-
-                            {/* Quant bar */}
-                            <Box minW="120px">
-                                <Text
-                                    fontSize="12px"
-                                    fontWeight={500}
-                                    color="var(--ink-secondary)"
-                                    mb={1}
-                                    minHeight="26px"
-                                >
-                                    Quantitative
-                                </Text>
-                                {quantScore != null ? (
-                                    <HStack gap={3} mt={2}>
-                                        <Box flex={1} h="6px" bg="var(--surface-recessed)" borderRadius="3px" overflow="hidden">
-                                            <Box
-                                                as={motion.div}
-                                                h="100%"
-                                                initial={{ width: 0 }}
-                                                animate={{ width: `${quantScore}%` }}
-                                                transition={{ duration: 0.7, ease, delay: 0.15 }}
-                                                bg={signalColor(scoreSignal(quantScore))}
-                                                borderRadius="3px"
-                                            />
-                                        </Box>
-                                        <Text
-                                            fontSize="15px"
-                                            fontFamily="var(--font-tabular)"
-                                            fontVariantNumeric="tabular-nums"
-                                            color="var(--ink-primary)"
-                                            minW="56px"
-                                            textAlign="right"
-                                        >
-                                            <CountUp value={quantScore} decimals={1} />
+                            <HStack gap={2} flexWrap="wrap">
+                                {totalScore != null && !lowCoverage && (
+                                    <Box px={3} py={1} borderRadius="full" border="1px solid var(--hairline)" bg="var(--surface-panel)">
+                                        <Text fontSize="12px" fontWeight={600} color={bandForScore(totalScore).color}>
+                                            {bandForScore(totalScore).label}
                                         </Text>
-                                    </HStack>
-                                ) : (
-                                    <Text fontSize="14px" color="var(--ink-tertiary)" mt={2}>Not scored</Text>
+                                    </Box>
                                 )}
-                            </Box>
-
-                            {/* Qual bar */}
-                            <Box minW="120px">
-                                <Text
-                                    fontSize="12px"
-                                    fontWeight={500}
-                                    color="var(--ink-secondary)"
-                                    mb={1}
-                                    minHeight="26px"
-                                >
-                                    Qualitative
-                                </Text>
-                                {qualScore != null ? (
-                                    <HStack gap={3} mt={2}>
-                                        <Box flex={1} h="6px" bg="var(--surface-recessed)" borderRadius="3px" overflow="hidden">
-                                            <Box
-                                                as={motion.div}
-                                                h="100%"
-                                                initial={{ width: 0 }}
-                                                animate={{ width: `${qualScore}%` }}
-                                                transition={{ duration: 0.7, ease, delay: 0.25 }}
-                                                bg={signalColor(scoreSignal(qualScore))}
-                                                borderRadius="3px"
-                                            />
-                                        </Box>
-                                        <Text
-                                            fontSize="15px"
-                                            fontFamily="var(--font-tabular)"
-                                            fontVariantNumeric="tabular-nums"
-                                            color="var(--ink-primary)"
-                                            minW="56px"
-                                            textAlign="right"
-                                        >
-                                            <CountUp value={qualScore} decimals={1} />
+                                {coverage != null && (
+                                    <Box px={3} py={1} borderRadius="full" border="1px solid var(--hairline)" bg="var(--surface-panel)">
+                                        <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
+                                            {coverageLabel(coverage)} of rubric scored
                                         </Text>
-                                    </HStack>
-                                ) : (
-                                    <Text fontSize="14px" color="var(--ink-tertiary)" mt={2}>Not scored</Text>
+                                    </Box>
                                 )}
-                            </Box>
-                        </Grid>
-
-                        {/* Verdict sentence — only shown in fallback (no LLM report) */}
-                        {!analysis.report && (
-                        <Text
-                            fontSize="14px"
-                            color="var(--ink-secondary)"
-                            mt={3}
-                            lineHeight="relaxed"
-                            maxW="70ch"
-                        >
-                            {verdictSentence}
-                        </Text>
-                        )}
-
-                        {/* Band pill + coverage chip next to the score (U1/U2): how much of
-                            the rubric the number actually rests on. Low coverage shows the
-                            caution inline — never a big number AND a suppression message. */}
-                        <HStack gap={2} mt={4} flexWrap="wrap">
-                            {totalScore != null && !lowCoverage && (
-                                <Box
-                                    px={3}
-                                    py={1}
-                                    borderRadius="full"
-                                    border="1px solid var(--hairline)"
-                                    bg="var(--surface-panel)"
-                                >
-                                    <Text fontSize="12px" fontWeight={500} color={bandForScore(totalScore).color}>
-                                        {bandForScore(totalScore).label}
-                                    </Text>
+                            </HStack>
+                            {!analysis.report && (
+                                <Text fontSize="14px" color="var(--ink-secondary)" lineHeight="relaxed" maxW="70ch">
+                                    {verdictSentence}
+                                </Text>
+                            )}
+                            {lowCoverage && (
+                                <Box maxW="70ch">
+                                    <Callout tone="caution" title="Not enough of the rubric could be scored to give a reliable headline score.">
+                                        Only {coverageLabel(coverage)} of the criteria had usable data. Review the breakdowns below — unscored criteria are excluded, not failed.
+                                    </Callout>
                                 </Box>
                             )}
-                            {coverage != null && (
-                                <Box
-                                    px={3}
-                                    py={1}
-                                    borderRadius="full"
-                                    border="1px solid var(--hairline)"
-                                    bg="var(--surface-panel)"
-                                >
-                                    <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
-                                        {coverageLabel(coverage)} of rubric scored
-                                    </Text>
-                                </Box>
-                            )}
-                        </HStack>
-                        {lowCoverage && (
-                            <Box mt={3} maxW="70ch">
-                                <Callout tone="caution" title="Not enough of the rubric could be scored to give a reliable headline score.">
-                                    Only {coverageLabel(coverage)} of the criteria had usable data. Review the breakdowns below — unscored criteria are excluded, not failed.
-                                </Callout>
-                            </Box>
-                        )}
+                        </Flex>
                     </Box>
                 )}
 
@@ -869,6 +674,12 @@ export default function AnalysisResult() {
                                 </Text>
                             )}
                         </Flex>
+                        <Box maxW="460px" mt={3}>
+                            <Progress value={runProgressPct(analysis.steps)}>
+                                <ProgressLabel>Analysis progress</ProgressLabel>
+                                <ProgressValue />
+                            </Progress>
+                        </Box>
                     </Box>
                 )}
 
@@ -936,92 +747,53 @@ export default function AnalysisResult() {
                                     <Box>
                                         {/* Decision-first order (E1): synthesis and verdict
                                             first, evidence-dense breakdowns after. */}
-                                        {analysis.report ? (
-                                            <Box mb={8}>
-                                                <SectionHeader label="Executive Report & Synthesis" count={analysis.report.blocks.length} />
-                                                {analysis.report.partial && (
-                                                    <Box mb={4}>
-                                                        <Callout tone="caution" title="Partial Result">
-                                                            Some qualitative parameters failed to score. The synthesis is based on partial data.
-                                                        </Callout>
-                                                    </Box>
-                                                )}
-                                                {analysis.report.source === "fallback" && (
-                                                    <Box mb={4}>
-                                                        <Callout tone="caution">
-                                                            AI narrative was unavailable for this run; this synthesis was assembled deterministically from the scored breakdowns below.
-                                                        </Callout>
-                                                    </Box>
-                                                )}
-                                                <ReportBlockRenderer blocks={analysis.report.blocks} lookup={evidenceLookup} />
-                                            </Box>
-                                        ) : (
-                                            <Box mb={6}>
+                                        {/* Executive Summary Section */}
+                                        <Box mb={8} data-section="summary" ref={(el: HTMLElement | null) => registerSection("summary", el)} css={{ scrollMarginTop: "72px" }}>
+                                            <SectionHeader label="Executive Summary" count={analysis.report ? analysis.report.blocks.length : 0} />
+                                            {analysis.report ? (
+                                                <>
+                                                    {analysis.report.partial && (
+                                                        <Box mb={4}>
+                                                            <Callout tone="caution" title="Partial Result">
+                                                                Some qualitative parameters failed to score. The synthesis is based on partial data.
+                                                            </Callout>
+                                                        </Box>
+                                                    )}
+                                                    {analysis.report.source === "fallback" && (
+                                                        <Box mb={4}>
+                                                            <Callout tone="caution">
+                                                                AI narrative was unavailable for this run; this synthesis was assembled deterministically from the scored breakdowns below.
+                                                            </Callout>
+                                                        </Box>
+                                                    )}
+                                                    <ReportBlockRenderer blocks={analysis.report.blocks} lookup={evidenceLookup} />
+                                                </>
+                                            ) : (
                                                 <Callout tone="caution">
                                                     No executive synthesis for this run — review the parameter breakdowns below.
                                                 </Callout>
-                                            </Box>
-                                        )}
-
-                                        {/* Breakdowns after the decision (E1) */}
-                                        <Box mb={10} data-section="quantitative" ref={(el: any) => registerSection("quantitative", el)} css={{ scrollMarginTop: "72px" }}>
-                                            <SectionHeader label="Quantitative Breakdown" count={quantEntries.length} />
-                                            <Box mb={8}>
-                                                <SourceLegend exchangeSource={exchangeSource} />
-                                                <SubHeader label="Asset" count={assetQuant.length} />
-                                                <QuantTable
-                                                    entries={assetQuant}
-                                                    sortByScore={sortByScore}
-                                                    setSortByScore={setSortByScore}
-                                                    formatValue={(val, type) => formatValue(val, type, runCurrency)}
-                                                />
-                                                {macroQuant.length > 0 && (
-                                                    <Box mt={6}>
-                                                        <SubHeader label="Macro" count={macroQuant.length} />
-                                                        <QuantTable
-                                                            entries={macroQuant}
-                                                            sortByScore={sortByScore}
-                                                            setSortByScore={setSortByScore}
-                                                            formatValue={(val, type) => formatValue(val, type, runCurrency)}
-                                                        />
-                                                    </Box>
-                                                )}
-                                            </Box>
+                                            )}
                                         </Box>
 
-                                            {/* U5: one expandable list per qualitative parameter
-                                                — score and reasoning live in the same place. */}
-                                            <Box mb={10} data-section="qualitative" ref={(el: any) => registerSection("qualitative", el)} css={{ scrollMarginTop: "72px" }}>
-                                                <SectionHeader label="Qualitative Breakdown" count={Object.keys(qualAnalysis).length} />
-                                                <Box mb={8}>
-                                                    <SubHeader label="Asset" count={assetQual.length} />
-                                                    <QualExpandableTable
-                                                        entries={assetQual}
-                                                        toolCalls={toolCalls}
-                                                        exchangeSource={exchangeSource}
-                                                        onSwitchToReasoning={() => handleTabChange({ value: "reasoning" })}
-                                                    />
-                                                    {macroQual.length > 0 && (
-                                                        <Box mt={6}>
-                                                            <SubHeader label="Macro" count={macroQual.length} />
-                                                            <QualExpandableTable
-                                                                entries={macroQual}
-                                                                toolCalls={toolCalls}
-                                                                exchangeSource={exchangeSource}
-                                                                onSwitchToReasoning={() => handleTabChange({ value: "reasoning" })}
-                                                            />
-                                                        </Box>
-                                                    )}
-                                                </Box>
-                                            </Box>
-
-                                            {/* U7: sources you can actually open */}
-                                            {(docs.length > 0 || webSrc.length > 0) && (
-                                                <Box data-section="sources" ref={(el: any) => registerSection("sources", el)} css={{ scrollMarginTop: "72px" }}>
-                                                    <SectionHeader label="Sources" count={docs.length + webSrc.length} />
-                                                    <SourcesPanel docs={docs} webSrc={webSrc} analysis={analysis} agentName={agentName(analysis.agent_name)} />
-                                                </Box>
+                                        {/* Skill Reports Section */}
+                                        <Box mb={10} data-section="skills" ref={(el: any) => registerSection("skills", el)} css={{ scrollMarginTop: "72px" }}>
+                                            <SectionHeader label="Skill Reports" count={skillOutputs.length} />
+                                            {skillOutputs.length > 0 ? (
+                                                <Flex direction="column" gap={6}>
+                                                    {skillOutputs.map((out: any, i: number) => (
+                                                        <SkillResultCard key={out.skill_id || out.skill_name || i} output={out} />
+                                                    ))}
+                                                </Flex>
+                                            ) : (
+                                                <Callout tone="caution">
+                                                    No skill reports were stored for this run.
+                                                </Callout>
                                             )}
+                                        </Box>                                            {/* Data Sources Section - at the end */}
+                                            <Box mb={6} data-section="sources">
+                                                <SectionHeader label="Data Sources" count={countDataSources(skillOutputs)} />
+                                                <DataSourcesPanel analysis={analysis} skillOutputs={skillOutputs} />
+                                            </Box>
                                         </Box>
                                 ) : (
                                     <EmptyState message="Waiting for the analysis to complete — the report appears here when it's done." />
@@ -1068,6 +840,162 @@ export default function AnalysisResult() {
 /* ─── Sub-components ─── */
 
 /** 5d: one shared callout for caution/negative/info — replaces 5 copy-pasted blocks. */
+
+/** Count of everything the Data Sources section attributes: every
+ *  cited web URL plus every data tool actually called this run. */
+function countDataSources(skillOutputs: any[]): number {
+    let count = 0;
+    const tools = new Set<string>();
+    for (const out of skillOutputs || []) {
+        for (const c of out.citations || []) if (c?.url) count += 1;
+        for (const f of out.findings || []) for (const c of f.citations || []) if (c?.url) count += 1;
+        for (const v of out.verdicts || []) for (const c of v.citations || []) if (c?.url) count += 1;
+        for (const obs of out.raw_observations || []) {
+            if (obs?.url) count += 1;
+            if (obs?.tool) tools.add(obs.tool);
+        }
+        for (const t of out.tools_used || []) tools.add(t);
+    }
+    return count + tools.size;
+}
+
+/** A data tool the analysts actually called, with call status — so a
+ *  tool like get_technicals is attributed as a source even though it
+ *  has no public URL. Aggregated from raw_observations (which carry
+ *  per-call status) and tools_used (called, status not persisted). */
+interface ToolSourceRecord {
+    name: string;
+    calls: number;
+    ok: number;
+    err: number;
+    empty: number;
+    args?: string;
+    url?: string;
+}
+
+function DataSourcesPanel({ analysis, skillOutputs }: { analysis: any; skillOutputs: any[] }) {
+    const sources = new Map<string, any>();
+    const tools = new Map<string, ToolSourceRecord>();
+    const recordTool = (name: string, status?: string, args?: string, url?: string) => {
+        const rec: ToolSourceRecord = tools.get(name) || { name, calls: 0, ok: 0, err: 0, empty: 0 };
+        rec.calls += 1;
+        const s = String(status || "").toLowerCase();
+        if (s === "err") rec.err += 1;
+        else if (s === "empty") rec.empty += 1;
+        else if (s === "ok") rec.ok += 1;
+        if (!rec.args && args) rec.args = args;
+        if (url) rec.url = url;
+        tools.set(name, rec);
+    };
+    for (const out of skillOutputs || []) {
+        for (const c of (out.citations || [])) {
+            if (c?.url) sources.set(c.url, { url: c.url, label: c.label });
+        }
+        for (const f of (out.findings || [])) {
+            for (const c of (f.citations || [])) {
+                if (c?.url) sources.set(c.url, { url: c.url, label: c.label });
+            }
+        }
+        for (const v of (out.verdicts || [])) {
+            for (const c of (v.citations || [])) {
+                if (c?.url) sources.set(c.url, { url: c.url, label: c.label });
+            }
+        }
+        for (const obs of (out.raw_observations || [])) {
+            if (obs?.url) sources.set(obs.url, { url: obs.url, label: undefined });
+            if (obs?.tool) recordTool(obs.tool, obs.status, obs.args, obs.url);
+        }
+        // tools_used covers tools the analyst called even when no raw
+        // observation was persisted (condensed away). Status unknown.
+        for (const t of (out.tools_used || [])) {
+            if (!tools.has(t)) tools.set(t, { name: t, calls: 1, ok: 0, err: 0, empty: 0 });
+        }
+    }
+    const list = Array.from(sources.values());
+    const toolList = Array.from(tools.values());
+    if (list.length === 0 && toolList.length === 0) {
+        return (
+            <Text fontSize="13px" color="var(--ink-tertiary)">
+                No external web sources or data tools were recorded for this run.
+            </Text>
+        );
+    }
+    function host(u: string) {
+        try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; }
+    }
+    function toolStatus(rec: ToolSourceRecord): { label: string; color: string } {
+        if (rec.err > 0 && rec.err === rec.calls) return { label: "errored", color: "var(--signal-negative)" };
+        if (rec.err > 0) return { label: `${rec.err} of ${rec.calls} errored`, color: "var(--signal-negative)" };
+        if (rec.ok + rec.empty === 0) return { label: rec.calls > 1 ? `${rec.calls} calls` : "called", color: "var(--ink-tertiary)" };
+        if (rec.empty === rec.calls) return { label: "returned no data", color: "var(--signal-caution)" };
+        if (rec.empty > 0) return { label: `${rec.calls - rec.empty} of ${rec.calls} returned data`, color: "var(--signal-caution)" };
+        return { label: rec.calls > 1 ? `${rec.calls} calls, all returned data` : "returned data", color: "var(--signal-positive)" };
+    }
+    return (
+        <Flex direction="column" gap={4}>
+            {toolList.length > 0 && (
+                <Flex direction="column" gap={2}>
+                    {list.length > 0 && (
+                        <Text fontSize="11px" fontWeight={600} textTransform="uppercase" letterSpacing="0.08em" color="var(--ink-tertiary)">
+                            Data tools called
+                        </Text>
+                    )}
+                    {toolList.map((rec) => {
+                        const st = toolStatus(rec);
+                        const tip = [rec.args, rec.url].filter(Boolean).join(" · ");
+                        return (
+                            <HStack
+                                key={rec.name}
+                                gap={2}
+                                px={2}
+                                py={1}
+                                borderRadius="4px"
+                                bg="var(--surface-panel)"
+                                border="1px solid var(--hairline)"
+                                title={tip || undefined}
+                            >
+                                <LuDatabase size={14} aria-hidden color="var(--ink-tertiary)" />
+                                <Text fontSize="13px" color="var(--ink-primary)" fontWeight={500}>
+                                    {rec.name}
+                                </Text>
+                                <Text fontSize="11px" color={st.color}>
+                                    {st.label}
+                                </Text>
+                            </HStack>
+                        );
+                    })}
+                </Flex>
+            )}
+            {list.length > 0 && (
+                <Flex direction="column" gap={2}>
+                    {toolList.length > 0 && (
+                        <Text fontSize="11px" fontWeight={600} textTransform="uppercase" letterSpacing="0.08em" color="var(--ink-tertiary)">
+                            Web sources
+                        </Text>
+                    )}
+                    {list.map((item) => (
+                        <a
+                            key={item.url}
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ textDecoration: "none", display: "inline-flex" }}
+                        >
+                            <HStack gap={2} px={2} py={1} borderRadius="4px" bg="var(--surface-panel)" border="1px solid var(--hairline)" _hover={{ bg: "var(--surface-recessed)" }}>
+                                <FaviconMark url={item.url} size={16} />
+                                <Text fontSize="13px" color="var(--ink-primary)">
+                                    {item.label || host(item.url)}
+                                </Text>
+                            </HStack>
+                        </a>
+                    ))}
+                </Flex>
+            )}
+        </Flex>
+    );
+}
+
+
 function Callout({
     tone,
     title,
@@ -1107,10 +1035,9 @@ function Callout({
 }
 
 const SECTION_NAV_ITEMS: { key: string; label: string }[] = [
-    { key: "report", label: "Summary" },
-    { key: "quantitative", label: "Quantitative" },
-    { key: "qualitative", label: "Qualitative" },
-    { key: "sources", label: "Sources" },
+    { key: "summary", label: "Executive Summary" },
+    { key: "skills", label: "Skill Reports" },
+    { key: "sources", label: "Data Sources" },
 ];
 
 function SectionNav({ active, onJump }: { active: string; onJump: (key: string) => void }) {
@@ -1180,758 +1107,6 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
             )}
             <Box flex={1} h="1px" bg="var(--hairline)" ml={2} />
         </Flex>
-    );
-}
-
-function SubHeader({ label, count }: { label: string; count: number }) {
-    return (
-        <Flex align="center" gap={2} mb={2}>
-            <Text
-                fontSize="13px"
-                fontWeight={600}
-                color="var(--ink-secondary)"
-            >
-                {label}
-            </Text>
-            {count > 0 && (
-                <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
-                    {count}
-                </Text>
-            )}
-        </Flex>
-    );
-}
-
-function SourceLegend({ exchangeSource }: { exchangeSource: SourceKey }) {
-    // D5: never name the upstream data engine to investors; name the evidence
-    // class instead (exchange filings, transcripts, announcements).
-    return (
-        <Flex align="center" gap={1.5} mb={3} flexWrap="wrap">
-            <SourceMark source={exchangeSource} size={13} />
-            <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
-                Scored from exchange filings and company disclosures
-            </Text>
-        </Flex>
-    );
-}
-
-// ─── Shared table primitives (Phase 3a) ───────────────────────────────────
-
-const thProps = {
-    fontSize: "12px",
-    fontWeight: 500,
-    color: "var(--ink-tertiary)",
-    py: 3,
-    px: 4,
-} as const;
-
-const cellProps = {
-    fontSize: "14px",
-    px: 4,
-    py: 3,
-} as const;
-
-/** U9: explicit pass/fail text next to the score — never color-only. */
-function scoreWord(sig: "positive" | "caution" | "negative"): string {
-    if (sig === "positive") return "meets";
-    if (sig === "caution") return "partial";
-    return "misses";
-}
-
-/**
- * ScoreCell: tabular number + a text marker so pass/fail isn't color-only.
- * `na` renders an explicit N/A with its reason in the title.
- */
-function ScoreCell({ score, na, naReason }: { score: number | null; na?: boolean; naReason?: string }) {
-    if (na || score == null) {
-        return (
-            <Text fontSize="14px" color="var(--ink-tertiary)" title={naReason}>
-                N/A{naReason ? " — price unavailable" : ""}
-            </Text>
-        );
-    }
-    const sig = scoreSignal(score);
-    return (
-        <VStack gap={0} align="end">
-            <Text
-                fontFamily="var(--font-tabular)"
-                fontVariantNumeric="tabular-nums"
-                fontWeight={500}
-                color={signalColor(sig)}
-            >
-                {score.toFixed(1)}
-            </Text>
-            <Text fontSize="11.5px" color="var(--ink-tertiary)">
-                {scoreWord(sig)}
-            </Text>
-        </VStack>
-    );
-}
-
-function QuantTable({
-    entries,
-    sortByScore,
-    setSortByScore,
-    formatValue: fmt,
-}: {
-    entries: any[];
-    sortByScore: "asc" | "desc" | null;
-    setSortByScore: (v: "asc" | "desc" | null) => void;
-    formatValue: (val: any, type?: string) => string;
-}) {
-    const toggleSort = () => {
-        if (sortByScore === null) setSortByScore("asc");
-        else if (sortByScore === "asc") setSortByScore("desc");
-        else setSortByScore(null);
-    };
-
-    const ariaSort = sortByScore === "asc" ? "ascending" : sortByScore === "desc" ? "descending" : "none";
-
-    return (
-        <Box border="1px solid var(--hairline)" borderRadius="6px" overflow="hidden">
-            {/* Desktop table (>= md) */}
-            <Box overflowX="auto" display={{ base: "none", md: "block" }}>
-                <Table.Root size="sm" variant="line" minWidth="660px">
-                    <Table.Header>
-                        <Table.Row bg="var(--surface-recessed)">
-                            <Table.ColumnHeader {...thProps}>Metric</Table.ColumnHeader>
-                            <Table.ColumnHeader {...thProps}>Target</Table.ColumnHeader>
-                            <Table.ColumnHeader {...thProps} textAlign="right">Actual</Table.ColumnHeader>
-                            <Table.ColumnHeader {...thProps} textAlign="right">Weight</Table.ColumnHeader>
-                            <Table.ColumnHeader
-                                {...thProps}
-                                textAlign="right"
-                                aria-sort={ariaSort as any}
-                            >
-                                <Flex justify="flex-end">
-                                    <Box
-                                        as="button"
-                                        onClick={toggleSort}
-                                        aria-label={`Sort by score ${ariaSort}`}
-                                        fontSize="12px"
-                                        fontWeight={500}
-                                        color="var(--ink-tertiary)"
-                                        _hover={{ color: "var(--ink-primary)" }}
-                                        cursor="pointer"
-                                        bg="transparent"
-                                        border="none"
-                                        p={0}
-                                    >
-                                        Score <Box as="span" display="inline-block" w="14px" textAlign="left" aria-hidden="true">
-                                            {sortByScore === "asc" ? "↑" : sortByScore === "desc" ? "↓" : "↕"}
-                                        </Box>
-                                    </Box>
-                                </Flex>
-                            </Table.ColumnHeader>
-                        </Table.Row>
-                    </Table.Header>
-                    <Table.Body>
-                        {entries.map((m) => {
-                            const isNA = !!m.price_unavailable;
-                            const metricScore = isNA ? null : (m.score ?? 0);
-                            const sig = metricScore == null ? null : scoreSignal(metricScore);
-                            const indicator = sig ? signalColor(sig) : "var(--hairline)";
-                            return (
-                                <Table.Row
-                                    key={m.key}
-                                    css={{
-                                        // A3: inset indicator instead of borderLeft so the
-                                        // header text aligns exactly with cell text.
-                                        "& > td:first-of-type": {
-                                            boxShadow: `inset 3px 0 0 ${indicator}`,
-                                        },
-                                    }}
-                                    _hover={{ bg: "var(--surface-recessed)" }}
-                                    transition="background 160ms"
-                                >
-                                    <Table.Cell
-                                        fontWeight={500}
-                                        color="var(--ink-primary)"
-                                        title={m.key}
-                                        {...cellProps}
-                                    >
-                                        {m.metric_name || m.key}
-                                    </Table.Cell>
-                                    <Table.Cell
-                                        fontFamily="var(--font-mono)"
-                                        color="var(--ink-secondary)"
-                                        {...cellProps}
-                                    >
-                                        {OP_SYMBOL[m.operator] || m.operator} {fmt(m.threshold, m.metric_type)}
-                                    </Table.Cell>
-                                    <Table.Cell
-                                        fontFamily="var(--font-mono)"
-                                        fontVariantNumeric="tabular-nums"
-                                        fontWeight={500}
-                                        color={isNA ? "var(--ink-tertiary)" : "var(--ink-primary)"}
-                                        textAlign="right"
-                                        {...cellProps}
-                                    >
-                                        {isNA ? "N/A" : fmt(m.value, m.metric_type)}
-                                    </Table.Cell>
-                                    <Table.Cell
-                                        fontFamily="var(--font-mono)"
-                                        fontVariantNumeric="tabular-nums"
-                                        color="var(--ink-secondary)"
-                                        textAlign="right"
-                                        {...cellProps}
-                                    >
-                                        {m.weightage != null ? m.weightage : "—"}
-                                    </Table.Cell>
-                                    <Table.Cell textAlign="right" {...cellProps}>
-                                        <ScoreCell
-                                            score={metricScore}
-                                            na={isNA}
-                                            naReason="Live price unavailable for this criterion"
-                                        />
-                                    </Table.Cell>
-                                </Table.Row>
-                            );
-                        })}
-                    </Table.Body>
-                </Table.Root>
-            </Box>
-            {/* U12: mobile cards instead of a hidden-columns table */}
-            <VStack gap={0} align="stretch" display={{ base: "block", md: "none" }}>
-                {entries.map((m) => {
-                    const isNA = !!m.price_unavailable;
-                    const metricScore = isNA ? null : (m.score ?? 0);
-                    const sig = metricScore == null ? null : scoreSignal(metricScore);
-                    return (
-                        <Box
-                            key={m.key}
-                            px={4}
-                            py={3}
-                            borderBottom="1px solid var(--hairline)"
-                            css={{
-                                boxShadow: `inset 3px 0 0 ${sig ? signalColor(sig) : "var(--hairline)"}`,
-                            }}
-                        >
-                            <Flex justify="space-between" align="baseline" gap={3}>
-                                <Text fontSize="14px" fontWeight={500} color="var(--ink-primary)" noOfLines={1}>
-                                    {m.metric_name || m.key}
-                                </Text>
-                                <ScoreCell score={metricScore} na={isNA} naReason="Live price unavailable" />
-                            </Flex>
-                            <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-secondary)" mt={0.5}>
-                                {OP_SYMBOL[m.operator] || m.operator} {fmt(m.threshold, m.metric_type)}
-                                {m.value != null && !isNA ? ` · actual ${fmt(m.value, m.metric_type)}` : ""}
-                            </Text>
-                        </Box>
-                    );
-                })}
-            </VStack>
-        </Box>
-    );
-}
-
-function QualTable({
-    entries,
-    toolCalls,
-    exchangeSource,
-}: {
-    entries: [string, any][];
-    toolCalls: Record<string, any[]>;
-    exchangeSource: SourceKey;
-}) {
-    return (
-        <Box border="1px solid var(--hairline)" borderRadius="6px" overflow="hidden">
-            {/* Desktop table (>= md) */}
-            <Box overflowX="auto" display={{ base: "none", md: "block" }}>
-                <Table.Root size="sm" variant="line" minWidth="660px">
-                    <Table.Header>
-                        <Table.Row bg="var(--surface-recessed)">
-                            <Table.ColumnHeader {...thProps}>Parameter</Table.ColumnHeader>
-                            <Table.ColumnHeader {...thProps}>Data source</Table.ColumnHeader>
-                            <Table.ColumnHeader {...thProps} textAlign="right">Weight</Table.ColumnHeader>
-                            <Table.ColumnHeader {...thProps} textAlign="right">Score</Table.ColumnHeader>
-                        </Table.Row>
-                    </Table.Header>
-                    <Table.Body>
-                        {entries.map(([paramName, d]) => {
-                            const hasError = !!d?.error;
-                            const score = hasError ? null : typeof d?.score === "number" ? d.score : 0;
-                            const sig = score == null ? null : scoreSignal(score);
-                            const usedSources: SourceKey[] = sourcesUsedForParam(toolCalls[paramName])
-                                .map((k) => (k === "exchange" ? exchangeSource : k));
-                            return (
-                                <Table.Row
-                                    key={paramName}
-                                    css={{
-                                        "& > td:first-of-type": {
-                                            boxShadow: `inset 3px 0 0 ${sig ? signalColor(sig) : "var(--signal-negative)"}`,
-                                        },
-                                    }}
-                                    _hover={{ bg: "var(--surface-recessed)" }}
-                                    transition="background 160ms"
-                                >
-                                    <Table.Cell fontWeight={500} color="var(--ink-primary)" {...cellProps}>
-                                        <Flex align="center" gap={2}>
-                                            <Text fontWeight={500} color="var(--ink-primary)">{paramName}</Text>
-                                            {hasError && (
-                                                <Text
-                                                    as="span"
-                                                    fontSize="12px"
-                                                    px={1.5}
-                                                    borderRadius="full"
-                                                    bg="color-mix(in srgb, var(--signal-negative) 10%, transparent)"
-                                                    color="var(--signal-negative)"
-                                                    title={String(d.error)}
-                                                >
-                                                    scoring failed
-                                                </Text>
-                                            )}
-                                        </Flex>
-                                    </Table.Cell>
-                                    <Table.Cell px={4} py={3}>
-                                        {usedSources.length > 0 && (
-                                            <Flex align="center" gap={1}>
-                                                {usedSources.map((k) => (
-                                                    <Flex
-                                                        key={k}
-                                                        align="center"
-                                                        gap={1}
-                                                        title={`${SOURCE_DEFS[k].label} — ${SOURCE_DEFS[k].full}`}
-                                                    >
-                                                        <SourceMark source={k} size={13} muted={k === "voyager"} />
-                                                        <Text fontSize="11.5px" color="var(--ink-tertiary)">
-                                                            {SOURCE_DEFS[k].label}
-                                                        </Text>
-                                                    </Flex>
-                                                ))}
-                                            </Flex>
-                                        )}
-                                    </Table.Cell>
-                                    <Table.Cell
-                                        fontFamily="var(--font-mono)"
-                                        color="var(--ink-secondary)"
-                                        textAlign="right"
-                                        {...cellProps}
-                                    >
-                                        {d?.weightage != null ? d.weightage : "—"}
-                                    </Table.Cell>
-                                    <Table.Cell textAlign="right" {...cellProps}>
-                                        {hasError ? (
-                                            <Text fontSize="14px" color="var(--signal-negative)">—</Text>
-                                        ) : (
-                                            <ScoreCell score={score} />
-                                        )}
-                                    </Table.Cell>
-                                </Table.Row>
-                            );
-                        })}
-                    </Table.Body>
-                </Table.Root>
-            </Box>
-            {/* U12: mobile cards */}
-            <VStack gap={0} align="stretch" display={{ base: "block", md: "none" }}>
-                {entries.map(([paramName, d]) => {
-                    const hasError = !!d?.error;
-                    const score = hasError ? null : typeof d?.score === "number" ? d.score : 0;
-                    const sig = score == null ? null : scoreSignal(score);
-                    return (
-                        <Box
-                            key={paramName}
-                            px={4}
-                            py={3}
-                            borderBottom="1px solid var(--hairline)"
-                            css={{
-                                boxShadow: `inset 3px 0 0 ${sig ? signalColor(sig) : "var(--signal-negative)"}`,
-                            }}
-                        >
-                            <Flex justify="space-between" align="baseline" gap={3}>
-                                <Text fontSize="14px" fontWeight={500} color="var(--ink-primary)" noOfLines={1}>
-                                    {paramName}
-                                </Text>
-                                {hasError ? (
-                                    <Text fontSize="14px" color="var(--signal-negative)">failed</Text>
-                                ) : (
-                                    <ScoreCell score={score} />
-                                )}
-                            </Flex>
-                            {usedSourcesPreview(toolCalls[paramName], exchangeSource)}
-                        </Box>
-                    );
-                })}
-            </VStack>
-        </Box>
-    );
-}
-
-function usedSourcesPreview(calls: any[] | undefined, exchangeSource: SourceKey) {
-    const used = sourcesUsedForParam(calls).map((k) => (k === "exchange" ? exchangeSource : k));
-    if (!used.length) return null;
-    return (
-        <Flex align="center" gap={1} mt={1} flexWrap="wrap">
-            {used.map((k) => (
-                <Flex key={k} align="center" gap={1} title={`${SOURCE_DEFS[k].label} — ${SOURCE_DEFS[k].full}`}>
-                    <SourceMark source={k} size={12} muted={k === "voyager"} />
-                    <Text fontSize="11.5px" color="var(--ink-tertiary)">
-                        {SOURCE_DEFS[k].label}
-                    </Text>
-                </Flex>
-            ))}
-        </Flex>
-    );
-}
-
-// ─── Expandable qualitative rows (Phase 4a: parameter appears once) ───────
-
-const markdownStyles = {
-    "& h1, & h2, & h3, & h4": {
-        fontWeight: 600,
-        mt: 3,
-        mb: 1,
-        color: "var(--ink-primary)",
-    },
-    "& h1": { fontSize: "15px" },
-    "& h2": { fontSize: "14px" },
-    "& h3": { fontSize: "13.5px" },
-    "& p": { mb: 2, "&:last-child": { mb: 0 } },
-    "& ul, & ol": { pl: 5, mb: 2 },
-    "& li": { mb: 0.5 },
-    "& strong": { fontWeight: 600, color: "var(--ink-primary)" },
-    "& code": {
-        bg: "var(--surface-recessed)",
-        px: 1,
-        py: 0.5,
-        borderRadius: "2px",
-        fontSize: "12px",
-        fontFamily: "var(--font-mono)",
-    },
-    "& pre": {
-        bg: "var(--surface-recessed)",
-        p: 3,
-        borderRadius: "2px",
-        overflow: "auto",
-        mb: 2,
-        fontSize: "12px",
-        fontFamily: "var(--font-mono)",
-    },
-    "& blockquote": {
-        borderLeft: "2px solid var(--hairline)",
-        pl: 3,
-        mb: 2,
-        color: "var(--ink-tertiary)",
-        fontStyle: "italic",
-    },
-    "& table": { borderCollapse: "collapse", mb: 2, width: "100%" },
-    "& th, & td": {
-        border: "1px solid var(--hairline)",
-        px: 2,
-        py: 1,
-        textAlign: "left",
-        fontSize: "12px",
-    },
-    "& th": { fontWeight: 600, bg: "var(--surface-recessed)" },
-    "& hr": { my: 3, borderColor: "var(--hairline)" },
-    "& a": { color: "var(--accent-primary)", textDecoration: "underline" },
-} as const;
-
-function QualExpandableTable({
-    entries,
-    toolCalls,
-    exchangeSource,
-    onSwitchToReasoning,
-}: {
-    entries: [string, any][];
-    toolCalls: Record<string, any[]>;
-    exchangeSource: SourceKey;
-    onSwitchToReasoning: () => void;
-}) {
-    const [expandedAll, setExpandedAll] = useState(false);
-    const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-    const anyExpanded = Object.values(expanded).some(Boolean);
-
-    const setAll = (open: boolean) => {
-        setExpandedAll(open);
-        const next: Record<string, boolean> = {};
-        for (const [k] of entries) next[k] = open;
-        setExpanded(next);
-    };
-
-    const toggle = (param: string) => {
-        setExpanded((prev) => ({ ...prev, [param]: !prev[param] }));
-    };
-
-    return (
-        <Box border="1px solid var(--hairline)" borderRadius="6px" overflow="hidden">
-            <Flex justify="flex-end" px={4} py={2} borderBottom="1px solid var(--hairline)" bg="var(--surface-recessed)">
-                <Button
-                    size="xs"
-                    variant="ghost"
-                    onClick={() => setAll(!anyExpanded)}
-                    color="var(--ink-secondary)"
-                    fontSize="12px"
-                    aria-expanded={anyExpanded}
-                >
-                    {anyExpanded ? "Collapse all" : "Expand all"}
-                </Button>
-            </Flex>
-            {entries.map(([paramName, d]) => {
-                const hasError = !!d?.error;
-                const score = hasError ? null : typeof d?.score === "number" ? d.score : 0;
-                const sig = score == null ? null : scoreSignal(score);
-                const isOpen = !!expanded[paramName];
-                const usedSources: SourceKey[] = sourcesUsedForParam(toolCalls[paramName])
-                    .map((k) => (k === "exchange" ? exchangeSource : k));
-                return (
-                    <Box
-                        key={paramName}
-                        borderBottom="1px solid var(--hairline)"
-                        _last={{ borderBottom: "none" }}
-                        css={{
-                            boxShadow: `inset 3px 0 0 ${sig ? signalColor(sig) : "var(--signal-negative)"}`,
-                        }}
-                    >
-                        <Box
-                            as="button"
-                            w="100%"
-                            textAlign="left"
-                            onClick={() => toggle(paramName)}
-                            aria-expanded={isOpen}
-                            cursor="pointer"
-                            bg="transparent"
-                            border="none"
-                            p={0}
-                            _hover={{ bg: "var(--surface-recessed)" }}
-                            transition="background 160ms"
-                        >
-                            <Flex justify="space-between" align="center" gap={4} px={4} py={3}>
-                                <HStack gap={2} minW={0}>
-                                    <Box as="span" aria-hidden="true" style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 160ms", display: "inline-flex" }}>
-                                        <MdExpandMore size={16} />
-                                    </Box>
-                                    <Text fontSize="14px" fontWeight={500} color="var(--ink-primary)" noOfLines={1}>
-                                        {paramName}
-                                    </Text>
-                                    {hasError && (
-                                        <Text
-                                            as="span"
-                                            fontSize="12px"
-                                            px={1.5}
-                                            borderRadius="full"
-                                            bg="color-mix(in srgb, var(--signal-negative) 10%, transparent)"
-                                            color="var(--signal-negative)"
-                                        >
-                                            scoring failed
-                                        </Text>
-                                    )}
-                                    {usedSources.slice(0, 3).map((k) => (
-                                        <Flex key={k} align="center" gap={1} title={`${SOURCE_DEFS[k].label} — ${SOURCE_DEFS[k].full}`}>
-                                            <SourceMark source={k} size={12} muted={k === "voyager"} />
-                                            <Text fontSize="11.5px" color="var(--ink-tertiary)" display={{ base: "none", md: "inline" }}>
-                                                {SOURCE_DEFS[k].label}
-                                            </Text>
-                                        </Flex>
-                                    ))}
-                                </HStack>
-                                <HStack gap={3} align="center" flexShrink={0}>
-                                    <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" display={{ base: "none", sm: "inline" }}>
-                                        weight {d?.weightage != null ? d.weightage : "—"}
-                                    </Text>
-                                    {hasError ? (
-                                        <Text fontSize="14px" color="var(--signal-negative)">—</Text>
-                                    ) : (
-                                        <ScoreCell score={score} />
-                                    )}
-                                </HStack>
-                            </Flex>
-                        </Box>
-                        <AnimatePresence initial={false}>
-                            {isOpen && (
-                                <Box
-                                    as={motion.div}
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: "auto", opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: dur.base, ease }}
-                                    overflow="hidden"
-                                >
-                                    <Box px={4} pb={4} pl={7}>
-                                        {hasError && (
-                                            <Box
-                                                borderLeft="2px solid var(--signal-negative)"
-                                                bg="color-mix(in srgb, var(--signal-negative) 8%, transparent)"
-                                                px={3}
-                                                py={2}
-                                                mb={3}
-                                                borderRadius="2px"
-                                                fontSize="13px"
-                                                fontFamily="var(--font-mono)"
-                                                color="var(--signal-negative)"
-                                                wordBreak="break-word"
-                                            >
-                                                {String(d.error)}
-                                            </Box>
-                                        )}
-                                        <Box
-                                            fontSize="14px"
-                                            color="var(--ink-secondary)"
-                                            lineHeight="relaxed"
-                                            css={markdownStyles}
-                                        >
-                                            <ReactMarkdown>{stripScoreScaffolding(d?.analysis) || "_No analysis available_"}</ReactMarkdown>
-                                        </Box>
-                                        {/* U10: tool calls live in the Reasoning tab — one
-                                            click instead of an inline developer disclosure. */}
-                                        {toolCalls[paramName]?.length > 0 && (
-                                            <Button
-                                                size="xs"
-                                                variant="ghost"
-                                                onClick={(e: any) => {
-                                                    e.stopPropagation();
-                                                    onSwitchToReasoning();
-                                                }}
-                                                color="var(--accent-primary)"
-                                                fontSize="12px"
-                                                mt={3}
-                                                px={1}
-                                            >
-                                                View {toolCalls[paramName].length} tool call{toolCalls[paramName].length > 1 ? "s" : ""} in the reasoning trace →
-                                            </Button>
-                                        )}
-                                    </Box>
-                                </Box>
-                            )}
-                        </AnimatePresence>
-                    </Box>
-                );
-            })}
-        </Box>
-    );
-}
-
-function hostnameOf(url: string): string {
-    try {
-        return new URL(url).hostname.replace(/^www\./, "");
-    } catch {
-        return url.slice(0, 40);
-    }
-}
-
-/** U7: expandable sources panel — documents + clickable web links + run details. */
-function SourcesPanel({
-    docs,
-    webSrc,
-    analysis,
-    agentName,
-}: {
-    docs: any[];
-    webSrc: string[];
-    analysis: any;
-    agentName: string | null;
-}) {
-    const [open, setOpen] = useState(false);
-    const total = docs.length + webSrc.length;
-
-    const webSearchNote =
-        analysis.web_search_effective === "auto"
-            ? "Web search was used because company filings alone were limited."
-            : analysis.web_search_effective === "user" || analysis.web_search
-              ? "Web search was enabled for this run."
-              : null;
-
-    return (
-        <Box border="1px solid var(--hairline)" borderRadius="6px" overflow="hidden">
-            <Box
-                as="button"
-                w="100%"
-                onClick={() => setOpen(!open)}
-                aria-expanded={open}
-                cursor="pointer"
-                bg="transparent"
-                border="none"
-                p={0}
-                textAlign="left"
-            >
-                <Flex justify="space-between" align="center" px={4} py={3} bg="var(--surface-recessed)">
-                    <Text fontSize="13px" fontWeight={500} color="var(--ink-primary)">
-                        {total} source{total > 1 ? "s" : ""} used
-                        {docs.length > 0 ? ` · ${docs.length} document${docs.length > 1 ? "s" : ""}` : ""}
-                        {webSrc.length > 0 ? ` · ${webSrc.length} web` : ""}
-                    </Text>
-                    <Box as="span" aria-hidden="true" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 160ms", display: "inline-flex" }}>
-                        <MdExpandMore size={16} />
-                    </Box>
-                </Flex>
-            </Box>
-            <AnimatePresence initial={false}>
-                {open && (
-                    <Box
-                        as={motion.div}
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: dur.base, ease }}
-                        overflow="hidden"
-                    >
-                        <Box px={4} py={3}>
-                            {webSearchNote && (
-                                <Text fontSize="13px" color="var(--ink-secondary)" mb={3}>
-                                    {webSearchNote}
-                                </Text>
-                            )}
-                            {docs.length > 0 && (
-                                <Box mb={4}>
-                                    <Text fontSize="12px" fontWeight={500} color="var(--ink-tertiary)" mb={2}>
-                                        Documents
-                                    </Text>
-                                    <VStack gap={1} align="stretch">
-                                        {docs.map((doc: any, i: number) => (
-                                            <Text key={i} fontSize="13px" fontFamily="var(--font-mono)" color="var(--ink-secondary)" wordBreak="break-word">
-                                                {typeof doc === "string" ? doc : doc.name || doc.title || JSON.stringify(doc)}
-                                            </Text>
-                                        ))}
-                                    </VStack>
-                                </Box>
-                            )}
-                            {webSrc.length > 0 && (
-                                <Box mb={4}>
-                                    <Text fontSize="12px" fontWeight={500} color="var(--ink-tertiary)" mb={2}>
-                                        Web sources
-                                    </Text>
-                                    <VStack gap={1.5} align="stretch">
-                                        {webSrc.map((src: string) => (
-                                            <Link
-                                                key={src}
-                                                href={src}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                fontSize="13px"
-                                                color="var(--accent-primary)"
-                                                _hover={{ textDecoration: "underline" }}
-                                                wordBreak="break-all"
-                                            >
-                                                {hostnameOf(src)} — {src.length > 90 ? `${src.slice(0, 90)}…` : src}
-                                            </Link>
-                                        ))}
-                                    </VStack>
-                                </Box>
-                            )}
-                            <Box>
-                                <Text fontSize="12px" fontWeight={500} color="var(--ink-tertiary)" mb={2}>
-                                    Run details
-                                </Text>
-                                <VStack gap={1} align="stretch" fontSize="13px" color="var(--ink-secondary)">
-                                    {analysis.model && (
-                                        <HStack gap={2}>
-                                            <ModelLogo model={analysis.model} size={12} />
-                                            <Text fontSize="13px">Model: {analysis.model}</Text>
-                                        </HStack>
-                                    )}
-                                    {analysis.source && <Text>Market: {String(analysis.source).toUpperCase()}</Text>}
-                                    {agentName && <Text>Agent: {agentName}</Text>}
-                                    {analysis.duration != null && <Text>Duration: {formatDuration(analysis.duration)}</Text>}
-                                    {analysis.end_time && <Text>Ended: {new Date(analysis.end_time * 1000).toLocaleString()}</Text>}
-                                    {analysis.created_at && <Text>Created: {new Date(analysis.created_at).toLocaleString()}</Text>}
-                                </VStack>
-                            </Box>
-                        </Box>
-                    </Box>
-                )}
-            </AnimatePresence>
-        </Box>
     );
 }
 

@@ -1,57 +1,43 @@
-import { Box, Flex, Text } from "@chakra-ui/react";
 import { motion } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 import screenshot from "@/assets/hero-screenshot.png";
 
 export default function ProofSection() {
   return (
-    <Box bg="var(--surface-inverse)" borderRadius="2xl" overflow="hidden">
+    <div className="bg-[var(--surface-inverse)] rounded-2xl overflow-hidden">
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "-15%" }}
         transition={{ duration: dur.slow, ease }}
       >
-        <Flex
-          direction={{ base: "column", md: "row" }}
-          align={{ base: "stretch", md: "center" }}
-          gap={{ base: 8, md: 12 }}
-          px={{ base: 6, md: 12 }}
-          py={{ base: 10, md: 14 }}
-        >
-          <Flex direction="column" gap={4} flex={1}>
-            <Text fontFamily="var(--font-mono)" fontSize="xs" fontWeight={600} letterSpacing="0.12em" color="var(--ink-inverse-tertiary)">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center gap-8 md:gap-12 px-6 md:px-12 py-10 md:py-14">
+          <div className="flex flex-col gap-4 flex-1">
+            <p className="font-[family-name:var(--font-mono)] text-xs font-semibold tracking-[0.12em] text-[var(--ink-inverse-tertiary)]">
               THE RECEIPTS
-            </Text>
-            <Text as="h2" fontSize={{ base: "2xl", md: "3xl" }} fontWeight={700} color="var(--ink-inverse-primary)" lineHeight="tight">
+            </p>
+            <h2 className="text-2xl md:text-3xl font-bold text-[var(--ink-inverse-primary)] leading-tight">
               Every score shows its work.
-            </Text>
-            <Flex direction="column" gap={3}>
-              <Text fontSize={{ base: "sm", md: "md" }} color="var(--ink-inverse-secondary)" lineHeight="relaxed">
+            </h2>
+            <div className="flex flex-col gap-3">
+              <p className="text-sm md:text-base text-[var(--ink-inverse-secondary)] leading-relaxed">
                 Your agent reads financial statements, shareholding patterns, filings, and earnings calls — then scores every stock on how well it fits your thesis.
-              </Text>
-              <Text fontSize={{ base: "sm", md: "md" }} color="var(--ink-inverse-secondary)" lineHeight="relaxed">
+              </p>
+              <p className="text-sm md:text-base text-[var(--ink-inverse-secondary)] leading-relaxed">
                 When the data is thin, it says so: scores carry a coverage figure and an uncertainty band instead of false confidence. Unknown is never quietly counted as zero.
-              </Text>
-            </Flex>
-          </Flex>
+              </p>
+            </div>
+          </div>
 
-          <Flex flex={1} justify="center" align="center">
-            <Box
-              as={motion.img}
+          <div className="flex flex-1 justify-center items-center">
+            <motion.img
               src={screenshot}
               alt="Relativity analysis result showing a FIT score and per-criterion evaluation"
-              maxW={{ base: "100%", md: "420px" }}
-              w="100%"
-              h="auto"
-              borderRadius="xl"
-              border="1px solid var(--grid-line)"
-              boxShadow="0 20px 60px -15px rgba(0,0,0,0.5)"
-              display="block"
+              className="max-w-full md:max-w-[420px] w-full h-auto rounded-xl border border-[var(--grid-line)] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] block"
             />
-          </Flex>
-        </Flex>
+          </div>
+        </div>
       </motion.div>
-    </Box>
+    </div>
   );
 }

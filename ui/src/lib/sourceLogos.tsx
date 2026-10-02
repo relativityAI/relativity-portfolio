@@ -45,6 +45,29 @@ export function SourceMark({ source, size = 12, muted = false }: { source: Sourc
     return <Icon size={size} title={def.full} aria-label={def.full} style={{ color: "var(--ink-tertiary)", flexShrink: 0 }} />;
 }
 
+// Site favicon for a cited URL, via Google's favicon proxy.
+// ponytail: third-party request per citation — self-host or drop if that
+// becomes a privacy requirement.
+export function FaviconMark({ url, size = 12 }: { url: string; size?: number }) {
+    let host = "";
+    try {
+        host = new URL(url).hostname;
+    } catch {
+        /* malformed citation url — fall through to the broken-host mark */
+    }
+    if (!host) return <LuGlobe size={size} aria-hidden />;
+    return (
+        <img
+            src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=${size * 2}`}
+            alt=""
+            aria-hidden="true"
+            title={host}
+            onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+            style={{ width: size, height: size, borderRadius: 2, flexShrink: 0, display: "inline-block" }}
+        />
+    );
+}
+
 // Maps an agent tool name to the real data sources it pulls from. "exchange"
 // is a placeholder resolved to the run's exchange (SEC or NSE) at render time.
 const TOOL_SOURCES: Record<string, SourceKey[]> = {
@@ -75,6 +98,16 @@ const TOOL_SOURCES: Record<string, SourceKey[]> = {
     get_youtube_transcript: ["youtube"],
     web_search: ["web"],
 };
+
+// Single branded mark for one tool call. "exchange" has no logo of its own —
+// resolve it to SEC and let the card pick the run's real exchange elsewhere.
+// ponytail: no exchange-aware variant; thread the run's exchange in when a
+// result card actually needs to distinguish SEC from NSE.
+export function sourceForTool(tool: string | undefined): SourceKey {
+    const keys = TOOL_SOURCES[String(tool || "")] || [];
+    const key = keys.find((k) => k !== "exchange") || keys[0] || "web";
+    return key === "exchange" ? "sec" : key;
+}
 
 // Unique, ordered list of sources really used by a parameter's tool calls.
 export function sourcesUsedForParam(calls: { tool_name?: string }[] | undefined): SourceKey[] {

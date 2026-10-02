@@ -6,7 +6,7 @@
 
 export interface FieldDescriptor {
   key: string;
-  type: "long_text" | "single_select" | "range" | "list" | "criteria_list";
+  type: "long_text" | "single_select" | "range" | "list" | "skill_list";
   label: string;
   description?: string;
   options?: string[];
@@ -15,19 +15,11 @@ export interface FieldDescriptor {
   default?: unknown;
 }
 
-export interface SubsectionDescriptor {
-  key: string;
-  label: string;
-  type: "list" | "criteria_list";
-  item_fields: string[];
-}
-
 export interface SectionDescriptor {
   key: string;
   label: string;
   description?: string;
   fields?: FieldDescriptor[];
-  subsections?: SubsectionDescriptor[];
 }
 
 export interface SchemaDescriptor {
@@ -38,15 +30,35 @@ export interface SchemaDescriptor {
 export const SCHEMA_DESCRIPTOR: SchemaDescriptor = {
   sections: [
     {
-      key: "persona",
-      label: "Agent Persona",
-      description: "The investment philosophy and mindset that guides this agent's analysis",
+      key: "identity",
+      label: "Identity",
+      description: "Who this investor is",
       fields: [
         {
-          key: "philosophy_and_mindset",
+          key: "name",
           type: "long_text",
-          label: "Philosophy and Mindset",
-          description: "A detailed description of the investment philosophy, beliefs, and decision-making framework",
+          label: "Name",
+          description: "Short name for the agent",
+        },
+        {
+          key: "description",
+          type: "long_text",
+          label: "Description",
+          description: "One line describing who this agent is and how it invests",
+        },
+      ],
+    },
+    {
+      key: "persona",
+      label: "Agent Persona",
+      description: "The investment philosophy that guides this agent's analysis",
+      fields: [
+        {
+          key: "philosophy",
+          type: "long_text",
+          label: "Philosophy",
+          description:
+            "2-3 paragraphs in the investor's own voice: how they think, what they buy, and what they refuse to buy",
         },
       ],
     },
@@ -74,40 +86,16 @@ export const SCHEMA_DESCRIPTOR: SchemaDescriptor = {
       ],
     },
     {
-      key: "asset_evaluation",
-      label: "Asset Evaluation",
-      description: "How this agent evaluates individual companies",
-      subsections: [
+      key: "skills",
+      label: "Skills",
+      description:
+        "The skill documents this agent runs. Each skill owns its own method, data tools, and verdict anchors — the builder only chooses WHICH skills and how much each one matters.",
+      fields: [
         {
-          key: "qualitative",
-          label: "Qualitative Parameters",
-          type: "list",
-          item_fields: ["parameter(string)", "content(long_text)", "weightage(number 1-10)"],
-        },
-        {
-          key: "quantitative",
-          label: "Quantitative Criteria",
-          type: "criteria_list",
-          item_fields: ["metric(metric_ref)", "metric_name(string)", "metric_type(string)", "operator(operator)", "value(number)", "value_upper(number)", "weightage(number 1-10)"],
-        },
-      ],
-    },
-    {
-      key: "macro_evaluation",
-      label: "Macro Evaluation",
-      description: "How this agent evaluates market-level and macroeconomic factors",
-      subsections: [
-        {
-          key: "qualitative",
-          label: "Qualitative Parameters",
-          type: "list",
-          item_fields: ["parameter(string)", "content(long_text)", "weightage(number 1-10)"],
-        },
-        {
-          key: "quantitative",
-          label: "Quantitative Criteria",
-          type: "criteria_list",
-          item_fields: ["metric(metric_ref)", "metric_name(string)", "metric_type(string)", "operator(operator)", "value(number)", "value_upper(number)", "weightage(number 1-10)"],
+          key: "skills",
+          type: "skill_list",
+          label: "Attached Skills",
+          description: "3-6 entries of {skill_id, weight} — skill_id must come from the skill library; weight 1-10 by centrality",
         },
       ],
     },

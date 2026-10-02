@@ -1,0 +1,355 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Relativity Portfolio — Runtime Architecture",
+    "output": "relativity-runtime.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "primary-path",
+        "label": "Primary analysis path",
+        "focus": [
+          "investor",
+          "ui",
+          "api",
+          "runs",
+          "orchestrator",
+          "analysts",
+          "db"
+        ],
+        "note": "Follow one analysis from compose to durable results."
+      },
+      {
+        "id": "data-grounding",
+        "label": "Data grounding",
+        "focus": [
+          "analysts",
+          "voyager",
+          "ddg",
+          "marketdata",
+          "models"
+        ],
+        "note": "Every verdict must be grounded in a tool result, never model memory."
+      },
+      {
+        "id": "delivery",
+        "label": "Results and delivery",
+        "focus": [
+          "db",
+          "api",
+          "investor"
+        ],
+        "note": "Result page, live SSE trace, and the PDF export read from the same store."
+      }
+    ],
+    "viewBox": [
+      1325,
+      552
+    ]
+  },
+  "components": [
+    {
+      "id": "investor",
+      "type": "external",
+      "label": "Investor",
+      "sublabel": "Browser",
+      "pos": [
+        18,
+        330
+      ],
+      "size": [
+        120,
+        58
+      ]
+    },
+    {
+      "id": "ui",
+      "type": "frontend",
+      "label": "React SPA",
+      "sublabel": "Vite + Chakra :5173",
+      "pos": [
+        182,
+        330
+      ],
+      "size": [
+        140,
+        58
+      ],
+      "tag": "Supabase Auth"
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Express API",
+      "sublabel": "Node :8080",
+      "pos": [
+        366,
+        330
+      ],
+      "size": [
+        140,
+        58
+      ],
+      "tag": "JWT-verified"
+    },
+    {
+      "id": "runs",
+      "type": "backend",
+      "label": "Run Service",
+      "sublabel": "src/run.ts",
+      "pos": [
+        549,
+        330
+      ],
+      "size": [
+        132,
+        58
+      ]
+    },
+    {
+      "id": "orchestrator",
+      "type": "messagebus",
+      "label": "Inngest",
+      "sublabel": "durable functions",
+      "pos": [
+        725,
+        330
+      ],
+      "size": [
+        132,
+        58
+      ],
+      "tag": "retries"
+    },
+    {
+      "id": "analysts",
+      "type": "backend",
+      "label": "Skill Analysts",
+      "sublabel": "per-skill LLM turns",
+      "pos": [
+        901,
+        330
+      ],
+      "size": [
+        146,
+        58
+      ],
+      "tag": "toolChoice forced"
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "Supabase Postgres",
+      "sublabel": "analysis_runs · skills",
+      "pos": [
+        725,
+        470
+      ],
+      "size": [
+        168,
+        58
+      ]
+    },
+    {
+      "id": "models",
+      "type": "cloud",
+      "label": "LLM Providers",
+      "sublabel": "Vercel AI SDK",
+      "pos": [
+        1097,
+        330
+      ],
+      "size": [
+        142,
+        58
+      ],
+      "tag": "OpenAI · Gemini · Claude"
+    },
+    {
+      "id": "voyager",
+      "type": "cloud",
+      "label": "Data Provider",
+      "sublabel": "Voyager API",
+      "pos": [
+        901,
+        150
+      ],
+      "size": [
+        146,
+        58
+      ],
+      "tag": "internal"
+    },
+    {
+      "id": "marketdata",
+      "type": "cloud",
+      "label": "Market Data",
+      "sublabel": "Yahoo Finance chart",
+      "pos": [
+        1097,
+        150
+      ],
+      "size": [
+        142,
+        58
+      ]
+    },
+    {
+      "id": "ddg",
+      "type": "external",
+      "label": "Web Search",
+      "sublabel": "DuckDuckGo · Tavily",
+      "pos": [
+        1097,
+        470
+      ],
+      "size": [
+        142,
+        58
+      ],
+      "tag": "keyless default"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Relativity deployment — api/ + ui/",
+      "wraps": [
+        "ui",
+        "api",
+        "runs",
+        "orchestrator",
+        "analysts",
+        "db"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "Trust boundary: JWT",
+      "wraps": [
+        "api",
+        "runs",
+        "db"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "investor-ui",
+      "from": "investor",
+      "to": "ui",
+      "label": "HTTPS"
+    },
+    {
+      "id": "ui-api",
+      "from": "ui",
+      "to": "api",
+      "label": "REST",
+      "variant": "emphasis",
+      "labelDy": 14,
+      "labelDx": 0
+    },
+    {
+      "id": "api-runs",
+      "from": "api",
+      "to": "runs",
+      "label": "createRun",
+      "labelDy": -24
+    },
+    {
+      "id": "runs-orchestrator",
+      "from": "runs",
+      "to": "orchestrator",
+      "label": "enqueue"
+    },
+    {
+      "id": "orchestrator-analysts",
+      "from": "orchestrator",
+      "to": "analysts",
+      "label": "run",
+      "labelDy": -16
+    },
+    {
+      "id": "analysts-db",
+      "from": "analysts",
+      "to": "db",
+      "label": "verdicts",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "labelDy": 12
+    },
+    {
+      "id": "analysts-models",
+      "from": "analysts",
+      "to": "models",
+      "label": "LLM calls"
+    },
+    {
+      "id": "analysts-voyager",
+      "from": "analysts",
+      "to": "voyager",
+      "label": "filings",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelDx": -60
+    },
+    {
+      "id": "analysts-marketdata",
+      "from": "analysts",
+      "to": "marketdata",
+      "label": "candles",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "analysts-ddg",
+      "from": "analysts",
+      "to": "ddg",
+      "label": "web_search",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "id": "api-db-read",
+      "from": "api",
+      "to": "db",
+      "label": "reads · PDF",
+      "fromSide": "bottom",
+      "toSide": "left"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Primary path",
+      "items": [
+        "Investor composes → React SPA → Express API → Run Service",
+        "Run Service enqueues an Inngest event; durable functions retry",
+        "Skill analysts run per-skill, verdicts persist to Supabase",
+        "Delivery: result page, SSE trace, and PDF export all read the stored run",
+        "Honest scoring: headline suppressed below 60% coverage"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Data grounding",
+      "items": [
+        "Step-0 toolChoice forces every analyst to call tools first",
+        "Voyager (internal) supplies filings and metrics; keyless runs fall back to DuckDuckGo search",
+        "Tavily upgrades search when a key is set; Yahoo Finance prices the charts"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Trust boundaries",
+      "items": [
+        "UI authenticates with Supabase; every API route verifies the JWT",
+        "Analysts scope every query by user_id — no cross-tenant reads",
+        "Tool results are wrapped as untrusted content; scores are never invented"
+      ]
+    }
+  ]
+}

@@ -1,5 +1,3 @@
-import { type SchemaDescriptor } from "./schema.js";
-import type { MetricDef } from "./metrics.js";
 
 // ============================================================================
 // 1. Qualitative Evaluation & Scoring
@@ -145,94 +143,77 @@ export function buildDraftParametersPrompt(
 // ============================================================================
 
 export function buildAgentBuilderSystemPrompt(
-  schema: SchemaDescriptor,
-  metrics: MetricDef[],
   toolCatalog: { name: string; description: string }[] = [],
+  skillCatalog: { id: string; name: string; description: string; category: string }[] = [],
 ): string {
-  const metricList = metrics
-    .slice(0, 60)
-    .map((m) => `  - ${m.id}: ${m.name} (${m.type})`)
-    .join("\n");
-
-  const schemaDesc = schema.sections.map((s) => {
-    let desc = `- ${s.key} (${s.label}): ${s.description || ""}`;
-    if (s.fields) {
-      desc += "\n  Fields: " + s.fields.map((f) => `${f.key} (${f.type})`).join(", ");
-    }
-    if (s.subsections) {
-      desc += "\n  Subsections: " + s.subsections.map((sub) => `${sub.key} (${sub.type})`).join(", ");
-    }
-    return desc;
-  }).join("\n");
+  const skillList = skillCatalog.length
+    ? skillCatalog
+        .map((s) => `  - id: ${s.id} | name: ${s.name} | category: ${s.category} | ${s.description}`)
+        .join("\n")
+    : '  (no skills available — return an agent with an empty "skills" array and say so)';
 
   const toolSection = toolCatalog.length
     ? `\n## Available Data Tools\n` +
-      `The analysis agent will have these tools to gather evidence. Only each tool's name and purpose are listed here — not how to call it. When writing qualitative parameter content, name the specific tools the evaluator should look at while researching that aspect.\n` +
-      toolCatalog.map((t) => `- ${t.name}: ${t.description}`).join("\n") +
-      `\n\nThese tools are recommended — use your own decision-making to use other tools or data sources if needed.`
+      `Each skill document decides which tools its analyst calls, so you do not need to name them. Listed for your reference only:\n` +
+      toolCatalog.map((t) => `- ${t.name}: ${t.description}`).join("\n")
     : "";
 
-  return `You are an investment agent builder. Your job is to help users create investment analysis agents by conversationally gathering their preferences and generating a complete agent configuration.
+  return `You are an investment agent builder. You help users create investment analysis agents by conversation, then emit the agent configuration as JSON.
 
-## Agent Schema
-The agent document has these sections:
-${schemaDesc}
+## What an agent IS (v3)
+An agent is NOT a list of scoring rules. It is four things:
+1. "name" + "description" — who this investor is.
+2. "philosophy" — 2-3 paragraphs in that investor's own voice, describing how they think and what they refuse to buy. This is the highest-value field; write it as that investor writes, using their real documented method and vocabulary.
+3. "configuration" — {"investment_horizon": "<e.g. Long-term (years) | Positional (weeks to months) | Medium-term (1-3 years)>", "risk_appetite": <integer 1-10>}.
+4. "skills" — 3-6 entries of {"skill_id": "<id from the library>", "weight": <1-10>}.
 
-## Available Quantitative Metrics
-${metricList}
+A skill document already contains its own method, data tools, and verdict anchors. You never restate a skill's rules — you choose WHICH skills this investor uses and how much each one matters.
+
+## Available Skill Library
+Pick skills ONLY from this list. In "skills" entries, "skill_id" must be the exact id from the left column:
+${skillList}
+
+When a methodology has recognizable pillars (e.g. QGLP = Quality, Growth, Longevity, Price; CAN SLIM = quarterly earnings, annual earnings, newness, supply/demand, leaders, institutional sponsorship, market direction), map EACH pillar to the best-matching library skill and attach one skill per pillar — never leave a pillar without a skill.
 ${toolSection}
 
 ## Rules
 1. Be conversational and concise. Ask one question at a time.
 2. When offering options, provide 4-7 choices as JSON options array.
-3. When the user specifies preferences, style, horizon, risk, or criteria, include "agent_draft_update" in your JSON response. It is a PARTIAL PATCH, not a full resend of the agent:
-   - First build / empty draft: include the complete draft.
-   - Later turns: include ONLY the top-level sections that changed (any of: "name", "style", "philosophy", "configuration", "asset_evaluation", "macro_evaluation"). Inside a changed section, include its FULL array of items. Omit untouched sections entirely — do not echo the philosophy, name, or evaluation sections back unchanged.
-   - Inside "asset_evaluation"/"macro_evaluation", a "qualitative" param is: {"parameter": "<name>", "content": "<checklist>", "weightage": 1-10}; a "quantitative" rule is: {"metric": "<metric_id>", "metric_name": "<display name>", "operator": "gt|lt|gte|lte|eq|between", "value": <number>, "weightage": 1-10}.
-   - An evaluation section has BOTH a "qualitative" and a "quantitative" key (each an array). When you change anything inside "asset_evaluation" or "macro_evaluation", include BOTH keys with their full arrays — copying the unchanged items verbatim from the current draft — so you never drop rules or parameters you didn't intend to touch.
-   NEVER respond saying you set up, added, or updated criteria without returning the populated fields inside "agent_draft_update".
-3b. Distinguish change requests from informational questions. If the user only asks a question about you or how you work — such as "what tools do you have access to?", "how do you evaluate stocks?", "what can you do?" — answer in "message" and DO NOT include "agent_draft_update". Never rewrite, annotate, or resave the user's configuration because of a question; that would surprise and annoy them. Only include "agent_draft_update" when the user actually specifies or asks to change their agent.
-4. For qualitative parameters: include a "parameter" (short name), "content" (1-3 sentence scoring checklist), and "weightage" (1-10). In "content", name the specific data tools (from ## Available Data Tools) the evaluator should consult while researching that aspect. Think about which tools are genuinely relevant before adding them — pick tools that actually bear on the aspect, not a blanket list.
-4b. The tools in ## Available Data Tools are recommendations, not a fixed set — the evaluator can use its own judgment to call other tools or data sources as needed. Only reference tools that genuinely fit the aspect you are describing.
-5. For quantitative criteria: use metric IDs from the available list. Include "metric", "metric_name", "metric_type", "operator" (gt/gte/lt/lte/eq/between), "value", "value_upper" (required when operator is "between"), and "weightage" (1-10). Prefer simple operators (gt, lt, gte, lte) over "between" unless a range is clearly needed.
-6. Always generate a reasonable philosophy even if the user provides minimal input.
-7. When documents are provided, extract investment style, criteria, and preferences from them.
-8. You have a web_search tool. Call it whenever the user asks you to research or clarify anything about a stock, sector, style, or the market — words like "search", "research", "look up", "find out", "latest", "current" are triggers — and base your draft ONLY on the search results plus the user's own input, not on general knowledge. If web_search is available it MUST be your first action on research-type requests. If your draft does not use any search results, say so plainly. In your "message", say in one line what the top sources showed (e.g. "The sources emphasize CAN SLIM's C: current quarterly earnings up 20%+"). Only claim facts the sources actually state.
-8b. Uploaded documents are provided as extracted TEXT ONLY, below. Never claim to have read a PDF or file directly — file attachments (including PDFs) cannot be read as model input. Only use the extracted {filename}: {text} content shown in the prompt.
-9. Cite EVERY decision. Your response MUST be valid JSON: {"message": "text", "options": [...optional], "agent_draft_update": {...optional}, "annotations": [{"what": "<the agent setting you chose>", "basis": "<the EXACT source it came from>"}]}. The basis must name the actual source — never a principle, paraphrase, or "known practice": use the exact article title + URL from the web search results you actually retrieved, or "File: <uploaded filename>" for uploaded documents, or "user input" when it came from the conversation. Add one annotation for every meaningful value in agent_draft_update (philosophy themes, each quantitative rule, each qualitative parameter, horizon, risk appetite). Never invent a URL, fact, or source.
-10. Never use markdown fences in your response — just raw JSON.
+3. When the user names an investor, a style, or a methodology, include "agent_draft_update" in your JSON response. It is a PARTIAL PATCH, not a full resend:
+   - First build / empty draft: include ALL of name, description, philosophy, configuration, skills.
+   - Later turns: include ONLY the top-level keys that changed. Inside "skills", send the FULL array (including unchanged entries copied verbatim) so you never silently drop a skill.
+   NEVER say you set up or updated the agent without returning the populated fields.
+4. "skills" is REQUIRED on a first build. Never return an agent with zero skills — such an agent cannot run. Pick 3-6 from the library above and weight them by how central they are to that investor's method: 8-10 for the core of their process, 6-7 for supporting analysis, 4-5 for context. Never invent a skill_id; only ids listed above are valid.
+5. "risk_appetite" is an integer 1-10, not a string. 1-3 very conservative, 4-6 balanced, 7-8 aggressive, 9-10 very aggressive/speculative. Derive it from how the investor actually behaves, not from a generic label. "investment_horizon" is a short human string.
+6. Grounding named investors: build from that investor's REAL documented method, not a generic caricature. William O'Neil = CAN SLIM, so the skill set must lean on growth and technical/market-context skills, and the philosophy must reference quarterly earnings acceleration, new highs, institutional sponsorship, and cutting losses fast. Warren Buffett = durable moats, owner earnings, margin of safety, circle of competence, permanent holding. Peter Lynch = PEG, understandable businesses, insider buying. If you are not confident what a named investor actually does, say so and ask, or web_search first.
+7. Distinguish change requests from questions. If the user only asks a question about you or how you work, answer in "message" and DO NOT include "agent_draft_update".
+8. You have a web_search tool. Call it whenever the user asks you to research a stock, sector, style, or a named investor's method — words like "search", "research", "look up", "find out" are triggers. If web_search is available it MUST be your first action on research-type requests. Base the draft ONLY on those results plus the user's input. If your draft uses no search results, say so plainly, and in "message" name in one line what the top sources showed. Only claim what the sources actually state.
+9. Uploaded documents are provided as extracted TEXT ONLY. Never claim to have read a PDF or file directly — only use the extracted {filename}: {text} content in the prompt.
+10. Cite EVERY decision. Your response MUST be valid JSON: {"message": "text", "options": [...optional], "agent_draft_update": {...optional}, "annotations": [{"what": "<the setting you chose>", "basis": "<the EXACT source it came from>"}]}. The basis must name the real source: the exact article title + URL you actually retrieved, or "File: <uploaded filename>", or "user input". Add one annotation for every meaningful value (philosophy themes, each skill choice, horizon, risk appetite). Never invent a URL, fact, or source.
+11. Never use markdown fences — output raw JSON only.
 
 ## Conversation Flow
-1. First, understand what the user wants to build (investment style, philosophy).
-2. If they selected a preset or uploaded documents, acknowledge and present the draft.
+1. First, understand what they want to build (investor, style, philosophy).
+2. If they named a preset or uploaded documents, acknowledge and present the draft.
 3. If custom, ask about their philosophy, then generate the draft.
 4. After presenting a draft, offer to refine specific sections.
 5. When the user says it's good, confirm and stop generating options.
-6. Answer informational questions plainly in the conversation; never edit the agent because of them.`;
+6. Answer informational questions plainly; never edit the agent because of them.`;
 }
 
 export function buildBuilderRecoveryPrompt(prompt: string, rawText: string): string {
   return `${prompt}\n\n## PREVIOUS RESPONSE TEXT\n${rawText}\n\nREMINDER: Output ONLY a valid JSON object: {"message": string, "options": [{id,label,description}], "agent_draft_update": {...}, "annotations": [{"what","basis"}]}. Include "agent_draft_update" ONLY if the user's request specified or changed agent configuration (name, philosophy/style, horizon, risk, or evaluation criteria). For a question or small talk, omit it entirely.`;
 }
 
-export function buildDocumentExtractionPrompt(
-  docContent: string,
-  toolCatalog: { name: string; description: string }[] = [],
-): string {
-  const tools = toolCatalog.length
-    ? `\n\nThe evaluator will have these data tools. Name the relevant ones in each qualitative parameter's content so the scorer knows which data sources to look for while researching that aspect:\n` +
-      toolCatalog.map((t) => `- ${t.name}: ${t.description}`).join("\n") +
-      `\nThese tools are recommended — use your own judgment to reference only the tools that genuinely fit each aspect.`
-    : "";
+export function buildDocumentExtractionPrompt(docContent: string): string {
   return `The documents below are EXTRACTED TEXT ONLY. This model cannot read PDFs or file attachments directly — never claim to have read a file; use only the text shown.\n\n` +
-    docContent + tools + `\n\n` +
-    `Respond with JSON only:\n` +
-    `{"style": "value|growth|momentum|quantitative|contrarian|income|macro|custom",` +
-    ` "philosophy": "2-3 paragraph investment philosophy text",` +
-    ` "horizon": "Intraday|Swing|Positional|Long-term (years)",` +
-    ` "risk": <1-10 integer>,` +
-    ` "qualitative_params": [{"parameter": "name", "content": "checklist text naming the data tools to consult for this aspect", "weightage": 1-10}],` +
-    ` "quantitative_rules": [{"metric": "metric_id", "metric_name": "display name", "metric_type": "number|percentage|currency", "operator": "gt|lt|gte|lte|eq|between", "value": <number>, "value_upper": <number|null>, "weightage": 1-10}]}`;
+    docContent +
+    `\n\nRespond with JSON only:\n` +
+    `{"name": "the investor or style these documents describe",` +
+    ` "description": "one line on who this agent is",` +
+    ` "philosophy": "2-3 paragraph investment philosophy written in that investor's own voice",` +
+    ` "horizon": "Positional (weeks to months)|Medium-term (1-3 years)|Long-term (years)",` +
+    ` "risk": <1-10 integer>}`;
 }
 
 // ============================================================================
@@ -280,6 +261,7 @@ Before finalizing, re-check your own output and revise anything that fails this 
 Do not:
 - Fabricate a source, quote, or figure not present in the input.
 - Treat a parameter's raw FINAL_SCORE as prose to restate — you were given the number directly; you do not need to mention the mechanism.
+- Write a separate "Sources", "Data sources", or "Tools used" section, table, or list — the pipeline renders provenance automatically from the tool observations and their URLs; your attribution lives in citedKeys/sourceKeys only.
 - Write a generic disclaimer, meta-commentary about being an AI, or a summary of what you are about to do.`;
 
 export function buildReportSynthesisPrompt(input: {
@@ -395,3 +377,20 @@ export function buildCompileRubricPrompt(input: {
 }
 
 
+
+// ============================================================================
+// Skill-pipeline synthesis prompt (v3)
+// ============================================================================
+export const SKILL_REPORT_SYNTHESIS_SYSTEM_PROMPT = `You are a senior equity analyst writing the final client-facing report for a skill-based investor-agent analysis.
+
+Everything you receive has ALREADY been produced: focused analyst runs executed each skill and returned structured findings and verdicts; code computed all scores from the verdicts. Your job is presentation and judgment about what the results MEAN — never new facts, never new numbers.
+
+Rules:
+- You may restate only numbers that appear in the supplied material. If a figure isn't there, don't mention it.
+- CITES ARE METADATA, NOT PROSE. When a skill's finding or verdict carries citations (source tool and/or external URL), attach them to the paragraph or table that restates that fact via citedKeys/sourceKeys — the renderer shows them as source lines. Never drop a citation when restating a cited fact. Never print citations yourself: no "(Source: ...)" in sentences, no URLs in prose, and NO separate "Data Sources", "Sources", "Tools used", or similar section, table, or list — the pipeline renders the Sources section automatically from the tools actually called, their responses, and their URLs.
+- State the aggregate total score, uncertainty band, and coverage exactly as provided, and explain what unscored/INSUFFICIENT items mean for confidence.
+- Organize the report by skill: what the skill examined, what it found, and how its verdicts came out. Quote findings where they're well-put; tighten where they're not.
+- Where skills disagree, surface the disagreement honestly rather than blending it away.
+- Respect the investor persona's voice and priorities when framing the conclusion — the report is written FOR that investor.
+- Write in plain, specific language. No filler, no hedging boilerplate, no invented caveats.
+- Output the structured report blocks requested by the schema.`;

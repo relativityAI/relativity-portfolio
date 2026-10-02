@@ -30,6 +30,13 @@ import ApiKeySetupDialog from "./components/ApiKeySetupDialog";
 import { MotionConfig, AnimatePresence, motion } from "motion/react";
 import { page, dur, ease } from "@/lib/motion";
 import { Toaster } from "./components/ui/toaster";
+// Agent Console (shadcn/Tailwind island inside the Chakra app)
+import ConsoleLayout from "./pages/console/ConsoleLayout";
+import AgentLibrary from "./pages/console/AgentLibrary";
+import AgentSkills from "./pages/console/AgentSkills";
+import AgentTools from "./pages/console/AgentTools";
+import AgentSettings from "./pages/console/AgentSettings";
+import AiBuilder from "./pages/console/AiBuilder";
 
 function Protected({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -110,6 +117,7 @@ function AppRoutes() {
       if (path.startsWith("/analysis-result/")) return "Analysis Result";
       if (path === "/settings") return "Settings";
       if (path === "/guide") return "Guide";
+      if (path === "/console" || path.startsWith("/console/")) return "Agent Console";
       return "Relativity AI";
     };
 
@@ -118,16 +126,24 @@ function AppRoutes() {
 
   const isLogin = locationPath === "/login";
   const isLanding = locationPath === "/" && !user;
+  const isConsole = locationPath.startsWith("/console");
   const isPublicPage = PUBLIC_PATHS.includes(locationPath);
+  // The new analysis page owns the whole viewport — no footer under it.
+  const isAnalysisPage =
+    locationPath === "/analysis" ||
+    locationPath.startsWith("/analysis/") ||
+    locationPath.startsWith("/analysis-result/") ||
+    (locationPath === "/" && !!user);
   const showNav = !isLogin && !isLanding;
-  const showFooter = showNav && !isPublicPage;
+  // Remove footer from analysis result page (and analysis-related pages as requested)
+  const showFooter = showNav && !isPublicPage && !isConsole && !isAnalysisPage;
 
   return (
     <Flex direction="column" h="100dvh" overflow="hidden">
       {user && locationPath !== "/settings" && <ApiKeySetupDialog key={user.id} user={user} />}
       {showNav && <NavBar />}
 
-        <Box w="100%" flex={1} overflowY="auto" overflowX="hidden" paddingX={isLanding ? 0 : { base: 4, md: 16 }}>
+        <Box w="100%" flex={1} overflowY="auto" overflowX={isConsole ? undefined : "hidden"} paddingX={isLanding || isConsole ? 0 : { base: 4, md: 16 }}>
             <AnimatePresence mode="wait">
               <motion.div key={location.pathname} variants={page} style={{ height: "100%" }} initial="initial" animate="animate" exit="exit">
                 <Suspense fallback={<PageFallback />}>
@@ -215,6 +231,22 @@ function AppRoutes() {
                     <Route path="/terms" element={<Terms />} />
                     <Route path="/thank-you" element={<ThankYou />} />
                     <Route path="/index.html" element={<Navigate to="/" replace />} />
+                    {/* The agent console — shadcn/Tailwind shell with its own sidebar. */}
+                    <Route
+                      path="/console"
+                      element={
+                        <Protected>
+                          <ConsoleLayout />
+                        </Protected>
+                      }
+                    >
+                      <Route index element={<AgentLibrary />} />
+                      <Route path="skills" element={<AgentSkills />} />
+                      <Route path="builder" element={<AiBuilder />} />
+                      <Route path="tools" element={<AgentTools />} />
+                      <Route path="agent/new" element={<AgentSettings />} />
+                      <Route path="agent/:id" element={<AgentSettings />} />
+                    </Route>
                     <Route path="*" element={<UnknownRoute />} />
                   </Routes>
                 </Suspense>
