@@ -15,6 +15,7 @@ import { keyPool } from "./keypool.js";
 import { log } from "./logger.js";
 import { TraceCollector, traceHub } from "./trace.js";
 import { resolveSkillsForAgent } from "./skills/resolve.js";
+import { resolveSkill } from "./skills/store.js";
 import { runAllSkills } from "./skills/skillrun.js";
 import { aggregateSkillOutputs, isScoreDisplayable, MIN_COVERAGE_FOR_SCORE } from "./skills/aggregate.js";
 import { assembleSkillCharts, buildSkillScoreCharts, toolEvidenceForCharts } from "./skills/charts.js";
@@ -109,18 +110,28 @@ export const analysisRunFn = inngest.createFunction(
     };
 
     // Step 1: Resolve Agent Configuration (markdown-first, lazily migrated to v3)
+    // Skill mode runs one skill standalone (no agent, no persona).
     await setStep("agent", "running");
-    const agent = await step.run("resolve-agent", async () => {
-      const { config: agentConfig, issues } = await loadAgent(req.userId, req.agent_name);
-      if (!agentConfig) {
-        throw new Error(`Agent not found: ${req.agent_name}`);
-      }
-      if (issues.length) log.warn(runTag, "agent md warnings:", issues.map((i) => i.message).join("; "));
+    const { resolved, persona, runLabel } = await step.run("resolve-agent", async () => {
       const source = req.source || "NSE";
       // Stamp the true start clock on the PENDING→RUNNING edge (the UI's
       // elapsed timer anchors here, so reloads show total actual time).
       await updateRunStatus({ status: "RUNNING", source, started_at: new Date().toISOString() });
-      return agentConfig;
+      if (req.run_mode === "skill") {
+        if (!req.skill_id) throw new Error("skill_id is required for a skill run");
+        const skill = await resolveSkill(req.userId, req.skill_id);
+        if (!skill) throw new Error(`Skill not found: ${req.skill_id}`);
+        log.info(runTag, `skill run: ${skill.name} (${skill.id})`);
+        return { resolved: [{ skill, weight: 5 }], persona: "", runLabel: skill.name };
+      }
+      const { config: agent, issues } = await loadAgent(req.userId, req.agent_name);
+      if (!agent) throw new Error(`Agent not found: ${req.agent_name}`);
+      if (issues.length) log.warn(runTag, "agent md warnings:", issues.map((i) => i.message).join("; "));
+      return {
+        resolved: await resolveSkillsForAgent(req.userId, agent),
+        persona: agent.persona?.philosophy || "",
+        runLabel: agent.name,
+      };
     });
     await setStep("agent", "completed");
 
@@ -188,8 +199,6 @@ export const analysisRunFn = inngest.createFunction(
         price_data: price_data || null,
       });
 
-      const persona = agent.persona?.philosophy || "";
-      const resolved = await resolveSkillsForAgent(req.userId, agent);
       if (resolved.length === 0) {
         throw new Error("Agent has no skills attached");
       }
@@ -258,9 +267,9 @@ export const analysisRunFn = inngest.createFunction(
         }),
       );
 
-      return { outputs, weights, resolved, adequacy, web, price_data, marketSnapshot, factsPack, stance, metricsOutage: snap.outage ? snap.outage_error || "metrics provider outage" : null, traceSnapshot: collector.snapshot() };
+      return { outputs, weights, skillList: resolved, adequacy, web, price_data, marketSnapshot, factsPack, stance, metricsOutage: snap.outage ? snap.outage_error || "metrics provider outage" : null, traceSnapshot: collector.snapshot() };
     });
-    const { outputs, weights, resolved, price_data, marketSnapshot, factsPack, stance, traceSnapshot } = skillsResult;
+    const { outputs, weights, skillList, price_data, marketSnapshot, factsPack, stance, traceSnapshot } = skillsResult;
     const skillErrors = outputs.filter((o) => o.error).map((o) => `${o.skill_name}: ${o.error}`);
     await setStep("skills", skillErrors.length === outputs.length ? "failed" : "completed", skillErrors.length ? `${skillErrors.length} skill(s) reported problems` : `${outputs.length} skill(s) completed`);
 
@@ -309,7 +318,7 @@ export const analysisRunFn = inngest.createFunction(
         coverage: totalCoverage,
       });
 
-      const scoreTables = buildSkillScoreTables(outputs, agg, agent.name);
+      const scoreTables = buildSkillScoreTables(outputs, agg, runLabel);
       const scoredOutputs = outputs.filter((o) => !o.error);
 
       // Parity with the local runner: synthesize an executive summary
@@ -320,33 +329,37 @@ export const analysisRunFn = inngest.createFunction(
       // Charts are code-assembled from real tool data, so hoist them above the
       // synthesis branch: a blocked/unavailable report still gets the price
       // action we actually have.
+      // Skill runs persist the skill output only — no executive summary, no charts.
+      const isSkillRun = req.run_mode === "skill";
       let chartBlocksPromise: Promise<ReportBlock[]> = Promise.resolve([]);
-      try {
-        chartBlocksPromise = assembleSkillCharts(
-          outputs,
-          resolved,
-          req.symbol,
-          toolEvidenceForCharts(
-            traceToolCallMap(
-              (traceSnapshot || []).filter((ev: any) => ev.type === "tool_result" && ev.status !== "ERR"),
+      if (!isSkillRun) {
+        try {
+          chartBlocksPromise = assembleSkillCharts(
+            outputs,
+            skillList,
+            req.symbol,
+            toolEvidenceForCharts(
+              traceToolCallMap(
+                (traceSnapshot || []).filter((ev: any) => ev.type === "tool_result" && ev.status !== "ERR"),
+              ),
             ),
-          ),
-          voyager,
-          cs.source,
-        );
-      } catch (e: any) {
-        log.warn(runTag, `chart assembly setup failed: ${e?.message}`);
+            voyager,
+            cs.source,
+          );
+        } catch (e: any) {
+          log.warn(runTag, `chart assembly setup failed: ${e?.message}`);
+        }
       }
       let report = null;
       const asOfStamp = new Date().toISOString().slice(0, 10);
-      if (isUnscoreable(agg.scored_count)) {
+      if (!isSkillRun && isUnscoreable(agg.scored_count)) {
         // Nothing scored at all (the v2 KEI case: 0Y/0P/0N, 6 of 6 anchors
         // insufficient) — publish the unavailable notice, not a degraded report.
         // This is the ONLY path that voids a report; the consistency gate is
         // advisory (see skills/finalize.ts).
         log.warn(runTag, `no skill produced a scoreable verdict — publishing an unavailable notice`);
         report = blockedReport(agg.failure_reason || "no anchor could be assessed from the returned data", asOfStamp);
-      } else if (scoredOutputs.length > 0) {
+      } else if (!isSkillRun && scoredOutputs.length > 0) {
         const degradedNote =
           skillErrors.length > 0
             ? `${skillErrors.length} of ${outputs.length} skills reported problems: ${skillErrors.slice(0, 2).join("; ")}`
@@ -358,8 +371,8 @@ export const analysisRunFn = inngest.createFunction(
         report = await synthesizeSkillReport({
           modelId,
           llmKeys,
-          agentPersona: agent.persona?.philosophy || "",
-          agentDisplayName: agent.name || "Analysis Agent",
+          agentPersona: persona,
+          agentDisplayName: runLabel,
           outputs: scoredOutputs,
           totalScore: total,
           fitLow: agg.fit_low,
@@ -407,8 +420,8 @@ export const analysisRunFn = inngest.createFunction(
             synthesizeSkillReport({
               modelId,
               llmKeys,
-              agentPersona: agent.persona?.philosophy || "",
-              agentDisplayName: agent.name || "Analysis Agent",
+              agentPersona: persona,
+              agentDisplayName: runLabel,
               outputs: scoredOutputs,
               totalScore: total,
               fitLow: agg.fit_low,
@@ -433,7 +446,7 @@ export const analysisRunFn = inngest.createFunction(
       // are valid regardless of whether a verdict scored. Appending them here
       // (not inside the synthesis branch) keeps them on blocked/unavailable
       // reports — the reader still gets the price action we actually have.
-      if (report && chartBlocksPromise) {
+      if (!isSkillRun && report && chartBlocksPromise) {
         try {
           const cb = await chartBlocksPromise;
           if (cb.length) report = { ...report, blocks: [...report.blocks, ...cb] };
@@ -447,8 +460,8 @@ export const analysisRunFn = inngest.createFunction(
       // report at all is a failure. Labelling a full report "Failed" is what
       // made the UI show an error banner over real content.
       const hasReport = !!(report as any)?.blocks?.length;
-      const finalStatus = hasReport ? "COMPLETED" : "FAILED";
-      if (hasReport) errorSummary = null;
+      const finalStatus = isSkillRun || hasReport ? "COMPLETED" : "FAILED";
+      if (isSkillRun || hasReport) errorSummary = null;
 
       await updateRunStatus({
         status: finalStatus,

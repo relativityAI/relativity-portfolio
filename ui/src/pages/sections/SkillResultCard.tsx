@@ -11,6 +11,7 @@ import {
     MdOutlineCalendarToday,
 } from "react-icons/md"
 import { SOURCE_DEFS, SourceMark, sourceForTool, FaviconMark, type SourceKey } from "@/lib/sourceLogos"
+import SkillAvatar from "@/components/shared/SkillAvatar"
 
 // SkillResultCard — one skill's report. Design contract:
 // 1. Evidence leads. Every claim shows the source it came from; a source with
@@ -563,6 +564,7 @@ export default function SkillResultCard({ output }: { output: SkillOutput }) {
                 mb={1}
             >
                 <Flex gap={3} align="baseline" minW={0} flexWrap="wrap">
+                    <SkillAvatar skill={{ id: output.skill_id, name: output.skill_name }} size={26} />
                     <Text
                         fontSize="22px"
                         fontWeight={700}

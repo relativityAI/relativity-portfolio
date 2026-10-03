@@ -4,7 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { runHealthCheck, hasRequiredKeys } from "../utils"
 import { SettingsService, AnalysisService, AgentService } from "@/db";
 import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout, MdWarning } from "react-icons/md";
-import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX, LuBookOpen, LuSun, LuMoon } from "react-icons/lu";
+import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX, LuSun, LuMoon } from "react-icons/lu";
 import { useColorMode } from "@/components/ui/color-mode";
 import { useAuth } from "@/auth/useAuth";
 import { motion } from "motion/react";
@@ -120,10 +120,9 @@ export default function NavBar() {
 
     // Single source for both desktop links and the mobile drawer.
     const navLinks = [
-        { to: "/", icon: MdAddCircleOutline, label: "New Analysis" },
+        { to: "/", icon: MdAddCircleOutline, label: "New Run" },
         { to: "/console", icon: MdOutlinePeople, label: "Agent Console" },
-        { to: "/analysis-list", icon: MdOutlineAssessment, label: "Analysis" },
-        { to: "/guide", icon: LuBookOpen, label: "Guide" },
+        { to: "/analysis-list", icon: MdOutlineAssessment, label: "Runs" },
         { to: "/settings", icon: MdOutlineSettings, label: "Settings" },
     ]
 

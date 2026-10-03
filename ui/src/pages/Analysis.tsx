@@ -5,6 +5,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AnalysisService, AgentService, SettingsService, API_BASE, isServerFreeModel } from "@/db";
 import { formatSeconds, agentDisplayName } from "@/utils";
 import AgentAvatar from "@/components/shared/AgentAvatar";
+import SkillAvatar from "@/components/shared/SkillAvatar";
+import { useSkillLibrary } from "@/components/skills/SkillBrowser";
 import { resolveAgent } from "@/lib/agentIdentity";
 import { ModelLogo } from "@/lib/modelLogos";
 import { AlertCircleIcon, ChevronDown } from "lucide-react";
@@ -286,6 +288,9 @@ function AnalysisSummaryRail(props: {
     shareName: string;
     agentName: string | null;
     agentObj: any;
+    runMode: "agent" | "skill";
+    skillName: string | null;
+    skillObj: any;
     model: string;
     isDefaultModel: boolean;
     hasTavily: boolean;
@@ -307,7 +312,7 @@ function AnalysisSummaryRail(props: {
     // ── Shared pieces ─────────────────────────────────────────────
     const companyChip = (
         <RailChip
-            icon={<SourceMark source={props.source === "SEC" ? "sec" : "nse"} size={14} />}
+            icon={<SourceMark source={props.source === "SEC" ? "sec" : "nse"} size={18} />}
             label={companyLabel || "Not set"}
             sub={props.share ? props.share.toUpperCase() : undefined}
             muted={!companyLabel}
@@ -318,6 +323,13 @@ function AnalysisSummaryRail(props: {
             icon={props.agentName ? <AgentAvatar agent={props.agentObj ?? props.agentName} size={18} /> : undefined}
             label={props.agentName || "Not set"}
             muted={!props.agentName}
+        />
+    );
+    const skillChip = (
+        <RailChip
+            icon={props.skillName ? <SkillAvatar skill={props.skillObj ?? props.skillName} size={18} /> : undefined}
+            label={props.skillName || "Not set"}
+            muted={!props.skillName}
         />
     );
     const modelChip = (
@@ -333,7 +345,7 @@ function AnalysisSummaryRail(props: {
         <Flex direction="column" gap={2.5}>
             <Flex direction="column" gap={2.5}>
                 {companyChip}
-                {agentChip}
+                {props.runMode === "skill" ? skillChip : agentChip}
                 {modelChip}
                 {props.isDefaultModel && props.model && (
                     <Text fontSize="9.5px" fontWeight={600} color="var(--accent-primary)" textTransform="uppercase" letterSpacing="0.05em" pl={0.5}>
@@ -431,11 +443,11 @@ function AnalysisSummaryRail(props: {
                     onClick={props.onRun}
                     disabled={!props.canRun}
                 >
-                    Start Analysis
+                    Run Now
                 </Button>
                 {!props.canRun && (
                     <Text mt={2} fontSize="11px" color="var(--ink-tertiary)" textAlign="center">
-                        Choose a company and an agent to enable the run
+                        Choose a company and an agent or skill to enable the run
                     </Text>
                 )}
             </>
@@ -465,7 +477,7 @@ function AnalysisSummaryRail(props: {
                                 {actionArea}
                                 <Flex direction="column" gap={1.5} pt={1} borderTop="1px solid var(--hairline)">
                                     {companyChip}
-                                    {agentChip}
+                                    {props.runMode === "skill" ? skillChip : agentChip}
                                     {modelChip}
                                 </Flex>
                             </Flex>
@@ -520,7 +532,7 @@ function AnalysisSummaryRail(props: {
                 ) : null}
                 <Flex align="center" gap={2} minW={0} flex={1} overflow="hidden">
                     {companyChip}
-                    {agentChip}
+                    {props.runMode === "skill" ? skillChip : agentChip}
                     {modelChip}
                 </Flex>
                 {status === "PENDING" && props.elapsedTime > 0 && (
@@ -541,7 +553,7 @@ function AnalysisSummaryRail(props: {
                         onClick={props.onRun}
                         disabled={!props.canRun}
                     >
-                        Start Analysis
+                        Run Now
                     </Button>
                 ) : status === "PENDING" ? null : status === "COMPLETED" ? (
                     <div className="mt-2.5 flex gap-2">
@@ -615,6 +627,15 @@ export default function Analysis() {
         shareName: "",
         agent: "",
     });
+
+    // Skill-evaluation mode: run a single skill standalone instead of the agent.
+    const [runMode, setRunMode] = useState<"agent" | "skill">("agent");
+    const [skillId, setSkillId] = useState("");
+    const { library: skillLibrary } = useSkillLibrary();
+    const selectedSkill = useMemo(
+        () => skillLibrary.find((s: any) => s.id === skillId) || null,
+        [skillLibrary, skillId]
+    );
 
     const sourceKeyMap: Record<string, { mainKey: string; secondaryKey: string; nameField: string }> = {
         SEC: { mainKey: "ticker", secondaryKey: "name", nameField: "name" },
@@ -780,7 +801,8 @@ export default function Analysis() {
         // before the POST fires, and during that window the button is still
         // rendered enabled — without this, a second click starts a duplicate run.
         if (starting || status !== "EMPTY") return;
-        if (!config.source || !config.share || !config.agent) return;
+        if (!config.source || !config.share) return;
+        if (runMode === "skill" ? !skillId : !config.agent) return;
 
         setStarting(true);
         setRunError(null);
@@ -796,6 +818,8 @@ export default function Analysis() {
                 model: selectedModel || undefined,
                 source: config.source,
                 web_search: webSearch,
+                run_mode: runMode,
+                skill_id: runMode === "skill" ? skillId : undefined,
             });
 
             if (result && (result.corr_id || result.analysis_id)) {
@@ -939,7 +963,7 @@ export default function Analysis() {
         (id: string) => availableModels.filter((m) => modelPrefix(m) === modelPrefix(id)).length - 1,
         [availableModels]
     );
-    const isConfigComplete = config.share !== "" && config.agent !== "";
+    const isConfigComplete = config.share !== "" && (runMode === "skill" ? !!skillId : !!config.agent);
     const canRunAnalysis = isConfigComplete;
 
     // Real historical average from completed runs, so the "typically takes"
@@ -1092,123 +1116,198 @@ export default function Analysis() {
                             </Flex>
                         </StepSection>
 
-                        {/* Agent */}
-                        <StepSection done={!!config.agent} collapsed={!!collapsedSteps["agent"]} onToggle={() => setCollapsedSteps(p => ({ ...p, agent: !p["agent"] }))} summary={stepSummary("agent")}>
-                            <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
-                                <Box w={{ base: "full", md: "380px" }} flexShrink={0}>
-                                    <FieldLabel>Agent</FieldLabel>
-                                    <Combobox
-                                        items={availableAgents}
-                                        value={config.agent}
-                                        itemToValue={(a: any) => a._id || a.id || a.name}
-                                        itemToString={(a: any) => a.name}
-                                        onValueChange={(v) => setConfig(prev => ({ ...prev, agent: v }))}
-                                    >
-                                        <ComboboxInput placeholder="Select an agent" showClear />
-                                        <ComboboxContent>
-                                            <ComboboxEmpty>No agents found.</ComboboxEmpty>
-                                            <ComboboxList>
-                                                {(agent: any) => {
-                                                    const value = agent._id || agent.id || agent.name;
-                                                    const skillCount = (agent.skills || []).length;
-                                                    return (
-                                                        <ComboboxItem key={value} value={value} searchText={agent.name}>
-                                                            <AgentAvatar agent={agent} size={22} />
-                                                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                                                                {agent.name}
-                                                            </span>
-                                                            <span className="shrink-0 text-[11px] text-muted-foreground/60">
-                                                                {skillCount} skill{skillCount === 1 ? "" : "s"}
-                                                            </span>
-                                                        </ComboboxItem>
-                                                    );
-                                                }}
-                                            </ComboboxList>
-                                        </ComboboxContent>
-                                    </Combobox>
-                                    <Flex align="center" gap={1.5} mt={1.5}>
-                                        <MdInfoOutline size={12} color="var(--ink-tertiary)" />
-                                        <Text fontSize="11px" color="var(--ink-tertiary)">
-                                            Create or edit agents in the{" "}
-                                            <Link to="/agent/new" style={{ color: "var(--accent-primary)" }}>
-                                                Agent Builder
-                                            </Link>
-                                        </Text>
-                                    </Flex>
-                                </Box>
-                                <Box flex={1} minW={0} pt={{ base: 1, md: 5 }}>
-                                    {selectedAgent ? (
-                                        <Flex direction="row" align="flex-start" gap={2.5} minW={0}>
-                                            <AgentAvatar agent={selectedAgent} size={48} label={selectedAgent.name} />
-                                            <Flex direction="column" gap={1} minW={0}>
-                                                <Flex align="baseline" gap={2} flexWrap="wrap">
-                                                <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)">
-                                                    {selectedAgent.name}
-                                                </Text>
-                                                <Text fontSize="12px" color="var(--ink-tertiary)" whiteSpace="nowrap">
-                                                    <Text as="span" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" fontWeight={600} color="var(--ink-secondary)">
-                                                        {selectedAgent.skills?.length || 0}
-                                                    </Text>{" "}
-                                                    skill{selectedAgent.skills?.length === 1 ? "" : "s"}
+                        {/* Agent / Skill */}
+                        <StepSection
+                            done={runMode === "skill" ? !!skillId : !!config.agent}
+                            collapsed={!!collapsedSteps["agent"]}
+                            onToggle={() => setCollapsedSteps(p => ({ ...p, agent: !p["agent"] }))}
+                            summary={runMode === "skill" ? selectedSkill?.name : stepSummary("agent")}
+                        >
+                            <Flex direction="column" gap={4}>
+                                <ToggleGroup
+                                    type="single"
+                                    value={runMode}
+                                    onValueChange={(v) => { if (v) setRunMode(v as "agent" | "skill"); }}
+                                    aria-label="Evaluation mode"
+                                >
+                                    <ToggleGroupItem value="agent" className="data-[state=on]:bg-[var(--accent-primary)] data-[state=on]:text-white">Agent evaluation</ToggleGroupItem>
+                                    <ToggleGroupItem value="skill" className="data-[state=on]:bg-[var(--signal-positive)] data-[state=on]:text-white">Skill evaluation</ToggleGroupItem>
+                                </ToggleGroup>
+
+                                <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
+                                    {runMode === "agent" ? (
+                                        <Box w={{ base: "full", md: "380px" }} flexShrink={0}>
+                                            <FieldLabel>Agent</FieldLabel>
+                                            <Combobox
+                                                items={availableAgents}
+                                                value={config.agent}
+                                                itemToValue={(a: any) => a._id || a.id || a.name}
+                                                itemToString={(a: any) => a.name}
+                                                onValueChange={(v) => setConfig(prev => ({ ...prev, agent: v }))}
+                                            >
+                                                <ComboboxInput placeholder="Select an agent" showClear />
+                                                <ComboboxContent>
+                                                    <ComboboxEmpty>No agents found.</ComboboxEmpty>
+                                                    <ComboboxList>
+                                                        {(agent: any) => {
+                                                            const value = agent._id || agent.id || agent.name;
+                                                            const skillCount = (agent.skills || []).length;
+                                                            return (
+                                                                <ComboboxItem key={value} value={value} searchText={agent.name}>
+                                                                    <AgentAvatar agent={agent} size={22} />
+                                                                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                                                                        {agent.name}
+                                                                    </span>
+                                                                    <span className="shrink-0 text-[11px] text-muted-foreground/60">
+                                                                        {skillCount} skill{skillCount === 1 ? "" : "s"}
+                                                                    </span>
+                                                                </ComboboxItem>
+                                                            );
+                                                        }}
+                                                    </ComboboxList>
+                                                </ComboboxContent>
+                                            </Combobox>
+                                            <Flex align="center" gap={1.5} mt={1.5}>
+                                                <MdInfoOutline size={12} color="var(--ink-tertiary)" />
+                                                <Text fontSize="11px" color="var(--ink-tertiary)">
+                                                    Create or edit agents in the{" "}
+                                                    <Link to="/agent/new" style={{ color: "var(--accent-primary)" }}>
+                                                        Agent Builder
+                                                    </Link>
                                                 </Text>
                                             </Flex>
-                                                {persona && (
-                                                    <Box minW={0} w="full">
-                                                        <AnimatePresence initial={false}>
-                                                            {personaOpen && (
-                                                                <Box
-                                                                    as={motion.div}
-                                                                    initial={{ height: 0, opacity: 0 }}
-                                                                    animate={{ height: "auto", opacity: 1 }}
-                                                                    exit={{ height: 0, opacity: 0 }}
-                                                                    transition={{ duration: dur.base, ease }}
-                                                                    overflow="hidden"
-                                                                >
-                                                                    <Box borderLeft="2px solid var(--hairline)" pl={3} py={1} mb={2} maxH="160px" overflowY="auto">
-                                                                        <Text fontSize="12px" color="var(--ink-secondary)" lineHeight="1.6" whiteSpace="pre-line">
+                                        </Box>
+                                    ) : (
+                                        <Box w={{ base: "full", md: "380px" }} flexShrink={0}>
+                                            <FieldLabel>Skill</FieldLabel>
+                                            <Combobox
+                                                items={skillLibrary}
+                                                value={skillId}
+                                                itemToValue={(s: any) => s.id}
+                                                itemToString={(s: any) => s.name}
+                                                onValueChange={(v) => setSkillId(v)}
+                                            >
+                                                <ComboboxInput placeholder="Select a skill" showClear />
+                                                <ComboboxContent>
+                                                    <ComboboxEmpty>No skills found.</ComboboxEmpty>
+                                                    <ComboboxList>
+                                                        {(skill: any) => (
+                                                            <ComboboxItem key={skill.id} value={skill.id} searchText={skill.name}>
+                                                                <SkillAvatar skill={skill} size={22} />
+                                                                <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                                                                    {skill.name}
+                                                                </span>
+                                                                <span className="shrink-0 text-[11px] text-muted-foreground/60">
+                                                                    {skill.category}
+                                                                </span>
+                                                            </ComboboxItem>
+                                                        )}
+                                                    </ComboboxList>
+                                                </ComboboxContent>
+                                            </Combobox>
+                                            <Flex align="center" gap={1.5} mt={1.5}>
+                                                <MdInfoOutline size={12} color="var(--ink-tertiary)" />
+                                                    <Text fontSize="11px" color="var(--ink-tertiary)">
+                                                        Runs just this skill — no agent, no persona. Useful for testing it in isolation.
+                                                    </Text>
+                                            </Flex>
+                                        </Box>
+                                    )}
+                                    <Box flex={1} minW={0} pt={{ base: 1, md: 5 }}>
+                                        {runMode === "agent" ? (
+                                            selectedAgent ? (
+                                                <Flex direction="row" align="flex-start" gap={2.5} minW={0}>
+                                                    <AgentAvatar agent={selectedAgent} size={48} label={selectedAgent.name} />
+                                                    <Flex direction="column" gap={1} minW={0}>
+                                                        <Flex align="baseline" gap={2} flexWrap="wrap">
+                                                            <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)">
+                                                                {selectedAgent.name}
+                                                            </Text>
+                                                            <Text fontSize="12px" color="var(--ink-tertiary)" whiteSpace="nowrap">
+                                                                <Text as="span" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" fontWeight={600} color="var(--ink-secondary)">
+                                                                    {selectedAgent.skills?.length || 0}
+                                                                </Text>{" "}
+                                                                skill{selectedAgent.skills?.length === 1 ? "" : "s"}
+                                                            </Text>
+                                                        </Flex>
+                                                        {persona && (
+                                                            <Box minW={0} w="full">
+                                                                <AnimatePresence initial={false}>
+                                                                    {personaOpen && (
+                                                                        <Box
+                                                                            as={motion.div}
+                                                                            initial={{ height: 0, opacity: 0 }}
+                                                                            animate={{ height: "auto", opacity: 1 }}
+                                                                            exit={{ height: 0, opacity: 0 }}
+                                                                            transition={{ duration: dur.base, ease }}
+                                                                            overflow="hidden"
+                                                                        >
+                                                                            <Box borderLeft="2px solid var(--hairline)" pl={3} py={1} mb={2} maxH="160px" overflowY="auto">
+                                                                                <Text fontSize="12px" color="var(--ink-secondary)" lineHeight="1.6" whiteSpace="pre-line">
+                                                                                    {persona}
+                                                                                </Text>
+                                                                            </Box>
+                                                                        </Box>
+                                                                    )}
+                                                                </AnimatePresence>
+                                                                {!personaOpen && (
+                                                                    <Flex align="flex-start" gap={1.5} minW={0}>
+                                                                        <Text fontSize="12px" color="var(--ink-tertiary)" lineHeight="1.6" noOfLines={1} flex={1} minW={0}>
                                                                             {persona}
                                                                         </Text>
-                                                                    </Box>
-                                                                </Box>
-                                                            )}
-                                                        </AnimatePresence>
-                                                        {!personaOpen && (
-                                                            <Flex align="flex-start" gap={1.5} minW={0}>
-                                                                <Text fontSize="12px" color="var(--ink-tertiary)" lineHeight="1.6" noOfLines={1} flex={1} minW={0}>
-                                                                    {persona}
-                                                                </Text>
-                                                                <Link
-                                                                    to={`/agent/${selectedAgent._id || selectedAgent.id || selectedAgent.name}`}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    aria-label={`Open ${selectedAgent.name} in a new tab`}
-                                                                    style={{ flexShrink: 0, marginTop: "2px", color: "var(--ink-tertiary)" }}
+                                                                        <Link
+                                                                            to={`/agent/${selectedAgent._id || selectedAgent.id || selectedAgent.name}`}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            aria-label={`Open ${selectedAgent.name} in a new tab`}
+                                                                            style={{ flexShrink: 0, marginTop: "2px", color: "var(--ink-tertiary)" }}
+                                                                        >
+                                                                            <MdOutlineOpenInNew size={12} />
+                                                                        </Link>
+                                                                    </Flex>
+                                                                )}
+                                                                <Text
+                                                                    as="button"
+                                                                    fontSize="11px"
+                                                                    fontWeight={500}
+                                                                    color="var(--accent-primary)"
+                                                                    cursor="pointer"
+                                                                    mt={1}
+                                                                    onClick={() => setPersonaOpen((v) => !v)}
                                                                 >
-                                                                    <MdOutlineOpenInNew size={12} />
-                                                                </Link>
-                                                            </Flex>
+                                                                    {personaOpen ? "Hide persona" : "Read full persona"}
+                                                                </Text>
+                                                            </Box>
                                                         )}
-                                                        <Text
-                                                            as="button"
-                                                            fontSize="11px"
-                                                            fontWeight={500}
-                                                            color="var(--accent-primary)"
-                                                            cursor="pointer"
-                                                            mt={1}
-                                                            onClick={() => setPersonaOpen((v) => !v)}
-                                                        >
-                                                            {personaOpen ? "Hide persona" : "Read full persona"}
-                                                        </Text>
-                                                    </Box>
-                                                )}
+                                                    </Flex>
+                                                </Flex>
+                                            ) : (
+                                                <Text fontSize="12px" color="var(--ink-tertiary)">
+                                                    Select an agent to see its skills and persona
+                                                </Text>
+                                            )
+                                        ) : selectedSkill ? (
+                                            <Flex direction="row" align="flex-start" gap={2.5} minW={0}>
+                                                <SkillAvatar skill={selectedSkill} size={48} label={selectedSkill.name} />
+                                                <Flex direction="column" gap={1} minW={0}>
+                                                    <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)">
+                                                        {selectedSkill.name}
+                                                    </Text>
+                                                    <Text fontSize="12px" color="var(--ink-tertiary)" whiteSpace="nowrap">
+                                                        {selectedSkill.category} · {selectedSkill.source}
+                                                    </Text>
+                                                    <Text fontSize="12px" color="var(--ink-secondary)" lineHeight="1.6">
+                                                        {selectedSkill.description}
+                                                    </Text>
+                                                </Flex>
                                             </Flex>
-                                        </Flex>
-                                    ) : (
-                                        <Text fontSize="12px" color="var(--ink-tertiary)">
-                                            Select an agent to see its skills and persona
-                                        </Text>
-                                    )}
-                                </Box>
+                                        ) : (
+                                            <Text fontSize="12px" color="var(--ink-tertiary)">
+                                                Select a skill to see what it analyzes
+                                            </Text>
+                                        )}
+                                    </Box>
+                                </Flex>
                             </Flex>
                         </StepSection>
 
@@ -1391,6 +1490,9 @@ export default function Analysis() {
                         shareName={config.shareName}
                         agentName={config.agent ? agentDisplayName(config.agent, availableAgents) || config.agent : null}
                         agentObj={resolveAgent(config.agent, availableAgents)}
+                        runMode={runMode}
+                        skillName={selectedSkill?.name || null}
+                        skillObj={selectedSkill}
                         model={selectedModel || ""}
                         isDefaultModel={!!selectedModel && selectedModel === defaultModel}
                         hasTavily={hasTavily}
@@ -1487,6 +1589,9 @@ export default function Analysis() {
                     shareName={config.shareName}
                     agentName={config.agent ? agentDisplayName(config.agent, availableAgents) || config.agent : null}
                     agentObj={resolveAgent(config.agent, availableAgents)}
+                    runMode={runMode}
+                    skillName={selectedSkill?.name || null}
+                    skillObj={selectedSkill}
                     model={selectedModel || ""}
                     isDefaultModel={!!selectedModel && selectedModel === defaultModel}
                     hasTavily={hasTavily}

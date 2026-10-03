@@ -13,8 +13,8 @@ import { SiGoogle } from "react-icons/si";
 const STEPS = [
   {
     n: "01",
-    title: "Configure & Launch Analysis",
-    sub: "Pick an agent, target ticker, exchange, and AI model — rendered directly from our analysis page run summary card.",
+    title: "Configure & Launch a Run",
+    sub: "Pick an agent, target ticker, exchange, and AI model — rendered directly from our new-run page run summary card.",
     visual: (
       <Card className="w-full max-w-[340px] gap-3 rounded-lg py-4 shadow-xl border border-[var(--hairline)] bg-[var(--surface-panel)] text-left">
         <CardHeader className="px-4 pb-0">
@@ -81,7 +81,7 @@ const STEPS = [
           </div>
 
           <Button size="lg" className="w-full font-semibold mt-1 bg-[var(--accent-primary)] text-white">
-            Start analysis
+            Run now
           </Button>
         </CardContent>
       </Card>

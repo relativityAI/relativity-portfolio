@@ -17,6 +17,7 @@ import { log } from "./logger.js";
 import { inngest } from "./inngest.js";
 import { TraceCollector, traceHub } from "./trace.js";
 import { resolveSkillsForAgent, type ResolvedSkill } from "./skills/resolve.js";
+import { resolveSkill } from "./skills/store.js";
 import { runAllSkills } from "./skills/skillrun.js";
 import { aggregateSkillOutputs } from "./skills/aggregate.js";
 import { assembleSkillCharts, buildSkillScoreCharts, toolEvidenceForCharts } from "./skills/charts.js";
@@ -142,6 +143,10 @@ export interface RunRequest {
   web_search?: boolean;
   web_sources?: string[];
   reqId?: string;
+  /** 'agent' (default) runs the whole agent; 'skill' runs one skill standalone. */
+  run_mode?: "agent" | "skill";
+  /** Required when run_mode === 'skill'. */
+  skill_id?: string;
 }
 
 // Hard cap on the data-availability check. Voyager cold-sleeps on Render's free
@@ -395,6 +400,9 @@ export async function createRun(req: RunRequest): Promise<CreateRunResult> {
     .eq("user_id", req.userId)
     .eq("symbol", req.symbol)
     .eq("source", source)
+    // skill_id is part of the dedupe key so an agent run and a skill run on
+    // the same symbol don't block each other. null = IS NULL (agent runs).
+    .eq("skill_id", req.skill_id || null)
     .in("status", ["PENDING", "RUNNING"])
     .limit(1)
     .maybeSingle();
@@ -416,6 +424,8 @@ export async function createRun(req: RunRequest): Promise<CreateRunResult> {
     symbol: req.symbol,
     share_name: req.share_name || req.symbol,
     agent_name: req.agent_name,
+    run_mode: req.run_mode || "agent",
+    skill_id: req.skill_id || null,
     // Placeholder only — executeRun resolves the real quota-aware default once
     // user keys are known; the run row must never persist a model nobody can
     // call (paid provider with no key configured).
@@ -507,7 +517,7 @@ export async function createRun(req: RunRequest): Promise<CreateRunResult> {
 // with PGRST204 "Could not find the '…' column … in the schema cache" — which
 // would 503 every run insert/update. Instead: detect the error, strip the
 // unknown columns, retry once, and log loudly so the migration gets applied.
-const KNOWN_OPTIONAL_COLUMNS = new Set(["fit_low", "fit_high", "coverage", "market_snapshot"]);
+const KNOWN_OPTIONAL_COLUMNS = new Set(["fit_low", "fit_high", "coverage", "market_snapshot", "run_mode", "skill_id"]);
 let missingColumnsWarned = false;
 
 function stripUnknownColumns(patch: Record<string, unknown>): Record<string, unknown> {
@@ -627,14 +637,35 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
   };
 
   try {
-    // ---- agent ----
+    // ---- agent / skill ----
+    // Skill mode runs one skill standalone (no agent, no persona); agent mode
+    // loads the agent and resolves its skill list as before.
+    let resolved: ResolvedSkill[];
+    let persona: string;
+    let runLabel: string;
     await tracker.begin("agent");
-    const { config: agent, issues: agentIssues } = await loadAgent(req.userId, req.agent_name);
-    if (!agent) {
-      await tracker.end("agent", "failed", "Agent not found");
-      throw new Error(`Agent not found: ${req.agent_name}`);
+    if (req.run_mode === "skill") {
+      if (!req.skill_id) throw new Error("skill_id is required for a skill run");
+      const skill = await resolveSkill(req.userId, req.skill_id);
+      if (!skill) {
+        await tracker.end("agent", "failed", "Skill not found");
+        throw new Error(`Skill not found: ${req.skill_id}`);
+      }
+      resolved = [{ skill, weight: 5 }];
+      persona = "";
+      runLabel = skill.name;
+      log.info(runTag, `skill run: ${skill.name} (${skill.id})`);
+    } else {
+      const { config: agent, issues: agentIssues } = await loadAgent(req.userId, req.agent_name);
+      if (!agent) {
+        await tracker.end("agent", "failed", "Agent not found");
+        throw new Error(`Agent not found: ${req.agent_name}`);
+      }
+      if (agentIssues.length) log.warn(runTag, `agent md warnings: ${agentIssues.map((i) => i.message).join("; ")}`);
+      resolved = await resolveSkillsForAgent(req.userId, agent);
+      persona = agent.persona?.philosophy || "";
+      runLabel = agent.name;
     }
-    if (agentIssues.length) log.warn(runTag, `agent md warnings: ${agentIssues.map((i) => i.message).join("; ")}`);
     await tracker.end("agent", "completed");
 
     // The market (NSE/SEC) is a property of the run, never the agent — agents
@@ -653,7 +684,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     // Stamp the true start clock once, on the PENDING→RUNNING edge. The UI's
     // elapsed timer anchors here, so reloads show total actual time.
     await write(() => updateRun(runId, { status: "RUNNING", source, started_at: new Date().toISOString() }));
-    log.info(runTag, `start symbol=${req.symbol} agent="${agent.name}" model=${modelId} source=${source}`);
+    log.info(runTag, `start symbol=${req.symbol} ${req.run_mode === "skill" ? "skill" : "agent"}="${runLabel}" model=${modelId} source=${source}`);
 
     // Keyless runs are supported: without a Voyager key the run proceeds on
     // the free web-search provider instead of hard-failing. The data steps
@@ -754,8 +785,6 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     };
 
     // ---- skills: resolve the agent's skill list and fan out analysts (D4) ----
-    const persona = agent.persona?.philosophy || "";
-    const resolved = await resolveSkillsForAgent(req.userId, agent);
     tracker.setDetail("skills", `${resolved.length} skill(s) loaded`);
     log.info(runTag, `skills: ${resolved.map((s) => s.skill.id).join(", ") || "(none)"}`);
 
@@ -857,7 +886,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
 
     // ---- scorecard: deterministic tables rendered by CODE (D2 preserved) ----
     await tracker.begin("scorecard");
-    const scoreTables = buildSkillScoreTables(outputs, agg, agent.name);
+    const scoreTables = buildSkillScoreTables(outputs, agg, runLabel);
     await tracker.end("scorecard", "completed", `${scoreTables.length} deterministic table(s)`);
     log.info(runTag, `scorecard: ${scoreTables.length} code-rendered table(s)`);    // ---- finalize ----
     // The run fails only when EVERY skill failed to score (no honest number
@@ -921,19 +950,24 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
       }),
     );
 
+    // Skill runs persist the skill output only — no executive summary, no charts.
+    const isSkillRun = req.run_mode === "skill";
+
     // Assemble skill-declared charts from real tool results (code-grounded).
     // The trace collector holds every tool_result this run's analysts observed;
     // series specs (revenue_by_quarter, peer_benchmark, …) ground against it.
-    const chartEvidence = toolEvidenceForCharts(
-      traceToolCallMap(
-        collector.snapshot().filter((ev) => ev.type === "tool_result" && ev.status !== "ERR"),
-      ),
-    );
     let chartBlocksPromise: Promise<ReportBlock[]> = Promise.resolve([]);
-    try {
-      chartBlocksPromise = assembleSkillCharts(outputs, resolved, req.symbol, chartEvidence, voyager, cs.source);
-    } catch (e: any) {
-      log.warn(runTag, `chart assembly setup failed: ${e?.message}`);
+    if (!isSkillRun) {
+      const chartEvidence = toolEvidenceForCharts(
+        traceToolCallMap(
+          collector.snapshot().filter((ev) => ev.type === "tool_result" && ev.status !== "ERR"),
+        ),
+      );
+      try {
+        chartBlocksPromise = assembleSkillCharts(outputs, resolved, req.symbol, chartEvidence, voyager, cs.source);
+      } catch (e: any) {
+        log.warn(runTag, `chart assembly setup failed: ${e?.message}`);
+      }
     }
 
     // The executive summary exists for EVERY run that produced usable
@@ -943,14 +977,14 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     // (no usable output at all) skips synthesis.
     let report = null;
     const asOfStamp = new Date().toISOString().slice(0, 10);
-    if (isUnscoreable(agg.scored_count)) {
+    if (!isSkillRun && isUnscoreable(agg.scored_count)) {
       // Nothing scored at all (the v2 KEI case: 0Y/0P/0N, 6 of 6 anchors
       // insufficient). There is no honest report to write, so publish the
       // unavailable notice instead of a degraded one. This is the ONLY path
       // that voids a report — the consistency gate is advisory (finalize.ts).
       log.warn(runTag, `no skill produced a scoreable verdict — publishing an unavailable notice`);
       report = blockedReport(agg.failure_reason || "no anchor could be assessed from the returned data", asOfStamp);
-    } else if (scoredOutputs.length > 0) {
+    } else if (!isSkillRun && scoredOutputs.length > 0) {
       tracker.setDetail("finalize", "Synthesizing final report...");
       const degradedNote =
         skillErrors.length > 0
@@ -964,7 +998,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
         modelId,
         llmKeys,
         agentPersona: persona,
-        agentDisplayName: agent.name || "Analysis Agent",
+        agentDisplayName: runLabel,
         outputs: scoredOutputs,
         totalScore: total,
         fitLow: totalLow,
@@ -1019,7 +1053,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
             modelId,
             llmKeys,
             agentPersona: persona,
-            agentDisplayName: agent.name || "Analysis Agent",
+            agentDisplayName: runLabel,
             outputs: scoredOutputs,
             totalScore: total,
             fitLow: totalLow,
@@ -1046,7 +1080,7 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     // valid regardless of whether a verdict scored. Appending them here (not
     // inside the synthesis branch) keeps them on blocked/unavailable reports —
     // the reader still gets the price action we actually have.
-    if (report && chartBlocksPromise) {
+    if (!isSkillRun && report && chartBlocksPromise) {
       try {
         const cb = await chartBlocksPromise;
         if (cb.length) report = { ...report, blocks: [...report.blocks, ...cb] };
@@ -1068,8 +1102,8 @@ async function executeRun(runId: string, req: RunRequest): Promise<void> {
     }
 
     const hasReport = !!(report as any)?.blocks?.length;
-    const finalStatus = hasReport ? "COMPLETED" : "FAILED";
-    if (hasReport) errorSummary = null;
+    const finalStatus = isSkillRun || hasReport ? "COMPLETED" : "FAILED";
+    if (isSkillRun || hasReport) errorSummary = null;
 
     await write(() =>
       updateRun(runId, {

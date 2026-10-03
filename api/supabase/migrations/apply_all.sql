@@ -102,3 +102,9 @@ UPDATE analysis_runs SET started_at = created_at WHERE started_at IS NULL;
 -- { price, as_of, market_cap, market_cap_source, currency, candles, fetched_at }
 -- frozen at run time so a result viewed later shows the market as it was.
 ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS market_snapshot JSONB;
+
+-- ─── 017: single-skill evaluation mode ─────────────────────────────────
+-- A run is either a full agent evaluation (run_mode 'agent') or a single
+-- skill run (run_mode 'skill', skill_id set). Existing rows read as 'agent'.
+ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS run_mode text DEFAULT 'agent';
+ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS skill_id text;

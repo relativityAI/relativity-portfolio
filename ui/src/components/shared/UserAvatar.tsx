@@ -1,6 +1,8 @@
 import { useMemo } from "react";
-import { createAvatar } from "@dicebear/core";
-import { shapes } from "@dicebear/collection";
+import { Avatar, Style } from "@dicebear/core";
+import shapesDefinition from "@dicebear/styles/shapes.json";
+
+const shapes = new Style(shapesDefinition);
 import { Box } from "@/compat/ui";
 
 /**
@@ -22,9 +24,10 @@ export default function UserAvatar({
 
     const svg = useMemo(
         () =>
-            createAvatar(shapes, {
+            new Avatar(shapes, {
                 seed: seedValue,
-                radius: 0,
+                // v10 renamed the global `radius` option to `borderRadius`.
+                borderRadius: 0,
             }).toString()
                 // DiceBear emits no width/height; without them the portrait
                 // has no size and collapses inside the clipped chip.

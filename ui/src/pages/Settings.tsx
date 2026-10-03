@@ -2,12 +2,9 @@ import { useState, useEffect } from "react";
 import {
     Flex, Text, Box, Button, Input, VStack, HStack, Spinner
 } from "@chakra-ui/react";
-import { Link } from "react-router-dom";
-import { MdCheck, MdVisibility, MdVisibilityOff, MdDelete, MdLockOutline } from "react-icons/md";
+import { MdCheck, MdVisibility, MdVisibilityOff, MdDelete, MdLockOutline, MdOpenInNew } from "react-icons/md";
 import { toaster } from "@/components/ui/toaster";
 import { SettingsService } from "@/db";
-import PageHero from "@/components/PageHero";
-import ConfirmDialog from "@/components/ConfirmDialog";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 
@@ -15,17 +12,19 @@ import { dur, ease } from "@/lib/motion";
 // settings. Model providers and the web-search provider share the same row
 // component, grouped under two labeled headers.
 const MODEL_PROVIDERS = [
-    { value: "openai", label: "OpenAI" },
-    { value: "gemini", label: "Gemini" },
-    { value: "cerebras", label: "Cerebras" },
-    { value: "groq", label: "Groq" },
-    { value: "openrouter", label: "OpenRouter" },
-    { value: "anthropic", label: "Anthropic" },
+    { value: "openai", label: "OpenAI", url: "https://platform.openai.com/api-keys" },
+    { value: "gemini", label: "Gemini", url: "https://aistudio.google.com/apikey" },
+    { value: "cerebras", label: "Cerebras", url: "https://cloud.cerebras.ai" },
+    { value: "groq", label: "Groq", url: "https://console.groq.com/keys" },
+    { value: "openrouter", label: "OpenRouter", url: "https://openrouter.ai/keys" },
+    { value: "anthropic", label: "Anthropic", url: "https://console.anthropic.com/settings/keys" },
 ];
 
 interface ProviderRowProps {
     value: string;
     label: string;
+    /** Where to get an API key for this provider — shown as a subtle icon link. */
+    url?: string;
     savedKey?: string;
     expanded: boolean;
     onToggle: () => void;
@@ -38,7 +37,7 @@ interface ProviderRowProps {
  * Expanded: an EMPTY input (never the mask — a masked value can never be
  * accidentally re-submitted), Save/Cancel, and Remove when a key exists.
  */
-function ProviderRow({ value, label, savedKey, expanded, onToggle, onSave, onRemove }: ProviderRowProps) {
+function ProviderRow({ value, label, url, savedKey, expanded, onToggle, onSave, onRemove }: ProviderRowProps) {
     const [draft, setDraft] = useState("");
     const [showKey, setShowKey] = useState(false);
     const [busy, setBusy] = useState(false);
@@ -82,16 +81,17 @@ function ProviderRow({ value, label, savedKey, expanded, onToggle, onSave, onRem
 
     return (
         <Box borderBottom="1px solid var(--hairline)" _last={{ borderBottom: "none" }}>
-            {/* Collapsed summary — the whole row is the toggle */}
+            {/* Collapsed summary — the row body is the toggle; the icon link sits beside it */}
+            <Flex align="center" py={3} minH="44px">
             <Flex
                 as="button"
                 type="button"
                 onClick={onToggle}
                 align="center"
                 gap={3}
-                w="full"
-                py={3}
-                minH="44px"
+                flex={1}
+                minW={0}
+                pr={2}
                 textAlign="left"
                 cursor="pointer"
                 aria-expanded={expanded}
@@ -135,6 +135,27 @@ function ProviderRow({ value, label, savedKey, expanded, onToggle, onSave, onRem
                 <Text fontSize="11px" color="var(--accent-primary)" fontWeight={500} flexShrink={0}>
                     {expanded ? "Close" : connected ? "Change" : "Add"}
                 </Text>
+            </Flex>
+            {url && (
+                <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Get your ${label} API key`}
+                    aria-label={`Get your ${label} API key`}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        padding: 6,
+                        color: "var(--ink-tertiary)",
+                        textDecoration: "none",
+                        flexShrink: 0,
+                    }}
+                >
+                    <MdOpenInNew size={13} />
+                </a>
+            )}
             </Flex>
 
             {/* Expanded editor */}
@@ -297,8 +318,6 @@ export default function Settings() {
     const [savedKeys, setSavedKeys] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
-    const [confirmClearAll, setConfirmClearAll] = useState(false);
-    const [clearing, setClearing] = useState(false);
 
     useEffect(() => {
         SettingsService.getSettings()
@@ -335,59 +354,30 @@ export default function Settings() {
         }
     };
 
-    const handleClearAll = async () => {
-        setClearing(true);
-        try {
-            await SettingsService.updateSettings({ llm_keys: null });
-            setSavedKeys({});
-            setExpandedRow(null);
-            setConfirmClearAll(false);
-            toaster.create({ title: "All API keys removed", type: "info" });
-        } catch (e: any) {
-            toaster.create({ title: `Failed to remove keys: ${e.message}`, type: "error" });
-        } finally {
-            setClearing(false);
-        }
-    };
-
-    const hasSavedKeys = Object.keys(savedKeys).length > 0;
     const connectedCount = Object.keys(savedKeys).length;
 
     return (
         <Box bg="var(--surface-canvas)" minH="100%">
             <Flex direction="column" gap={6} maxW="1240px" mx="auto" py={6}>
-                {/* Header */}
-                <PageHero>
-                    <Flex justify="space-between" align={{ base: "flex-start", md: "flex-end" }} gap={3}>
-                        <Flex direction="column" gap={1}>
-                            <Text fontSize="22px" fontWeight={600} color="var(--ink-primary)">
-                                Settings
-                            </Text>
-                            <Text fontSize="13px" color="var(--ink-secondary)">
-                                Manage the API keys used to run analyses. Optional — skip them to run on our servers with the default model.
-                            </Text>
-                            <Text
-                                as={Link}
-                                to="/guide"
-                                fontSize="12.5px"
-                                fontWeight={500}
-                                color="var(--accent-primary)"
-                                mt={1}
-                                _hover={{ color: "var(--ink-primary)" }}
-                            >
-                                New here? Follow the API key guide →
-                            </Text>
-                        </Flex>
-                        <Text
-                            fontSize="11.5px"
-                            fontFamily="var(--font-mono)"
-                            color="var(--ink-tertiary)"
-                            whiteSpace="nowrap"
-                        >
-                            {connectedCount} KEY{connectedCount === 1 ? "" : "S"} STORED
-                        </Text>
-                    </Flex>
-                </PageHero>
+                {/* Header — flat masthead, same title/subtitle treatment as the Runs and New Run pages */}
+                <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 px-0.5">
+                    <div className="min-w-0">
+                        <h1 className="text-[26px] leading-[1.1] font-semibold tracking-[-0.02em] text-[var(--ink-primary)] md:text-[30px]">
+                            Settings
+                        </h1>
+                        <p className="mt-1.5 text-[13px] text-[var(--ink-secondary)]">
+                            Manage the API keys used to run analyses. Optional — skip them to run on our servers with the default model.
+                        </p>
+                    </div>
+                    <Text
+                        fontSize="11.5px"
+                        fontFamily="var(--font-mono)"
+                        color="var(--ink-tertiary)"
+                        whiteSpace="nowrap"
+                    >
+                        {connectedCount} KEY{connectedCount === 1 ? "" : "S"} STORED
+                    </Text>
+                </header>
 
                 {/* Unified key list */}
                 <Box
@@ -421,6 +411,7 @@ export default function Settings() {
                                         key={p.value}
                                         value={p.value}
                                         label={p.label}
+                                        url={p.url}
                                         savedKey={savedKeys[p.value]}
                                         expanded={expandedRow === p.value}
                                         onToggle={() => setExpandedRow((cur) => (cur === p.value ? null : p.value))}
@@ -434,10 +425,11 @@ export default function Settings() {
                                 title="Web Search"
                                 purpose="Powers the optional web-search step during analysis."
                             />
-                            <VStack gap={0} align="stretch" mb={hasSavedKeys ? 6 : 0}>
+                            <VStack gap={0} align="stretch" mb={6}>
                                 <ProviderRow
                                     value="tavily"
                                     label="Tavily"
+                                    url="https://app.tavily.com"
                                     savedKey={savedKeys.tavily}
                                     expanded={expandedRow === "tavily"}
                                     onToggle={() => setExpandedRow((cur) => (cur === "tavily" ? null : "tavily"))}
@@ -446,35 +438,10 @@ export default function Settings() {
                                 />
                             </VStack>
 
-                            {hasSavedKeys && (
-                                <Flex justify="flex-end" pt={4} mt={2} borderTop="1px solid var(--hairline)">
-                                    <Button
-                                        size="sm"
-                                        minH="36px"
-                                        variant="subtle"
-                                        color="var(--ink-tertiary)"
-                                        _hover={{ color: "var(--signal-negative)" }}
-                                        onClick={() => setConfirmClearAll(true)}
-                                        disabled={clearing}
-                                    >
-                                        <MdDelete size={14} style={{ marginRight: 4 }} />
-                                        Remove all keys
-                                    </Button>
-                                </Flex>
-                            )}
                         </>
                     )}
                 </Box>
             </Flex>
-
-            <ConfirmDialog
-                open={confirmClearAll}
-                title="Remove all API keys?"
-                message="Every saved provider and web-search key will be deleted. You can re-add them any time, but running analyses will lose access immediately."
-                confirmLabel="Remove all"
-                onCancel={() => setConfirmClearAll(false)}
-                onConfirm={handleClearAll}
-            />
         </Box>
     );
 }

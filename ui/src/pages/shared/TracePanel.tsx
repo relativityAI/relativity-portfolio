@@ -290,7 +290,7 @@ export function TracePanel({ runId, events }: { runId?: string; events?: TraceEv
             <HStack gap={1.5} py={2}>
                 <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />
                 <Text fontSize="12px" color="var(--ink-tertiary)">
-                    {connected ? "Listening for model activity…" : "Waiting for analysis to start…"}
+                    {connected ? "Listening for model activity…" : "Waiting for run to start…"}
                 </Text>
             </HStack>
         );
