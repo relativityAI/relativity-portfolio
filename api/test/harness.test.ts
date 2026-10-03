@@ -240,6 +240,43 @@ describe("retryLlmCall", () => {
     expect(res).toBe("recovered");
     expect(calls).toBe(2);
   });
+
+  it("times out a hung call instead of waiting on the stale-run sweeper", async () => {
+    // The shipped symptom: the provider accepted the request and never
+    // resolved, so the run sat in RUNNING until it was killed — with the
+    // scores already persisted and the report never written.
+    let signal: AbortSignal | undefined;
+    await expect(
+      retryLlmCall(
+        "hung synthesis",
+        async (s) => {
+          signal = s;
+          await new Promise(() => {}); // never resolves, ignores the signal
+        },
+        { attempts: 2, delayMs: 0, timeoutMs: 20 },
+      ),
+    ).rejects.toThrow(/hung synthesis timed out after 20ms/);
+    // The signal is still handed to the caller so a real request is cancelled.
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("retries a timed-out call with a fresh, unexpired signal", async () => {
+    // A signal created once and reused would already be dead on attempt 2,
+    // which would fail every real retry.
+    const signals: AbortSignal[] = [];
+    const res = await retryLlmCall(
+      "flaky synthesis",
+      async (s) => {
+        signals.push(s);
+        if (signals.length === 1) await new Promise(() => {});
+        return "ok";
+      },
+      { attempts: 2, delayMs: 0, timeoutMs: 20 },
+    );
+    expect(res).toBe("ok");
+    expect(signals).toHaveLength(2);
+    expect(signals[1].aborted).toBe(false);
+  });
 });
 
 describe("runAgentTurn partial text", () => {

@@ -3,6 +3,7 @@ import { Box, Button, Flex, Input, Text } from "@/compat/ui";
 import { MdAutoAwesome } from "react-icons/md";
 import { SiAgentskills } from "react-icons/si";
 import SkillBrowser, { useSkillLibrary } from "@/components/skills/SkillBrowser";
+import SkillAvatar from "@/components/shared/SkillAvatar";
 import { SettingsService, type SkillSummary } from "@/db";
 
 /**
@@ -160,7 +161,7 @@ export default function SkillsStep({ skills, onChange }: Props) {
                             <Text fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" w="16px" flexShrink={0} textAlign="right">
                                 {i + 1}
                             </Text>
-                            <SiAgentskills size={13} aria-hidden style={{ flexShrink: 0, color: "var(--ink-tertiary)" }} />
+                            <SkillAvatar skill={{ id: ref.skill_id, name: nameOf(ref.skill_id) }} size={18} />
                             <Text fontSize="13px" fontWeight={500} color="var(--ink-primary)" truncate flex={1} minW={0}>
                                 {nameOf(ref.skill_id)}
                             </Text>

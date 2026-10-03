@@ -8,7 +8,7 @@ import { fetchUserKeys, ensureUserSettings } from "./provision.js";
 import { getModelIds, getAvailableModelsForUser } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
 import { getMetricsCatalog, buildFieldList, getFlatCatalog, mergeCatalogFields, normalizeQuantRules, type MetricDef } from "./metrics.js";
-import { createRun, checkAndFailStaleRun, startStaleRunSweeper, type RunRequest } from "./run.js";
+import { createRun, checkAndFailStaleRun, startStaleRunSweeper, failOrphanedRuns, type RunRequest } from "./run.js";
 import { keyPool } from "./keypool.js";
 import { draftParameters, type LlmKeys } from "./agent.js";
 import { classifyModelError } from "./modelcheck.js";
@@ -117,12 +117,17 @@ app.use((req, res, next) => {
 
     const msg = parts.join(" ");
 
+    // Keep the access log out of the default INFO stream — the UI polls
+    // /health and friends constantly. Errors always log; slow calls log at
+    // INFO; routine 2xx/3xx only surface with LOG_LEVEL=debug.
     if (res.statusCode >= 400) {
       const resp = (res as any)._jsonBody;
       const errStr = resp ? JSON.stringify(resp) : "";
       log.error(`[http:${reqId}]`, `${msg}${errStr ? ` ${paint(`resp=${errStr.slice(0, 500)}`, "1;35")}` : ""}`);
-    } else {
+    } else if (ms >= 1000) {
       log.info(`[http:${reqId}]`, msg);
+    } else {
+      log.debug(`[http:${reqId}]`, msg);
     }
   });
   next();
@@ -616,8 +621,16 @@ app.post("/skills/draft", requireAuth, async (req, res) => {
 app.post("/analysis", requireAuth, async (req, res) => {
   try {
     const body = req.body || {};
-    if (!body.symbol || !body.agent_name) {
-      return res.status(400).json({ error: "symbol and agent_name are required" });
+    const runMode = body.run_mode === "skill" ? "skill" : "agent";
+    if (!body.symbol) {
+      return res.status(400).json({ error: "symbol is required" });
+    }
+    if (runMode === "skill") {
+      if (!body.skill_id) {
+        return res.status(400).json({ error: "skill_id is required for a skill run" });
+      }
+    } else if (!body.agent_name) {
+      return res.status(400).json({ error: "agent_name is required" });
     }
     const userId = (req as AuthedRequest).user.id;
     const { voyagerKey, llmKeys } = await fetchUserKeys(userId);
@@ -625,13 +638,15 @@ app.post("/analysis", requireAuth, async (req, res) => {
       userId,
       symbol: String(body.symbol),
       share_name: body.share_name ? String(body.share_name) : undefined,
-      agent_name: String(body.agent_name),
+      agent_name: body.agent_name ? String(body.agent_name) : "",
       model: body.model ? String(body.model) : undefined,
       source: body.source ? String(body.source) : undefined,
       documents: Array.isArray(body.documents) ? body.documents : undefined,
       web_search: body.web_search === undefined ? undefined : !!body.web_search,
       web_sources: Array.isArray(body.web_sources) ? body.web_sources : undefined,
       reqId: (req as any)._reqId,
+      run_mode: runMode,
+      skill_id: runMode === "skill" ? String(body.skill_id) : undefined,
     };
     const result = await createRun(runReq);
     res.status(202).json(result);
@@ -647,7 +662,7 @@ app.get("/analysis", requireAuth, async (req, res) => {
     const userId = (req as AuthedRequest).user.id;
     const { data, error } = await db
       .from("analysis_runs")
-      .select("id, symbol, share_name, agent_name, status, total_score, quantitative_score, qualitative_score, created_at, updated_at, duration, model, source, error, coverage, fit_low, fit_high")
+      .select("id, symbol, share_name, agent_name, run_mode, skill_id, status, total_score, quantitative_score, qualitative_score, created_at, updated_at, duration, model, source, error, coverage, fit_low, fit_high")
       .eq("user_id", userId);
     if (error) throw error;
     const docs = (data || []).sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
@@ -1133,6 +1148,7 @@ const server = app.listen(config.port, async () => {
     `config: supabase=${config.supabaseUrl ? "set" : "unset"} voyager=${config.voyagerUrl} rateLimit=${config.rateLimitPerMin}/min logLevel=${process.env.LOG_LEVEL || "info"}`,
   );
   startStaleRunSweeper();
+  void failOrphanedRuns();
 });
 
 async function shutdown() {

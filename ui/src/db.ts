@@ -101,6 +101,8 @@ export const AnalysisService = {
         documents?: string[];
         web_search?: boolean;
         web_sources?: string[];
+        run_mode?: "agent" | "skill";
+        skill_id?: string;
     }) {
         const response = await axios.post(`${API_BASE}/analysis`, config);
         return response.data;
@@ -139,6 +141,9 @@ export interface SkillSummary {
     category: string;
     version: number;
     source: "builtin" | "custom";
+    /** Full-definition fields the list payload carries (API SkillDefinition). */
+    purpose?: string;
+    anchors?: { label: string; weight?: number }[];
 }
 
 export const SkillService = {

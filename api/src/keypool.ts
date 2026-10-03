@@ -229,6 +229,12 @@ export class KeyPool {
     const providers = this.providersFor(userKeys);
     if (!providers.length) return getModels()[0]?.id || "";
 
+    // DEFAULT_MODEL pins the model for every run that does not name one.
+    // Only honoured when its provider is actually configured, so a stale pin
+    // falls through to scoring instead of failing the run.
+    const pinned = process.env.DEFAULT_MODEL?.trim();
+    if (pinned && providers.includes(this.modelProvider(pinned))) return pinned;
+
     const hasUser = (p: string) => !!userKeys[p] && p !== "tavily";
     const candidates: string[] = [];
     for (const p of providers) {

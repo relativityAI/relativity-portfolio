@@ -10,8 +10,9 @@ import { Resvg } from "@resvg/resvg-js";
 import { createRequire } from "node:module";
 import type { ReportBlock } from "./agent.js";
 import { log } from "./logger.js";
-import { agentChipPng, agentSeed, providerChipPng } from "./agentIdentity.js";
+import { agentChipPng, agentSeed } from "./agentIdentity.js";
 import { LOGO_PNG_DATA_URI } from "./reportLogo.js";
+import { NSE_LOGO_DATA_URI, SEC_LOGO_DATA_URI } from "./exchangeLogos.js";
 
 // pdfmake ships a CJS browser build that Vite's transformer breaks. Load it via
 // Node's native require (identical in tsc-runtime and vitest).
@@ -474,9 +475,10 @@ function identityTitleBand(run: any): PdfNode {
   const agentLabel = isUuid(run.agent_name)
     ? run.agent_display_name || "Investor agent"
     : run.agent_name || "Agent";
+  // WS-5: the model slug is an internal detail — never printed in the
+  // investor-facing PDF header.
   const plainLine =
     `Prepared for the "${agentLabel}" mandate` +
-    (run.model ? ` · ${run.model}` : "") +
     ` · ${run.created_at ? new Date(run.created_at).toLocaleDateString() : ""}`;
   try {
     // Report-size portrait: the agent visibly authors this document, the way
@@ -493,23 +495,7 @@ function identityTitleBand(run: any): PdfNode {
           stack: [
             { text: agentLabel, style: "h3", margin: [0, 2, 0, 1] },
             { text: `Prepared for the "${agentLabel}" mandate`, style: "meta" },
-            run.model
-              ? {
-                  columns: [
-                    {
-                      image: `data:image/png;base64,${providerChipPng(run.model).toString("base64")}`,
-                      width: 12,
-                      height: 12,
-                      margin: [0, 1, 6, 0],
-                    },
-                    {
-                      text: `${run.model} · ${run.created_at ? new Date(run.created_at).toLocaleDateString() : ""}`,
-                      style: "meta",
-                    },
-                  ],
-                  margin: [0, 2, 0, 0],
-                }
-              : { text: run.created_at ? new Date(run.created_at).toLocaleDateString() : "", style: "meta" },
+            { text: run.created_at ? new Date(run.created_at).toLocaleDateString() : "", style: "meta" },
           ],
         },
       ],
@@ -806,7 +792,26 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
         margin: [0, 0, 0, 10],
       },
       { text: run.share_name || run.symbol || "Equity Analysis", style: "title" },
-      { text: `${run.symbol || ""}${run.source ? ` · ${run.source}` : ""}`, style: "subtitle", margin: [0, 2, 0, 10] },
+      // Exchange mark for the market this stock was selected on, sized to read
+      // at print size (the old report carried the source only as 12px text).
+      {
+        columns: [
+          {
+            image: String(run.source || "NSE").toUpperCase().includes("SEC") ? SEC_LOGO_DATA_URI : NSE_LOGO_DATA_URI,
+            // width fixes the column width too, so the symbol text sits next
+            // to the mark instead of a natural-width gap away.
+            width: 64,
+            fit: [64, 30],
+          },
+          {
+            text: `${run.symbol || ""}${run.source ? ` · ${run.source}` : ""}`,
+            style: "subtitle",
+            margin: [8, 8, 0, 0],
+          },
+        ],
+        columnGap: 6,
+        margin: [0, 2, 0, 10],
+      },
       identityTitleBand(run),
       { text: "", style: "spacer" },
       // ── Hero band (v3: one fit score; coverage/band as sub-labels — the

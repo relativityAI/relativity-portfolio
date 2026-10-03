@@ -19,7 +19,6 @@ import AnalysisList from "./pages/AnalysisList";
 import Analysis from "./pages/Analysis";
 import AnalysisResult from "./pages/AnalysisResult";
 import Settings from "./pages/Settings";
-import Guide from "./pages/Guide";
 import NotFound from "./pages/NotFound";
 import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
@@ -98,7 +97,7 @@ function BuilderRedirect() {
   return <Navigate to={id ? `/agent/${id}` : "/agent/new"} replace />;
 }
 
-const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/thank-you", "/auth/callback", "/guide"];
+const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/thank-you", "/auth/callback"];
 
 function AppRoutes() {
   const location = useLocation();
@@ -108,15 +107,14 @@ function AppRoutes() {
   useEffect(() => {
     const getTitle = (path: string) => {
       if (path === "/login") return "Sign in";
-      if (path === "/") return user ? "New Analysis" : "Welcome";
-      if (path === "/analysis") return "New Analysis";
+      if (path === "/") return user ? "New Run" : "Welcome";
+      if (path === "/analysis") return "New Run";
       if (path === "/agents") return "Agents";
       if (path === "/agent/builder" || path.startsWith("/agent/builder/")) return "Agent Detail";
       if (path.startsWith("/agent/")) return "Agent Detail";
-      if (path === "/analysis-list") return "Analysis List";
-      if (path.startsWith("/analysis-result/")) return "Analysis Result";
+      if (path === "/analysis-list") return "Runs";
+      if (path.startsWith("/analysis-result/")) return "Run Result";
       if (path === "/settings") return "Settings";
-      if (path === "/guide") return "Guide";
       if (path === "/console" || path.startsWith("/console/")) return "Agent Console";
       return "Relativity AI";
     };
@@ -136,7 +134,7 @@ function AppRoutes() {
     (locationPath === "/" && !!user);
   const showNav = !isLogin && !isLanding;
   // Remove footer from analysis result page (and analysis-related pages as requested)
-  const showFooter = showNav && !isPublicPage && !isConsole && !isAnalysisPage;
+  const showFooter = showNav && !isPublicPage && !isConsole && !isAnalysisPage && locationPath !== "/settings";
 
   return (
     <Flex direction="column" h="100dvh" overflow="hidden">
@@ -226,7 +224,6 @@ function AppRoutes() {
                         </Protected>
                       }
                     />
-                    <Route path="/guide" element={<Guide />} />
                     <Route path="/privacy" element={<Privacy />} />
                     <Route path="/terms" element={<Terms />} />
                     <Route path="/thank-you" element={<ThankYou />} />

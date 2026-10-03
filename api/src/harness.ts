@@ -34,6 +34,10 @@ export const clampMaxOutputTokensForTest = clampMaxOutputTokens;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// Generous enough for a long structured output on a slow provider, short
+// enough that a hung stream fails and retries inside the run's own lifetime.
+const DEFAULT_CALL_TIMEOUT_MS = 120_000;
+
 /**
  * Shared agent turn harness. Both the analysis pipeline (agent.ts) and the
  * conversational agent builder (builder.ts) run their model loops through this
@@ -171,7 +175,7 @@ export function buildToolCallRepair(model: LanguageModel) {
  */
 export async function retryLlmCall<T>(
   label: string,
-  fn: () => Promise<T>,
+  fn: (signal: AbortSignal) => Promise<T>,
   opts: {
     attempts?: number;
     delayMs?: number;
@@ -179,18 +183,39 @@ export async function retryLlmCall<T>(
     onError?: (message: string, attempt: number) => void;
     /** Validate the result; an invalid result is retried like an error. */
     check?: (result: T) => boolean;
+    /**
+     * Per-attempt wall-clock budget. Without it a provider that accepts the
+     * request and then never resolves hangs the whole pipeline until the
+     * stale-run sweeper kills the run — which is how we lost reports whose
+     * scores were already persisted. The signal is FRESH per attempt: a
+     * deadline created once would already be expired on the retry.
+     */
+    timeoutMs?: number;
   } = {},
 ): Promise<T> {
   const attempts = opts.attempts ?? 3;
   const delayMs = opts.delayMs ?? 2000;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     if (attempt > 1) {
       log.warn("[harness]", `retrying ${label} (attempt ${attempt}/${attempts}) after:`, String((lastError as any)?.message || lastError));
       await sleep(delayMs);
     }
+    // Both halves matter: the signal cancels the provider request (so we are
+    // not leaking sockets/containers), and the race stops us WAITING on a
+    // caller that ignores the signal.
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new Error(`${label} timed out after ${timeoutMs}ms`);
+        controller.abort(err);
+        reject(err);
+      }, timeoutMs);
+    });
     try {
-      const result = await fn();
+      const result = await Promise.race([fn(controller.signal), deadline]);
       if (opts.check && !opts.check(result)) {
         throw new Error(`${label} returned an invalid/empty result`);
       }
@@ -205,6 +230,8 @@ export async function retryLlmCall<T>(
       // failed LLM call must never silently downgrade the pipeline.
       const permanent = /invalid api key|unauthorized|authentication|invalid request|bad request|too_many_tokens|insufficient quota/i.test(msg) && !RETRYABLE_ERROR.test(msg);
       if (permanent || attempt >= attempts) break;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError || `${label} failed after ${attempts} attempts`));

@@ -121,7 +121,7 @@ export default function Dashboard() {
                                 <Stat.ValueText fontSize="3xl" fontWeight="bold" mt={0}><CountUp value={stats.agents} decimals={0} /></Stat.ValueText>
                             </Stat.Root>
                             <Stat.Root>
-                                <Stat.Label color="fg.muted">Total Analyses</Stat.Label>
+                                <Stat.Label color="fg.muted">Total Runs</Stat.Label>
                                 <Stat.ValueText fontSize="3xl" fontWeight="bold" mt={0}><CountUp value={stats.analysis} decimals={0} /></Stat.ValueText>
                             </Stat.Root>
                         </Flex>
@@ -134,7 +134,7 @@ export default function Dashboard() {
                     ) : completed.length === 0 ? (
                         <Flex direction="column" align="center" gap={2} py={6} border="1px dashed" borderColor="border" rounded="md">
                             <MdTrendingUp size={20} />
-                            <Text fontSize="xs" color="fg.muted">No completed analyses</Text>
+                            <Text fontSize="xs" color="fg.muted">No completed runs</Text>
                         </Flex>
                     ) : (
                         <Box border="1px solid" borderColor="border" rounded="md" overflow="hidden">
@@ -226,10 +226,10 @@ export default function Dashboard() {
                         icon={<FaFilePen size={logoSize} />}
                     />
                     <RelCard
-                        title="Run Analysis"
+                        title="Runs"
                         to="/analysis-list"
                         description="Analyze shares using existing agents"
-                        button="Analyse"
+                        button="View Runs"
                         icon={<FaBrain size={logoSize} />}
                     />
                 </SimpleGrid>

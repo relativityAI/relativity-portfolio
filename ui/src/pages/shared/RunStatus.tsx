@@ -165,7 +165,7 @@ export function RunSteps({ steps, now: externalNow }: { steps: RunStep[]; now: n
                 <HStack gap={1.5}>
                     <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />
                     <Text fontSize="12px" color="var(--ink-secondary)">
-                        Running analysis…
+                        Run in progress…
                     </Text>
                 </HStack>
             </motion.div>

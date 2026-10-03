@@ -7,6 +7,7 @@ import { SiAgentskills } from "react-icons/si";
 import { SkillService, type SkillSummary } from "@/db";
 import SkillDraftPane from "@/components/skills/SkillDraftPane";
 import SkillCreatePane from "@/components/skills/SkillCreatePane";
+import SkillAvatar from "@/components/shared/SkillAvatar";
 import { MdAutoAwesome } from "react-icons/md";
 
 /**
@@ -212,6 +213,7 @@ export function SkillDetail({ skill, onEdit, onEditWithAi, onDelete }: { skill: 
     return (
         <Box>
             <Flex align="center" gap={2} mb={1} wrap="wrap">
+                <SkillAvatar skill={skill} size={28} />
                 <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)">{skill.name}</Text>
                 <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
                     {categoryLabel(skill.category)} · {skill.id}
@@ -507,7 +509,7 @@ export default function SkillBrowser({
                                                     onClick={() => { setSelected(s); setDrafting(false); setCreating(false); setEditing(false); }}
                                                 >
                                                     <Flex align="center" gap={2} mb={0.5} wrap="wrap">
-                                                        <SiAgentskills size={14} aria-hidden style={{ flexShrink: 0, color: "var(--ink-tertiary)" }} />
+                                                        <SkillAvatar skill={s} size={20} />
                                                         <Text fontSize="13.5px" fontWeight={600} color="var(--ink-primary)">{s.name}</Text>
                                                         <Text fontSize="10px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
                                                             {categoryLabel(s.category)}

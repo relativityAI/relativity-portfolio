@@ -16,6 +16,7 @@ import { AnalysisService, AgentService, API_BASE } from "@/db";
 import axios from "axios";
 import { formatSeconds, agentDisplayName } from "@/utils";
 import AgentAvatar from "@/components/shared/AgentAvatar";
+import SkillAvatar from "@/components/shared/SkillAvatar";
 import { resolveAgent } from "@/lib/agentIdentity";
 import AgentActivity from "../components/shared/AgentActivity";
 import { MdArrowBack, MdDownload } from "react-icons/md";
@@ -45,7 +46,7 @@ function isMacroSection(section: string): boolean {
 }
 
 function generateVerdict(totalScore: number | null, quant: Record<string, any>, qual: Record<string, any>): string {
-    if (totalScore == null) return "Analysis completed. Review quantitative and qualitative sections for details.";
+    if (totalScore == null) return "Run completed. Review quantitative and qualitative sections for details.";
     // E3 fix: everything here is on the 0–100 scale now (the old code compared
     // 0–100 scores against 0.7/0.4, labelling almost anything "supportive").
     const quantEntries = Object.values(quant);
@@ -145,13 +146,16 @@ export default function AnalysisResult() {
             setElapsed(0);
             return;
         }
-        setElapsed(0);
-        const start = Date.now();
-        const interval = setInterval(() => {
-            setElapsed(Math.floor((Date.now() - start) / 1000));
-        }, 1000);
+        // Anchor to the run's persisted start, not page-load time, so a
+        // refresh mid-run resumes the clock instead of restarting at 0.
+        const anchor = analysis?.started_at || analysis?.created_at;
+        const parsed = anchor ? +new Date(anchor) : NaN;
+        const start = Number.isFinite(parsed) ? parsed : Date.now();
+        const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+        tick();
+        const interval = setInterval(tick, 1000);
         return () => clearInterval(interval);
-    }, [isRunning]);
+    }, [isRunning, analysis?.started_at, analysis?.created_at]);
 
     const fetchCancelled = useRef(false);
     const fetchTimer = useRef<number | null>(null);
@@ -171,10 +175,10 @@ export default function AnalysisResult() {
                             fetchTimer.current = window.setTimeout(run, 3000);
                         }
                     } else {
-                        setError("Analysis not found");
+                        setError("Run not found");
                     }
                 } catch {
-                    if (!fetchCancelled.current) setError("Failed to load analysis result");
+                    if (!fetchCancelled.current) setError("Failed to load run result");
                 } finally {
                     if (!fetchCancelled.current) setLoading(false);
                 }
@@ -344,9 +348,9 @@ export default function AnalysisResult() {
                                     try {
                                         const data = await AnalysisService.readAnalysis(id!);
                                         if (data) setAnalysis(data);
-                                        else setError("Analysis not found");
+                                        else setError("Run not found");
                                     } catch {
-                                        setError("Failed to load analysis result");
+                                        setError("Failed to load run result");
                                     } finally {
                                         setLoading(false);
                                     }
@@ -403,10 +407,17 @@ export default function AnalysisResult() {
 
     const verdictSentence = generateVerdict(totalScore, quantAnalysis, qualAnalysis);
 
+    const isSkillRun = analysis.run_mode === "skill";
+    const runSubject = isSkillRun
+        ? (skillOutputs[0]?.skill_name || "Skill")
+        : agentName(analysis.agent_name);
+
     const metaLine = [
         analysis.model,
         analysis.source,
-        analysis.agent_name ? agentName(analysis.agent_name) : null,
+        isSkillRun
+            ? (skillOutputs[0]?.skill_name ? `${skillOutputs[0].skill_name} (skill run)` : "Skill run")
+            : analysis.agent_name ? agentName(analysis.agent_name) : null,
         analysis.created_at ? new Date(analysis.created_at).toLocaleDateString() : null,
     ]
         .filter(Boolean)
@@ -434,7 +445,7 @@ export default function AnalysisResult() {
                         <HStack gap={3} align="center" minW={0}>
                             <Link
                                 to="/analysis-list"
-                                aria-label="Back to analyses"
+                                aria-label="Back to runs"
                                 fontSize="sm"
                                 color="var(--ink-secondary)"
                                 _hover={{ color: "var(--ink-primary)" }}
@@ -468,6 +479,11 @@ export default function AnalysisResult() {
                             >
                                 {analysis.symbol}
                             </Text>
+                            {/* Exchange mark for the market this stock was selected on */}
+                            <SourceMark
+                                source={(analysis.source || "").toUpperCase().includes("SEC") ? "sec" : "nse"}
+                                size={22}
+                            />
                         </HStack>
                         <HStack gap={3} align="center">
                             <HStack
@@ -560,9 +576,9 @@ export default function AnalysisResult() {
                     </Box>
                 )}
 
-                {analysis.error && (
+                {analysis.error && isComplete && (
                     <Box mb={6}>
-                        <Callout tone="negative" title="Analysis Error">
+                        <Callout tone="negative" title="Run Error">
                             <Text
                                 as="span"
                                 fontFamily="var(--font-mono)"
@@ -581,6 +597,7 @@ export default function AnalysisResult() {
                 {isComplete && (
                     <SectionNav
                         active={activeSection}
+                        runMode={analysis.run_mode || "agent"}
                         onJump={(key) => {
                             const el = sectionRefs.current[key];
                             if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -588,18 +605,37 @@ export default function AnalysisResult() {
                     />
                 )}
 
-                {/* Hero: Total score (biggest) + Agent avatar (big, clearly visible) */}
-                {isComplete && (
+                {/* Hero: Total score (biggest) + Agent avatar (big, clearly visible).
+                    Skill runs have no executive summary, so no hero — just the skill report + data sources. */}
+                {isComplete && analysis.run_mode !== "skill" && (
                     <Box mb={6} as={motion.div} initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: dur.base, ease }}>
                         <Flex direction="column" align="flex-start" gap={4}>
                             <Box>
-                                <AgentAvatar agent={resolveAgent(analysis.agent_name, agents)} size={72} />
+                                {analysis.run_mode === "skill" ? (
+                                    <SkillAvatar skill={{ id: analysis.skill_id, name: skillOutputs[0]?.skill_name }} size={72} />
+                                ) : (
+                                    <AgentAvatar agent={resolveAgent(analysis.agent_name, agents)} size={72} />
+                                )}
                             </Box>
                             <Box>
                                 <Text fontSize="14px" fontWeight={600} color="var(--ink-tertiary)" mb={1}>
-                                    Total Score
+                                    {analysis.report?.heroLabel ? "Stance" : "Total Score"}
                                 </Text>
-                                {totalScore != null && !lowCoverage ? (
+                                {analysis.report?.heroLabel ? (
+                                    <HStack gap={2} align="baseline">
+                                        <Text
+                                            fontSize={analysis.report.heroLabel.length > 14 ? "52px" : "88px"}
+                                            fontWeight={800}
+                                            lineHeight="0.85"
+                                            fontFamily="var(--font-tabular)"
+                                            fontVariantNumeric="tabular-nums"
+                                            letterSpacing="-0.05em"
+                                            color="var(--ink-primary)"
+                                        >
+                                            {analysis.report.heroLabel}
+                                        </Text>
+                                    </HStack>
+                                ) : totalScore != null && !lowCoverage ? (
                                     <HStack gap={2} align="baseline">
                                         <Text
                                             fontSize="88px"
@@ -747,15 +783,16 @@ export default function AnalysisResult() {
                                     <Box>
                                         {/* Decision-first order (E1): synthesis and verdict
                                             first, evidence-dense breakdowns after. */}
-                                        {/* Executive Summary Section */}
+                                        {/* Executive Summary Section (agent runs only) */}
+                                        {analysis.run_mode !== "skill" && (
                                         <Box mb={8} data-section="summary" ref={(el: HTMLElement | null) => registerSection("summary", el)} css={{ scrollMarginTop: "72px" }}>
                                             <SectionHeader label="Executive Summary" count={analysis.report ? analysis.report.blocks.length : 0} />
                                             {analysis.report ? (
                                                 <>
-                                                    {analysis.report.partial && (
+                                                    {analysis.report.partial && (coverage == null || coverage < 100) && (
                                                         <Box mb={4}>
                                                             <Callout tone="caution" title="Partial Result">
-                                                                Some qualitative parameters failed to score. The synthesis is based on partial data.
+                                                                Some skills could not assess every anchor — this report leans on partial evidence{coverage != null ? ` (${coverageLabel(coverage)} of rubric scored)` : ""}.
                                                             </Callout>
                                                         </Box>
                                                     )}
@@ -774,6 +811,7 @@ export default function AnalysisResult() {
                                                 </Callout>
                                             )}
                                         </Box>
+                                        )}
 
                                         {/* Skill Reports Section */}
                                         <Box mb={10} data-section="skills" ref={(el: any) => registerSection("skills", el)} css={{ scrollMarginTop: "72px" }}>
@@ -796,7 +834,7 @@ export default function AnalysisResult() {
                                             </Box>
                                         </Box>
                                 ) : (
-                                    <EmptyState message="Waiting for the analysis to complete — the report appears here when it's done." />
+                                    <EmptyState message="Waiting for the run to complete — the report appears here when it's done." />
                                 )}
                             </Box>
                         </Tabs.Content>
@@ -804,11 +842,11 @@ export default function AnalysisResult() {
                         {/* ── Reasoning (full agent trace, live while running) ── */}
                         <Tabs.Content value="reasoning">
                             <Box>
-                                <SectionHeader label="Agent Reasoning" count={traceCount} />
+                                <SectionHeader label={isSkillRun ? "Skill Reasoning" : "Agent Reasoning"} count={traceCount} />
                                 {isRunning ? (
                                     <AgentActivity
-                                        title={`Analyzing ${analysis.share_name || analysis.symbol || "…"} with ${agentName(analysis.agent_name)}`}
-                                        subtitle={`${analysis.model || "default model"} · gathering data, searching, scoring`}
+                                        title={`Analyzing ${analysis.share_name || analysis.symbol || "…"} with ${runSubject}`}
+                                        subtitle="gathering data, searching, scoring"
                                         agent={resolveAgent(analysis.agent_name, agents)}
                                         streamUrl={`/analysis/${id}/stream`}
                                         steps={analysis.steps || []}
@@ -818,8 +856,8 @@ export default function AnalysisResult() {
                                     />
                                 ) : (
                                     <AgentActivity
-                                        title={`Reasoning history — ${analysis.share_name || analysis.symbol || "…"} with ${agentName(analysis.agent_name)}`}
-                                        subtitle={`${analysis.model || "default model"} · full tool and thought trace`}
+                                        title={`Reasoning history — ${analysis.share_name || analysis.symbol || "…"} with ${runSubject}`}
+                                        subtitle="full tool and thought trace"
                                         agent={resolveAgent(analysis.agent_name, agents)}
                                         events={analysis.trace || []}
                                         steps={analysis.steps || []}
@@ -1040,7 +1078,7 @@ const SECTION_NAV_ITEMS: { key: string; label: string }[] = [
     { key: "sources", label: "Data Sources" },
 ];
 
-function SectionNav({ active, onJump }: { active: string; onJump: (key: string) => void }) {
+function SectionNav({ active, runMode, onJump }: { active: string; runMode: string; onJump: (key: string) => void }) {
     return (
         <Flex
             gap={1}
@@ -1050,7 +1088,7 @@ function SectionNav({ active, onJump }: { active: string; onJump: (key: string) 
             aria-label="Report sections"
             data-print-hide
         >
-            {SECTION_NAV_ITEMS.map((item) => {
+            {SECTION_NAV_ITEMS.filter((item) => runMode !== "skill" || item.key !== "summary").map((item) => {
                 const isActive = active === item.key;
                 return (
                     <Box

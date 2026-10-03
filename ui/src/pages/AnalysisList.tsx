@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MdArrowUpward, MdArrowDownward, MdExpandMore, MdChevronRight } from "react-icons/md";
-import { AnalysisService, AgentService } from "@/db";
+import { AnalysisService, AgentService, SkillService } from "@/db";
 import { agentDisplayName } from "@/utils";
 import AgentAvatar from "@/components/shared/AgentAvatar";
+import SkillAvatar from "@/components/shared/SkillAvatar";
 import Echart from "@/components/shared/Echart";
 import { resolveAgent } from "@/lib/agentIdentity";
 import { ModelLogo, modelLogoAsset } from "@/lib/modelLogos";
@@ -16,6 +17,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Search } from "lucide-react";
 
 type SortKey = "share" | "created_at" | "score" | "status" | "agent" | "model" | "duration";
 
@@ -383,7 +386,8 @@ export default function AnalysisList() {
     const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
     const [deleteTarget, setDeleteTarget] = useState<AnalysisItem | null>(null);
     const [agents, setAgents] = useState<any[]>([]);
-    const [viewMode, setViewMode] = useState<GroupMode>("date");
+    const [viewMode, setViewMode] = useState<GroupMode>("individual");
+    const [query, setQuery] = useState("");
     // Groups start collapsed — the headers themselves are the summary.
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -403,6 +407,17 @@ export default function AnalysisList() {
             })
             .catch(() => {});
     }, []);
+
+    // Skill runs badge with the skill's name; built from the skill library.
+    const [skills, setSkills] = useState<any[]>([]);
+    useEffect(() => {
+        SkillService.listSkills()
+            .then((data) => {
+                if (Array.isArray(data)) setSkills(data);
+            })
+            .catch(() => {});
+    }, []);
+    const skillName = (id: string | undefined) => skills.find((s) => s.id === id)?.name || id || "—";
 
     const agentName = (raw: string | undefined) => agentDisplayName(raw, agents) || "—";
 
@@ -452,8 +467,21 @@ export default function AnalysisList() {
     };
 
     const sorted = useMemo(() => {
-        if (!sortKey) return [...uniqueAnalysis];
-        return [...uniqueAnalysis].sort((a, b) => {
+        // Free-text search across share, agent, skill and model.
+        const q = query.trim().toLowerCase();
+        const base = q
+            ? uniqueAnalysis.filter((a) =>
+                  [
+                      a.symbol,
+                      a.share_name,
+                      a.model,
+                      agentName(a.agent_name || a.agent),
+                      skillName(a.skill_id),
+                  ].some((v) => String(v ?? "").toLowerCase().includes(q))
+              )
+            : uniqueAnalysis;
+        if (!sortKey) return [...base];
+        return [...base].sort((a, b) => {
             let aVal: any, bVal: any;
             switch (sortKey) {
                 case "share":
@@ -491,7 +519,7 @@ export default function AnalysisList() {
             if (aVal > bVal) return sortDir === "asc" ? 1 : -1;
             return 0;
         });
-    }, [uniqueAnalysis, sortKey, sortDir]);
+    }, [uniqueAnalysis, sortKey, sortDir, query, agents, skills]);
 
     const SortIcon = ({ column }: { column: SortKey }) => {
         if (sortKey !== column) return null;
@@ -666,8 +694,9 @@ export default function AnalysisList() {
         const n = topStocks.length;
         return {
             animation: chartAnim,
-            // Explicit label gutter; grid.containLabel is legacy in ECharts 6.
-            grid: { left: 104, right: 30, top: 4, bottom: 2 },
+            // Labels fill the gutter (they were reserved but hidden — that was
+            // the dead space on the left) and the tooltip names the bar on hover.
+            grid: { left: 92, right: 34, top: 4, bottom: 2 },
             tooltip: {
                 ...tooltipStyle(t),
                 trigger: "item",
@@ -684,14 +713,17 @@ export default function AnalysisList() {
             yAxis: {
                 type: "category",
                 inverse: true, // rank 1 on top
-                show: false,
+                show: true,
+                axisLine: { show: false },
+                axisTick: { show: false },
                 data: topStocks.map((s) => s.label),
                 axisLabel: {
                     color: t.ink.secondary,
                     fontSize: 10,
                     fontFamily: t.fonts.mono,
-                    width: 96,
+                    width: 84,
                     overflow: "truncate",
+                    margin: 8,
                 },
             },
             series: [
@@ -755,7 +787,7 @@ export default function AnalysisList() {
                 <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-0.5">
                     <div className="min-w-0">
                         <h1 className="text-[26px] leading-[1.1] font-semibold tracking-[-0.02em] text-[var(--ink-primary)] md:text-[30px]">
-                            Share Analysis
+                            Runs
                         </h1>
                         <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
                             <Stat value={String(total)} label={total === 1 ? "run" : "runs"} />
@@ -775,7 +807,7 @@ export default function AnalysisList() {
                     </div>
                     <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} className="shrink-0">
                         <Button size="sm" onClick={() => navigate("/")} className="rounded-[3px] px-4">
-                            + New Analysis
+                            + New Run
                         </Button>
                     </motion.div>
                 </header>
@@ -796,6 +828,27 @@ export default function AnalysisList() {
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="flex flex-col gap-3 px-4">
+                        {/* Top stocks — first: the leaderboard is the headline insight */}
+                        <motion.div variants={staggerItem}>
+                            <SectionLabel>Top Stocks</SectionLabel>
+                            {topStocks.length === 0 ? (
+                                <p className="text-[12px] text-[var(--ink-tertiary)]">No scored runs in the last 30 days</p>
+                            ) : (
+                                <Echart
+                                    height={topStocks.length * 26 + 12}
+                                    aria-label={`Top ${topStocks.length} stocks by best match score over the last 30 days. ${topStocks
+                                        .map((s) => `${s.label} ${s.score.toFixed(1)}`)
+                                        .join(", ")}`}
+                                    option={stockBars}
+                                />
+                            )}
+                            <p className="mt-2 text-[11px] text-[var(--ink-tertiary)]">
+                                Best match per stock · last 30 days
+                            </p>
+                        </motion.div>
+
+                        <div className="border-t border-[var(--hairline)]" />
+
                         {/* Run health */}
                         <motion.div variants={staggerItem}>
                             <SectionLabel>Run Health</SectionLabel>
@@ -897,39 +950,19 @@ export default function AnalysisList() {
                                 </div>
                             )}
                         </motion.div>
-
-                        <div className="border-t border-[var(--hairline)]" />
-
-                        {/* Top stocks */}
-                        <motion.div variants={staggerItem}>
-                            <SectionLabel>Top Stocks</SectionLabel>
-                            {topStocks.length === 0 ? (
-                                <p className="text-[12px] text-[var(--ink-tertiary)]">No scored runs in the last 30 days</p>
-                            ) : (
-                                <Echart
-                                    height={topStocks.length * 26 + 12}
-                                    aria-label={`Top ${topStocks.length} stocks by best match score over the last 30 days. ${topStocks
-                                        .map((s) => `${s.label} ${s.score.toFixed(1)}`)
-                                        .join(", ")}`}
-                                    option={stockBars}
-                                />
-                            )}
-                            <p className="mt-2 text-[11px] text-[var(--ink-tertiary)]">
-                                Best match per stock · last 30 days
-                            </p>
-                        </motion.div>
                             </CardContent>
                         </Card>
                     </motion.div>
 
                     {/* Main table */}
                     <div className="min-w-0 flex-1">
-                        {/* View switcher */}
+                        {/* Filters + search — one line above the table */}
+                        <div className="mb-3 flex flex-wrap items-center gap-2">
                         <ToggleGroup
                             type="single"
                             value={viewMode}
                             onValueChange={(v) => v && setViewMode(v as GroupMode)}
-                            className="mb-3 h-auto flex-wrap gap-1 rounded-[3px] border-0 bg-transparent p-0"
+                            className="h-auto flex-wrap gap-1 rounded-[3px] border-0 bg-transparent p-0"
                         >
                             {GROUP_VIEWS.map((v) => (
                                 <ToggleGroupItem
@@ -941,10 +974,21 @@ export default function AnalysisList() {
                                 </ToggleGroupItem>
                             ))}
                         </ToggleGroup>
+                            <div className="relative ml-auto w-full sm:w-[240px]">
+                                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[var(--ink-tertiary)]" />
+                                <Input
+                                    className="pl-9"
+                                    placeholder="Search share, agent, model…"
+                                    aria-label="Search runs"
+                                    value={query}
+                                    onChange={(e) => setQuery(e.target.value)}
+                                />
+                            </div>
+                        </div>
                         {loading && uniqueAnalysis.length === 0 ? (
                             <div className="flex justify-center gap-3 py-16 text-[var(--ink-secondary)]">
                                 <Spinner />
-                                <span className="text-[13px]">Loading analyses…</span>
+                                <span className="text-[13px]">Loading runs…</span>
                             </div>
                         ) : (
                             <div className="overflow-hidden rounded-[2px] border border-[var(--hairline)] bg-[var(--surface-panel)]">
@@ -984,7 +1028,7 @@ export default function AnalysisList() {
                                                     <td colSpan={colSpan} className="py-12">
                                                         <div className="flex justify-center gap-3 text-[var(--ink-secondary)]">
                                                             <Spinner />
-                                                            <span className="text-[13px]">Loading analyses…</span>
+                                                            <span className="text-[13px]">Loading runs…</span>
                                                         </div>
                                                     </td>
                                                 </motion.tr>
@@ -993,7 +1037,7 @@ export default function AnalysisList() {
                                                     <td colSpan={colSpan} className="px-4 py-8">
                                                         <div className="border-l-[3px] border-[var(--signal-negative)] pl-3">
                                                             <p className="text-[13px] text-[var(--ink-primary)]">
-                                                                Failed to fetch analysis data.
+                                                                Failed to fetch runs.
                                                             </p>
                                                             <p className="mt-1 text-[12px] text-[var(--ink-secondary)]">
                                                                 Check if the backend service is running.
@@ -1007,7 +1051,7 @@ export default function AnalysisList() {
                                                         colSpan={colSpan}
                                                         className="py-12 text-center text-[13px] text-[var(--ink-tertiary)]"
                                                     >
-                                                        No analyses found.
+                                                        No runs found.
                                                     </td>
                                                 </motion.tr>
                                             ) : (
@@ -1079,14 +1123,28 @@ export default function AnalysisList() {
                                                                 </div>
                                                             </td>
 
-                                                            {/* Agent */}
+                                                            {/* Agent / Skill */}
                                                             <td className="max-w-[140px] overflow-hidden px-4 py-3">
-                                                                <div className="flex min-w-0 items-center gap-2">
-                                                                    <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={24} />
-                                                                    <span className="truncate text-[13px] text-[var(--ink-secondary)]">
-                                                                        {agentName(item.agent_name || item.agent)}
-                                                                    </span>
-                                                                </div>
+                                                                {item.run_mode === "skill" ? (
+                                                                    <div className="flex min-w-0 items-center gap-2">
+                                                                        <SkillAvatar skill={{ id: item.skill_id, name: skillName(item.skill_id) }} size={24} />
+                                                                        <span className="min-w-0">
+                                                                            <span className="block truncate text-[13px] text-[var(--ink-secondary)]">
+                                                                                {skillName(item.skill_id)}
+                                                                            </span>
+                                                                            <span className="block text-[10px] font-medium uppercase tracking-wide text-[var(--accent-primary)]">
+                                                                                Skill run
+                                                                            </span>
+                                                                        </span>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="flex min-w-0 items-center gap-2">
+                                                                        <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={24} />
+                                                                        <span className="truncate text-[13px] text-[var(--ink-secondary)]">
+                                                                            {agentName(item.agent_name || item.agent)}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
                                                             </td>
 
                                                             {/* Model */}
@@ -1173,7 +1231,7 @@ export default function AnalysisList() {
                                                                         e.stopPropagation();
                                                                         setDeleteTarget(item);
                                                                     }}
-                                                                    aria-label="Delete analysis"
+                                                                    aria-label="Delete run"
                                                                     className="flex h-11 w-11 items-center justify-center text-[var(--ink-tertiary)] opacity-100 transition-[color,opacity] hover:text-[var(--signal-negative)] focus-visible:ring-[1px] focus-visible:ring-ring focus-visible:outline-none md:h-auto md:w-auto md:opacity-40 md:[tr:hover_&]:opacity-100"
                                                                 >
                                                                     <svg
@@ -1210,10 +1268,10 @@ export default function AnalysisList() {
             {/* Delete confirmation */}
             <ConfirmDialog
                 open={deleteTarget !== null}
-                title="Delete analysis?"
+                title="Delete run?"
                 message={
                     deleteTarget
-                        ? `"${deleteTarget.share_name || deleteTarget.symbol || "this analysis"}"${
+                        ? `"${deleteTarget.share_name || deleteTarget.symbol || "this run"}"${
 deleteTarget.agent_name || deleteTarget.agent
                               ? ` by ${agentName(deleteTarget.agent_name || deleteTarget.agent)}`
                               : ""

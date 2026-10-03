@@ -96,7 +96,7 @@ export default function AgentPerformanceChart({
     if (rows.length === 0) {
         return (
             <Text fontSize="12px" color="var(--ink-tertiary)">
-                Two completed runs from one agent make this section live. Run an analysis to start the series.
+                Two completed runs from one agent make this section live. Start a run to build the series.
             </Text>
         );
     }

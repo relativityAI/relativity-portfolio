@@ -18,10 +18,13 @@
  *    system. The system accent blue (--accent-primary) is deliberately
  *    excluded so "blue = UI affordance" never collides with an agent.
  */
-import { createAvatar } from "@dicebear/core";
-// Import the style package directly — the collection barrel pulls in all
-// 30+ styles (~120 kB gz). Only notionists is needed.
-import * as notionists from "@dicebear/notionists";
+import { Avatar, Style } from "@dicebear/core";
+// Style definitions ship as JSON in @dicebear/styles (all 61 styles on the
+// website); only the notionists definition is imported.
+import notionistsDefinition from "@dicebear/styles/notionists.json";
+
+// Wrap once — Avatar warns when a raw definition is passed per call.
+const notionists = new Style(notionistsDefinition);
 
 export interface AgentSeedLike {
     _id?: string;
@@ -115,11 +118,12 @@ const svgCache = new Map<string, string>();
 export function agentAvatarSvg(seed: string): string {
     const cached = svgCache.get(seed);
     if (cached) return cached;
-    const svg = createAvatar(notionists, {
+    const svg = new Avatar(notionists, {
         seed,
         // Close-up framing: zoom in on the head so the face stays clearly
         // legible at chip sizes, nudged up to keep it centered.
-        scale: 140,
+        // v10 scale is a multiplier (0–10), not the v9 percent value (140 → 1.4).
+        scale: 1.4,
         translateY: 6,
         // No backgroundColor → transparent; the chip supplies the tint.
     }).toString()

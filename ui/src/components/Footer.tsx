@@ -8,12 +8,6 @@ export default function Footer() {
       </p>
       <div className="flex gap-3 md:gap-4 items-center">
         <Link
-          to="/guide"
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          Guide
-        </Link>
-        <Link
           to="/privacy"
           className="text-xs text-muted-foreground hover:text-foreground"
         >
