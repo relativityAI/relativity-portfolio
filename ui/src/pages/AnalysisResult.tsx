@@ -20,12 +20,11 @@ import SkillAvatar from "@/components/shared/SkillAvatar";
 import { resolveAgent } from "@/lib/agentIdentity";
 import AgentActivity from "../components/shared/AgentActivity";
 import { MdArrowBack, MdDownload } from "react-icons/md";
-import { LuDatabase } from "react-icons/lu";
 import { motion, useReducedMotion } from "motion/react";
 import { CountUp, dur, ease } from "@/lib/motion";
 import { ReportBlockRenderer } from "../components/builder/ReportBlockRenderer";
 import SkillResultCard from "./sections/SkillResultCard";
-import { FaviconMark, SourceMark, SOURCE_DEFS } from "@/lib/sourceLogos";
+import { SourceMark } from "@/lib/sourceLogos";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { runProgressPct } from "./shared/RunStatus";
 import {
@@ -606,7 +605,7 @@ export default function AnalysisResult() {
                 )}
 
                 {/* Hero: Total score (biggest) + Agent avatar (big, clearly visible).
-                    Skill runs have no executive summary, so no hero — just the skill report + data sources. */}
+                    Skill runs have no executive summary, so no hero — just the skill report. */}
                 {isComplete && analysis.run_mode !== "skill" && (
                     <Box mb={6} as={motion.div} initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: dur.base, ease }}>
                         <Flex direction="column" align="flex-start" gap={4}>
@@ -827,11 +826,7 @@ export default function AnalysisResult() {
                                                     No skill reports were stored for this run.
                                                 </Callout>
                                             )}
-                                        </Box>                                            {/* Data Sources Section - at the end */}
-                                            <Box mb={6} data-section="sources">
-                                                <SectionHeader label="Data Sources" count={countDataSources(skillOutputs)} />
-                                                <DataSourcesPanel analysis={analysis} skillOutputs={skillOutputs} />
-                                            </Box>
+                                        </Box>
                                         </Box>
                                 ) : (
                                     <EmptyState message="Waiting for the run to complete — the report appears here when it's done." />
@@ -849,10 +844,11 @@ export default function AnalysisResult() {
                                         subtitle="gathering data, searching, scoring"
                                         agent={resolveAgent(analysis.agent_name, agents)}
                                         streamUrl={`/analysis/${id}/stream`}
-                                        steps={analysis.steps || []}
+                                        steps={isSkillRun ? [] : analysis.steps || []}
                                         startedAt={analysis.created_at ? +new Date(analysis.created_at) : undefined}
                                         active
                                         maxHeight={480}
+                                        separateToolResults={isSkillRun}
                                     />
                                 ) : (
                                     <AgentActivity
@@ -860,9 +856,10 @@ export default function AnalysisResult() {
                                         subtitle="full tool and thought trace"
                                         agent={resolveAgent(analysis.agent_name, agents)}
                                         events={analysis.trace || []}
-                                        steps={analysis.steps || []}
+                                        steps={isSkillRun ? [] : analysis.steps || []}
                                         active={false}
                                         maxHeight={480}
+                                        separateToolResults={isSkillRun}
                                     />
                                 )}
                             </Box>
@@ -878,161 +875,6 @@ export default function AnalysisResult() {
 /* ─── Sub-components ─── */
 
 /** 5d: one shared callout for caution/negative/info — replaces 5 copy-pasted blocks. */
-
-/** Count of everything the Data Sources section attributes: every
- *  cited web URL plus every data tool actually called this run. */
-function countDataSources(skillOutputs: any[]): number {
-    let count = 0;
-    const tools = new Set<string>();
-    for (const out of skillOutputs || []) {
-        for (const c of out.citations || []) if (c?.url) count += 1;
-        for (const f of out.findings || []) for (const c of f.citations || []) if (c?.url) count += 1;
-        for (const v of out.verdicts || []) for (const c of v.citations || []) if (c?.url) count += 1;
-        for (const obs of out.raw_observations || []) {
-            if (obs?.url) count += 1;
-            if (obs?.tool) tools.add(obs.tool);
-        }
-        for (const t of out.tools_used || []) tools.add(t);
-    }
-    return count + tools.size;
-}
-
-/** A data tool the analysts actually called, with call status — so a
- *  tool like get_technicals is attributed as a source even though it
- *  has no public URL. Aggregated from raw_observations (which carry
- *  per-call status) and tools_used (called, status not persisted). */
-interface ToolSourceRecord {
-    name: string;
-    calls: number;
-    ok: number;
-    err: number;
-    empty: number;
-    args?: string;
-    url?: string;
-}
-
-function DataSourcesPanel({ analysis, skillOutputs }: { analysis: any; skillOutputs: any[] }) {
-    const sources = new Map<string, any>();
-    const tools = new Map<string, ToolSourceRecord>();
-    const recordTool = (name: string, status?: string, args?: string, url?: string) => {
-        const rec: ToolSourceRecord = tools.get(name) || { name, calls: 0, ok: 0, err: 0, empty: 0 };
-        rec.calls += 1;
-        const s = String(status || "").toLowerCase();
-        if (s === "err") rec.err += 1;
-        else if (s === "empty") rec.empty += 1;
-        else if (s === "ok") rec.ok += 1;
-        if (!rec.args && args) rec.args = args;
-        if (url) rec.url = url;
-        tools.set(name, rec);
-    };
-    for (const out of skillOutputs || []) {
-        for (const c of (out.citations || [])) {
-            if (c?.url) sources.set(c.url, { url: c.url, label: c.label });
-        }
-        for (const f of (out.findings || [])) {
-            for (const c of (f.citations || [])) {
-                if (c?.url) sources.set(c.url, { url: c.url, label: c.label });
-            }
-        }
-        for (const v of (out.verdicts || [])) {
-            for (const c of (v.citations || [])) {
-                if (c?.url) sources.set(c.url, { url: c.url, label: c.label });
-            }
-        }
-        for (const obs of (out.raw_observations || [])) {
-            if (obs?.url) sources.set(obs.url, { url: obs.url, label: undefined });
-            if (obs?.tool) recordTool(obs.tool, obs.status, obs.args, obs.url);
-        }
-        // tools_used covers tools the analyst called even when no raw
-        // observation was persisted (condensed away). Status unknown.
-        for (const t of (out.tools_used || [])) {
-            if (!tools.has(t)) tools.set(t, { name: t, calls: 1, ok: 0, err: 0, empty: 0 });
-        }
-    }
-    const list = Array.from(sources.values());
-    const toolList = Array.from(tools.values());
-    if (list.length === 0 && toolList.length === 0) {
-        return (
-            <Text fontSize="13px" color="var(--ink-tertiary)">
-                No external web sources or data tools were recorded for this run.
-            </Text>
-        );
-    }
-    function host(u: string) {
-        try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; }
-    }
-    function toolStatus(rec: ToolSourceRecord): { label: string; color: string } {
-        if (rec.err > 0 && rec.err === rec.calls) return { label: "errored", color: "var(--signal-negative)" };
-        if (rec.err > 0) return { label: `${rec.err} of ${rec.calls} errored`, color: "var(--signal-negative)" };
-        if (rec.ok + rec.empty === 0) return { label: rec.calls > 1 ? `${rec.calls} calls` : "called", color: "var(--ink-tertiary)" };
-        if (rec.empty === rec.calls) return { label: "returned no data", color: "var(--signal-caution)" };
-        if (rec.empty > 0) return { label: `${rec.calls - rec.empty} of ${rec.calls} returned data`, color: "var(--signal-caution)" };
-        return { label: rec.calls > 1 ? `${rec.calls} calls, all returned data` : "returned data", color: "var(--signal-positive)" };
-    }
-    return (
-        <Flex direction="column" gap={4}>
-            {toolList.length > 0 && (
-                <Flex direction="column" gap={2}>
-                    {list.length > 0 && (
-                        <Text fontSize="11px" fontWeight={600} textTransform="uppercase" letterSpacing="0.08em" color="var(--ink-tertiary)">
-                            Data tools called
-                        </Text>
-                    )}
-                    {toolList.map((rec) => {
-                        const st = toolStatus(rec);
-                        const tip = [rec.args, rec.url].filter(Boolean).join(" · ");
-                        return (
-                            <HStack
-                                key={rec.name}
-                                gap={2}
-                                px={2}
-                                py={1}
-                                borderRadius="4px"
-                                bg="var(--surface-panel)"
-                                border="1px solid var(--hairline)"
-                                title={tip || undefined}
-                            >
-                                <LuDatabase size={14} aria-hidden color="var(--ink-tertiary)" />
-                                <Text fontSize="13px" color="var(--ink-primary)" fontWeight={500}>
-                                    {rec.name}
-                                </Text>
-                                <Text fontSize="11px" color={st.color}>
-                                    {st.label}
-                                </Text>
-                            </HStack>
-                        );
-                    })}
-                </Flex>
-            )}
-            {list.length > 0 && (
-                <Flex direction="column" gap={2}>
-                    {toolList.length > 0 && (
-                        <Text fontSize="11px" fontWeight={600} textTransform="uppercase" letterSpacing="0.08em" color="var(--ink-tertiary)">
-                            Web sources
-                        </Text>
-                    )}
-                    {list.map((item) => (
-                        <a
-                            key={item.url}
-                            href={item.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ textDecoration: "none", display: "inline-flex" }}
-                        >
-                            <HStack gap={2} px={2} py={1} borderRadius="4px" bg="var(--surface-panel)" border="1px solid var(--hairline)" _hover={{ bg: "var(--surface-recessed)" }}>
-                                <FaviconMark url={item.url} size={16} />
-                                <Text fontSize="13px" color="var(--ink-primary)">
-                                    {item.label || host(item.url)}
-                                </Text>
-                            </HStack>
-                        </a>
-                    ))}
-                </Flex>
-            )}
-        </Flex>
-    );
-}
-
 
 function Callout({
     tone,
@@ -1075,7 +917,6 @@ function Callout({
 const SECTION_NAV_ITEMS: { key: string; label: string }[] = [
     { key: "summary", label: "Executive Summary" },
     { key: "skills", label: "Skill Reports" },
-    { key: "sources", label: "Data Sources" },
 ];
 
 function SectionNav({ active, runMode, onJump }: { active: string; runMode: string; onJump: (key: string) => void }) {
@@ -1160,4 +1001,3 @@ function EmptyState({ message }: { message: string }) {
         </Flex>
     );
 }
-

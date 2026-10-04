@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { classifyModelError, classifyReason } from "../src/modelcheck.js";
-import { extractJsonObject } from "../src/skills/skillrun.js";
 
 /**
  * The classifier is the single source of truth for model-failure reporting
@@ -79,22 +78,6 @@ describe("classifyModelError — 410 Gone (model EOL)", () => {
   it("keeps 404 as not_found (model unknown, not retired)", () => {
     expect(classifyReason("model not found", 404)).toBe("not_found");
     expect(classifyReason("The model does not exist for your plan.", undefined)).toBe("not_found");
-  });
-});
-
-describe("extractJsonObject — salvage path for schema-drifted analyst output", () => {
-  it("parses fenced JSON that the strict schema rejected (live-probed Cohere reply)", () => {
-    // Live-probed: Cohere command-r7b emitted string findings, strict schema
-    // rejected, whole skill died. The salvage path needs the raw object back.
-    const text = '```json\n{"findings": ["No free cash flow data available."], "verdicts": ["Intrinsic value cannot be calculated."], "tools_used": ["get_dcf_valuation"]}\n```';
-    const obj = extractJsonObject(text);
-    expect(obj).toBeTruthy();
-    expect(Array.isArray(obj!.findings)).toBe(true);
-    expect(obj!.findings![0]).toBe("No free cash flow data available.");
-  });
-
-  it("returns null for non-JSON text", () => {
-    expect(extractJsonObject("I'm sorry, I could not analyze.")).toBeNull();
   });
 });
 

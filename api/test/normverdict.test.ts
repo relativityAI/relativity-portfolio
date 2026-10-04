@@ -1,19 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { normVerdict } from "../src/skills/skillrun.js";
+import { normVerdict } from "../src/skills/types.js";
 
 // The live KEI failure: get_technicals returned 60 sections and every anchor
 // still came back "No data", so the run scored 0 of 5 and published an
 // unavailable notice. The cause was exact-match verdict normalisation — any
-// token that was not literally YES/PARTIAL/NO collapsed to INSUFFICIENT.
+// token that was not literally a known verdict collapsed to INSUFFICIENT.
+//
+// Two producers speak a looser dialect than the enum and MUST route through
+// here: the deterministic quant screen (YES/NO) and the free-form salvage
+// parser (whatever the model typed). An unrecognised token that reached
+// scoring's else-branch counted as FAIL — a passing rule scored as failing.
 describe("normVerdict", () => {
-  it.each(["YES", "yes", " Yes ", "TRUE", "SUPPORTED", "SUPPORTS", "CONFIRMED", "MET", "VALID"])(
-    "reads %s as YES",
-    (v) => expect(normVerdict(v)).toBe("YES"),
+  it.each(["PASS", "yes", " Yes ", "TRUE", "SUPPORTED", "SUPPORTS", "CONFIRMED", "MET", "VALID"])(
+    "reads %s as PASS",
+    (v) => expect(normVerdict(v)).toBe("PASS"),
   );
 
-  it.each(["NO", "no", "NOT CONFIRMED", "FAILS", "UNSUPPORTED", "VIOLATED", "INVALID", "REJECTED"])(
-    "reads %s as NO",
-    (v) => expect(normVerdict(v)).toBe("NO"),
+  it.each(["FAIL", "no", "NOT CONFIRMED", "FAILS", "UNSUPPORTED", "VIOLATED", "INVALID", "REJECTED"])(
+    "reads %s as FAIL",
+    (v) => expect(normVerdict(v)).toBe("FAIL"),
   );
 
   it.each(["PARTIAL", "partially", "MOSTLY", "MIXED", "QUALIFIED", "MARGINAL"])(
@@ -29,12 +34,12 @@ describe("normVerdict", () => {
   // Order matters: "NOT CONFIRMED" contains CONFIRMED, and "NO DATA" contains
   // NO. Testing agreement first would score both as a positive signal.
   it("prefers negation over the agreement word it contains", () => {
-    expect(normVerdict("Not confirmed")).toBe("NO");
+    expect(normVerdict("Not confirmed")).toBe("FAIL");
     expect(normVerdict("No data")).toBe("INSUFFICIENT");
   });
 
   it("does not mistake an evidence phrase for absence of data", () => {
-    expect(normVerdict("Data confirms the zone")).toBe("YES");
+    expect(normVerdict("Data confirms the zone")).toBe("PASS");
     expect(normVerdict("Data partially supports")).toBe("PARTIAL");
   });
 

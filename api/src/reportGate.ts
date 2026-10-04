@@ -233,7 +233,11 @@ export function gateReport(report: AnalysisReport, factsPack: string): GateResul
   issues.push(...interp.issues);
   warnings.push(...interp.warnings);
 
-  return { pass: issues.length === 0, issues, warnings };
+  // One distinct problem, one entry — every rule above iterates sentences, so a
+  // repeated sentence produced N identical issues and the callout rendered the
+  // same sentence N times.
+  const distinct = [...new Set(issues)];
+  return { pass: distinct.length === 0, issues: distinct, warnings: [...new Set(warnings)] };
 }
 
 /**

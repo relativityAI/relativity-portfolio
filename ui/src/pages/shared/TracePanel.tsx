@@ -13,6 +13,7 @@ export interface TraceEvent {
     key: string;
     text?: string;
     tool?: string;
+    tool_call_id?: string;
     args?: unknown;
     result?: unknown;
     status?: string;

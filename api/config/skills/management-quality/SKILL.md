@@ -1,7 +1,7 @@
 ---
 name: management-quality
 description: Capital allocation track record, governance, insider alignment, and honesty in shareholder communication.
-allowed-tools: get_announcements read_latest_transcript get_shareholdings web_search
+
 metadata:
   title: Management Quality
   category: qualitative
@@ -20,20 +20,35 @@ Great businesses run by self-interested or incompetent managers are poor bets. T
 4. Review announcements for governance signals: related-party transactions, frequent restructurings, auditor changes,pledged promoter shares.
 5. Compare promised targets from prior years with delivered results — a track record of sandbagging or over-promising is a finding either way.
 
-## Verdict Anchors
+
 
 - Capital allocation has been disciplined and shareholder-oriented over five years — weight 8
 - Insider ownership and recent transactions align management with shareholders — weight 6
 - Management communication is transparent and its past guidance matched delivery — weight 7
 
-## Charts
+
 
 - type: bar | title: Shares outstanding — last 5 years | data: shares_outstanding_series
 
-## Output Template
+
 
 Open with the capital-allocation verdict (owner-like, adequate, or value-destroying) with one concrete deal or buyback example. Note insider alignment and any governance flags. If shareholding data is unavailable for this exchange, mark the alignment anchor INSUFFICIENT.
 
 No-hallucination constraint: never fabricate deal values, buyback sizes, guidance numbers, governance incidents, or management quotes. Deal examples must come from get_announcements, read_latest_transcript, or dated web_search results in this session; a claim you cannot point to is left out.
 
 Citation requirement (mandatory): every finding and every verdict evidence line MUST carry a citation — the tool the figure came from (e.g. get_financial_metrics) and, when the data came from the public web or a filing document, the exact URL. A number without a citation reads as invented and will be flagged.
+
+## Data Needs
+- need: filings
+- need: announcements
+- need: ownership
+
+## Outputs
+- kind: narrative | title: track record
+- kind: narrative | title: capital allocation
+- kind: narrative | title: alignment
+
+## Checklist
+- id: mgmt1 | question: track record supported by evidence? | needs: [filings, announcements, ownership]
+- id: mgmt2 | question: capital allocation supported by evidence? | needs: [filings, announcements, ownership]
+- id: mgmt3 | question: alignment supported by evidence? | needs: [filings, announcements, ownership]

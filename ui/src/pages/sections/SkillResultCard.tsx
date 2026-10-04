@@ -1,8 +1,9 @@
 import { Box, Text, Flex, Badge } from "@/compat/ui"
 import { SiAgentskills } from "react-icons/si"
 import { useState } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import {
-    MdLink,
     MdExpandMore,
     MdExpandLess,
     MdDataset,
@@ -37,13 +38,30 @@ interface RawObservation {
     url?: string;
 }
 
+interface Block {
+    id?: string;
+    kind: "text" | "table" | "chart";
+    body?: string;
+    title?: string;
+    dataset_id?: string;
+    columns?: string[];
+    last_n?: number;
+    type?: "line" | "bar" | "scatter";
+    x?: string;
+    y?: string[];
+}
+
 interface SkillOutput {
     skill_id: string;
     skill_name: string;
     category: string;
     weight: number;
-    findings: { title: string; detail: string; citations?: Citation[] }[];
-    verdicts: { anchor: string; verdict: string; evidence: string; citations?: Citation[] }[];
+    summary?: string;
+    analysis?: string;
+    rawText?: string;
+    blocks?: Block[];
+    findings?: { title: string; detail: string; citations?: Citation[] }[];
+    verdicts: { anchor?: string; checklist_id?: string; verdict: string; evidence?: string; rationale?: string; citations?: Citation[]; dataset_ids?: string[] }[];
     tools_used?: string[];
     citations?: Citation[];
     raw_observations?: RawObservation[];
@@ -51,6 +69,51 @@ interface SkillOutput {
     score_0_100?: number | null;
     coverage?: number;
     scored_by?: string;
+    score_version?: "v2";
+    datasets?: any[];
+    total_checklist?: number;
+}
+
+function SkillSummaryMarkdown({ children }: { children: string }) {
+    return (
+        <Box
+            fontSize="13.5px"
+            color="var(--ink-secondary)"
+            lineHeight="relaxed"
+            css={{
+                "& h1, & h2, & h3, & h4": { color: "var(--ink-primary)", fontWeight: 600, lineHeight: 1.3, marginTop: "1em", marginBottom: "0.4em" },
+                "& h1": { fontSize: "1.35em" },
+                "& h2": { fontSize: "1.2em" },
+                "& h3, & h4": { fontSize: "1.05em" },
+                "& p": { margin: "0.55em 0" },
+                "& ul": { listStyleType: "disc", paddingLeft: "1.5em", margin: "0.55em 0" },
+                "& ol": { listStyleType: "decimal", paddingLeft: "1.5em", margin: "0.55em 0" },
+                "& li": { paddingLeft: "0.2em", margin: "0.2em 0" },
+                "& strong": { color: "var(--ink-primary)", fontWeight: 600 },
+                "& blockquote": { borderLeft: "2px solid var(--hairline)", margin: "0.75em 0", paddingLeft: "1em", color: "var(--ink-tertiary)" },
+                "& code": { background: "var(--surface-recessed)", borderRadius: "2px", fontFamily: "var(--font-mono)", padding: "0.1em 0.3em" },
+                "& pre": { background: "var(--surface-recessed)", borderRadius: "4px", overflowX: "auto", padding: "0.75em" },
+                "& pre code": { padding: 0 },
+                "& table": { borderCollapse: "collapse", display: "block", overflowX: "auto", width: "100%" },
+                "& th, & td": { borderBottom: "1px solid var(--hairline)", padding: "0.4em 0.65em", textAlign: "left" },
+                "& a": { color: "var(--accent-primary)", textDecoration: "underline" },
+            }}
+        >
+            <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                    ol: ({ node: _node, ...props }) => (
+                        <ol {...props} style={{ listStyleType: "decimal", paddingLeft: "1.5em", margin: "0.55em 0" }} />
+                    ),
+                    ul: ({ node: _node, ...props }) => (
+                        <ul {...props} style={{ listStyleType: "disc", paddingLeft: "1.5em", margin: "0.55em 0" }} />
+                    ),
+                }}
+            >
+                {children}
+            </ReactMarkdown>
+        </Box>
+    )
 }
 
 /** Readable excerpt of a citation value: strip tool prefixes, keep URLs whole. */
@@ -171,9 +234,9 @@ function scoreSignalColor(score: number): string {
 
 /** Verdict text + subtle tinted wash per outcome; no border, no surface. */
 const VERDICT_TONE: Record<string, { color: string; bg: string; label: string }> = {
-    YES: { color: "var(--signal-positive)", bg: "color-mix(in srgb, var(--signal-positive) 11%, transparent)", label: "Met" },
+    PASS: { color: "var(--signal-positive)", bg: "color-mix(in srgb, var(--signal-positive) 11%, transparent)", label: "Met" },
     PARTIAL: { color: "var(--signal-caution)", bg: "color-mix(in srgb, var(--signal-caution) 11%, transparent)", label: "Partly met" },
-    NO: { color: "var(--signal-negative)", bg: "color-mix(in srgb, var(--signal-negative) 11%, transparent)", label: "Not met" },
+    FAIL: { color: "var(--signal-negative)", bg: "color-mix(in srgb, var(--signal-negative) 11%, transparent)", label: "Not met" },
     INSUFFICIENT: { color: "var(--ink-tertiary)", bg: "var(--surface-recessed)", label: "No data" },
 };
 
@@ -215,6 +278,34 @@ interface ParsedItem {
     source: string | null;
     summary: string | null;
     isWeb: boolean;
+    fields?: { label: string; value: string }[];
+}
+
+function readableKey(key: string): string {
+    return key
+        .replace(/[_-]+/g, " ")
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/\b\d+\b/g, (n) => `#${Number(n) + 1}`)
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function payloadFields(value: unknown): { label: string; value: string }[] {
+    const fields: { label: string; value: string }[] = [];
+    const visit = (v: unknown, path: string[] = []): void => {
+        if (fields.length >= 24 || v == null) return;
+        if (Array.isArray(v)) {
+            v.slice(0, 8).forEach((item, i) => visit(item, [...path, String(i)]));
+        } else if (typeof v === "object") {
+            for (const [key, item] of Object.entries(v as Record<string, unknown>)) visit(item, [...path, key]);
+        } else {
+            const raw = String(v).trim();
+            if (!raw || /^https?:\/\//i.test(raw)) return;
+            const label = path.map((part) => /^\d+$/.test(part) ? `#${Number(part) + 1}` : readableKey(part)).join(" · ");
+            fields.push({ label, value: raw });
+        }
+    };
+    visit(value);
+    return fields;
 }
 
 /** Pull a human-readable headline + snippet out of a result payload string. */
@@ -244,30 +335,46 @@ function parsePayload(raw: string): { items: ParsedItem[]; keys: string[] } {
                 }
                 if (items.length > 0) return { items, keys: [] };
             }
-            // Single-object data feed: one-line key: value readout.
-            const flat: string[] = [];
-            const visit = (v: unknown, prefix = ""): void => {
-                if (flat.length >= 6) return;
-                if (v == null || typeof v === "function") return;
-                if (typeof v === "object") {
-                    for (const [k, val] of Object.entries(v as Record<string, unknown>).slice(0, 10)) {
-                        visit(val, prefix ? `${prefix}.${k}` : k);
-                    }
-                } else if (typeof v === "number" || typeof v === "string") {
-                    const sv = String(v);
-                    if (sv.length <= 60 && !/^https?:/.test(sv)) flat.push(`${prefix}: ${sv}`);
-                }
-            };
-            visit(j);
-            if (flat.length > 0) {
+            const fields = payloadFields(j);
+            if (fields.length > 0) {
                 return {
-                    items: [{ title: null, url: null, date: null, source: null, summary: flat.join("   "), isWeb: false }],
+                    items: [{ title: null, url: null, date: null, source: null, summary: null, isWeb: false, fields }],
                     keys: [],
                 };
             }
         } catch { /* fall through */ }
     }
+    // Data feeds sometimes arrive as flattened "key: value" text instead of JSON.
+    const markers = [...trimmed.matchAll(/(?:^|\s)([\w.-]+):\s*/g)];
+    if (markers.length) {
+        const fields = markers.map((marker, i) => {
+            const valueStart = (marker.index || 0) + marker[0].length;
+            const valueEnd = markers[i + 1]?.index ?? trimmed.length;
+            return {
+                label: marker[1].split(".").map(readableKey).join(" · "),
+                value: trimmed.slice(valueStart, valueEnd).trim(),
+            };
+        }).filter((field) => field.value);
+        return { items: [{ title: null, url: null, date: null, source: null, summary: null, isWeb: false, fields }], keys: [] };
+    }
     return { items: [], keys: [] };
+}
+
+function PayloadFields({ fields }: { fields: { label: string; value: string }[] }) {
+    return (
+        <Flex direction="column" gap={1} px={3} py={2}>
+            {fields.map((field, i) => (
+                <Flex key={i} gap={2} align="baseline" wrap="wrap">
+                    <Text fontSize="11px" fontWeight={600} color="var(--ink-tertiary)" minW="140px">
+                        {field.label}
+                    </Text>
+                    <Text fontSize="12px" color="var(--ink-secondary)" style={{ overflowWrap: "anywhere" }}>
+                        {field.value}
+                    </Text>
+                </Flex>
+            ))}
+        </Flex>
+    );
 }
 
 /**
@@ -278,18 +385,10 @@ function parsePayload(raw: string): { items: ParsedItem[]; keys: string[] } {
  * untouched payload one click away per item.
  */
 function SourceDataPanel({ observations }: { observations: RawObservation[] }) {
-    const [open, setOpen] = useState(false);
     if (!observations.length) return null;
     const ok = observations.filter((o) => o.status === "ok");
     const empty = observations.filter((o) => o.status !== "ok" && o.status !== "ERR");
     const failed = observations.filter((o) => o.status === "ERR");
-
-    // Distinct source brands actually used, for the header chips.
-    const sourceKeys: SourceKey[] = [];
-    for (const o of observations) {
-        const key = o.url ? ("web" as SourceKey) : sourceForTool(o.tool);
-        if (!sourceKeys.includes(key)) sourceKeys.push(key);
-    }
 
     const summary =
         ok.length === 0
@@ -298,20 +397,7 @@ function SourceDataPanel({ observations }: { observations: RawObservation[] }) {
 
     return (
         <Box mt={4}>
-            <Flex
-                as="button"
-                onClick={() => setOpen(!open)}
-                align="center"
-                gap={2}
-                w="100%"
-                bg="transparent"
-                border="none"
-                cursor="pointer"
-                px={0}
-                py={1.5}
-                textAlign="left"
-                aria-expanded={open}
-            >
+            <Flex align="center" gap={2} py={1.5}>
                 <MdDataset size={15} aria-hidden style={{ color: "var(--ink-tertiary)", flexShrink: 0 }} />
                 <Text fontSize="12.5px" fontWeight={600} color="var(--ink-primary)" flexShrink={0}>
                     Source data
@@ -320,76 +406,57 @@ function SourceDataPanel({ observations }: { observations: RawObservation[] }) {
                     ({summary}
                     {failed.length > 0 ? ` · ${failed.length} failed` : empty.length > 0 ? ` · ${empty.length} empty` : ""})
                 </Text>
-                {sourceKeys.slice(0, 4).map((k) => (
-                    <SourceMark key={k} source={k} size={13} muted={k === "voyager"} />
-                ))}
-                {open ? <MdExpandLess size={15} /> : <MdExpandMore size={15} />}
             </Flex>
-            {open && (
-                <Flex direction="column" gap={3} mt={2}>
-                    {observations.map((o, i) => (
-                        <ObservationCard key={i} o={o} />
-                    ))}
-                </Flex>
-            )}
+            <Flex direction="column" gap={2} mt={1}>
+                {observations.map((o, i) => (
+                    <ObservationCard key={i} o={o} />
+                ))}
+            </Flex>
         </Box>
     );
 }
 
 /** One tool observation as a source-data card. */
 function ObservationCard({ o }: { o: RawObservation }) {
-    const [showRaw, setShowRaw] = useState(false);
+    const [open, setOpen] = useState(false);
     const parsed = parsePayload(o.result || "");
-    const isWeb = parsed.items.some((it) => it.isWeb) || (!!o.url && parsed.items.length === 0);
     const sourceKey = o.url && parsed.items.length === 0 ? ("web" as SourceKey) : sourceForTool(o.tool);
     const headerLabel = o.url && parsed.items.length === 0 ? domainOf(o.url) : SOURCE_DEFS[sourceKey].label;
+    const argsFields = o.args ? payloadFields((() => { try { return JSON.parse(o.args!); } catch { return null; } })()) : [];
     const ok = o.status === "ok";
 
     return (
-        <Box bg="var(--surface-panel)" borderRadius="4px" overflow="hidden">
+        <Box bg="var(--surface-panel)" borderRadius="10px" overflow="hidden">
             {/* Facsimile header: where this piece of data came from — quiet
                 typography, no borders. */}
-            <Flex gap={2} align="center" wrap="wrap" px={3} py={2}>
+            <Flex
+                as="button"
+                onClick={() => setOpen(!open)}
+                gap={2}
+                align="center"
+                wrap="wrap"
+                px={3}
+                py={2.5}
+                w="100%"
+                textAlign="left"
+                bg="transparent"
+                border="none"
+                cursor="pointer"
+                aria-expanded={open}
+            >
                 <SourceMark source={sourceKey} size={13} muted={sourceKey === "voyager"} />
-                {o.url && parsed.items.length === 0 ? (
-                    <a href={o.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", minWidth: 0 }}>
-                        <Text
-                            as="span"
-                            fontSize="11.5px"
-                            fontWeight={600}
-                            color="var(--accent, #23747D)"
-                            display="inline-flex"
-                            alignItems="center"
-                            gap={1}
-                            _hover={{ textDecoration: "underline" }}
-                        >
-                            <FaviconMark url={o.url} size={14} />
-                            {"\u00A0\u00A0"}
-                            {headerLabel}
-                            <MdOutlineOpenInNew size={10} aria-hidden style={{ flexShrink: 0 }} />
-                        </Text>
-                    </a>
-                ) : (
-                    <Text as="span" fontSize="11.5px" fontWeight={600} color="var(--ink-primary)">
-                        {headerLabel}
-                    </Text>
-                )}
-                {!o.url && o.args && (
-                    <Text
-                        as="span"
-                        fontSize="10px"
-                        fontFamily="var(--font-mono)"
-                        color="var(--ink-tertiary)"
-                        whiteSpace="nowrap"
-                        overflow="hidden"
-                        textOverflow="ellipsis"
-                        maxW="300px"
-                        display="inline-block"
-                        title={o.args}
-                    >
-                        {o.args}
-                    </Text>
-                )}
+                <Text as="span" fontSize="11.5px" fontWeight={600} color="var(--ink-primary)">
+                    {headerLabel}
+                </Text>
+                <Text
+                    as="span"
+                    fontSize="10px"
+                    fontFamily="var(--font-mono)"
+                    color="var(--ink-secondary)"
+                    title="Tool called"
+                >
+                    {readableKey(o.tool)}
+                </Text>
                 <Text
                     fontSize="10.5px"
                     fontFamily="var(--font-mono)"
@@ -398,8 +465,11 @@ function ObservationCard({ o }: { o: RawObservation }) {
                 >
                     {ok ? "returned" : o.status === "ERR" ? "failed" : "empty"}
                 </Text>
+                {open ? <MdExpandLess size={15} /> : <MdExpandMore size={15} />}
             </Flex>
 
+            {open && <>
+            {argsFields.length > 0 && <PayloadFields fields={argsFields} />}
             {/* Readable content: story cards for web results, readouts for feeds */}
             {ok && parsed.items.length > 0 ? (
                 <Flex direction="column" gap={0}>
@@ -456,6 +526,7 @@ function ObservationCard({ o }: { o: RawObservation }) {
                                     {it.summary}
                                 </Text>
                             )}
+                            {it.fields && <PayloadFields fields={it.fields} />}
                         </Box>
                     ))}
                 </Flex>
@@ -464,7 +535,7 @@ function ObservationCard({ o }: { o: RawObservation }) {
                     <Box px={3} py={2}>
                         <Text fontSize="12px" color="var(--ink-tertiary)" lineHeight="relaxed">
                             {ok
-                                ? "Returned a payload the summary renderer could not read — open the raw response below."
+                                ? "Returned a payload that could not be parsed into readable fields."
                                 : o.status === "ERR"
                                   ? "This call failed — nothing came back from the source."
                                   : "This call returned no data."}
@@ -473,54 +544,8 @@ function ObservationCard({ o }: { o: RawObservation }) {
                 )
             )}
 
-            {/* Verbatim payload — per-item, never by default */}
-            {ok && o.result && (
-                <Box px={3} pb={2}>
-                    <Flex
-                        as="button"
-                        onClick={() => setShowRaw(!showRaw)}
-                        align="center"
-                        gap={1}
-                        bg="transparent"
-                        border="none"
-                        cursor="pointer"
-                        p={0}
-                        color="var(--ink-tertiary)"
-                        _hover={{ color: "var(--ink-secondary)" }}
-                        aria-expanded={showRaw}
-                    >
-                        <MdDataset size={10} aria-hidden />
-                        <Text as="span" fontSize="10px" fontFamily="var(--font-mono)">
-                            {showRaw ? "hide raw response" : "raw response"}
-                        </Text>
-                    </Flex>
-                    {showRaw && <RawPayload text={o.result} />}
-                </Box>
-            )}
+            </>}
         </Box>
-    );
-}
-
-/** The untouched tool response, in a scrollable mono block. */
-function RawPayload({ text }: { text: string }) {
-    return (
-        <Text
-            as="pre"
-            fontSize="10px"
-            fontFamily="var(--font-mono)"
-            color="var(--ink-tertiary)"
-            whiteSpace="pre-wrap"
-            wordBreak="break-word"
-            m={0}
-            mt={1.5}
-            maxH="200px"
-            overflowY="auto"
-            bg="var(--surface-recessed)"
-            p={2}
-            borderRadius="2px"
-        >
-            {text}
-        </Text>
     );
 }
 
@@ -541,15 +566,79 @@ function NoDataNote({ message }: { message: string }) {
     );
 }
 
+
+function renderBlock(b: Block, datasets?: any[]) {
+    if (b.kind === "text") {
+        return (
+            <Box py={1}>
+                <Text fontSize="13.5px" color="var(--ink-secondary)" lineHeight="relaxed" whiteSpace="pre-wrap">
+                    {b.body}
+                </Text>
+            </Box>
+        )
+    }
+    if (b.kind === "table") {
+        const ds = datasets?.find((d) => d.id === b.dataset_id)
+        const cols = b.columns || ds?.columns?.map((c: any) => c.name) || []
+        const rows = ((ds?.data || []) as any[]).slice(-(b.last_n || 30))
+        return (
+            <Box py={2} overflowX="auto">
+                <Text fontSize="12px" fontWeight={600} color="var(--ink-primary)" mb={1}>{b.title}</Text>
+                <Box as="table" style={{ borderCollapse: "collapse", width: "100%" }}>
+                    <Box as="thead">
+                        <Box as="tr">
+                            {cols.map((col, i) => (
+                                <Box as="th" key={i} style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid var(--hairline)", fontSize: "11px", color: "var(--ink-tertiary)" }}>
+                                    {col}
+                                </Box>
+                            ))}
+                        </Box>
+                    </Box>
+                    <Box as="tbody">
+                        {rows.map((r, i) => (
+                            <Box as="tr" key={i}>
+                                {cols.map((col, j) => (
+                                    <Box as="td" key={j} style={{ padding: "4px 6px", fontSize: "12px", color: "var(--ink-secondary)", borderBottom: "1px solid var(--hairline)" }}>
+                                        {String(r?.[col] ?? "")}
+                                    </Box>
+                                ))}
+                            </Box>
+                        ))}
+                    </Box>
+                </Box>
+            </Box>
+        )
+    }
+    if (b.kind === "chart") {
+        const ds = datasets?.find((d) => d.id === b.dataset_id)
+        const dataRows = ((ds?.data || []) as any[])
+        const cols = [b.x, ...(b.y || [])]
+        return (
+            <Box py={2}>
+                <Text fontSize="12px" fontWeight={600} color="var(--ink-primary)" mb={1}>{b.title}</Text>
+                <Box bg="var(--surface-recessed)" p={2} borderRadius="4px">
+                    <Text fontSize="11px" color="var(--ink-tertiary)">
+                        [{b.type}] chart using {cols.join(", ")} ({dataRows.length} rows)
+                    </Text>
+                </Box>
+            </Box>
+        )
+    }
+    return null
+}
+
 export default function SkillResultCard({ output }: { output: SkillOutput }) {
     const scored = typeof output.score_0_100 === "number";
+    const hasAnalysis = !!output.analysis?.trim();
+    const summaryOnly = output.scored_by === "summary" || hasAnalysis || (output.findings || []).some((f) => f.title === "Skill summary");
     const hasError = !!output.error;
     const hasVerdicts = (output.verdicts || []).length > 0;
     const hasFindings = (output.findings || []).length > 0;
-    const met = (output.verdicts || []).filter((v) => v.verdict === "YES").length;
-    const total = (output.verdicts || []).length;
-    const showAnchors = hasVerdicts;
-    const showFindings = hasFindings;
+    const hasBlocks = (output.blocks || []).length > 0;
+    const met = (output.verdicts || []).filter((v) => v.verdict === "PASS").length;
+    const total = output.total_checklist ?? (output.verdicts || []).length;
+    const showAnchors = hasVerdicts || hasBlocks;
+    const showFindings = hasFindings && !hasBlocks;
     const observations = output.raw_observations || [];
 
     return (
@@ -566,10 +655,10 @@ export default function SkillResultCard({ output }: { output: SkillOutput }) {
                 <Flex gap={3} align="baseline" minW={0} flexWrap="wrap">
                     <SkillAvatar skill={{ id: output.skill_id, name: output.skill_name }} size={26} />
                     <Text
-                        fontSize="22px"
-                        fontWeight={700}
-                        fontFamily="var(--font-tabular)"
-                        fontVariantNumeric="tabular-nums"
+                        fontSize={summaryOnly && !scored ? "10px" : "22px"}
+                        fontWeight={summaryOnly && !scored ? 600 : 700}
+                        fontFamily={summaryOnly && !scored ? "var(--font-mono)" : "var(--font-tabular)"}
+                        fontVariantNumeric={summaryOnly && !scored ? "normal" : "tabular-nums"}
                         lineHeight={1}
                         color={
                             hasError
@@ -580,13 +669,15 @@ export default function SkillResultCard({ output }: { output: SkillOutput }) {
                         }
                         title={
                             scored
-                                ? "Score computed from this skill's anchor verdicts"
+                                ? output.analysis ? "Score generated by the model" : "Score computed from this skill's anchor verdicts"
                                 : hasError
                                   ? "This skill failed before producing a score"
+                                  : summaryOnly
+                                    ? "Skill summary, not a scored evaluation"
                                   : "No score — this skill had no assessable data"
                         }
                     >
-                        {hasError ? "×" : scored ? output.score_0_100 : "N/A"}
+                        {hasError ? "×" : scored ? output.score_0_100 : summaryOnly ? "SUMMARY" : "N/A"}
                     </Text>
                     <Text fontSize="15px" fontWeight={600} color="var(--ink-primary)">
                         {output.skill_name}
@@ -597,7 +688,7 @@ export default function SkillResultCard({ output }: { output: SkillOutput }) {
                 </Flex>
                 {total > 0 && (
                     <Text fontSize="11.5px" color="var(--ink-tertiary)" flexShrink={0}>
-                        {met} of {total} anchors met
+                        {met} of {total} criteria met
                     </Text>
                 )}
             </Flex>
@@ -609,22 +700,42 @@ export default function SkillResultCard({ output }: { output: SkillOutput }) {
                     </Box>
                 )}
 
+                {output.rawText && (
+                    <Box mb={4} p={3} bg="var(--surface-recessed)" borderRadius="4px">
+                        <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-secondary)" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                            {output.rawText}
+                        </Text>
+                    </Box>
+                )}
+
+                {hasAnalysis && (
+                    <Box mb={4}>
+                        <SkillSummaryMarkdown>{output.analysis!}</SkillSummaryMarkdown>
+                    </Box>
+                )}
+
                 {/* Each anchor: quiet rows separated by whitespace alone — the
                     verdict tag and evidence indent make each row legible
                     without a single divider. */}
-                {showAnchors && (
+                {output.blocks && output.blocks.length > 0 ? (
+                    <Box mb={showFindings ? 4 : 0} mt={2}>
+                        {output.blocks.map((b, i) => (
+                            <Box key={b.id || i}>{renderBlock(b, output.datasets)}</Box>
+                        ))}
+                    </Box>
+                ) : showAnchors && (
                     <Box mb={showFindings ? 4 : 0} mt={2}>
                         {output.verdicts.map((v, i) => (
                             <Box key={i} py={2}>
                                 <Flex justify="space-between" gap={3} align="baseline">
                                     <Text fontSize="13.5px" fontWeight={500} color="var(--ink-primary)" noOfLines={2}>
-                                        {v.anchor}
+                                        {v.anchor || v.checklist_id}
                                     </Text>
                                     <VerdictPill verdict={v.verdict} flexShrink={0} />
                                 </Flex>
-                                {v.evidence && (
+                                {(v.evidence || v.rationale) && (
                                     <Text fontSize="12.5px" color="var(--ink-tertiary)" mt={1} lineHeight="1.55" maxW="75ch">
-                                        {v.evidence}
+                                        {v.evidence || v.rationale}
                                     </Text>
                                 )}
                                 <SourceLine citations={v.citations} />
@@ -648,12 +759,7 @@ export default function SkillResultCard({ output }: { output: SkillOutput }) {
                         <Flex direction="column" gap={2.5}>
                             {output.findings.map((f, i) => (
                                 <Box key={i}>
-                                    <Text fontSize="13.5px" color="var(--ink-secondary)" lineHeight="relaxed">
-                                        <Text as="span" fontWeight={600} color="var(--ink-primary)">
-                                            {f.title}
-                                        </Text>
-                                        {f.detail ? ` — ${f.detail}` : ""}
-                                    </Text>
+                                    <SkillSummaryMarkdown>{f.detail}</SkillSummaryMarkdown>
                                     <SourceLine citations={f.citations} />
                                 </Box>
                             ))}
@@ -661,7 +767,7 @@ export default function SkillResultCard({ output }: { output: SkillOutput }) {
                     </Box>
                 )}
 
-                {!hasError && !hasVerdicts && !hasFindings && (
+                {!hasError && !hasVerdicts && !hasFindings && !hasAnalysis && (
                     <NoDataNote message="This skill completed but returned no findings or verdicts — nothing was assessable in the data available." />
                 )}
 

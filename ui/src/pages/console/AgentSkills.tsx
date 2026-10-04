@@ -292,7 +292,7 @@ export default function AgentSkills() {
                                         <span className="min-w-0 truncate text-[13px] font-semibold text-console-ink">{s.name}</span>
                                     </span>
                                     <span className="mt-0.5 line-clamp-2 block text-[11.5px] leading-snug text-console-ink-3">
-                                        {s.description}
+                                        {s.description.length > 120 ? s.description.slice(0, 120) + "…" : s.description}
                                     </span>
                                     <span className="mt-1.5 block text-[10px] font-medium tracking-wide text-console-ink-4 uppercase">
                                         {CATEGORY_LABELS[s.category] || s.category}

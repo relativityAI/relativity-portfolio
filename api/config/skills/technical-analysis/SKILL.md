@@ -1,7 +1,7 @@
 ---
 name: technical-analysis
 description: Full-stack technical read — trend structure, moving averages, momentum (RSI, MACD, stochastic, ADX/CCI/Williams %R), volume and volume profile, volatility (ATR, Bollinger, HV), Fibonacci, Ichimoku, support/resistance, and scenario levels — what the market's own record says.
-allowed-tools: get_technicals get_price_history get_financial_metrics
+
 metadata:
   title: Technical Analysis
   category: market
@@ -24,6 +24,9 @@ The price chart is the record of every participant's decisions. This skill reads
 8. The level map: `support_resistance` (supports, resistances, touches), `fibonacci_analysis` (swing high/low, retracement levels), `key_technical_levels`, `entry_zones` / `exit_zones`, `stop_loss`, `take_profit_targets` (tp1/tp2/tp3), and `risk_reward` (R:R to TP1). Always give the 52-week range position as a percentage (from `current_price_market_data`: high_52w, low_52w, current_price).
 9. Scenarios, not predictions: `bullish_scenario`, `bearish_scenario`, `neutral_scenario` (trigger, first target), `breakout_scenarios` / `breakdown_scenarios` (with volume confirmation), and `invalidation_levels`. State what price action would prove the thesis wrong.
 10. Synthesize: from `indicator_confluence` and `technical_signal_summary` / `overall_assessment` (confluence, regime, structure, R:R). One call — uptrend, downtrend, or range-bound — with the specific multi-section evidence for it, including where the timeframes disagree.
+
+
+
 
 ## Verdict Anchors
 
@@ -63,3 +66,15 @@ State the trend call in the first sentence with the regime and SMA-alignment evi
 No-hallucination constraint: never invent prices, indicator values, levels, returns, or dates. Every quote and figure must come from get_technicals, get_price_history, or get_financial_metrics output in this session — cite the section name (e.g. `momentum_analysis.rsi_14`) for every figure. If a section is missing or unavailable, that reading is INSUFFICIENT, not estimated from memory of the chart.
 
 Citation requirement (mandatory): every finding and every verdict evidence line MUST carry a citation — the tool it came from (e.g. get_technicals) and the section name within the report, plus the exact URL when the data came from the public web or a filing document. A number without a citation reads as invented and will be flagged.
+
+## Data Needs
+- need: price
+- need: technicals
+
+## Outputs
+- kind: narrative | title: trend
+- kind: narrative | title: momentum/support-resistance
+
+## Checklist
+- id: ta1 | question: trend supported by evidence? | needs: [price, technicals]
+- id: ta2 | question: momentum/support-resistance supported by evidence? | needs: [price, technicals]

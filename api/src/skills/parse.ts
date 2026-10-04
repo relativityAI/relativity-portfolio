@@ -1,61 +1,21 @@
 /**
- * Skill markdown grammar + parser — Agent Skills spec (agentskills.io).
+ * Minimal Agent Skills format validation.
  *
- * On disk a skill is a directory holding SKILL.md:
- *   skills/dcf-valuation/SKILL.md
- *
- * Grammar:
- *   ---                            YAML frontmatter
- *   name: dcf-valuation            required, lowercase kebab, == directory name
- *   description: ...               required, non-empty, <=1024
- *   license: ...                   optional
- *   compatibility: ...             optional, <=500
- *   allowed-tools: web_search x    optional, space-separated tool allowlist
- *   metadata:                      optional nested map of extra keys
- *     title: DCF Valuation
- *     category: valuation
- *     version: "1"
- *   ---                            YAML-ish conventions: flat `key: value`
- *   ## Purpose                    prose: what this skill investigates and why
- *   ## Data                       "- tool_name" bullets (fallback for allowed-tools)
- *   ## Method                     numbered analysis steps
- *   ## Verdict Anchors            "- anchor text — weight N" (optional; default 5)
- *   ## Charts                     "- type: line | title: ... | data: ..." (optional)
- *   ## Output Template            free prose appended to the analyst prompt
- *   ## anything else              opaque — preserved verbatim
- *
- * Body layout is free-form per spec; our sections are a convention on top.
- *
- * Legacy files (pre-spec `id:` + title-case `name:`) are still accepted on read
- * so existing rows in the `skills` table don't break; everything we *write* is
- * spec-shaped.
- *
- * Parsing is pure and sub-millisecond; validation is zod at the boundary.
+ * A skill is a SKILL.md document with YAML frontmatter and an unrestricted
+ * Markdown body. The body is kept verbatim; the runtime must not infer a
+ * Relativity-specific schema from its headings or prose.
  */
 
-import { z } from "zod";
-import type { ChartSpec, ChartType, SkillCategory, SkillDefinition, VerdictAnchor } from "./types.js";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import type { SkillCategory, SkillDefinition } from "./types.js";
 
-export const SKILL_CATEGORIES: SkillCategory[] = [
-  "valuation",
-  "fundamentals",
-  "qualitative",
-  "market",
-  "macro",
-  "custom",
-];
-
-export const CHART_TYPES: ChartType[] = ["line", "bar", "candlestick", "table"];
-
-/** Official spec name rule: 1-64 chars, a-z0-9 and hyphens, no leading/trailing/double hyphen. */
+/** Agent Skills `name`: 1-64 lowercase letters/digits/single hyphens. */
 export const SPEC_NAME_RE = /^(?!.*--)[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
-
 export const SPEC_NAME_ERR =
   "name must be 1-64 chars of lowercase letters, digits and single hyphens (no leading, trailing or doubled hyphen)";
 
-/** Slugify a human title into a spec-valid name. */
 export function slugifySkillName(input: string): string {
-  const s = input
+  const slug = input
     .normalize("NFKD")
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/-+/g, "-")
@@ -63,7 +23,7 @@ export function slugifySkillName(input: string): string {
     .toLowerCase()
     .slice(0, 64)
     .replace(/-$/, "");
-  return s || "custom-skill";
+  return slug || "custom-skill";
 }
 
 export interface SkillIssue {
@@ -79,235 +39,101 @@ export interface SkillParseResult {
   extraFrontmatter: [string, string][];
 }
 
-export const skillFrontmatterSchema = z.object({
-  /** Official spec `name`: the slug, matching the directory. */
-  name: z.string().min(1).regex(SPEC_NAME_RE, SPEC_NAME_ERR),
-  description: z.string().min(1, "description is required").max(1024, "description must be 1024 characters or fewer"),
-  license: z.string().optional(),
-  compatibility: z.string().max(500, "compatibility must be 500 characters or fewer").optional(),
-  /** Space-separated per spec. */
-  "allowed-tools": z.string().optional(),
-  metadata: z.record(z.string(), z.string()).optional(),
-});
+function humanizeName(name: string): string {
+  return name.replace(/-/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
 
-/**
- * YAML-ish frontmatter reader: flat `key: value` plus one level of nesting so
- * the spec's `metadata:` block parses. Deeper nesting is flattened to "a.b".
- */
-function parseFrontmatter(src: string): {
-  entries: [string, string][];
-  meta: Record<string, string>;
-  endLine: number;
-} {
-  const lines = src.split("\n");
-  if (lines[0]?.trim() !== "---") return { entries: [], meta: {}, endLine: 0 };
-  const entries: [string, string][] = [];
-  const meta: Record<string, string> = {};
-  let key: string | null = null;
-  let i = 1;
-  for (; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.trim() === "---") break;
-    const m = line.match(/^(\s*)([A-Za-z0-9_.-]+)\s*:\s*(.*)$/);
-    if (!m) continue;
-    const [, indent, rawKey, rawVal] = m;
-    const val = rawVal.trim();
-    if (indent.length > 0 && key) {
-      // Nested line — belongs to the previous top-level key.
-      if (val) meta[`${key}.${rawKey.toLowerCase()}`] = stripQuotes(val);
-      continue;
-    }
-    key = rawKey.toLowerCase();
-    if (val) entries.push([key, stripQuotes(val)]);
+function readFrontmatter(src: string): { frontmatter: Record<string, unknown>; body: string } {
+  const normalized = src.startsWith("\uFEFF") ? src.slice(1) : src;
+  const match = normalized.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
+  if (!match) throw new Error("SKILL.md must start with YAML frontmatter delimited by ---");
+  const parsed: unknown = parseYaml(match[1]);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("YAML frontmatter must be a mapping");
   }
-  return { entries, meta, endLine: i };
+  return { frontmatter: parsed as Record<string, unknown>, body: match[2] || "" };
 }
 
-function stripQuotes(v: string): string {
-  return v.replace(/^["']|["']$/g, "").trim();
-}
-
-export function parseSkillMarkdown(src: string, source: "builtin" | "custom" = "custom"): SkillParseResult {
+export function parseSkillMarkdown(
+  src: string,
+  source: "builtin" | "custom" = "custom",
+  expectedName?: string,
+): SkillParseResult {
   const issues: SkillIssue[] = [];
-  const lines = src.split("\n");
-
-  const { entries, meta, endLine: fmEnd } = parseFrontmatter(src);
-  const known = new Set(["name", "id", "description", "license", "compatibility", "allowed-tools", "metadata"]);
-  const extraFrontmatter = entries.filter(([k]) => !known.has(k));
-
-  const fm: Record<string, string> = {};
-  for (const [k, v] of entries) fm[k] = v;
-
-  // Spec: `name` is the slug. Legacy: `id` held the slug and `name` a title.
-  // Presence of `id` is the legacy marker — those files always had both keys.
-  const legacy = !!fm.id;
-  const slug = legacy ? fm.id || "" : fm.name || "";
-  const title = legacy ? fm.name || "" : meta["metadata.title"] || "";
-  const description = fm.description || "";
-  const category = (meta["metadata.category"] || fm.category || "") as SkillCategory;
-  const version = Number(meta["metadata.version"] || fm.version || "1");
-
-  if (!slug) issues.push({ line: 0, message: "frontmatter name is required", severity: "error" });
-  else if (!SPEC_NAME_RE.test(slug))
-    issues.push({ line: 0, message: SPEC_NAME_ERR, severity: "error" });
-  if (legacy) {
-    issues.push({
-      line: 0,
-      message: "legacy frontmatter (`id:` + title-case `name:`) — rewrite as spec `name:` + `metadata.title:`",
-      severity: "warn",
-    });
-  } else if (!title) {
-    issues.push({ line: 0, message: "metadata.title is recommended for display", severity: "warn" });
+  let frontmatter: Record<string, unknown>;
+  let body: string;
+  try {
+    ({ frontmatter, body } = readFrontmatter(src));
+  } catch (error) {
+    return {
+      skill: null,
+      issues: [{ line: 1, message: error instanceof Error ? error.message : "Invalid YAML frontmatter", severity: "error" }],
+      opaque: [],
+      extraFrontmatter: [],
+    };
   }
-  if (!description) issues.push({ line: 0, message: "frontmatter description is required", severity: "error" });
-  else if (description.length > 1024)
-    issues.push({ line: 0, message: "description must be 1024 characters or fewer", severity: "error" });
-  if (!SKILL_CATEGORIES.includes(category)) {
+
+  const name = frontmatter.name;
+  const description = frontmatter.description;
+  if (typeof name !== "string" || !SPEC_NAME_RE.test(name)) {
+    issues.push({ line: 1, message: typeof name === "string" ? SPEC_NAME_ERR : "frontmatter name is required", severity: "error" });
+  }
+  if (typeof description !== "string" || description.length < 1 || description.length > 1024) {
     issues.push({
-      line: 0,
-      message: `category must be one of: ${SKILL_CATEGORIES.join(", ")}`,
+      line: 1,
+      message: typeof description !== "string" || !description ? "frontmatter description is required" : "description must be 1024 characters or fewer",
       severity: "error",
     });
   }
-  if (!Number.isFinite(version) || version < 1) {
-    issues.push({ line: 0, message: "version must be a positive integer", severity: "error" });
+  if (frontmatter.license !== undefined && typeof frontmatter.license !== "string") {
+    issues.push({ line: 1, message: "license must be a string", severity: "error" });
   }
-  const compat = fm.compatibility || "";
-  if (compat.length > 500)
-    issues.push({ line: 0, message: "compatibility must be 500 characters or fewer", severity: "error" });
-
-  // Body sections: split on "## <Heading>" (level-2 exactly).
-  const sections: { heading: string; text: string; line: number }[] = [];
-  let current: { heading: string; text: string[]; line: number } | null = null;
-  for (let i = fmEnd + 1; i < lines.length; i++) {
-    const line = lines[i];
-    const h = line.match(/^##\s+(.+?)\s*$/);
-    if (h) {
-      if (current) sections.push({ heading: current.heading, text: current.text.join("\n"), line: current.line });
-      current = { heading: h[1].trim(), text: [], line: i + 1 };
-    } else if (current) {
-      current.text.push(line);
-    }
+  if (frontmatter.compatibility !== undefined &&
+      (typeof frontmatter.compatibility !== "string" || frontmatter.compatibility.length > 500)) {
+    issues.push({ line: 1, message: "compatibility must be a string of 500 characters or fewer", severity: "error" });
   }
-  if (current) sections.push({ heading: current.heading, text: current.text.join("\n"), line: current.line });
-
-  const getSection = (label: string) =>
-    sections.find((s) => s.heading.toLowerCase() === label.toLowerCase());
-
-  const purposeSection = getSection("Purpose");
-  if (!purposeSection?.text.trim()) {
-    issues.push({ line: 0, message: "## Purpose section is required", severity: "error" });
+  if (frontmatter["allowed-tools"] !== undefined && typeof frontmatter["allowed-tools"] !== "string") {
+    issues.push({ line: 1, message: "allowed-tools must be a space-separated string", severity: "error" });
+  }
+  const metadata = frontmatter.metadata;
+  if (metadata !== undefined && (!metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
+      Object.values(metadata as Record<string, unknown>).some((value) => typeof value !== "string"))) {
+    issues.push({ line: 1, message: "metadata must be a map of string keys to string values", severity: "error" });
+  }
+  if (expectedName && typeof name === "string" && name !== expectedName) {
+    issues.push({ line: 1, message: `frontmatter name "${name}" must match skill directory "${expectedName}"`, severity: "error" });
   }
 
-  // Tools: spec `allowed-tools` (space-separated) wins; `## Data` is the fallback.
-  const dataSection = getSection("Data");
-  const data: string[] = [];
-  if (fm["allowed-tools"]) {
-    for (const t of fm["allowed-tools"].split(/[\s,]+/)) {
-      const clean = t.replace(/[()]/g, "").trim().toLowerCase();
-      if (clean) data.push(clean);
-    }
-  }
-  if (dataSection?.text.trim()) {
-    for (const raw of dataSection.text.split("\n")) {
-      const m = raw.match(/^\s*[-*]\s+`?([a-z0-9_]+)`?\s*$/i);
-      if (m) {
-        const tool = m[1].toLowerCase();
-        if (!data.includes(tool)) data.push(tool);
-      } else if (raw.trim().startsWith("-") || raw.trim().startsWith("*")) {
-        issues.push({
-          line: 0,
-          message: `Data entries must be bare tool names like \`- web_search\` (got: "${raw.trim().slice(0, 60)}")`,
-          severity: "warn",
-        });
-      }
-    }
-  }
+  const opaque = body.split(/(?=^##\s+)/m).flatMap((section) => {
+    const heading = section.match(/^##\s+(.+?)\s*$/m)?.[1];
+    return heading ? [{ heading, text: section.replace(/^##\s+.+?\s*\r?\n/, "").trim() }] : [];
+  });
+  const extraFrontmatter = Object.entries(frontmatter)
+    .filter(([key]) => !["name", "description", "license", "compatibility", "allowed-tools", "metadata"].includes(key))
+    .map(([key, value]) => [key, typeof value === "string" ? value : JSON.stringify(value)] as [string, string]);
 
-  // Method: numbered steps (also accept bullets).
-  const methodSection = getSection("Method");
-  const method: string[] = [];
-  if (methodSection?.text.trim()) {
-    for (const raw of methodSection.text.split("\n")) {
-      const m = raw.match(/^\s*(?:\d+[.)]|[-*])\s+(.+)$/);
-      if (m && m[1].trim()) method.push(m[1].trim());
-    }
-  } else {
-    issues.push({ line: 0, message: "## Method section is required", severity: "error" });
-  }
-
-  // Verdict anchors: "- anchor text — weight N" (weight optional, default 5).
-  const anchorSection = getSection("Verdict Anchors");
-  const anchors: VerdictAnchor[] = [];
-  if (anchorSection?.text.trim()) {
-    for (const raw of anchorSection.text.split("\n")) {
-      const m = raw.match(/^\s*[-*]\s+(.+)$/);
-      if (!m) continue;
-      let text = m[1].trim();
-      let weight = 5;
-      const w = text.match(/[—–-]\s*weight\s+(\d+)\s*$/i) || text.match(/,\s*weight\s+(\d+)\s*$/i);
-      if (w) {
-        const n = parseInt(w[1], 10);
-        if (n >= 1 && n <= 10) weight = n;
-        else issues.push({ line: 0, message: `anchor weight must be 1-10 (got ${n})`, severity: "warn" });
-        text = text.slice(0, w.index).trim().replace(/[—–-]\s*$/, "").trim();
-      }
-      if (text) anchors.push({ label: text, weight });
-    }
-  }
-
-  // Charts: "- type: line | title: ... | data: ..." (pipe-separated k:v pairs).
-  const chartSection = getSection("Charts");
-  const charts: ChartSpec[] = [];
-  if (chartSection?.text.trim()) {
-    for (const raw of chartSection.text.split("\n")) {
-      const m = raw.match(/^\s*[-*]\s+(.+)$/);
-      if (!m) continue;
-      const parts = m[1].split("|").map((p) => p.trim());
-      const kv: Record<string, string> = {};
-      for (const p of parts) {
-        const c = p.indexOf(":");
-        if (c > 0) kv[p.slice(0, c).trim().toLowerCase()] = p.slice(c + 1).trim();
-      }
-      const type = (kv.type || "").toLowerCase() as ChartType;
-      if (!CHART_TYPES.includes(type)) {
-        issues.push({ line: 0, message: `chart type must be one of: ${CHART_TYPES.join(", ")}`, severity: "warn" });
-        continue;
-      }
-      if (!kv.title || !kv.data) {
-        issues.push({ line: 0, message: "chart spec needs both `title:` and `data:`", severity: "warn" });
-        continue;
-      }
-      charts.push({ type, title: kv.title, data: kv.data, note: kv.note });
-    }
-  }
-
-  const outputTemplate = getSection("Output Template")?.text.trim() || undefined;
-
-  // Opaque: any section we don't recognize is preserved verbatim.
-  const knownSections = new Set(["purpose", "data", "method", "verdict anchors", "charts", "output template"]);
-  const opaque = sections
-    .filter((s) => !knownSections.has(s.heading.toLowerCase()))
-    .map((s) => ({ heading: s.heading, text: s.text }));
-
-  if (issues.some((i) => i.severity === "error")) {
+  if (issues.some(({ severity }) => severity === "error")) {
     return { skill: null, issues, opaque, extraFrontmatter };
   }
+
+  const fmMetadata = (metadata || {}) as Record<string, string>;
+  const slug = name as string;
+  const category = (fmMetadata.category && ["valuation", "fundamentals", "qualitative", "market", "macro", "custom"].includes(fmMetadata.category)
+    ? fmMetadata.category
+    : "custom") as SkillCategory;
 
   return {
     skill: {
       id: slug,
-      // Display title: metadata.title, else derived from the slug.
-      name: title || slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-      description,
+      name: fmMetadata.title || humanizeName(slug),
+      description: description as string,
       category,
-      version,
-      purpose: purposeSection?.text.trim() || "",
-      data,
-      method,
-      anchors: anchors.length ? anchors : undefined,
-      charts: charts.length ? charts : undefined,
-      outputTemplate,
+      version: Number(fmMetadata.version) > 0 ? Number(fmMetadata.version) : 1,
+      purpose: body.trim(),
+      // Skill prose remains opaque. The agent chooses whether and how to use
+      // available tools; the loader does not extract a tool schema from it.
+      data: [],
+      method: [],
       source,
       markdown: src,
     },
@@ -317,113 +143,34 @@ export function parseSkillMarkdown(src: string, source: "builtin" | "custom" = "
   };
 }
 
-/** Serialize a skill definition back to markdown, Agent Skills spec shape. */
+/** Keep a skill's original frontmatter and body byte-for-byte when available. */
 export function serializeSkill(skill: SkillDefinition): string {
-  const slug = SPEC_NAME_RE.test(skill.id) ? skill.id : slugifySkillName(skill.id);
-  const lines: string[] = [];
-  lines.push("---");
-  lines.push(`name: ${slug}`);
-  lines.push(`description: ${oneLine(skill.description)}`);
-  if (skill.data.length) lines.push(`allowed-tools: ${skill.data.join(" ")}`);
-  lines.push("metadata:");
-  lines.push(`  title: ${yamlScalar(skill.name)}`);
-  lines.push(`  category: ${skill.category}`);
-  lines.push(`  version: "${skill.version}"`);
-  lines.push("---");
-  lines.push("");
-  lines.push("## Purpose");
-  lines.push(skill.purpose);
-  lines.push("");
-  lines.push("## Method");
-  lines.push(skill.method.map((s, i) => `${i + 1}. ${s}`).join("\n"));
-  lines.push("");
-  if (skill.anchors?.length) {
-    lines.push("## Verdict Anchors");
-    lines.push(skill.anchors.map((a) => `- ${a.label} — weight ${a.weight}`).join("\n"));
-    lines.push("");
-  }
-  if (skill.charts?.length) {
-    lines.push("## Charts");
-    lines.push(
-      skill.charts.map((c) => `- type: ${c.type} | title: ${c.title} | data: ${c.data}${c.note ? ` | note: ${c.note}` : ""}`).join("\n"),
-    );
-    lines.push("");
-  }
-  if (skill.outputTemplate) {
-    lines.push("## Output Template");
-    lines.push(skill.outputTemplate);
-    lines.push("");
-  }
-  return lines.join("\n");
-}
-
-/**
- * Rewrite a non-spec frontmatter `name:` to a valid slug, moving the original
- * text to `metadata.title` if no title is set. Returns the source unchanged when
- * the name is already valid. Used to repair LLM-authored drafts in place.
- */
-export function repairSkillName(src: string): string {
-  const m = src.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/);
-  if (!m) return src;
-  const [, open, block, close] = m;
-  const nameMatch = block.match(/^name:[ \t]*(.+)$/m);
-  if (!nameMatch) return src;
-  const raw = stripQuotes(nameMatch[1].trim());
-  if (SPEC_NAME_RE.test(raw)) return src;
-  const slug = slugifySkillName(raw);
-  const hasTitle = /^metadata:[ \t]*$[\s\S]*?^[ \t]+title:/m.test(block);
-  const lines = block.split(/\r?\n/).map((l) => (l === nameMatch[0] ? `name: ${slug}` : l));
-  // Pull legacy top-level category/version under metadata so they survive.
-  const MOVED = ["category", "version"];
-  const moved = new Set<string>();
-  for (const l of lines) {
-    const m = l.match(/^(category|version):[ \t]*(.+)$/);
-    if (m) moved.add(m[1]);
-  }
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (!moved.size) break;
-    const m = lines[i].match(/^(category|version):[ \t]*(.+)$/);
-    if (m) lines.splice(i, 1);
-  }
-  const insert: string[] = [];
-  // Put the human text where the UI reads it.
-  if (!hasTitle) insert.push(`  title: ${yamlScalar(raw)}`);
-  for (const key of MOVED) {
-    const m = block.match(new RegExp(`^${key}:[ \\t]*(.+)$`, "m"));
-    if (m) insert.push(key === "version" ? `  version: "${m[1].trim()}"` : `  ${key}: ${m[1].trim()}`);
-  }
-  if (insert.length) {
-    const idx = lines.findIndex((l) => /^metadata:/i.test(l));
-    if (idx >= 0) lines.splice(idx + 1, 0, ...insert);
-    else lines.push("metadata:", ...insert);
-  }
-  // Splice, don't replace — everything after the frontmatter must survive.
-  return open + lines.join("\n") + close + src.slice(m[0].length);
-}
-
-/** Keep a description on one line — YAML frontmatter can't span lines here. */
-function oneLine(s: string): string {
-  return s.replace(/\s*\n\s*/g, " ").trim();
-}
-
-/** Quote a scalar only when it would otherwise misparse. */
-function yamlScalar(s: string): string {
-  const v = oneLine(s);
-  return /^[\w][\w &+./'-]*$/.test(v) ? v : `"${v.replace(/"/g, '\\"')}"`;
-}
-
-/** Frontmatter-only peek for listing without a full parse. */
-export function peekSkillMeta(src: string): { id: string; name: string; description: string; category: string } | null {
-  const { entries, meta } = parseFrontmatter(src);
-  const fm: Record<string, string> = {};
-  for (const [k, v] of entries) fm[k] = v;
-  const slug = fm.name || fm.id || "";
-  if (!slug) return null;
-  const title = meta["metadata.title"] || (fm.id ? fm.name : "");
-  return {
-    id: slug,
-    name: title || slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-    description: fm.description || "",
-    category: meta["metadata.category"] || fm.category || "custom",
+  if (skill.markdown) return skill.markdown;
+  const frontmatter: Record<string, unknown> = {
+    name: SPEC_NAME_RE.test(skill.id) ? skill.id : slugifySkillName(skill.id),
+    description: skill.description,
   };
+  if (skill.data.length) frontmatter["allowed-tools"] = skill.data.join(" ");
+  if (skill.name !== humanizeName(String(frontmatter.name))) frontmatter.metadata = { title: skill.name };
+  return `---\n${stringifyYaml(frontmatter).trimEnd()}\n---\n\n${skill.purpose || ""}`;
+}
+
+/** Frontmatter-only peek for listing. */
+export function peekSkillMeta(src: string): { id: string; name: string; description: string; category: string } | null {
+  try {
+    const { frontmatter } = readFrontmatter(src);
+    const id = typeof frontmatter.name === "string" ? frontmatter.name : "";
+    if (!id) return null;
+    const metadata = frontmatter.metadata && typeof frontmatter.metadata === "object"
+      ? frontmatter.metadata as Record<string, unknown>
+      : {};
+    return {
+      id,
+      name: typeof metadata.title === "string" ? metadata.title : humanizeName(id),
+      description: typeof frontmatter.description === "string" ? frontmatter.description : "",
+      category: typeof metadata.category === "string" ? metadata.category : "custom",
+    };
+  } catch {
+    return null;
+  }
 }

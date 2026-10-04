@@ -672,7 +672,7 @@ function skillSectionBlocks(output: any): PdfContent {
     out.push({
       columns: [
         { text: `${plain(v.anchor || "—")}${v.evidence ? ` — ${plain(String(v.evidence)).slice(0, 200)}` : ""}`, style: "cell", width: "*" },
-        { text: String(v.verdict || ""), style: "verdictPill", width: "auto", color: signalColor(v.verdict === "YES" ? 100 : v.verdict === "PARTIAL" ? 50 : v.verdict === "NO" ? 10 : null) },
+        { text: String(v.verdict || ""), style: "verdictPill", width: "auto", color: signalColor(v.verdict === "PASS" ? 100 : v.verdict === "PARTIAL" ? 50 : v.verdict === "FAIL" ? 10 : null) },
       ],
       columnGap: 8,
       margin: [0, 2, 0, 0],

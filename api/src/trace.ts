@@ -17,6 +17,7 @@ export interface TraceEvent {
   /** Human-readable text: reasoning delta, decision note, step detail. */
   text?: string;
   tool?: string;
+  tool_call_id?: string;
   args?: unknown;
   result?: unknown;
   status?: "pending" | "running" | "completed" | "degraded" | "failed" | "skipped" | "OK" | "ERR";
@@ -83,6 +84,7 @@ export class TraceCollector {
   private dirty = false;
   private timer: NodeJS.Timeout | null = null;
   private lastPersist = 0;
+  private persistTail: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly runId: string,
@@ -125,6 +127,8 @@ export class TraceCollector {
     if (!this.dirty) return;
     this.dirty = false;
     this.lastPersist = Date.now();
-    await this.persist(this.snapshot());
+    const snapshot = this.snapshot();
+    this.persistTail = this.persistTail.catch(() => {}).then(() => this.persist(snapshot));
+    await this.persistTail;
   }
 }

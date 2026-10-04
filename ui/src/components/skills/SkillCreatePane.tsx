@@ -37,15 +37,27 @@ interface ChartDraft {
     data: string;
 }
 
+interface DataNeedDraft {
+    need: string;
+    qualifier: string;
+}
+
+interface OutputDraft {
+    kind: string;
+    spec: string; // compact line
+}
+
 export interface FormState {
     name: string;
     description: string;
     category: string;
     tools: string[];
+    dataNeeds: DataNeedDraft[];
     purpose: string;
     method: string[];
     anchors: AnchorDraft[];
     charts: ChartDraft[];
+    outputs: OutputDraft[];
 }
 
 const EMPTY_FORM: FormState = {
@@ -53,10 +65,12 @@ const EMPTY_FORM: FormState = {
     description: "",
     category: "custom",
     tools: ["web_search"],
+    dataNeeds: [],
     purpose: "",
     method: ["Gather the data this skill needs using the tools listed above.", "Assess the evidence against each verdict anchor below.", "Write the verdicts with quotes copied verbatim from tool results."],
     anchors: [{ label: "", weight: 8 }],
     charts: [],
+    outputs: [],
 };
 
 /** Spec name rule: lowercase alnum + single hyphens, matching the directory. */
@@ -108,6 +122,16 @@ export function assembleMarkdown(f: FormState, id: string): string {
         lines.push(f.charts.filter((c) => c.title.trim() && c.data.trim()).map((c) => `- type: ${c.type} | title: ${c.title.trim()} | data: ${c.data.trim()}`).join("\n"));
         lines.push("");
     }
+    if (f.dataNeeds.filter((d) => d.need.trim()).length) {
+        lines.push("## Data Needs");
+        lines.push(f.dataNeeds.filter((d) => d.need.trim()).map((d) => d.qualifier.trim() ? `- ${d.need.trim()} (${d.qualifier.trim()})` : `- ${d.need.trim()}`).join("\n"));
+        lines.push("");
+    }
+    if (f.outputs.filter((o) => o.kind.trim() && o.spec.trim()).length) {
+        lines.push("## Outputs");
+        lines.push(f.outputs.filter((o) => o.kind.trim() && o.spec.trim()).map((o) => `- ${o.kind.trim()}: ${o.spec.trim()}`).join("\n"));
+        lines.push("");
+    }
     lines.push("## Output Template");
     lines.push("Summarize the finding in 2-3 sentences, then return one verdict per anchor with evidence quoted from tool results. Never invent numbers: every figure must be copied verbatim from a tool result.");
     return lines.join("\n");
@@ -150,6 +174,8 @@ export function parseMarkdown(md: string): FormState | null {
         method: method.length ? method : EMPTY_FORM.method,
         anchors: anchors.length ? anchors : [{ label: "", weight: 8 }],
         charts,
+        dataNeeds: [],
+        outputs: [],
     };
 }
 
