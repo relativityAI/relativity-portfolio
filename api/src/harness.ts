@@ -34,6 +34,19 @@ export const clampMaxOutputTokensForTest = clampMaxOutputTokens;
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Providers leak function-call and thought-signature control envelopes into
+ * the TEXT channel (observed: `</co: 0:[1,2,3,...]` and bare `[1,2,3,...]`
+ * call-index arrays from Gemini). `text` accumulates every step of the tool
+ * loop, so these survive into the extraction prompt and get pasted into
+ * reports. Strip them where the text is accumulated, once.
+ */
+const CONTROL_ENVELOPE_RE = /<\/?(?:co|content|function_call|tool_call|thought_signature)[^>]*>|\[\s*\d+(?:\s*,\s*\d+)*\s*\]/gi;
+
+export function stripControlEnvelopes(text: string): string {
+  return text.replace(CONTROL_ENVELOPE_RE, "").replace(/[ \t]{2,}/g, " ").trim();
+}
+
 // Generous enough for a long structured output on a slow provider, short
 // enough that a hung stream fails and retries inside the run's own lifetime.
 const DEFAULT_CALL_TIMEOUT_MS = 120_000;
@@ -48,8 +61,8 @@ const DEFAULT_CALL_TIMEOUT_MS = 120_000;
 
 export type HarnessTraceEvent =
   | { type: "thought"; text: string }
-  | { type: "tool_call"; tool: string; args?: unknown }
-  | { type: "tool_result"; tool: string; status: "OK" | "ERR"; result?: unknown; duration_ms?: number }
+  | { type: "tool_call"; tool: string; toolCallId?: string; args?: unknown }
+  | { type: "tool_result"; tool: string; toolCallId?: string; status: "OK" | "ERR"; result?: unknown; duration_ms?: number }
   | { type: "decision"; score?: number; text?: string };
 
 export interface HarnessOptions {
@@ -323,7 +336,7 @@ export async function runAgentTurn(opts: HarnessOptions): Promise<HarnessResult>
       for await (const part of result.fullStream) {
         switch (part?.type) {
           case "text-delta":
-            text += part.text;
+            text += stripControlEnvelopes(part.text);
             sawOutputPart = true;
             break;
           case undefined:
@@ -342,12 +355,13 @@ export async function runAgentTurn(opts: HarnessOptions): Promise<HarnessResult>
           case "tool-call":
             observedToolCalls.push({ name: part.toolName, input: part.input ?? {} });
             sawOutputPart = true;
-            onEvent?.({ type: "tool_call", tool: part.toolName, args: part.input ?? {} });
+            onEvent?.({ type: "tool_call", tool: part.toolName, toolCallId: part.toolCallId, args: part.input ?? {} });
             break;
           case "tool-result":
             onEvent?.({
               type: "tool_result",
               tool: part.toolName,
+              toolCallId: part.toolCallId,
               status: "OK",
               result: (part as any).output,
               duration_ms: typeof (part as any).duration === "number" ? (part as any).duration : undefined,
@@ -358,6 +372,7 @@ export async function runAgentTurn(opts: HarnessOptions): Promise<HarnessResult>
             onEvent?.({
               type: "tool_result",
               tool: part.toolName,
+              toolCallId: part.toolCallId,
               status: "ERR",
               result: String((part as any).error ?? ""),
             });

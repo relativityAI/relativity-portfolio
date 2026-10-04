@@ -47,12 +47,9 @@ export function loadBuiltinSkills(): SkillDefinition[] {
   for (const { slug, file } of builtinSkillFiles()) {
     try {
       const md = readFileSync(file, "utf8");
-      const { skill, issues } = parseSkillMarkdown(md, "builtin");
+      const { skill, issues } = parseSkillMarkdown(md, "builtin", slug);
       if (skill) {
-        // Spec: name must match the containing directory.
-        if (skill.id !== slug)
-          log.warn("skills", `builtin ${slug}: frontmatter name "${skill.id}" != directory name — using "${slug}"`);
-        out.push({ ...skill, id: slug });
+        out.push(skill);
       } else {
         log.warn("skills", `builtin skill ${slug} failed to parse: ${issues.map((i) => i.message).join("; ")}`);
       }
@@ -80,7 +77,7 @@ export interface CustomSkillRow {
 }
 
 function rowToDefinition(row: CustomSkillRow): SkillDefinition | null {
-  const { skill } = parseSkillMarkdown(row.markdown, "custom");
+  const { skill } = parseSkillMarkdown(row.markdown, "custom", row.skill_id);
   return skill ? { ...skill, id: row.skill_id, source: "custom" } : null;
 }
 

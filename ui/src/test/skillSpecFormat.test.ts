@@ -13,6 +13,8 @@ const FORM: FormState = {
     description: "Spreads between the offer price and the last close.",
     category: "valuation",
     tools: ["get_quote", "web_search"],
+    dataNeeds: [],
+    outputs: [],
     purpose: "Finds acquirers whose offer price leaves room.",
     method: ["Pull the offer terms.", "Compare against the last close."],
     anchors: [{ label: "The spread is wide", weight: 9 }],

@@ -1054,8 +1054,14 @@ export default function Analysis() {
                                         onValueChange={(v: string) => { if (v) handleSourceChange(v); }}
                                         aria-label="Market"
                                     >
-                                        <ToggleGroupItem value="NSE" aria-label="NSE, India">NSE</ToggleGroupItem>
-                                        <ToggleGroupItem value="SEC" aria-label="SEC, United States">SEC</ToggleGroupItem>
+                                        <ToggleGroupItem value="NSE" aria-label="NSE, India" className="flex items-center justify-center gap-1.5">
+                                            <SourceMark source="nse" size={16} />
+                                            <Text fontSize="13px" lineHeight="1">NSE</Text>
+                                        </ToggleGroupItem>
+                                        <ToggleGroupItem value="SEC" aria-label="SEC, United States" className="flex items-center justify-center gap-1.5">
+                                            <SourceMark source="sec" size={16} />
+                                            <Text fontSize="13px" lineHeight="1">SEC</Text>
+                                        </ToggleGroupItem>
                                     </ToggleGroup>
                                 </Box>
                                 <Box flex={1} minW={0}>

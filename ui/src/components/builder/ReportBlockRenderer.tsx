@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Text, Table, Flex } from "@chakra-ui/react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   BarChart,
   Bar,
@@ -90,14 +91,25 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
           lineHeight="1.6"
           color="var(--ink-secondary)"
           css={{
+            "& p": { margin: "0 0 0.8em" },
+            "& ul, & ol": { margin: "0.5em 0 0.8em", paddingLeft: "1.6em" },
+            "& ul": { listStyleType: "disc" },
+            "& ol": { listStyleType: "decimal" },
+            "& li": { paddingLeft: "0.2em", margin: "0.2em 0" },
+            "& h1, & h2, & h3, & h4": { color: "var(--ink-primary)", fontWeight: 600, margin: "1em 0 0.4em" },
+            "& table": { borderCollapse: "collapse", display: "block", maxWidth: "100%", overflowX: "auto", margin: "0.8em 0" },
+            "& th, & td": { border: "1px solid var(--hairline)", padding: "0.4em 0.65em", textAlign: "left" },
+            "& th": { color: "var(--ink-primary)", fontWeight: 600 },
+            "& blockquote": { borderLeft: "3px solid var(--hairline)", margin: "0.8em 0", paddingLeft: "1em" },
+            "& a": { color: "var(--accent-primary)" },
+            whiteSpace: "pre-wrap",
             "& strong": { fontWeight: 600, color: "var(--ink-primary)" },
             "& em": { fontStyle: "italic" },
             "& code": { fontFamily: "var(--font-mono)", fontSize: "0.9em", background: "var(--surface-recessed)", borderRadius: "2px", px: "3px" },
           }}
         >
           <ReactMarkdown
-            allowedElements={["p", "strong", "em", "code", "a", "br"]}
-            unwrapDisallowed
+            remarkPlugins={[remarkGfm]}
           >
             {block.text}
           </ReactMarkdown>

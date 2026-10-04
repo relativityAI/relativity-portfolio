@@ -14,7 +14,7 @@ import { buildWebSearchTool } from "../tools.js";
 import { runAgentTurn } from "../harness.js";
 import { classifyModelError } from "../modelcheck.js";
 import { keyPool } from "../keypool.js";
-import { parseSkillMarkdown, repairSkillName } from "./parse.js";
+import { parseSkillMarkdown } from "./parse.js";
 import { getToolCatalog } from "../tools.js";
 import { log } from "../logger.js";
 
@@ -180,11 +180,8 @@ export async function skillDraftTurn(req: SkillDraftRequest): Promise<SkillDraft
   let message = text.replace(/```(?:markdown|md)?[\s\S]*?```/g, "").trim();
 
   if (markdown) {
-    // A model asked for a spec-valid slug may still answer with "DCF Valuation".
-    // Repair the name in place instead of throwing the draft away — the title
-    // is preserved under metadata.title so nothing is lost.
-    markdown = repairSkillName(markdown);
-    // Validate with the real parser — the chat can only propose loadable skills.
+    // Validate only the official Agent Skills envelope. Keep its name and body
+    // untouched so the skill author's instructions remain authoritative.
     const { skill, issues } = parseSkillMarkdown(markdown, "custom");
     const hard = issues.filter((i) => i.severity === "error");
     if (!skill) {

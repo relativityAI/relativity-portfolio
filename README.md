@@ -13,10 +13,10 @@ The name *Relativity* draws inspiration from Einsteins Theory of Relativity. A g
 ## Architecture
 
 - **UI** (`ui/`) — React (Vite + Chakra) frontend on port 5173.
-- **API** (`api/`) — in-repo Express + Vercel AI SDK backend on port 8080. Owns agents, skills, and analysis runs (per-skill analyst execution + deterministic score aggregation), and exposes the curated model list and skill library.
-- **[Voyager](https://github.com/relativityAI/voyager)** — hosted data service (`https://voyager-api-0csb.onrender.com`) that the API calls directly. The pipeline checks data availability/freshness and triggers data pull jobs (`POST /pull`) when data is stale — data orchestration is pipeline-owned; analysts never touch pull APIs.
+- **API** (`api/`) — in-repo Express + Vercel AI SDK backend on port 8080. Owns agents, skills, and one-call skill summaries, and exposes the curated model list and skill library.
+- **[Voyager](https://github.com/relativityAI/voyager)** — hosted data service (`https://voyager-api-0csb.onrender.com`) used by the API for data availability and pull-status checks.
 - **Market data** — server-side Yahoo Finance chart client (`api/src/marketdata.ts`) for daily OHLCV + SMA/RSI indicators, powering the technical-analysis skill's candlestick charts.
-- **Inngest** — durable workflow orchestration for multi-step analysis runs, background polling, and concurrency control.
+- **Inngest** — background document ingestion.
 - **Supabase / Postgres** — persistence for user agents, custom skills, builder sessions, and analysis runs.
 
 The UI talks only to `/api` (proxied to 8080). LLM and Voyager API keys are stored server-side, encrypted at rest (AES-256-GCM) — they are never persisted in the browser. The API forwards your Voyager key to the hosted service as `X-API-Key`.
@@ -41,7 +41,7 @@ docker compose up -d
 
 Add `--build` to rebuild images after pulling changes.
 
-This starts the UI (5173) and the API (8080). The API targets the hosted Voyager service by default — no local Voyager is required. Inngest handles run orchestration when `INNGEST_EVENT_KEY` is set; without it, runs execute locally in the API process.
+This starts the UI (5173) and the API (8080). The API targets the hosted Voyager service by default — no local Voyager is required. Inngest handles background document ingestion when configured.
 
 See `api/.env.example` for the full list of supported environment variables (Voyager admin key, optional server-side LLM key pools, Langfuse, etc.).
 
@@ -66,10 +66,10 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
-- **New Analysis** — Pick a source (SEC/NSE), search a company, choose an agent and a model, then run. Data is fetched automatically.
+- **New Analysis** — In skill mode, pick a source (SEC/NSE), company, skill, and model. The LLM summarizes the skill using only its definition and the stock identity; no market data or tools are used. Agent runs are currently unavailable.
 - **Agents** — Create agents from metadata + investment philosophy + **skills**: attach built-in skills (DCF valuation, moat analysis, technical analysis, …) with per-skill weights, or draft custom skills in the AI chat. Every agent is a set of skills.
-- **Skills** — The library ships 13 built-in skills across valuation, fundamentals, qualitative, market, and macro categories. Add them to any agent, or write your own (by hand in the editor or conversationally with AI); custom skills validate against the same grammar the pipeline loads.
-- **Analysis** — Each skill runs as its own focused analyst with only the tools it needs; code aggregates verdicts into the final score. Browse previous runs and full reports.
+- **Skills** — The library ships built-in skills across valuation, fundamentals, qualitative, market, and macro categories. Add them to agents, or write your own by hand or with AI; custom skills validate against the editor's skill format.
+- **Analysis** — Browse saved runs and view skill summaries.
 - **Settings** — Store LLM provider API keys and your Voyager API key. Keys are stored server-side, encrypted at rest (AES-256-GCM), and never returned unmasked to the browser.
 
 ## The skill format

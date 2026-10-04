@@ -80,16 +80,17 @@ function useSseTrace(url: string | undefined, onEvent: (ev: TraceEvent) => void)
 type ActivityRow =
     | { kind: "step"; label: string; status: string; duration_ms?: number }
     | { kind: "thought"; text: string }
-    | { kind: "tool"; name: string; args?: unknown; status: "running" | "OK" | "ERR"; duration_ms?: number; snippet?: string }
+    | { kind: "tool"; name: string; toolCallId?: string; args?: unknown; status: "running" | "OK" | "ERR"; duration_ms?: number; snippet?: string }
+    | { kind: "tool_response"; name: string; status: string; result?: unknown }
     | { kind: "decision"; score?: number; text?: string }
     | { kind: "log"; text: string };
 
-function buildRows(steps: AgentStep[], events: TraceEvent[]): ActivityRow[] {
+function buildRows(steps: AgentStep[], events: TraceEvent[], separateToolResults = false): ActivityRow[] {
     const rows: ActivityRow[] = [];
-    for (const st of steps || []) {
+    for (const st of events.length ? [] : steps || []) {
         rows.push({ kind: "step", label: st?.label || st?.key || "step", status: st?.status || "pending", duration_ms: st?.duration_ms });
     }
-    for (const ev of events) {
+    for (const ev of [...events].sort((a, b) => a.seq - b.seq)) {
         switch (ev.type) {
             case "thought": {
                 const last = rows[rows.length - 1];
@@ -101,14 +102,14 @@ function buildRows(steps: AgentStep[], events: TraceEvent[]): ActivityRow[] {
                 break;
             }
             case "tool_call":
-                rows.push({ kind: "tool", name: ev.tool || "tool", args: ev.args, status: "running" });
+                rows.push({ kind: "tool", name: ev.tool || "tool", toolCallId: ev.tool_call_id, args: ev.args, status: "running" });
                 break;
             case "tool_result": {
                 // Resolve the most recent still-running call with the same tool name.
                 let idx = -1;
                 for (let i = rows.length - 1; i >= 0; i--) {
                     const r = rows[i];
-                    if (r.kind === "tool" && r.name === ev.tool && r.status === "running") {
+                    if (r.kind === "tool" && r.status === "running" && (ev.tool_call_id ? r.toolCallId === ev.tool_call_id : r.name === ev.tool)) {
                         idx = i;
                         break;
                     }
@@ -117,14 +118,16 @@ function buildRows(steps: AgentStep[], events: TraceEvent[]): ActivityRow[] {
                     rows[idx] = {
                         kind: "tool",
                         name: ev.tool || "tool",
+                        toolCallId: (rows[idx] as { toolCallId?: string }).toolCallId,
                         args: (rows[idx] as { args?: unknown }).args,
                         status: ev.status === "ERR" ? "ERR" : "OK",
                         duration_ms: ev.duration_ms,
-                        snippet: summarizeToolResult(ev.result),
+                        snippet: separateToolResults ? undefined : summarizeToolResult(ev.result),
                     };
                 } else {
                     rows.push({ kind: "log", text: `${ev.tool} → ${ev.status}` });
                 }
+                if (separateToolResults) rows.push({ kind: "tool_response", name: ev.tool || "tool", status: ev.status || "OK", result: ev.result });
                 break;
             }
             case "decision":
@@ -243,6 +246,21 @@ function Row({ row, active }: { row: ActivityRow; active: boolean }) {
                     </Flex>
                 </Flex>
             );
+        case "tool_response": {
+            const result = typeof row.result === "string" ? row.result : JSON.stringify(row.result ?? "No data returned.", null, 2);
+            const rowCount = result.match(/^Rows: (\d+)/m)?.[1];
+            const lineCount = result.split("\n").filter(Boolean).length;
+            return (
+                <Box as="details" ml="16px" py={0.5}>
+                    <Text as="summary" fontSize="10.5px" color={row.status === "ERR" ? "var(--signal-negative)" : "var(--ink-tertiary)"} cursor="pointer">
+                        {row.status === "ERR" ? "Tool error" : "Parsed response"} · {row.name}{rowCount ? ` · ${rowCount} rows` : ` · ${lineCount} fields`}
+                    </Text>
+                    <Text as="pre" fontSize="10.5px" lineHeight="1.5" color="var(--ink-secondary)" whiteSpace="pre-wrap" wordBreak="break-word" overflowX="auto" mt={1} mb={0}>
+                        {result}
+                    </Text>
+                </Box>
+            );
+        }
         case "decision":
             return (
                 <Flex align="center" gap={2} py={0.5}>
@@ -293,6 +311,8 @@ interface AgentActivityProps {
     active?: boolean;
     /** Max height of the scrollable activity list (px). Default 252. */
     maxHeight?: number;
+    /** Show tool calls and their parsed responses as separate timeline rows. */
+    separateToolResults?: boolean;
 }
 
 export default function AgentActivity({
@@ -305,6 +325,7 @@ export default function AgentActivity({
     startedAt,
     active,
     maxHeight = 252,
+    separateToolResults = false,
 }: AgentActivityProps) {
     const [live, setLive] = useState<TraceEvent[]>([]);
     const [elapsed, setElapsed] = useState(0);
@@ -326,7 +347,7 @@ export default function AgentActivity({
     }, [active, startedAt]);
 
     const all = useMemo(() => (streamUrl ? live : events ?? []), [streamUrl, live, events]);
-    const rows = useMemo(() => buildRows(steps, all), [steps, all]);
+    const rows = useMemo(() => buildRows(steps, all, separateToolResults), [steps, all, separateToolResults]);
 
     useEffect(() => {
         if (active && scroller.current) {
