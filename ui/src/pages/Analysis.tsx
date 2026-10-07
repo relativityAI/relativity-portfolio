@@ -439,7 +439,7 @@ function AnalysisSummaryRail(props: {
                 </Text>
                 <Button
                     size="lg"
-                    className="w-full font-semibold"
+                    className={`w-full font-semibold ${props.canRun ? 'pulse-animate' : ''}`}
                     onClick={props.onRun}
                     disabled={!props.canRun}
                 >
@@ -549,7 +549,7 @@ function AnalysisSummaryRail(props: {
             <Box pt={2.5}>
                 {status === "EMPTY" && !props.resuming ? (
                     <Button
-                        className="w-full font-semibold"
+                        className={`w-full font-semibold ${props.canRun ? 'pulse-animate' : ''}`}
                         onClick={props.onRun}
                         disabled={!props.canRun}
                     >
@@ -1135,14 +1135,21 @@ export default function Analysis() {
                                     value={runMode}
                                     onValueChange={(v) => { if (v) setRunMode(v as "agent" | "skill"); }}
                                     aria-label="Evaluation mode"
+                                    className="flex-col sm:flex-row gap-2"
                                 >
-                                    <ToggleGroupItem value="agent" className="data-[state=on]:bg-[var(--accent-primary)] data-[state=on]:text-white">Agent evaluation</ToggleGroupItem>
-                                    <ToggleGroupItem value="skill" className="data-[state=on]:bg-[var(--signal-positive)] data-[state=on]:text-white">Skill evaluation</ToggleGroupItem>
+                                    <div className="flex-1 flex flex-col items-start gap-1 p-3 rounded-lg border border-[var(--hairline)] data-[state=on]:border-[var(--accent-primary)] bg-[var(--surface-panel)]">
+                                        <ToggleGroupItem value="agent" className="w-full justify-start font-semibold data-[state=on]:bg-[var(--accent-primary)] data-[state=on]:text-white">Agent</ToggleGroupItem>
+                                        <span className="text-xs text-muted-foreground px-1">Run a full agent with multiple skills</span>
+                                    </div>
+                                    <div className="flex-1 flex flex-col items-start gap-1 p-3 rounded-lg border border-[var(--hairline)] data-[state=on]:border-[var(--signal-positive)] bg-[var(--surface-panel)]">
+                                        <ToggleGroupItem value="skill" className="w-full justify-start font-semibold data-[state=on]:bg-[var(--signal-positive)] data-[state=on]:text-white">Skill</ToggleGroupItem>
+                                        <span className="text-xs text-muted-foreground px-1">Single skill analysis or individual parameter evaluation</span>
+                                    </div>
                                 </ToggleGroup>
 
-                                <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
-                                    {runMode === "agent" ? (
-                                        <Box w={{ base: "full", md: "380px" }} flexShrink={0}>
+                                <Flex direction="column" gap={4}>
+                                    <Flex direction={{ base: "column", md: "row" }} gap={{ base: 3, md: 4 }} align={{ md: "stretch" }}>
+                                        <Box flex={1} minW={0}>
                                             <FieldLabel>Agent</FieldLabel>
                                             <Combobox
                                                 items={availableAgents}
@@ -1150,6 +1157,7 @@ export default function Analysis() {
                                                 itemToValue={(a: any) => a._id || a.id || a.name}
                                                 itemToString={(a: any) => a.name}
                                                 onValueChange={(v) => setConfig(prev => ({ ...prev, agent: v }))}
+                                                disabled={runMode === "skill"}
                                             >
                                                 <ComboboxInput placeholder="Select an agent" showClear />
                                                 <ComboboxContent>
@@ -1173,18 +1181,8 @@ export default function Analysis() {
                                                     </ComboboxList>
                                                 </ComboboxContent>
                                             </Combobox>
-                                            <Flex align="center" gap={1.5} mt={1.5}>
-                                                <MdInfoOutline size={12} color="var(--ink-tertiary)" />
-                                                <Text fontSize="11px" color="var(--ink-tertiary)">
-                                                    Create or edit agents in the{" "}
-                                                    <Link to="/agent/new" style={{ color: "var(--accent-primary)" }}>
-                                                        Agent Builder
-                                                    </Link>
-                                                </Text>
-                                            </Flex>
                                         </Box>
-                                    ) : (
-                                        <Box w={{ base: "full", md: "380px" }} flexShrink={0}>
+                                        <Box flex={1} minW={0}>
                                             <FieldLabel>Skill</FieldLabel>
                                             <Combobox
                                                 items={skillLibrary}
@@ -1192,6 +1190,7 @@ export default function Analysis() {
                                                 itemToValue={(s: any) => s.id}
                                                 itemToString={(s: any) => s.name}
                                                 onValueChange={(v) => setSkillId(v)}
+                                                disabled={runMode === "agent"}
                                             >
                                                 <ComboboxInput placeholder="Select a skill" showClear />
                                                 <ComboboxContent>
@@ -1207,35 +1206,12 @@ export default function Analysis() {
                                                                     {skill.category}
                                                                 </span>
                                                             </ComboboxItem>
-                                                        )}
+                                                        ))}
                                                     </ComboboxList>
                                                 </ComboboxContent>
                                             </Combobox>
-                                            <Flex align="center" gap={1.5} mt={1.5}>
-                                                <MdInfoOutline size={12} color="var(--ink-tertiary)" />
-                                                    <Text fontSize="11px" color="var(--ink-tertiary)">
-                                                        Runs just this skill — no agent, no persona. Useful for testing it in isolation.
-                                                    </Text>
-                                            </Flex>
                                         </Box>
-                                    )}
-                                    <Box flex={1} minW={0} pt={{ base: 1, md: 5 }}>
-                                        {runMode === "agent" ? (
-                                            selectedAgent ? (
-                                                <Flex direction="row" align="flex-start" gap={2.5} minW={0}>
-                                                    <AgentAvatar agent={selectedAgent} size={48} label={selectedAgent.name} />
-                                                    <Flex direction="column" gap={1} minW={0}>
-                                                        <Flex align="baseline" gap={2} flexWrap="wrap">
-                                                            <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)">
-                                                                {selectedAgent.name}
-                                                            </Text>
-                                                            <Text fontSize="12px" color="var(--ink-tertiary)" whiteSpace="nowrap">
-                                                                <Text as="span" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" fontWeight={600} color="var(--ink-secondary)">
-                                                                    {selectedAgent.skills?.length || 0}
-                                                                </Text>{" "}
-                                                                skill{selectedAgent.skills?.length === 1 ? "" : "s"}
-                                                            </Text>
-                                                        </Flex>
+                                    </Flex>
                                                         {persona && (
                                                             <Box minW={0} w="full">
                                                                 <AnimatePresence initial={false}>

@@ -224,7 +224,7 @@ function AppRoutes() {
                     >
                       <Route index element={<AgentLibrary />} />
                       <Route path="skills" element={<AgentSkills />} />
-                      <Route path="builder" element={<AiBuilder />} />
+
                       <Route path="tools" element={<AgentTools />} />
                       <Route path="agent/new" element={<AgentSettings />} />
                       <Route path="agent/:id" element={<AgentSettings />} />
