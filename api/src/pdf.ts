@@ -320,6 +320,33 @@ function fmt(v: unknown): string {
   return String(v ?? "—");
 }
 
+/** pdfmake table layout shared by report tables and skill block tables. */
+const TABLE_LAYOUT = {
+  hLineWidth: () => 0,
+  vLineWidth: () => 0,
+  fillColor: (rowIdx: number) => (rowIdx === 0 ? "#F4F4F3" : rowIdx % 2 ? "#FAFAF9" : "#FFFFFF"),
+  paddingTop: () => 5,
+  paddingBottom: () => 5,
+  paddingLeft: () => 6,
+  paddingRight: () => 6,
+};
+
+/** Muted card — one shared language for metric rows and raw tool data. */
+const CARD_LAYOUT = {
+  hLineWidth: () => 0,
+  vLineWidth: () => 0,
+  fillColor: () => "#FAFAF9",
+  paddingTop: () => 5,
+  paddingBottom: () => 5,
+  paddingLeft: () => 8,
+  paddingRight: () => 8,
+};
+
+/** Wrap content in a CARD_LAYOUT card. */
+function card(nodes: PdfNode[], margin: number[] = [0, 4, 0, 4]): PdfNode {
+  return { table: { widths: ["*"], body: [[{ stack: nodes }]] }, layout: CARD_LAYOUT, margin } as PdfNode;
+}
+
 function markdownText(md: string): string[] {
   const parts: string[] = [];
   for (const line of String(md || "").split("\n")) {
@@ -430,15 +457,7 @@ async function blockToPdfContent(block: ReportBlock, lookup: Record<string, stri
               ...rows,
             ],
           },
-          layout: {
-            hLineWidth: () => 0,
-            vLineWidth: () => 0,
-            fillColor: (rowIdx: number) => (rowIdx === 0 ? "#F4F4F3" : rowIdx % 2 ? "#FAFAF9" : "#FFFFFF"),
-            paddingTop: () => 5,
-            paddingBottom: () => 5,
-            paddingLeft: () => 6,
-            paddingRight: () => 6,
-          },
+          layout: TABLE_LAYOUT,
           margin: [0, 4, 0, 10],
         },
         ...evidenceLine(block.sourceKeys, lookup),
@@ -536,7 +555,9 @@ function citationLine(citations: any[] | undefined): string {
  * name. Mirrors the UI's branded citation chips.
  */
 function sourceNoteNodes(citations: any[]): PdfNode[] {
-  const nodes: PdfNode[] = [{ text: "Source:  ", style: "sourceLine" }];
+  // width:"auto" keeps the label hugging its citations instead of splitting
+  // the page 50/50 and shoving every citation to the middle of the line.
+  const nodes: PdfNode[] = [{ text: "Source:  ", style: "sourceLine", width: "auto" }];
   const seen = new Set<string>();
   const list = citations.filter((c: any) => {
     const key = c.url || c.label || c.source;
@@ -637,29 +658,211 @@ function webStoriesFromPayload(o: any): WebStory[] | null {
   }
 }
 
+/** UI vocabulary for anchor verdicts (Met / Partly met / …) and its colours. */
+const VERDICT_LABEL: Record<string, string> = {
+  PASS: "Met",
+  PARTIAL: "Partly met",
+  FAIL: "Not met",
+  INSUFFICIENT: "No data",
+};
+const VERDICT_COLOR: Record<string, string> = {
+  PASS: "#4C8B6B",
+  PARTIAL: "#B8935A",
+  FAIL: "#B85C5C",
+  INSUFFICIENT: "#9CA3AF",
+};
+
+/** Coverage → percent label; the DB holds 0–1 and 0–100 across eras. */
+function coveragePct(coverage: number | null | undefined): number | null {
+  if (coverage == null || !Number.isFinite(coverage)) return null;
+  return Math.round(coverage * (coverage <= 1 ? 100 : 1));
+}
+
+/** Same floor the UI uses to suppress the headline score (0–1 scale). */
+function insufficientCoverage(coverage: number | null | undefined): boolean {
+  return coverage != null && Number.isFinite(coverage) && coverage < 0.6;
+}
+
+/** The UI's verdict sentence, for runs without a synthesised report. */
+function generateVerdict(run: any): string {
+  const total = run.total_score;
+  if (total == null) return "Run completed. Review quantitative and qualitative sections for details.";
+  const quant = Object.values((run.quantitative_analysis || {}) as Record<string, any>);
+  const live = quant.filter((m: any) => !m.price_unavailable);
+  const passed = live.filter((m: any) => (m.score ?? 0) >= 70).length;
+  const failed = live.filter((m: any) => (m.score ?? 0) < 40);
+  const unavailable = quant.length - live.length;
+  const qual = Object.values((run.qualitative_analysis || {}) as Record<string, any>);
+  const qualScored = qual.filter((p: any) => !p.error);
+  const qualAvg = qualScored.length ? qualScored.reduce((s, p) => s + (p.score ?? 0), 0) / qualScored.length : 0;
+  // Macro params get their own sentence in the UI — same wording here.
+  const macroScored = qualScored.filter((p: any) => String(p.section || "").toLowerCase().includes("macro"));
+  const macroAvg = macroScored.length ? macroScored.reduce((s, p) => s + (p.score ?? 0), 0) / macroScored.length : null;
+  let sentence = `Passes ${passed} of ${quant.length} quantitative gates`;
+  if (failed.length) {
+    const names = failed.slice(0, 3).map((m: any) => m.metric_name).filter(Boolean).join(", ");
+    sentence += `; ${failed.length} underperforming${names ? ` (${names})` : ""}`;
+  }
+  sentence += ".";
+  if (unavailable > 0) sentence += ` ${unavailable} price-dependent ${unavailable === 1 ? "criterion" : "criteria"} not scored (live price unavailable).`;
+  if (qualScored.length) {
+    sentence += ` Qualitative narrative is ${qualAvg >= 70 ? "supportive" : qualAvg >= 40 ? "moderately supportive" : "mixed"}.`;
+  }
+  if (macroAvg != null) {
+    sentence += ` Macro (market) narrative is ${macroAvg >= 70 ? "supportive" : macroAvg >= 40 ? "moderately supportive" : "mixed"}.`;
+  }
+  if (qual.some((p: any) => p.error)) sentence += " Some qualitative parameters failed to score.";
+  return sentence;
+}
+
+/** Process label behind the UI's band pill (Shortlist ≥75 / Watch ≥55 / Pass). */
+function bandLabel(score: number | null | undefined): string {
+  if (score == null) return "unscored";
+  if (score >= 75) return "Shortlist";
+  if (score >= 55) return "Watch";
+  return "Pass";
+}
+
+/** Token-use line shown in the UI's sub-header. */
+function tokensMeta(run: any): string {
+  let input = 0;
+  let output = 0;
+  for (const entry of Object.values((run.qualitative_analysis || {}) as Record<string, any>)) {
+    const t = entry?.tokens;
+    if (!t) continue;
+    input += typeof t.input === "number" ? t.input : 0;
+    output += typeof t.output === "number" ? t.output : 0;
+  }
+  if (input + output === 0) return "";
+  const k = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n));
+  return `Tokens · ${k(input + output)} net  (${k(input)} in / ${k(output)} out)`;
+}
+
 /**
- * Per-skill section (v3 pipeline): findings with citation lines, verdict
- * anchors with verdict + evidence + citations, and a "Sources & raw data"
- * block rendered as facsimile — each observation leads with where the data
- * came from (site domain for web results, feed name for internal data),
- * followed by a readable one-line summary and the verbatim payload.
+ * Section opener — the PDF's one signature device: hairline rule, numbered
+ * eyebrow, title with the section's count on the right. Every page break in
+ * the document lands on one of these, so the rule itself marks where a new
+ * section begins.
  */
-function skillSectionBlocks(output: any): PdfContent {
+function sectionOpener(
+  eyebrow: string,
+  title: string,
+  opts: { pageBreak?: boolean; count?: string; countColor?: string } = {},
+): PdfContent {
+  const head: PdfNode = {
+    stack: [
+      { canvas: [{ type: "line", x1: 0, y1: 0, x2: 510, y2: 0, lineWidth: 0.75, lineColor: "#D9D9D5" }] },
+      { text: eyebrow.toUpperCase(), style: "eyebrow", margin: [0, 7, 0, 3] },
+      {
+        columns: [
+          { text: title, style: "h1", width: "*" },
+          ...(opts.count != null
+            ? [{ text: opts.count, style: "sectionCount", width: "auto", color: opts.countColor ?? "#9CA3AF" }]
+            : []),
+        ],
+        columnGap: 8,
+      },
+    ],
+    margin: [0, opts.pageBreak ? 0 : 14, 0, 10],
+  };
+  if (opts.pageBreak) head.pageBreak = "before";
+  return [head];
+}
+
+/** One skill's table block, resolved against its stored datasets. */
+function skillTableBlock(b: any, output: any): PdfContent {
+  const ds = (output.datasets || []).find((d: any) => d.id === b.dataset_id);
+  const cols: string[] = (b.columns || (ds?.columns || []).map((c: any) => c.name) || []).map(String);
+  const rows: any[] = ((ds?.data || []) as any[]).slice(-(b.last_n || 30));
+  if (!cols.length || !rows.length) return [];
+  return [
+    b.title ? { text: plain(b.title), style: "tableTitle" } : {},
+    {
+      table: {
+        headerRows: 1,
+        widths: cols.map(() => "*"),
+        body: [
+          cols.map((c) => ({ text: plain(c), style: "cellHeader" })),
+          ...rows.map((r) => cols.map((c) => ({ text: fmt(r?.[c]), style: "cell" }))),
+        ],
+      },
+      layout: TABLE_LAYOUT,
+      margin: [0, 4, 0, 10],
+    },
+  ];
+}
+
+/**
+ * Per-skill chapter (v3 pipeline): opens on its own page under a numbered
+ * section opener, then the narrative analysis, findings, anchor verdicts,
+ * workbooks, and the "Sources & raw data" block — a skill's data sources stay
+ * on the skill's own pages, never split onto a page of their own.
+ */
+function skillSectionBlocks(output: any, index: number, total: number): PdfContent {
   const out: PdfContent = [];
   const score = output.score_0_100;
+  const name = plain(output.skill_name || output.skill_id || "Skill");
+  const nn = String(index + 1).padStart(2, "0");
+  // The only skill of a run flows directly under the section header; in a
+  // multi-skill run every chapter opens on its own page.
+  const pageBreak = !(index === 0 && total <= 1);
+  out.push(
+    ...sectionOpener(`Skill ${nn} of ${String(total).padStart(2, "0")}`, name, {
+      pageBreak,
+      count: score != null ? String(score) : output.error ? "×" : "no score",
+      countColor: score != null ? signalColor(score) : "#9CA3AF",
+    }),
+  );
+  const met = (output.verdicts || []).filter((v: any) => v.verdict === "PASS").length;
+  const count = output.total_checklist ?? (output.verdicts || []).length;
   out.push({
-    text: `${output.skill_name || output.skill_id || "Skill"}${score != null ? ` — score ${score}` : " — no score"} · weight ${output.weight ?? "—"}`,
-    style: "h2",
+    text: [
+      ...(output.category ? [plain(output.category)] : []),
+      `weight ${output.weight ?? "—"}`,
+      ...(count > 0 ? [`${met} of ${count} criteria met`] : []),
+    ].join("  ·  "),
+    style: "meta",
+    margin: [0, 0, 0, 8],
   });
-  out.push({
-    text: "",
-    style: "spacer",
-  });
+
   if (output.error) {
-    out.push({ text: `This skill could not complete: ${plain(String(output.error)).slice(0, 200)}`, style: "callout", background: "#F6EFDC", color: "#7A5A1F" });
+    out.push({
+      text: `No real data reached this skill — ${plain(String(output.error)).slice(0, 300)}`,
+      style: "callout",
+      background: "#F6EFDC",
+      color: "#7A5A1F",
+    });
     return out;
   }
 
+  if (output.rawText) {
+    out.push({ text: plain(String(output.rawText)).slice(0, 4000), style: "obsRaw", margin: [0, 2, 0, 6] });
+  }
+  if (output.analysis) {
+    for (const ln of markdownText(output.analysis)) out.push({ text: ln, style: "body" });
+  }
+
+  for (const b of output.blocks || []) {
+    if (b.kind === "text") {
+      for (const ln of markdownText(b.body || "")) out.push({ text: ln, style: "body" });
+    } else if (b.kind === "table") {
+      out.push(...skillTableBlock(b, output));
+    } else if (b.kind === "chart") {
+      // The UI renders chart blocks as a labelled placeholder — same title
+      // and row count, so both surfaces say the identical thing.
+      const ds = (output.datasets || []).find((d: any) => d.id === b.dataset_id);
+      const cols = [b.x, ...(b.y || [])].filter(Boolean).join(", ");
+      const rows = ((ds?.data || []) as any[]).length;
+      if (b.title) out.push({ text: plain(b.title), style: "tableTitle" });
+      out.push({
+        text: `[${b.type}] chart using ${cols} (${rows} rows)`,
+        style: "cell",
+        margin: [0, 4, 0, 6],
+      });
+    }
+  }
+
+  if ((output.findings || []).length > 0) out.push({ text: "Findings", style: "tableTitle" });
   for (const f of output.findings || []) {
     const title = typeof f === "string" ? "" : plain(f.title || "");
     const detail = typeof f === "string" ? f : plain(f.detail || f.text || f.finding || "");
@@ -669,10 +872,20 @@ function skillSectionBlocks(output: any): PdfContent {
   }
 
   for (const v of output.verdicts || []) {
+    const detail = v.evidence || v.rationale;
     out.push({
       columns: [
-        { text: `${plain(v.anchor || "—")}${v.evidence ? ` — ${plain(String(v.evidence)).slice(0, 200)}` : ""}`, style: "cell", width: "*" },
-        { text: String(v.verdict || ""), style: "verdictPill", width: "auto", color: signalColor(v.verdict === "PASS" ? 100 : v.verdict === "PARTIAL" ? 50 : v.verdict === "FAIL" ? 10 : null) },
+        {
+          text: `${plain(v.anchor || v.checklist_id || "—")}${detail ? ` — ${plain(String(detail)).slice(0, 300)}` : ""}`,
+          style: "cell",
+          width: "*",
+        },
+        {
+          text: VERDICT_LABEL[v.verdict] || String(v.verdict || ""),
+          style: "verdictPill",
+          width: "auto",
+          color: VERDICT_COLOR[v.verdict] || "#9CA3AF",
+        },
       ],
       columnGap: 8,
       margin: [0, 2, 0, 0],
@@ -680,41 +893,60 @@ function skillSectionBlocks(output: any): PdfContent {
     if (v.citations?.length) out.push(...sourceNoteNodes(v.citations));
   }
 
+  if ((output.artifacts || []).length > 0) out.push({ text: "Workbooks", style: "tableTitle" });
+  for (const a of output.artifacts || []) {
+    out.push({
+      text: `•  ${plain(a.recipe?.filename || a.kind || "workbook")} — ${plain(a.summary || a.status)}`,
+      style: "sourceLine",
+    });
+  }
+
+  if (
+    !output.error &&
+    !(output.verdicts || []).length &&
+    !(output.findings || []).length &&
+    !output.analysis &&
+    !(output.blocks || []).length
+  ) {
+    out.push({
+      text: "This skill completed but returned no findings or verdicts — nothing was assessable in the data available.",
+      style: "callout",
+      background: "#F6EFDC",
+      color: "#7A5A1F",
+    });
+  }
+
   const citations: any[] = output.citations || [];
   const observations: any[] = output.raw_observations || [];
   if (citations.length > 0 || observations.length > 0) {
     out.push({ text: "Sources & raw data", style: "tableTitle" });
 
-    // Cited sources: one row each, full reference (name, domain, url, value).
     for (const c of citations.slice(0, 12)) {
       out.push({ text: `•  ${plain(citationRefLine(c))}`, style: "sourceLine" });
     }
 
-    // Raw observations as facsimile blocks: header = where it came from,
-    // then readable content — web results render as story lists (headline
-    // first, clickable domain, date), data feeds as key readouts — and the
-    // verbatim payload only for observations the summary renderer can't read.
     for (const o of observations.slice(0, 10)) {
       const isWeb = !!o.url;
       const headerLabel = isWeb ? domainOfUrl(o.url) || "web source" : plain(o.tool || "tool");
-      const statusTag =
-        o.status === "ok" ? "" : `  [${String(o.status || "no data").toUpperCase()}]`;
+      const statusTag = o.status === "ok" ? "" : `  [${String(o.status || "no data").toUpperCase()}]`;
 
-      out.push({
-        columns: [
-          { text: `${headerLabel}${statusTag}`, style: "obsHeader", width: "auto" },
-          { text: isWeb ? plain(o.url) : plain(String(o.args || "")).slice(0, 80), style: "obsUrl", width: "*", alignment: "right" },
-        ],
-        columnGap: 8,
-        margin: [0, 5, 0, 1],
-      });
+      // Each call gets its own muted card so raw payloads never clash with prose.
+      const obs: PdfNode[] = [
+        {
+          columns: [
+            { text: `${headerLabel}${statusTag}`, style: "obsHeader", width: "auto" },
+            { text: isWeb ? plain(o.url) : plain(String(o.args || "")).slice(0, 80), style: "obsUrl", width: "*", alignment: "right" },
+          ],
+          columnGap: 8,
+          margin: [0, 0, 0, 2],
+        },
+      ];
 
       if (o.status === "ok") {
         const stories = webStoriesFromPayload(o);
         if (stories) {
-          // Web story list: headline (linked) — source, date, then snippet.
           for (const s of stories) {
-            out.push({
+            obs.push({
               columns: [
                 {
                   text: s.url ? s.title : `${s.title} — ${s.source || ""}`,
@@ -728,24 +960,179 @@ function skillSectionBlocks(output: any): PdfContent {
               margin: [0, 2, 0, 0],
             });
             if (s.snippet && s.url) {
-              out.push({ text: s.snippet, style: "obsSummary", margin: [0, 0, 0, 2] });
+              obs.push({ text: s.snippet, style: "obsSummary", margin: [0, 0, 0, 2] });
             }
           }
-          continue;
+        } else {
+          const sum = observationSummary(o);
+          if (sum) obs.push({ text: plain(sum).slice(0, 260), style: "obsSummary" });
+          else obs.push({ text: plain(String(o.result || "")).slice(0, 300), style: "obsRaw" });
         }
-        const sum = observationSummary(o);
-        if (sum) {
-          out.push({ text: plain(sum).slice(0, 260), style: "obsSummary" });
-          continue;
-        }
-        // No readable structure — show the verbatim payload.
-        out.push({ text: plain(String(o.result || "")).slice(0, 300), style: "obsRaw" });
       } else {
-        out.push({
+        obs.push({
           text: o.status === "ERR" ? "This call failed — nothing came back from the source." : "This call returned no data.",
           style: "obsSummary",
         });
       }
+      out.push(card(obs, [0, 4, 0, 2]));
+    }
+  }
+  return out;
+}
+
+/** Compact "k=v k=v" view of a tool call's arguments. */
+function toolArgsLine(args: unknown): string {
+  if (args == null) return "";
+  let line = "";
+  if (typeof args === "object" && !Array.isArray(args)) {
+    line = Object.entries(args as Record<string, unknown>)
+      .filter(([, v]) => v != null && v !== "" && typeof v !== "object")
+      .map(([k, v]) => `${k}=${v}`)
+      .join("  ");
+  } else {
+    try {
+      line = JSON.stringify(args);
+    } catch {
+      line = "";
+    }
+  }
+  return line.length > 140 ? `${line.slice(0, 137)}…` : line;
+}
+
+/** One-line view of a tool response for the reasoning timeline. */
+function resultExcerpt(result: unknown): string {
+  // ponytail: full verbatim tool payloads are elided here (the UI collapses
+  // them behind a disclosure too); upgrade path — an "Raw tool responses"
+  // appendix page for auditors who need the exact bytes.
+  const raw = typeof result === "string" ? result : JSON.stringify(result ?? "");
+  const line = plain(raw.replace(/\s+/g, " "));
+  return line.length > 320 ? `${line.slice(0, 317)}…` : line;
+}
+
+/**
+ * Trace → activity rows: a direct port of the UI's buildRows in
+ * AgentActivity — steps only when there is no trace, consecutive thoughts
+ * merged, each tool result paired with its still-running call (the UI keeps
+ * responses as separate rows for skill runs — same split here).
+ */
+function buildTraceRows(run: any, separate: boolean): any[] {
+  const events: any[] = Array.isArray(run.trace)
+    ? [...run.trace].sort((a: any, b: any) => (a?.seq ?? 0) - (b?.seq ?? 0))
+    : [];
+  const steps: any[] = Array.isArray(run.steps) ? run.steps : [];
+  const rows: any[] = [];
+  if (!events.length) {
+    for (const st of steps) {
+      rows.push({ kind: "step", label: st?.label || st?.key || "step", status: st?.status || "pending", duration_ms: st?.duration_ms });
+    }
+  }
+  for (const ev of events) {
+    switch (ev?.type) {
+      case "thought": {
+        const last = rows[rows.length - 1];
+        if (last?.kind === "thought") last.text += ev.text || "";
+        else rows.push({ kind: "thought", text: ev.text || "" });
+        break;
+      }
+      case "tool_call":
+        rows.push({ kind: "tool", name: ev.tool || "tool", toolCallId: ev.tool_call_id, args: ev.args, status: "running" });
+        break;
+      case "tool_result": {
+        let idx = -1;
+        for (let i = rows.length - 1; i >= 0; i--) {
+          const r = rows[i];
+          if (r.kind === "tool" && r.status === "running" && (ev.tool_call_id ? r.toolCallId === ev.tool_call_id : r.name === ev.tool)) {
+            idx = i;
+            break;
+          }
+        }
+        if (idx >= 0) {
+          rows[idx] = {
+            ...rows[idx],
+            status: ev.status === "ERR" ? "ERR" : "OK",
+            duration_ms: ev.duration_ms,
+            snippet: separate ? undefined : resultExcerpt(ev.result),
+          };
+        } else {
+          rows.push({ kind: "log", text: `${ev.tool} → ${ev.status}` });
+        }
+        if (separate) rows.push({ kind: "tool_response", name: ev.tool || "tool", status: ev.status || "OK", result: ev.result });
+        break;
+      }
+      case "decision":
+        rows.push({ kind: "decision", score: ev.score, text: ev.text || "" });
+        break;
+      case "log":
+        if (ev.text) rows.push({ kind: "log", text: ev.text });
+        break;
+      default:
+        break;
+    }
+  }
+  return rows;
+}
+
+/**
+ * The Reasoning section: the run's activity rows printed line by line —
+ * merged thoughts, tool calls with args, duration, status and a short
+ * response excerpt, decisions, and log lines.
+ */
+function reasoningBlocks(run: any): PdfContent {
+  const out: PdfContent = [];
+  const rows = buildTraceRows(run, run.run_mode === "skill");
+  if (!rows.length) {
+    out.push({
+      text: "No reasoning trace was stored for this run.",
+      style: "callout",
+      background: "#F4F4F3",
+      color: "#4B5563",
+    });
+    return out;
+  }
+  const secs = (ms?: number) => (typeof ms === "number" ? `  ·  ${(ms / 1000).toFixed(1)}s` : "");
+  for (const r of rows) {
+    if (r.kind === "step") {
+      out.push({ text: `${plain(r.label)}  ·  ${plain(String(r.status))}${secs(r.duration_ms)}`, style: "body", margin: [0, 2, 0, 0] });
+    } else if (r.kind === "thought") {
+      // Full thoughts stay; the 1600-char cap only guards a runaway loop.
+      const text = plain(String(r.text).slice(0, 1600));
+      if (text) out.push({ text, style: "thought" });
+    } else if (r.kind === "tool") {
+      const args = toolArgsLine(r.args);
+      const glyph = r.status === "running" ? "·" : r.status === "ERR" ? "✗" : "✓";
+      out.push({
+        columns: [
+          {
+            text: `${glyph} ${plain(r.name)}${args ? `  ${args}` : ""}${secs(r.duration_ms)}`,
+            style: "toolLine",
+            width: "*",
+          },
+          ...(r.status === "running"
+            ? []
+            : [{ text: r.status, style: "obsUrl", width: "auto", color: r.status === "ERR" ? "#B85C5C" : undefined }]),
+        ],
+        columnGap: 6,
+        margin: [0, 3, 0, 0],
+      });
+      if (r.snippet) out.push({ text: r.snippet, style: "obsSummary", margin: [16, 1, 0, 3] });
+    } else if (r.kind === "tool_response") {
+      const ok = String(r.status).toUpperCase() !== "ERR";
+      out.push({
+        text: `${ok ? "response" : "response (ERR)"} — ${resultExcerpt(r.result) || "no data"}`,
+        style: "obsSummary",
+        margin: [16, 1, 0, 3],
+      });
+    } else if (r.kind === "decision") {
+      out.push({
+        text: [
+          { text: "Decision", style: "toolLine" },
+          ...(r.score != null ? [{ text: `  ${Number(r.score).toFixed(1)}`, style: "toolLine" }] : []),
+          ...(r.text ? [{ text: `  —  ${plain(String(r.text)).slice(0, 400)}`, color: "#7A5A1F", fontSize: 8.5 }] : []),
+        ],
+        margin: [0, 4, 0, 0],
+      });
+    } else {
+      out.push({ text: plain(r.text), style: "obsSummary", margin: [0, 2, 0, 0] });
     }
   }
   return out;
@@ -760,10 +1147,99 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
   const coverage = run.coverage;
   const fitLow = run.fit_low;
   const fitHigh = run.fit_high;
+  const isSkillRun = run.run_mode === "skill";
+  // UI parity: below the coverage floor the headline number is suppressed —
+  // the hero renders "—" and the caution callout explains why (U2).
+  const lowCov = insufficientCoverage(coverage);
+  // UI coverage pill wording: "83% of rubric scored".
+  const covText = coveragePct(coverage) != null ? `${coveragePct(coverage)}% of rubric scored` : "coverage n/a";
   // Footer agent label: same uuid guard as the title band.
   const footerAgent = isUuid(run.agent_name)
     ? run.agent_display_name || ""
     : run.agent_name || "";
+  const tokensLine = tokensMeta(run);
+  const traceCount = Array.isArray(run.trace) ? run.trace.length : 0;
+
+  // ── Section 01: executive summary (agent runs only, mirrors the UI) ──
+  const execNodes: PdfNode[] = [];
+  if (!isSkillRun) {
+    execNodes.push(...sectionOpener("Section 01", "Executive summary", { count: String(blocks.length) }));
+    if (!run.report) {
+      // UI shows these two in this order: partial first, then fallback.
+      execNodes.push({
+        text: "No executive synthesis for this run — review the parameter breakdowns below.",
+        style: "callout",
+        background: "#F6EFDC",
+        color: "#7A5A1F",
+      });
+    } else {
+      if (report.partial) {
+        execNodes.push({
+          text: `Some skills could not assess every anchor — this report leans on partial evidence${covText !== "coverage n/a" ? ` (${covText})` : ""}.`,
+          style: "callout",
+          background: "#F6EFDC",
+          color: "#7A5A1F",
+        });
+      }
+      if (report.source === "fallback") {
+        execNodes.push({
+          text: "AI narrative was unavailable for this run; this synthesis was assembled deterministically from the scored breakdowns below.",
+          style: "callout",
+          background: "#F6EFDC",
+          color: "#7A5A1F",
+        });
+      }
+    }
+    for (const block of blocks) {
+      for (const n of await blockToPdfContent(block, evidenceLookupFor(run))) execNodes.push(n);
+    }
+  }
+
+  // ── Section 02: skill reports, one chapter per page ──
+  const outputs: any[] = Array.isArray(run.skill_outputs) ? run.skill_outputs : [];
+  const usable = outputs.filter((o) => o && (o.skill_id || o.skill_name));
+  // Agent runs break the summary onto a fresh page; skill runs have no
+  // summary, so their first section flows straight under the title band.
+  const skillNodes: PdfNode[] = sectionOpener(isSkillRun ? "Section 01" : "Section 02", "Skill reports", {
+    pageBreak: !isSkillRun,
+    count: String(usable.length),
+  });
+  if (usable.length === 0) {
+    skillNodes.push({
+      text: "No skill reports were stored for this run.",
+      style: "callout",
+      background: "#F6EFDC",
+      color: "#7A5A1F",
+    });
+  } else {
+    // Index — a real sequence: each skill's score and coverage at a glance.
+    usable.forEach((o, i) => {
+      const score = o.score_0_100;
+      skillNodes.push(
+        card(
+          [
+            {
+              columns: [
+                { text: `${String(i + 1).padStart(2, "0")}`, style: "sourceLine", width: "auto", margin: [0, 0, 8, 0] },
+                { text: `${o.skill_name || o.skill_id || "Skill"}`, style: "cell", width: "*" },
+                {
+                  text: `${score != null ? score : "no score"}${o.coverage != null ? ` · ${coveragePct(o.coverage)}%` : ""}`,
+                  style: "sourceLine",
+                  width: "auto",
+                  alignment: "right",
+                  color: signalColor(score),
+                },
+              ],
+              columnGap: 4,
+            },
+          ],
+          [0, 2, 0, 2],
+        ),
+      );
+    });
+    skillNodes.push({ text: "", style: "spacer" });
+  }
+
   const document: any = {
     pageSize: "A4",
     pageMargins: [44, 46, 44, 60],
@@ -812,36 +1288,118 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
         columnGap: 6,
         margin: [0, 2, 0, 10],
       },
-      identityTitleBand(run),
+      // Skill runs have no agent to sign the report — a plain subject line
+      // replaces the portrait identity band (the UI shows the skill name in
+      // its meta line for skill runs).
+      ...(isSkillRun
+        ? [
+            {
+              text: `Skill run · ${usable[0]?.skill_name || run.skill_id || "skill"}${
+                run.created_at ? ` · ${new Date(run.created_at).toLocaleDateString()}` : ""
+              }`,
+              style: "subtitle",
+              margin: [0, 2, 0, 10],
+            },
+          ]
+        : [identityTitleBand(run)]),
+      ...(tokensLine ? [{ text: tokensLine, style: "meta", margin: [0, 8, 0, 0] }] : []),
       { text: "", style: "spacer" },
-      // ── Hero band (v3: one fit score; coverage/band as sub-labels — the
-      // v2 Quantitative/Qualitative split no longer exists in the pipeline) ──
-      {
-        table: {
-          headerRows: 0,
-          widths: ["*"],
-          body: [
-            [{ text: `${total ?? "—"}`, style: "hero", color: signalColor(total), alignment: "center" }],
-            [
-              {
-                text:
-                  total == null
-                    ? "No fit score — see the skill reports below"
-                    : `Fit to the agent's philosophy · ${coverage != null ? `${coverage}% coverage` : "coverage n/a"}${fitLow != null && fitHigh != null ? ` · band ${fitLow}–${fitHigh}` : ""}`,
-                style: "heroLabel",
-                alignment: "center",
+      // ── Hero band (agent runs; the UI shows no hero for skill runs) ──
+      ...(!isSkillRun
+        ? [
+            {
+              table: {
+                headerRows: 0,
+                widths: ["*"],
+                body: [
+                  [
+                    {
+                      text: report.heroLabel
+                        ? String(report.heroLabel)
+                        : total != null && !lowCov
+                          ? `${total}`
+                          : "—",
+                      style: "hero",
+                      color: report.heroLabel
+                        ? "#16181B"
+                        : total == null || lowCov
+                          ? "#9CA3AF"
+                          : signalColor(total),
+                      alignment: "center",
+                      ...(report.heroLabel && String(report.heroLabel).length > 14 ? { fontSize: 20 } : {}),
+                    },
+                  ],
+                  [
+                    {
+                      // UI renders the band pill beside the coverage pill in
+                      // both hero variants — fold both into this sub-line.
+                      text: report.heroLabel
+                        ? `Stance${total != null && !lowCov ? ` · ${bandLabel(total)}` : ""} · ${covText}`
+                        : total == null
+                          ? "No fit score — see the skill reports below"
+                          : lowCov
+                            ? covText
+                            : `Fit to the agent's philosophy · ${bandLabel(total)} · ${covText}${fitLow != null && fitHigh != null ? ` · band ${fitLow}–${fitHigh}` : ""}`,
+                      style: "heroLabel",
+                      alignment: "center",
+                    },
+                  ],
+                ],
               },
-            ],
-          ],
-        },
-        layout: { hLineWidth: () => 0, vLineWidth: () => 0, fillColor: () => "#FAFAF9" },
-        margin: [0, 4, 0, 18],
-      },
-      report.degraded
-        ? { text: `Partial result — ${plain(String(report.degraded)).slice(0, 220)}`, style: "callout", background: "#F6EFDC", color: "#7A5A1F" }
-        : report.partial
-          ? { text: "Partial result — some skills could not complete every anchor; this report leans on partial evidence.", style: "callout", background: "#F6EFDC", color: "#7A5A1F" }
-          : {},
+              layout: CARD_LAYOUT,
+              margin: [0, 4, 0, 18],
+            },
+            // No synthesised report: the UI prints its generated verdict
+            // sentence right under the hero instead of in the summary body.
+            ...(!run.report
+              ? [{ text: generateVerdict(run), style: "body", margin: [0, -10, 0, 10] }]
+              : []),
+          ]
+        : []),
+      // Callouts the UI shows above the report body (all run modes).
+      ...(run.price_data === "unavailable"
+        ? [
+            {
+              text: "No live price feed for this instrument — valuation and technical criteria are shown as N/A.",
+              style: "callout",
+              background: "#F6EFDC",
+              color: "#7A5A1F",
+              margin: [0, 0, 0, 8],
+            },
+          ]
+        : []),
+      ...(run.error
+        ? [
+            {
+              text: `Run error — ${plain(String(run.error)).slice(0, 400)}`,
+              style: "callout",
+              background: "#F7E9E9",
+              color: "#943F3F",
+              margin: [0, 0, 0, 8],
+            },
+          ]
+        : []),
+      ...(!isSkillRun && insufficientCoverage(coverage)
+        ? [
+            {
+              text: `Not enough of the rubric could be scored to give a reliable headline score. Only ${coveragePct(coverage)}% of the criteria had usable data. Review the breakdowns below — unscored criteria are excluded, not failed.`,
+              style: "callout",
+              background: "#F6EFDC",
+              color: "#7A5A1F",
+              margin: [0, 0, 0, 8],
+            },
+          ]
+        : []),
+      ...execNodes,
+      ...skillNodes,
+      ...usable.flatMap((o, i) => skillSectionBlocks(o, i, usable.length)),
+      // ── Section 03: reasoning trace ──
+      ...sectionOpener(
+        isSkillRun ? "Section 02" : "Section 03",
+        isSkillRun ? "Skill reasoning" : "Agent reasoning",
+        { pageBreak: true, count: String(traceCount) },
+      ),
+      ...reasoningBlocks(run),
     ],
     styles: {
       verdictPill: { fontSize: 8, bold: true, color: "#4B5563", alignment: "right" },
@@ -856,6 +1414,9 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
       spacer: { fontSize: 6 },
       hero: { fontSize: 30, bold: true, color: "#16181B" },
       heroLabel: { fontSize: 9, color: "#9CA3AF", margin: [0, -6, 0, 8] },
+      eyebrow: { fontSize: 7.5, bold: true, color: "#23747D", characterSpacing: 1.4 },
+      h1: { fontSize: 17, bold: true, color: "#16181B" },
+      sectionCount: { fontSize: 11, bold: true, color: "#9CA3AF" },
       h2: { fontSize: 14, bold: true, color: "#16181B", margin: [0, 16, 0, 6] },
       h3: { fontSize: 11, bold: true, color: "#4B5563", margin: [0, 10, 0, 3] },
       body: { fontSize: 9.5, color: "#4B5563", lineHeight: 1.45, margin: [0, 2, 0, 4] },
@@ -864,45 +1425,12 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
       tableTitle: { fontSize: 9.5, bold: true, color: "#4B5563", margin: [0, 6, 0, 2] },
       cellHeader: { fontSize: 8.5, bold: true, color: "#6B7280", fontFeatures: ["smcp"], margin: [0, 1] },
       cell: { fontSize: 8.5, color: "#16181B", margin: [0, 1] },
+      thought: { fontSize: 9, italics: true, color: "#4B5563", lineHeight: 1.45, margin: [12, 3, 0, 4] },
+      toolLine: { fontSize: 8.5, color: "#16181B" },
       risks: { fontSize: 9, color: "#7A5A1F", margin: [0, 2, 0, 4] },
       footer: { fontSize: 7.5, color: "#9CA3AF" },
     },
   };
-
-  for (const block of blocks) {
-    const node = await blockToPdfContent(block, evidenceLookupFor(run));
-    for (const n of node) document.content.push(n);
-  }
-
-  // ── Per-skill sections (v3) ──
-  const outputs: any[] = Array.isArray(run.skill_outputs) ? run.skill_outputs : [];
-  const usable = outputs.filter((o) => o && (o.skill_id || o.skill_name));
-  if (usable.length > 0) {
-    document.content.push({ text: "Skill reports", style: "h2" });
-    // Index — a real sequence: each skill's score and coverage at a glance.
-    usable.forEach((o, i) => {
-      const score = o.score_0_100;
-      document.content.push({
-        columns: [
-          { text: `${String(i + 1).padStart(2, "0")}`, style: "sourceLine", width: "auto", margin: [0, 0, 8, 0] },
-          { text: `${o.skill_name || o.skill_id || "Skill"}`, style: "cell", width: "*" },
-          {
-            text: `${score != null ? score : "no score"}${o.coverage != null ? ` · ${Math.round(o.coverage * 100)}%` : ""}`,
-            style: "sourceLine",
-            width: "auto",
-            alignment: "right",
-            color: signalColor(score),
-          },
-        ],
-        columnGap: 4,
-        margin: [0, 1, 0, 0],
-      });
-    });
-    document.content.push({ text: "", style: "spacer" });
-    usable.forEach((o) => {
-      for (const n of skillSectionBlocks(o)) document.content.push(n);
-    });
-  }
 
   const pdf: any = pdfMake;
   const doc = pdf.createPdf(document);

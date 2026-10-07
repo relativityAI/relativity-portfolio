@@ -307,4 +307,41 @@ describe("buildReportPdf", () => {
     expect(buf.slice(0, 4).toString()).toBe("%PDF");
     expect(buf.length).toBeGreaterThan(10000);
   });
+
+  it("opens every section and each skill chapter on a fresh page", async () => {
+    const skill = (id: string, name: string) => ({
+      skill_id: id,
+      skill_name: name,
+      score_0_100: 70,
+      coverage: 1,
+      weight: 1,
+      verdicts: [{ anchor: "A", verdict: "PASS", evidence: "ok" }],
+      findings: [],
+      blocks: [{ kind: "text", body: `${name} body` }],
+      raw_observations: [],
+      citations: [],
+    });
+    const buf = await buildReportPdf({
+      share_name: "Reliance",
+      symbol: "RELIANCE",
+      source: "NSE",
+      agent_name: "GARP Fund",
+      run_mode: "agent",
+      total_score: 70,
+      coverage: 1,
+      report: { heroPct: 70, heroLabel: "", partial: false, source: "llm", blocks: [{ type: "heading", level: 2, text: "Thesis" }] },
+      skill_outputs: [skill("a", "Quality"), skill("b", "Valuation")],
+      trace: [{ seq: 1, type: "thought", text: "thinking" }],
+      steps: [],
+      quantitative_analysis: {},
+      qualitative_analysis: {},
+    });
+    const pdf = (await import("pdf-parse")).default as any;
+    const { numpages, text } = await pdf(buf);
+    // title+summary · section index · one page per skill · reasoning
+    expect(numpages).toBeGreaterThanOrEqual(5);
+    for (const marker of ["Executive summary", "Skill reports", "Quality body", "Valuation body", "Agent reasoning"]) {
+      expect(text).toContain(marker);
+    }
+  });
 });
