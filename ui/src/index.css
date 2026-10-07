@@ -31,10 +31,9 @@
   --signal-negative: #B85C5C;
 
   /* Typography */
-  --font-body: 'Anek Latin', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'IBM Plex Mono', 'SF Mono', 'Menlo', monospace;
   --font-tabular: 'IBM Plex Mono', 'Inter', monospace;
-  --font-display: 'Newsreader', 'Anek Latin', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 /* Dark theme. Driven ONLY by the theme class on <html> (next-themes sets
@@ -70,7 +69,6 @@ html.dark {
 html,
 body {
   background: var(--surface-canvas);
-  font-family: var(--font-body);
 }
 
 /* Make Chakra table grid lines clearly visible (line variant sets width but
@@ -127,7 +125,7 @@ body {
 /* Landing page display font — Sora, scoped so the app keeps Inter.
    Applied via the .landing wrapper on the Landing page only. */
 .landing {
-  --font-display: 'Newsreader', 'Anek Latin', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Sora', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .landing h1,
@@ -154,26 +152,8 @@ body {
   animation-play-state: paused;
 }
 
-@keyframes heartbeat {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.03);
-  }
-}
-
-.pulse-animate {
-  animation: heartbeat 2s ease-in-out infinite;
-  box-shadow: 0 0 0 0 rgba(66, 107, 217, 0.7);
-  animation-duration: 2s;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .marquee-track {
-    animation: none;
-  }
-  .pulse-animate {
     animation: none;
   }
 }
@@ -262,67 +242,4 @@ body {
     text-decoration: none;
     color: inherit;
   }
-}
-
-/* Hover behavior: brighten text instead of background highlight */
-button:hover:not(:disabled),
-a:hover,
-[role="button"]:hover:not(:disabled),
-.chakra-button:hover:not(:disabled),
-.chakra-menu__menuitem:hover,
-.chakra-tabs__tab:hover {
-  color: var(--ink-primary) !important;
-  filter: brightness(1.15) !important;
-  background-color: transparent !important;
-}
-
-/* Keep background for specific elements that need it? Override - avoid background change */
-.chakra-button:hover:not(:disabled) {
-  background-color: transparent !important;
-}
-.chakra-menu__menuitem:hover {
-  background-color: transparent !important;
-}
-
-/* Sidebar/menu items - brighten on hover */
-[data-sidebar="menu-button"]:hover,
-[data-sidebar="menu-sub-button"]:hover,
-[cmdk-item]:hover {
-  color: var(--ink-primary) !important;
-  background-color: transparent !important;
-  filter: brightness(1.15) !important;
-}
-
-/* Global font overrides */
-* {
-  font-family: var(--font-body);
-}
-h1, h2, h3, h4, h5, h6,
-.font-display,
-[style*="font-display"] {
-  font-family: var(--font-display) !important;
-}
-
-/* Markdown heading fonts in analysis results */
-.markdown-content h1,
-.markdown-content h2,
-.markdown-content h3,
-.markdown-content h4,
-.markdown-content h5,
-.markdown-content h6,
-.analysis-markdown h1,
-.analysis-markdown h2,
-.analysis-markdown h3,
-.analysis-markdown h4,
-.analysis-markdown h5,
-.analysis-markdown h6,
-.report-container h1,
-.report-container h2,
-.report-container h3,
-.report-container h4,
-.report-container h5,
-.report-container h6 {
-  font-family: var(--font-display) !important;
-  font-weight: 700 !important;
-  letter-spacing: -0.01em !important;
 }

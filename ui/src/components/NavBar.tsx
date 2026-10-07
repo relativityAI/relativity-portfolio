@@ -290,10 +290,7 @@ export default function NavBar() {
                             py={3}
                         >
                             <Flex align="center" gap={2} minW={0}>
-                                <Flex align="center" gap={1.5}>
-              <Logo preset="nav" showWordmark={false} />
-              <Text fontFamily="var(--font-display)" fontSize="md" fontWeight={600} color="var(--ink-primary)">Relativity.</Text>
-            </Flex>
+                                <Logo preset="nav" />
                             </Flex>
                             <Drawer.CloseTrigger asChild>
                                 <IconButton

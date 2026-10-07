@@ -74,13 +74,11 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
       return (
         <Text
           as={block.level === 2 ? "h2" : "h3"}
-          fontFamily="var(--font-display)"
-          fontSize={block.level === 2 ? "24px" : "20px"}
-          fontWeight={700}
+          fontSize={block.level === 2 ? "20px" : "16px"}
+          fontWeight={600}
           color="var(--ink-primary)"
           mt={block.level === 2 ? 6 : 4}
-          mb={1.5}
-          letterSpacing="-0.01em"
+          mb={2}
         >
           {block.text}
         </Text>
@@ -93,12 +91,12 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
           lineHeight="1.6"
           color="var(--ink-secondary)"
           css={{
-            "& p": { margin: "0 0 0.5em" },
-            "& ul, & ol": { margin: "0.4em 0 0.5em", paddingLeft: "1.6em" },
+            "& p": { margin: "0 0 0.8em" },
+            "& ul, & ol": { margin: "0.5em 0 0.8em", paddingLeft: "1.6em" },
             "& ul": { listStyleType: "disc" },
             "& ol": { listStyleType: "decimal" },
-            "& li": { paddingLeft: "0.2em", margin: "0.15em 0" },
-            "& h1, & h2, & h3, & h4": { color: "var(--ink-primary)", fontFamily: "var(--font-display)", fontWeight: 700, margin: "0.8em 0 0.4em", letterSpacing: "-0.01em" },
+            "& li": { paddingLeft: "0.2em", margin: "0.2em 0" },
+            "& h1, & h2, & h3, & h4": { color: "var(--ink-primary)", fontWeight: 600, margin: "1em 0 0.4em" },
             "& table": { borderCollapse: "collapse", display: "block", maxWidth: "100%", overflowX: "auto", margin: "0.8em 0" },
             "& th, & td": { border: "1px solid var(--hairline)", padding: "0.4em 0.65em", textAlign: "left" },
             "& th": { color: "var(--ink-primary)", fontWeight: 600 },

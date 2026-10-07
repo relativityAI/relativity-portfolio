@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
     { to: "/console", label: "Agents", icon: Bot, end: true },
     { to: "/console/skills", label: "Agent Skills", icon: Blocks, end: false },
+    { to: "/console/builder", label: "Agent Builder", icon: Sparkles, end: false },
 ];
 
 export interface ConsoleSidebarAgent {
