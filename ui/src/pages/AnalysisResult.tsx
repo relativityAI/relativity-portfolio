@@ -802,9 +802,7 @@ export default function AnalysisResult() {
                                                             </Callout>
                                                         </Box>
                                                     )}
-                                                    <Box css={{ lineHeight: "1.6", "& p": { marginBottom: "0.5em" }, "& h1, & h2, & h3, & h4, & h5, & h6": { fontFamily: "var(--font-display)", fontWeight: 700, letterSpacing: "-0.01em", marginTop: "1em", marginBottom: "0.5em" } }}>
                                                     <ReportBlockRenderer blocks={analysis.report.blocks} lookup={evidenceLookup} />
-                                                </Box>
                                                 </>
                                             ) : (
                                                 <Callout tone="caution">
