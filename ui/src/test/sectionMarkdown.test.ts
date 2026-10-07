@@ -5,7 +5,6 @@ import { agentToMarkdown, parseAgentMarkdown, skillsMarkdown } from "../lib/sect
 const agent: AgentShape = {
     name: "Test Agent",
     source: "NSE",
-    configuration: { investment_horizon: "Swing", risk_appetite: 5 },
     persona: { philosophy_and_mindset: "We seek durable moats." },
     asset_evaluation: {
         qualitative: [{ parameter: "Management Quality", content: "Track record matters.", weightage: 8 }],
@@ -28,17 +27,15 @@ describe("sectionMarkdown", () => {
         if (res.ok) expect(res.merged.persona?.philosophy_and_mindset).toBe("We seek durable moats.");
     });
 
-    it("generates configuration frontmatter that round-trips", () => {
+    it("generates configuration frontmatter without strategy/risk fields", () => {
         const md = sectionToMarkdown("configuration", agent);
-        expect(md).toContain("investment_horizon: Swing");
-        expect(md).toContain("risk_appetite: 5");
+        expect(md).toContain("name: Test Agent");
+        expect(md).not.toContain("investment_horizon");
+        expect(md).not.toContain("risk_appetite");
 
         const res = parseSection("configuration", md);
         expect(res.ok).toBe(true);
-        if (res.ok) {
-            expect(res.merged.configuration?.investment_horizon).toBe("Swing");
-            expect(res.merged.configuration?.risk_appetite).toBe(5);
-        }
+        if (res.ok) expect(res.merged.name).toBe("Test Agent");
     });
 
     it("round-trips asset evaluation qualitative + quantitative", () => {
@@ -73,12 +70,11 @@ describe("sectionMarkdown", () => {
         if (!res.ok) expect(res.issues.length).toBeGreaterThan(0);
     });
 });
-// --- whole-agent markdown (v3) — the "raw agent file" editor ---------------
+// --- whole-agent markdown (v3) ------------------------------------------------
 describe("agentToMarkdown / parseAgentMarkdown", () => {
     const v3: AgentShape = {
         name: "Value Rider",
         persona: { philosophy: "I buy durable compounders and refuse litigation risk." },
-        configuration: { investment_horizon: "Swing", risk_appetite: 7 },
         skills: [
             { skill_id: "moat-analysis", weight: 8 },
             { skill_id: "dcf-valuation", weight: 6 },
@@ -93,14 +89,15 @@ describe("agentToMarkdown / parseAgentMarkdown", () => {
         expect(md.trim().length).toBeGreaterThan(0);
     });
 
-    it("round-trips name, philosophy, configuration and skills", () => {
-        const res = parseAgentMarkdown(agentToMarkdown(v3));
+    it("round-trips name, philosophy and skills — no strategy/risk emitted", () => {
+        const md = agentToMarkdown(v3);
+        expect(md).not.toContain("risk_appetite");
+        expect(md).not.toContain("investment_horizon");
+        const res = parseAgentMarkdown(md);
         expect(res.ok).toBe(true);
         if (!res.ok) return;
         expect(res.merged.name).toBe("Value Rider");
         expect(res.merged.persona?.philosophy).toBe(v3.persona.philosophy);
-        expect(res.merged.configuration?.investment_horizon).toBe("Swing");
-        expect(res.merged.configuration?.risk_appetite).toBe(7);
         expect(res.merged.skills).toEqual(v3.skills);
     });
 
@@ -121,7 +118,6 @@ describe("agentToMarkdown / parseAgentMarkdown", () => {
         const bare: AgentShape = {
             name: "Bare",
             persona: { philosophy: "" },
-            configuration: { investment_horizon: "Intraday", risk_appetite: 1 },
             skills: [],
         };
         const res = parseAgentMarkdown(agentToMarkdown(bare));
@@ -137,9 +133,11 @@ describe("agentToMarkdown / parseAgentMarkdown", () => {
         expect(res.ok).toBe(false);
     });
 
-    it("rejects a missing name and an out-of-range risk", () => {
+    it("rejects a missing name and ignores legacy strategy/risk keys", () => {
         expect(parseAgentMarkdown("---\nrisk_appetite: 5\n---\n\n## Philosophy\n\nx").ok).toBe(false);
-        expect(parseAgentMarkdown("---\nname: X\nrisk_appetite: 99\n---\n\n## Philosophy\n\nx").ok).toBe(false);
+        const legacy = parseAgentMarkdown("---\nname: X\nrisk_appetite: 99\n---\n\n## Philosophy\n\nx");
+        expect(legacy.ok).toBe(true);
+        if (legacy.ok) expect(legacy.merged.name).toBe("X");
     });
 
     it("emits a standalone skills block for the export bundle", () => {

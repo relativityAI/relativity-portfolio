@@ -15,7 +15,7 @@ import { toaster } from "@/compat/ui";
 
 /**
  * Agent Library — the console's default view. Every agent renders as a
- * borderless card: identity, thesis, strategy, skills, last-run health.
+ * borderless card: identity, thesis, skills, last-run health.
  */
 
 interface Agent {
@@ -25,7 +25,6 @@ interface Agent {
     created_at: string;
     source?: string;
     persona?: { philosophy?: string; philosophy_and_mindset?: string };
-    configuration?: { investment_horizon?: string; risk_appetite?: number };
     skills?: { skill_id: string; weight: number }[];
 }
 
@@ -37,12 +36,6 @@ interface AnalysisLite {
     created_at?: string;
     updated_at?: string;
 }
-
-const HORIZON_SHORT: Record<string, string> = {
-    "Long-term (years)": "Long-term",
-    "Positional (weeks to months)": "Positional",
-    "Long-term (3-5 years)": "Long-term",
-};
 
 /** First sentence of the philosophy — the agent's thesis. */
 function creedOf(agent: Agent): string {
@@ -84,21 +77,18 @@ const ARCHETYPES = [
         key: "value",
         name: "Value hunter",
         line: "Margin of safety above story. Buys what the market misprices and waits.",
-        config: { investment_horizon: "Long-term (years)", risk_appetite: 4 },
         philosophy: "I believe the market frequently misprices patience. I hunt for businesses trading below their intrinsic worth, demand a margin of safety before committing capital, and let compounding do the work. I would rather be approximately right about the long term than precisely right about the quarter.",
     },
     {
         key: "momentum",
         name: "Momentum rider",
         line: "The trend is a fact. Rides strength, cuts weakness fast.",
-        config: { investment_horizon: "Swing", risk_appetite: 7 },
         philosophy: "I believe price action encodes information the crowd hasn't articulated yet. I ride strength, respect stops without sentiment, and exit weakness fast. My edge is discipline: the trend is my thesis until it breaks.",
     },
     {
         key: "quality",
         name: "Quality compounder",
         line: "Great businesses, held long. Price matters, quality matters more.",
-        config: { investment_horizon: "Positional", risk_appetite: 3 },
         philosophy: "I believe a few exceptional businesses, held with conviction, outperform constant tinkering. I look for durable moats, honest management, and reinvestment opportunities, and I pay a fair price for quality rather than a cheap price for compromise.",
     },
 ];
@@ -183,7 +173,7 @@ export default function AgentLibrary() {
                         Agents
                     </h1>
                     <p className="mt-1 text-sm text-console-ink-2">
-                        Every analyst you've built — their strategy, philosophy, and skills.
+                        Every analyst you've built — their philosophy and skills.
                     </p>
                 </div>
                 <Button onClick={() => navigate("/console/agent/new")}>
@@ -251,7 +241,6 @@ export default function AgentLibrary() {
                                         const created = await AgentService.createAgent({
                                             name: a.name,
                                             persona: { philosophy: a.philosophy },
-                                            configuration: a.config,
                                             skills: [],
                                         });
                                         const newId = created.id || created._id;
@@ -336,26 +325,6 @@ export default function AgentLibrary() {
                                         >
                                             <Trash2 className="text-console-ink-3" />
                                         </Button>
-                                    </div>
-
-                                    {/* Strategy */}
-                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-console-ink-3">
-                                        {agent.configuration?.investment_horizon && (
-                                            <span>
-                                                <span className="text-console-ink-4">Horizon </span>
-                                                <span className="font-medium text-console-ink-2">
-                                                    {HORIZON_SHORT[agent.configuration.investment_horizon] || agent.configuration.investment_horizon}
-                                                </span>
-                                            </span>
-                                        )}
-                                        {agent.configuration?.risk_appetite != null && (
-                                            <span>
-                                                <span className="text-console-ink-4">Risk </span>
-                                                <span className="font-medium text-console-ink-2 tabular-nums">
-                                                    {agent.configuration.risk_appetite}/10
-                                                </span>
-                                            </span>
-                                        )}
                                     </div>
 
                                     {/* Skill pills */}

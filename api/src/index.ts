@@ -16,6 +16,9 @@ import { classifyModelError } from "./modelcheck.js";
 import { processBuilderTurn, extractDocumentSignals, type BuilderRequest } from "./builder.js";
 import { getSchemaDescriptor } from "./schema.js";
 import { buildTools, getToolCatalog } from "./tools.js";
+import { buildArtifacts } from "./skills/artifacts/index.js";
+import { renderXlsx } from "./skills/artifacts/xlsx.js";
+import type { WorkbookRecipe } from "./skills/artifacts/types.js";
 import { getPreset, listPresets, buildSeedAgents } from "./presets.js";
 import { agentFromRow, buildAgentConfigV3, type AgentRow } from "./agentstore.js";
 import { parseAgentMd, serializeAgentMd, validateAgentV3 } from "./agentmd.js";
@@ -205,6 +208,10 @@ async function runSkillEvaluation(input: {
       log.warn("[skill-run]", `${skill.name} score retry failed:`, e?.message || e);
     }
   }
+  const artifacts = buildArtifacts({ skillId: skill.id, symbol, shareName, source, observations });
+  if (artifacts.some((a) => a.status !== "unavailable")) {
+    trace.push("log", "skill", { text: `Built a ${artifacts[0].recipe?.filename ?? "workbook"} with live formulas for ${skill.name}.` });
+  }
   return {
     skill_id: skill.id,
     skill_name: skill.name,
@@ -219,6 +226,7 @@ async function runSkillEvaluation(input: {
     tools_used: toolsUsed,
     citations: [],
     raw_observations: observations,
+    artifacts,
   };
 }
 
@@ -547,7 +555,6 @@ app.post("/agents", requireAuth, async (req, res) => {
       user_id: userId,
       name: config.name,
       persona: config.persona,
-      configuration: config.configuration,
       md_config: md,
       created_at: now,
       updated_at: now,
@@ -602,7 +609,6 @@ app.put("/agents/:id", requireAuth, async (req, res) => {
       user_id: userId,
       name: config.name,
       persona: config.persona,
-      configuration: config.configuration,
       md_config: md,
       created_at: existing.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -1068,6 +1074,38 @@ app.get("/analysis/:id/pdf", requireAuth, async (req, res) => {
   } catch (e: any) {
     log.error("[pdf]", e.message);
     res.status(503).json({ error: `PDF generation failed: ${e.message}` });
+  }
+});
+
+// Download a skill artifact. The recipe is already stored with the analysis run;
+// the binary is built here, per request, so no file is ever persisted or cached.
+app.get("/analysis/:id/artifact/:artifactId", requireAuth, async (req, res) => {
+  try {
+    const db = getDb();
+    const userId = (req as AuthedRequest).user.id;
+    const { data, error } = await db.from("analysis_runs").select("*").eq("id", req.params.id).eq("user_id", userId).single();
+    if (error || !data) return res.status(404).json({ error: "Analysis not found" });
+
+    const outputs: any[] = Array.isArray(data.skill_outputs) ? data.skill_outputs : [];
+    const skillId = String(req.params.artifactId).split(":")[0];
+    const wanted = String(req.params.artifactId);
+    const artifact = outputs
+      .flatMap((output: any) => (Array.isArray(output?.artifacts) ? output.artifacts : []))
+      .find((a: any) => a?.id === wanted || a?.skill_id === skillId);
+    if (!artifact) return res.status(404).json({ error: "Artifact not found" });
+    if (!artifact.recipe) {
+      return res.status(409).json({ error: artifact.note || "This workbook could not be built" });
+    }
+
+    const buffer = await renderXlsx(artifact.recipe as WorkbookRecipe);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Length", String(buffer.length));
+    const filename = String(artifact.recipe.filename || "workbook.xlsx").replace(/[^\w.\- ]+/g, "_");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.send(buffer);
+  } catch (e: any) {
+    log.error("[artifact]", e.message);
+    res.status(503).json({ error: `Workbook generation failed: ${e.message}` });
   }
 });
 

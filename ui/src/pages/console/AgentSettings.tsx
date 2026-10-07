@@ -1,20 +1,17 @@
 import {
     useParams, useNavigate, useBlocker,
 } from "react-router-dom";
-import { useState, useEffect, useMemo, useRef } from "react";
-import { motion } from "motion/react";
+import { useState, useEffect, useRef } from "react";
 import {
-    Download, Trash2, MoreHorizontal, Copy, Sparkles, FileText, Save,
+    Download, Trash2, MoreHorizontal, Copy, Save,
 } from "lucide-react";
 
 import { AgentService, SkillService } from "@/db";
 import { cn } from "@/lib/utils";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import MarkdownEditorTab, { type MdIssue } from "@/pages/MarkdownEditorTab";
 import { toaster } from "@/compat/ui";
 import {
-    agentToMarkdown, validateAgentMarkdown, parseAgentMarkdown,
-    sectionToMarkdown, skillsMarkdown,
+    agentToMarkdown, sectionToMarkdown, skillsMarkdown,
 } from "@/lib/sectionMarkdown";
 import { draftKey, clearLocalDraft } from "@/lib/autosave";
 import { zipFiles, downloadBlob } from "@/lib/zip";
@@ -29,15 +26,12 @@ import {
     AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
     AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
-import StrategySection from "./forge/StrategySection";
 import PhilosophySection from "./forge/PhilosophySection";
 import SkillsSection from "./forge/SkillsSection";
 
 /**
- * Agent settings — inside the console. The sidebar stays; this view owns the
- * content area with a light section nav, borderless shadcn controls, and the
- * same autosave / blocker / export behavior as before.
+ * Agent settings — inside the console. One straight, centered form:
+ * name → philosophy → skills. Autosave blocker / export / delete as before.
  */
 
 const DEFAULT_AGENT = {
@@ -46,20 +40,8 @@ const DEFAULT_AGENT = {
     _id: "",
     created_at: "",
     persona: { philosophy: "" },
-    configuration: {
-        investment_horizon: "",
-        risk_appetite: 5,
-    },
     skills: [] as { skill_id: string; weight: number }[],
 }
-
-const SECTIONS = [
-    { id: "doctrine", label: "Strategy", hint: "Horizon & risk" },
-    { id: "mind", label: "Philosophy", hint: "Its own words" },
-    { id: "capabilities", label: "Skills", hint: "What it measures" },
-] as const;
-
-type SectionId = (typeof SECTIONS)[number]["id"]
 
 export default function AgentSettings() {
     const urlParams = useParams()
@@ -69,32 +51,15 @@ export default function AgentSettings() {
     const [isDirty, setIsDirty] = useState(false)
     const [nameError, setNameError] = useState(false)
     const [agent, setAgent] = useState<any>({ ...DEFAULT_AGENT })
-    const [activeSection, setActiveSection] = useState<SectionId>("doctrine")
     const [deleteOpen, setDeleteOpen] = useState(false)
     const [navOpen, setNavOpen] = useState(false)
     const [loadError, setLoadError] = useState<string | null>(null)
-
-    // Raw agent file disclosure (markdown view of the whole agent).
-    const [mdText, setMdText] = useState("")
-    const [mdIssues, setMdIssues] = useState<MdIssue[]>([])
-    const [mdValidating, setMdValidating] = useState(false)
-    const [mdApplying, setMdApplying] = useState(false)
 
     // "new" is a static route with no :id param, so urlParams.id is undefined
 // there — treat both shapes as a new agent.
 const isNew = !urlParams.id || urlParams.id === "new"
     const agentId = agent.id || agent._id || null
     const storageKey = draftKey(agentId || "new")
-    const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
-
-    const sectionCompletion = useMemo(
-        () => ({
-            doctrine: !!agent.configuration?.investment_horizon,
-            mind: !!(agent.persona?.philosophy || agent.persona?.philosophy_and_mindset || "").trim(),
-            capabilities: !!(agent.skills?.length > 0),
-        }),
-        [agent],
-    )
 
     // Skill id -> display name.
     const [skillNames, setSkillNames] = useState<Record<string, string>>({})
@@ -113,25 +78,6 @@ const isNew = !urlParams.id || urlParams.id === "new"
         return () => { cancelled = true }
     }, [agent.skills])
 
-    const goToSection = (id: SectionId) => {
-        setActiveSection(id)
-        sectionRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "start" })
-    }
-
-    // Track the section in view while the user scrolls.
-    useEffect(() => {
-        const observer = new IntersectionObserver(
-            (entries) => {
-                for (const e of entries) {
-                    if (e.isIntersecting) setActiveSection(e.target.getAttribute("data-section") as SectionId)
-                }
-            },
-            { rootMargin: "-30% 0px -55% 0px" },
-        )
-        Object.values(sectionRefs.current).forEach((el) => el && observer.observe(el))
-        return () => observer.disconnect()
-    }, [loading])
-
     const fetchAgent = async () => {
         try {
             if (urlParams.id && !isNew) {
@@ -144,7 +90,6 @@ const isNew = !urlParams.id || urlParams.id === "new"
                     created_at: data.created_at || "",
                     md: data.md || "",
                     persona: { philosophy: data.persona?.philosophy ?? data.persona?.philosophy_and_mindset ?? "" },
-                    configuration: { ...DEFAULT_AGENT.configuration, ...(data.configuration || {}) },
                     skills: Array.isArray(data.skills)
                         ? data.skills.map((s: any) =>
                             typeof s === "string" ? { skill_id: s, weight: 5 } : { skill_id: s.skill_id, weight: s.weight ?? 5 },
@@ -195,55 +140,6 @@ useEffect(() => {
         return () => window.removeEventListener("beforeunload", handler)
     }, [isDirty])
 
-    /* ── Raw agent file (markdown) ────────────────────────────────────── */
-
-    const openRawFile = () => {
-        setMdText(agentToMarkdown(agent))
-        setMdIssues([])
-        validateAgentMarkdown(agentToMarkdown(agent)).then(setMdIssues)
-    }
-
-    const onMdChange = (v: string) => {
-        setMdText(v)
-        setMdIssues([])
-        setIsDirty(true)
-    }
-
-    const runMdValidate = async () => {
-        setMdValidating(true)
-        try {
-            setMdIssues(await validateAgentMarkdown(mdText))
-        } finally {
-            setMdValidating(false)
-        }
-    }
-
-    const applySectionMarkdown = () => {
-        if (mdIssues.some((i) => i.severity === "error")) {
-            toaster.create({ title: "Fix the markdown errors first", type: "error" })
-            return
-        }
-        const res = parseAgentMarkdown(mdText)
-        if (!res.ok) {
-            toaster.create({
-                title: "Couldn't apply markdown",
-                description: res.issues[0],
-                type: "error",
-            })
-            return
-        }
-        setAgent((prev: any) => ({
-            ...prev,
-            ...(res.merged.name ? { name: res.merged.name } : {}),
-            persona: { ...(prev.persona || {}), philosophy: res.merged.persona?.philosophy ?? "" },
-            configuration: { ...(prev.configuration || {}), ...(res.merged.configuration || {}) },
-            skills: res.merged.skills || [],
-        }))
-        setMdIssues([])
-        setIsDirty(true)
-        toaster.create({ title: "Applied to the agent", type: "success" })
-    }
-
     /* ── Save ─────────────────────────────────────────────────────────── */
 
     const handleSave = async () => {
@@ -256,7 +152,7 @@ useEffect(() => {
         if (!agent.skills || agent.skills.length === 0) {
             toaster.create({
                 title: "Attach at least one skill",
-                description: "An agent needs at least one skill to run an analysis. Open Agent Skills.",
+                description: "An agent needs at least one skill to run an analysis. Add one below.",
                 type: "error",
             })
             return
@@ -267,7 +163,6 @@ useEffect(() => {
             const dataToSave = {
                 name: agent.name,
                 persona: agent.persona,
-                configuration: agent.configuration,
                 skills: (agent.skills || []).map((s: any) => ({ skill_id: s.skill_id, weight: s.weight ?? 5 })),
             }
 
@@ -336,13 +231,12 @@ useEffect(() => {
                 }),
             )
             const record = {
-                name: agent.name, id: agentId, configuration: agent.configuration, persona: agent.persona, skills: attached,
+                name: agent.name, id: agentId, persona: agent.persona, skills: attached,
             }
             const readable = { ...agent, skills: attached.map((s: any) => ({ ...s, skill_id: skillNames[s.skill_id] || s.skill_id })) }
             const bundle = zipFiles([
                 { path: "agent.md", text: agentToMarkdown(readable) },
                 { path: "agent.json", text: JSON.stringify(record, null, 2) },
-                { path: "configuration.md", text: sectionToMarkdown("configuration", readable) },
                 { path: "persona.md", text: sectionToMarkdown("persona", readable) },
                 { path: "skills.md", text: skillsMarkdown(readable) },
                 ...skills,
@@ -367,7 +261,7 @@ useEffect(() => {
             await navigator.clipboard.writeText(agentId)
             toaster.create({ title: "Copied agent ID", type: "success" })
         } catch {
-            toaster.create({ title: "Couldn't copy", type: "error" })
+            toaster.create({ title: "Couldn't copy agent ID", type: "error" })
         }
     }
 
@@ -416,23 +310,15 @@ useEffect(() => {
 
     return (
         <div className="mx-auto w-full max-w-5xl px-5 pb-12 sm:px-8">
-            {/* Sticky header — name, save state, actions */}
+            {/* Sticky header — title, save state, actions */}
             <div className="sticky top-0 z-10 -mx-5 bg-console-canvas/90 px-5 py-3 backdrop-blur-md sm:-mx-8 sm:px-8">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                         <AgentAvatar agent={agent} size={40} label={agent.name || "Agent"} />
                         <div className="min-w-0 max-w-72 flex-1">
-                            <Input
-                                value={agent.name}
-                                onChange={(e) => { updateAgent({ name: e.target.value }); setNameError(false) }}
-                                placeholder="Untitled agent"
-                                aria-label="Agent name"
-                                className={cn(
-                                    "-mx-2 h-auto border-none bg-transparent px-2 py-1.5 text-lg font-bold tracking-tight shadow-none focus-visible:bg-console-recessed/50 focus-visible:shadow-none",
-                                    nameError && "text-console-negative",
-                                )}
-                                data-testid="agent-name-input"
-                            />
+                            <p className="truncate px-2 text-lg font-bold tracking-tight text-console-ink">
+                                {agent.name?.trim() || "New agent"}
+                            </p>
                             {metaLine && (
                                 <p className="truncate font-mono text-[11px] text-console-ink-4">{metaLine}</p>
                             )}
@@ -481,14 +367,6 @@ useEffect(() => {
                             </span>
                         </span>
 
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => navigate(`/console/builder?mode=agent&agent=${agentId || "new"}`)}
-                        >
-                            <Sparkles /> Draft with AI
-                        </Button>
-
                         <Button size="sm" onClick={handleSave} disabled={saving} data-testid="agent-save">
                             <Save /> {isNew ? "Create agent" : "Save"}
                         </Button>
@@ -496,158 +374,60 @@ useEffect(() => {
                 </div>
             </div>
 
-            {/* Body: section nav + content */}
-            <div className="mt-8 flex items-start gap-12">
-                {/* Section nav — quiet, motion-indicated, no numbers */}
-                <nav
-                    className="sticky top-24 hidden w-44 shrink-0 flex-col gap-1 md:flex"
-                    role="tablist"
-                    aria-label="Agent settings sections"
-                >
-                    {SECTIONS.map((s) => {
-                        const active = activeSection === s.id
-                        const done = sectionCompletion[s.id]
-                        return (
-                            <button
-                                key={s.id}
-                                role="tab"
-                                aria-selected={active}
-                                onClick={() => goToSection(s.id)}
-                                className="relative rounded-xl px-3 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-console-accent/40"
-                            >
-                                {active && (
-                                    <motion.span
-                                        layoutId="settings-nav-active"
-                                        transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                        className="absolute inset-0 rounded-xl bg-console-accent-soft"
-                                        aria-hidden
-                                    />
-                                )}
-                                <span className="relative flex items-center gap-2">
-                                    <span className={cn(
-                                        "flex-1 text-[13px]",
-                                        active ? "font-semibold text-console-accent-strong" : "text-console-ink-2",
-                                    )}>
-                                        {s.label}
-                                    </span>
-                                    <span
-                                        className={cn(
-                                            "size-1.5 rounded-full",
-                                            done ? "bg-console-positive" : "bg-console-ink-4/30",
-                                        )}
-                                        aria-label={done ? "Complete" : "Incomplete"}
-                                    />
-                                </span>
-                                <span className="relative mt-0.5 block text-[10px] text-console-ink-4">{s.hint}</span>
-                            </button>
-                        )
-                    })}
-                </nav>
+            {/* Body: one straight form, centered */}
+            <div className="mx-auto mt-10 max-w-2xl">
+                <section className="pb-12">
+                    <header className="mb-4">
+                        <h2 className="text-xl font-bold tracking-tight text-console-ink">Name</h2>
+                        <p className="mt-1 text-[13px] text-console-ink-3">What this agent is called.</p>
+                    </header>
+                    <Input
+                        value={agent.name}
+                        onChange={(e) => { updateAgent({ name: e.target.value }); setNameError(false) }}
+                        placeholder="Untitled agent"
+                        aria-label="Agent name"
+                        className={cn(
+                            "h-auto bg-transparent px-3 py-2.5 text-base shadow-none focus-visible:bg-console-recessed/50 focus-visible:shadow-none",
+                            nameError && "text-console-negative",
+                        )}
+                        data-testid="agent-name-input"
+                    />
+                </section>
 
-                {/* Sections */}
-                <div className="min-w-0 flex-1">
-                    {/* Mobile section nav — the sidebar rail is hidden below md */}
-                    <nav
-                        className="-mx-5 mb-6 flex gap-1 overflow-x-auto px-5 pb-1 sm:-mx-8 sm:px-8 md:hidden"
-                        aria-label="Agent settings sections"
-                    >
-                        {SECTIONS.map((s) => {
-                            const active = activeSection === s.id
-                            return (
-                                <button
-                                    key={s.id}
-                                    onClick={() => goToSection(s.id)}
-                                    aria-current={active ? "true" : undefined}
-                                    className={cn(
-                                        "shrink-0 rounded-full px-3 py-1.5 text-[13px] transition-colors focus-visible:ring-2 focus-visible:ring-console-accent/40 focus-visible:outline-none",
-                                        active
-                                            ? "bg-console-accent-soft font-semibold text-console-accent-strong"
-                                            : "text-console-ink-3",
-                                    )}
-                                >
-                                    {s.label}
-                                </button>
-                            )
-                        })}
-                    </nav>
-                    <section
-                        data-section="doctrine"
-                        ref={(el) => { sectionRefs.current["doctrine"] = el }}
-                        className="scroll-mt-24 pb-16"
-                    >
-                        <header className="mb-6">
-                            <h2 className="text-xl font-bold tracking-tight text-console-ink">Strategy</h2>
-                            <p className="mt-1 text-[13px] text-console-ink-3">Horizon and risk appetite.</p>
-                        </header>
-                        <StrategySection
-                            horizon={agent.configuration?.investment_horizon || ""}
-                            risk={agent.configuration?.risk_appetite || 5}
-                            onChange={(v) => updateAgent({ configuration: { ...agent.configuration, ...v } })}
-                        />
-                    </section>
+                <section className="pb-12">
+                    <header className="mb-4">
+                        <h2 className="text-xl font-bold tracking-tight text-console-ink">Philosophy</h2>
+                        <p className="mt-1 text-[13px] text-console-ink-3">Written in the agent's own words.</p>
+                    </header>
+                    <PhilosophySection
+                        philosophy={agent.persona?.philosophy || agent.persona?.philosophy_and_mindset || ""}
+                        onChange={(v) => updateAgent({ persona: { philosophy: v } })}
+                    />
+                </section>
 
-                    <section
-                        data-section="mind"
-                        ref={(el) => { sectionRefs.current["mind"] = el }}
-                        className="scroll-mt-24 pb-16"
-                    >
-                        <header className="mb-6">
-                            <h2 className="text-xl font-bold tracking-tight text-console-ink">Philosophy</h2>
-                            <p className="mt-1 text-[13px] text-console-ink-3">Written in the agent's own words.</p>
-                        </header>
-                        <PhilosophySection
-                            philosophy={agent.persona?.philosophy || agent.persona?.philosophy_and_mindset || ""}
-                            onChange={(v) => updateAgent({ persona: { philosophy: v } })}
-                        />
-                    </section>
+                <section className="pb-6">
+                    <header className="mb-4 flex items-center justify-between">
+                        <div>
+                            <h2 className="text-xl font-bold tracking-tight text-console-ink">Skills</h2>
+                            <p className="mt-1 text-[13px] text-console-ink-3">What the agent measures.</p>
+                        </div>
+                        {(agent.skills?.length ?? 0) > 0 && (
+                            <Badge variant="secondary">{agent.skills.length} attached</Badge>
+                        )}
+                    </header>
+                    <SkillsSection
+                        skills={agent.skills || []}
+                        skillNames={skillNames}
+                        onChange={(v) => updateAgent({ skills: v })}
+                        onOpenLibrary={() => navigate("/console/skills")}
+                        onInspect={(skillId) => navigate(`/console/skills?skill=${encodeURIComponent(skillId)}`)}
+                    />
+                </section>
 
-                    <section
-                        data-section="capabilities"
-                        ref={(el) => { sectionRefs.current["capabilities"] = el }}
-                        className="scroll-mt-24 pb-16"
-                    >
-                        <header className="mb-6 flex items-center justify-between">
-                            <div>
-                                <h2 className="text-xl font-bold tracking-tight text-console-ink">Skills</h2>
-                                <p className="mt-1 text-[13px] text-console-ink-3">What the agent measures.</p>
-                            </div>
-                            {(agent.skills?.length ?? 0) > 0 && (
-                                <Badge variant="secondary">{agent.skills.length} attached</Badge>
-                            )}
-                        </header>
-                        <SkillsSection
-                            skills={agent.skills || []}
-                            skillNames={skillNames}
-                            onChange={(v) => updateAgent({ skills: v })}
-                            onOpenLibrary={() => navigate("/console/skills")}
-                            onInspect={(skillId) => navigate(`/console/skills?skill=${encodeURIComponent(skillId)}`)}
-                        />
-                    </section>
-
-                    {/* Advanced: raw agent file */}
-                    <Accordion collapsible className="mt-10">
-                        <AccordionItem value="raw">
-                            <AccordionTrigger onClick={openRawFile} data-testid="raw-agent-file-trigger">
-                                <span className="flex items-center gap-2">
-                                    <FileText className="size-4 text-console-ink-3" />
-                                    Advanced: raw agent file
-                                </span>
-                            </AccordionTrigger>
-                            <AccordionContent data-testid="raw-agent-file">
-                                <MarkdownEditorTab
-                                    md={mdText}
-                                    onChange={onMdChange}
-                                    issues={mdIssues}
-                                    onValidate={runMdValidate}
-                                    validating={mdValidating}
-                                    saved={!isDirty}
-                                    onApply={applySectionMarkdown}
-                                    applyDisabled={mdIssues.some((i) => i.severity === "error")}
-                                    applying={mdApplying}
-                                />
-                            </AccordionContent>
-                        </AccordionItem>
-                    </Accordion>
+                <div className="flex justify-end pb-8">
+                    <Button onClick={handleSave} disabled={saving}>
+                        <Save /> {isNew ? "Create agent" : "Save"}
+                    </Button>
                 </div>
             </div>
 

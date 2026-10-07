@@ -299,14 +299,10 @@ async function verdictRecovery(
 // the analysts must score against the investor's actual profile, not just a
 // one-line horizon summary. Dealbreakers, screening rules and ideal-company
 // description all reach the prompt here.
-export function investorProfileLine(configuration: any, persona?: any): string {
+export function investorProfileLine(persona?: any): string {
   const parts: string[] = [];
-  const h = configuration?.investment_horizon;
-  const r = configuration?.risk_appetite;
-  if (h) parts.push(`Investment horizon: ${h}.`);
-  if (r) parts.push(`Risk appetite: ${typeof r === "number" ? `${r}/10` : r}.`);
-  const phil = persona?.philosophy_and_mindset;
-  if (phil?.trim()) parts.push(`Philosophy & mindset: ${String(phil).trim().slice(0, 2000)}`);
+  const phil = persona?.philosophy || persona?.philosophy_and_mindset;
+  if (phil?.trim()) parts.push(`Philosophy: ${String(phil).trim().slice(0, 2000)}`);
   if (!parts.length) return "";
   return `Investor profile — score every criterion against THIS profile:
 ${parts.join("\n")}`;
@@ -727,7 +723,7 @@ export async function runQualitativeAll(
   let done = 0;
   // Full persona reaches every analyst (plan B1): philosophy, horizon, risk —
   // not just the one-line configuration summary.
-  const investorContext = investorProfileLine(agent?.configuration, agent?.persona);
+  const investorContext = investorProfileLine(agent?.persona);
 
   await mapWithConcurrency(params, QUAL_CONCURRENCY, async (p) => {
     const label = p.parameter || "Qualitative Parameter";

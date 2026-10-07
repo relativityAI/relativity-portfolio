@@ -63,29 +63,6 @@ export const SCHEMA_DESCRIPTOR: SchemaDescriptor = {
       ],
     },
     {
-      key: "configuration",
-      label: "Configuration",
-      description: "Basic investment parameters",
-      fields: [
-        {
-          key: "investment_horizon",
-          type: "single_select",
-          label: "Investment Horizon",
-          options: ["Intraday", "Swing", "Positional", "Long-term (years)"],
-          default: "",
-        },
-        {
-          key: "risk_appetite",
-          type: "range",
-          label: "Risk Appetite",
-          description: "1 = very conservative, 10 = very aggressive",
-          min: 1,
-          max: 10,
-          default: 5,
-        },
-      ],
-    },
-    {
       key: "skills",
       label: "Skills",
       description:

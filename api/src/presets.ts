@@ -13,7 +13,6 @@ export interface PresetTemplateV3 {
   name: string;
   description: string;
   philosophy: string;
-  configuration: { investment_horizon: string; risk_appetite: number };
   skills: { skill_id: string; weight: number }[];
 }
 
@@ -30,7 +29,6 @@ export const PRESETS: Record<string, PresetTemplateV3> = {
     name: "Warren Buffett",
     description: "Great businesses at a fair price — durable economic moats, honest management, margin of safety, held for the long term.",
     philosophy: BUFFETT_PHILOSOPHY,
-    configuration: { investment_horizon: "Long-term (years)", risk_appetite: 4 },
     skills: [
       { skill_id: "moat-analysis", weight: 9 },
       { skill_id: "dcf-valuation", weight: 9 },
@@ -43,7 +41,6 @@ export const PRESETS: Record<string, PresetTemplateV3> = {
     name: "William O'Neil",
     description: "CAN SLIM — leading growth stocks breaking out of sound bases in a confirmed market uptrend; cut losses fast, let winners run.",
     philosophy: ONEIL_PHILOSOPHY,
-    configuration: { investment_horizon: "Positional (weeks to months)", risk_appetite: 8 },
     skills: [
       { skill_id: "technical-analysis", weight: 9 },
       { skill_id: "growth-analysis", weight: 9 },
@@ -56,7 +53,6 @@ export const PRESETS: Record<string, PresetTemplateV3> = {
     name: "Growth Investor",
     description: "High-quality compounding machines — accelerating growth funded internally, expanding industries, price secondary to durability.",
     philosophy: GROWTH_PHILOSOPHY,
-    configuration: { investment_horizon: "Long-term (years)", risk_appetite: 6 },
     skills: [
       { skill_id: "growth-analysis", weight: 9 },
       { skill_id: "industry-research", weight: 8 },
@@ -69,7 +65,6 @@ export const PRESETS: Record<string, PresetTemplateV3> = {
     name: "Peter Lynch",
     description: "Growth at a reasonable price — understandable businesses, PEG discipline, insider buying, stories with room left to run.",
     philosophy: LYNCH_PHILOSOPHY,
-    configuration: { investment_horizon: "Medium-term (1-3 years)", risk_appetite: 5 },
     skills: [
       { skill_id: "valuation-checks", weight: 8 },
       { skill_id: "growth-analysis", weight: 8 },
@@ -94,7 +89,6 @@ export function presetToMarkdown(preset: PresetTemplateV3): string {
     name: preset.name,
     description: preset.description,
     persona: { philosophy: preset.philosophy },
-    configuration: preset.configuration,
     skills: preset.skills,
   });
 }
@@ -110,7 +104,6 @@ export function buildSeedAgents(userId: string): Record<string, unknown>[] {
     source: "default",
     preset_key: key,
     persona: { philosophy: preset.philosophy },
-    configuration: preset.configuration,
     md_config: presetToMarkdown(preset),
     created_at: now,
     updated_at: now,

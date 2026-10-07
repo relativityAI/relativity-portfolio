@@ -1,5 +1,4 @@
 import { Suspense, useEffect, type ReactNode } from "react";
-import Agent from "./pages/Agent";
 import {
   Routes,
   Route,
@@ -91,10 +90,10 @@ function UnknownRoute() {
   return user ? <Navigate to="/" replace /> : <NotFound />;
 }
 
-/** Old standalone builder URLs now open the wizard directly. */
-function BuilderRedirect() {
+/** Old wizard / builder URLs open the console agent editor. */
+function AgentRedirect() {
   const { id } = useParams();
-  return <Navigate to={id ? `/agent/${id}` : "/agent/new"} replace />;
+  return <Navigate to={!id || id === "new" ? "/console/agent/new" : `/console/agent/${id}`} replace />;
 }
 
 const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/thank-you", "/auth/callback"];
@@ -153,25 +152,11 @@ function AppRoutes() {
                       path="/agent"
                       element={<Navigate to="/agents" replace />}
                     />
-                    {/* Old standalone builder URLs now open the wizard directly. */}
-                    <Route path="/agent/builder" element={<BuilderRedirect />} />
-                    <Route path="/agent/builder/:id" element={<BuilderRedirect />} />
-                    <Route
-                      path="/agent/new"
-                      element={
-                        <Protected>
-                          <Agent />
-                        </Protected>
-                      }
-                    />
-                    <Route
-                      path="/agent/:id"
-                      element={
-                        <Protected>
-                          <Agent />
-                        </Protected>
-                      }
-                    />
+                    {/* Old builder / wizard URLs now open the console editor. */}
+                    <Route path="/agent/builder" element={<AgentRedirect />} />
+                    <Route path="/agent/builder/:id" element={<AgentRedirect />} />
+                    <Route path="/agent/new" element={<AgentRedirect />} />
+                    <Route path="/agent/:id" element={<AgentRedirect />} />
                     <Route
                       path="/agents"
                       element={
