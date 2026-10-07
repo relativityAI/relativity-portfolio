@@ -27,15 +27,7 @@ const OP_TO_SYM: Record<string, string> = { gt: ">", gte: ">=", lt: "<", lte: "<
 const SYM_TO_OP: Record<string, string> = { ">": "gt", ">=": "gte", "<": "lt", "<=": "lte", "=": "eq" };
 
 function docStub(agent: AgentShape): string {
-    const horizon = agent.configuration?.investment_horizon || "";
-    const risk = agent.configuration?.risk_appetite ?? 5;
-    return [
-        "---",
-        `name: ${agent.name || "Untitled agent"}`,
-        horizon ? `investment_horizon: ${horizon}` : "",
-        `risk_appetite: ${risk}`,
-        "---",
-    ].filter(Boolean).join("\n");
+    return ["---", `name: ${agent.name || "Untitled agent"}`, "---"].join("\n");
 }
 
 function qualToMd(items: any[]): string {
@@ -120,14 +112,10 @@ export function skillsMarkdown(agent: AgentShape): string {
 }
 
 export function agentToMarkdown(agent: AgentShape): string {
-    const horizon = agent.configuration?.investment_horizon || "";
-    const risk = agent.configuration?.risk_appetite ?? 5;
     const skills: { skill_id: string; weight: number }[] = agent.skills || [];
     return [
         "---",
         `name: ${agent.name || "Untitled agent"}`,
-        horizon ? `investment_horizon: ${horizon}` : "",
-        `risk_appetite: ${risk}`,
         "---",
         "",
         "## Philosophy",
@@ -177,12 +165,6 @@ export function parseAgentMarkdown(md: string): ParseResult {
         const [, key, rawValue] = m;
         const value = rawValue.trim();
         if (key === "name") merged.name = value;
-        else if (key === "investment_horizon") (merged.configuration as any).investment_horizon = value;
-        else if (key === "risk_appetite") {
-            const n = Number(value);
-            if (Number.isInteger(n) && n >= 1 && n <= 10) (merged.configuration as any).risk_appetite = n;
-            else issues.push(`risk_appetite must be a whole number from 1 to 10, got "${value}".`);
-        }
     }
 
     let section: "philosophy" | "skills" | null = null;
@@ -242,12 +224,6 @@ function parseFrontmatter(md: string): { merged: Partial<AgentShape>; issues: st
         if (!k.trim() || !value) continue;
         const key = k.trim();
         if (key === "name") merged.name = value;
-        else if (key === "investment_horizon") (merged.configuration as any).investment_horizon = value;
-        else if (key === "risk_appetite") {
-            const n = Number(value);
-            if (Number.isFinite(n)) (merged.configuration as any).risk_appetite = n;
-            else issues.push(`risk_appetite must be a number, got "${value}".`);
-        }
     }
     return { merged, issues };
 }

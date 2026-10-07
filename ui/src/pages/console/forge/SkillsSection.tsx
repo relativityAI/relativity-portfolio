@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Blocks, ArrowUp, ArrowDown, X, Plus, Sparkles, Search, Check } from "lucide-react";
+import { Blocks, ArrowUp, ArrowDown, X, Plus, Search, Check } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import {
@@ -246,9 +246,6 @@ export default function SkillsSection({
                 <SkillPicker attachedIds={attachedIds} onPick={pick} />
                 <Button variant="ghost" size="sm" onClick={onOpenLibrary}>
                     Browse all
-                </Button>
-                <Button variant="ghost" size="sm" onClick={onOpenLibrary}>
-                    <Sparkles /> New with AI
                 </Button>
             </div>
         </motion.div>

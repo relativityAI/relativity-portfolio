@@ -9,12 +9,13 @@
  *   ---                           YAML-ish frontmatter (flat key: value).
  *   name: Warren Buffett          Unknown keys carry through verbatim.
  *   description: ...
- *   investment_horizon: ...
- *   risk_appetite: 4
  *   ---
  *   ## Philosophy                 persona.philosophy (prose)
  *   ## Skills                     "- skill_id — weight N" bullets (weight 1-10)
  *   ## anything else              opaque — preserved verbatim
+ *
+ * `investment_horizon` / `risk_appetite` were removed from the schema; old
+ * files carrying them parse fine and the keys are dropped on the next save.
  */
 
 import { z } from "zod";
@@ -29,7 +30,6 @@ export interface AgentConfigV3 {
   name: string;
   description?: string;
   persona: { philosophy: string };
-  configuration: { investment_horizon: string; risk_appetite: number };
   /** Ordered skill list — order is preserved in prompts and the report. */
   skills: AgentSkillRef[];
 }
@@ -55,12 +55,6 @@ export const agentSchemaV3 = z.object({
   name: z.string().min(1, "agent name is required"),
   description: z.string().optional(),
   persona: z.object({ philosophy: z.string().default("") }).default({ philosophy: "" }),
-  configuration: z
-    .object({
-      investment_horizon: z.string().default(""),
-      risk_appetite: z.number().int().min(1).max(10).default(5),
-    })
-    .default({ investment_horizon: "", risk_appetite: 5 }),
   skills: z.array(agentSkillRefSchema).default([]),
 });
 
@@ -101,19 +95,15 @@ export function parseAgentMd(raw: string): AgentMdResult {
     return { agent: null, issues, opaque: [], extraFrontmatter: [] };
   }
 
+  // `source`, `investment_horizon`, `risk_appetite` are legacy keys —
+  // tolerated silently and dropped on the next serialize.
   const KNOWN_FM = new Set(["name", "source", "description", "investment_horizon", "risk_appetite"]);
-  // `source` is a legacy key — tolerated silently as round-trip metadata.
   const extraFrontmatter = fmOrder.filter((k) => !KNOWN_FM.has(k)).map((k) => [k, fm[k]] as [string, string]);
 
-  const riskRaw = parseInt(fm.risk_appetite ?? "", 10);
   const agent: AgentConfigV3 = {
     name: fm.name ?? "",
     description: fm.description || undefined,
     persona: { philosophy: "" },
-    configuration: {
-      investment_horizon: fm.investment_horizon || "",
-      risk_appetite: Number.isInteger(riskRaw) ? riskRaw : 5,
-    },
     skills: [],
   };
   if (!agent.name.trim()) issues.push({ line: 1, message: 'frontmatter is missing required key "name"', severity: "error" });
@@ -182,8 +172,6 @@ export function serializeAgentMd(agent: AgentConfigV3, prevMd?: string): string 
   L.push("---");
   L.push(`name: ${agent.name}`);
   L.push(`description: ${agent.description || ""}`);
-  L.push(`investment_horizon: ${agent.configuration.investment_horizon}`);
-  L.push(`risk_appetite: ${agent.configuration.risk_appetite}`);
   for (const [k, v] of prev.extraFrontmatter) L.push(`${k}: ${v}`);
   L.push("---", "");
 

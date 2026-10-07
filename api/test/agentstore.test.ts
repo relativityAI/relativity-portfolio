@@ -29,7 +29,6 @@ function structuredBody() {
   return {
     name: preset.name,
     philosophy: preset.philosophy,
-    configuration: preset.configuration,
     skills: preset.skills,
   };
 }
@@ -135,7 +134,9 @@ describe("agentFromRow (v3, lazy migration)", () => {
     const { config, md, migrated } = await agentFromRow(row);
     expect(migrated).toBe(true);
     expect(config?.persona.philosophy).toBe("old philosophy");
-    expect(config?.configuration.risk_appetite).toBe(8);
+    // Strategy/risk were removed from the schema — migration drops them.
+    expect(md).not.toContain("risk_appetite");
+    expect(md).not.toContain("investment_horizon");
     // Two generated skills: checklist + quant screen.
     const ids = (config?.skills || []).map((s) => s.skill_id);
     expect(ids.some((i) => i.endsWith("custom-checklist"))).toBe(true);

@@ -142,7 +142,7 @@ export default function AgentSkills() {
             const skills = [...(agent.skills || []).map((s) => ({ skill_id: s.skill_id, weight: s.weight ?? 5 }))];
             if (!skills.some((s) => s.skill_id === skill.id)) skills.push({ skill_id: skill.id, weight: 5 });
             await AgentService.updateAgent({
-                name: agent.name, persona: (agent as any).persona, configuration: (agent as any).configuration,
+                name: agent.name, persona: (agent as any).persona,
                 skills, id: agentId, _id: agentId,
             });
             toaster.create({ title: `${skill.name} attached`, description: `Added to ${agent.name} at weight 5.`, type: "success" });

@@ -201,10 +201,6 @@ async function migrateToV3(row: AgentRow): Promise<{ config: AgentConfigV3; md: 
     name: v2.name || row.name,
     description: v2.description,
     persona: { philosophy: v2.persona?.philosophy_and_mindset || "" },
-    configuration: {
-      investment_horizon: v2.configuration?.investment_horizon || "",
-      risk_appetite: clampInt(v2.configuration?.risk_appetite, 1, 10, 5),
-    },
     skills: skillIds,
   };
   const md = serializeAgentMd(v3);
@@ -306,10 +302,6 @@ export function buildAgentConfigV3(
     name: String(body.name ?? existing?.name ?? "Untitled Agent"),
     description: body.description,
     persona: { philosophy: String(phil) },
-    configuration: {
-      investment_horizon: String(body.configuration?.investment_horizon ?? existing?.configuration?.investment_horizon ?? ""),
-      risk_appetite: clampInt(body.configuration?.risk_appetite || existing?.configuration?.risk_appetite, 1, 10, 5),
-    },
     skills: rawSkills
       .map((s: any) =>
         typeof s === "string"
