@@ -1206,7 +1206,7 @@ export default function Analysis() {
                                                                     {skill.category}
                                                                 </span>
                                                             </ComboboxItem>
-                                                        ))}
+                                                        )}
                                                     </ComboboxList>
                                                 </ComboboxContent>
                                             </Combobox>
@@ -1263,34 +1263,6 @@ export default function Analysis() {
                                                         )}
                                                     </Flex>
                                                 </Flex>
-                                            ) : (
-                                                <Text fontSize="12px" color="var(--ink-tertiary)">
-                                                    Select an agent to see its skills and persona
-                                                </Text>
-                                            )
-                                        ) : selectedSkill ? (
-                                            <Flex direction="row" align="flex-start" gap={2.5} minW={0}>
-                                                <SkillAvatar skill={selectedSkill} size={48} label={selectedSkill.name} />
-                                                <Flex direction="column" gap={1} minW={0}>
-                                                    <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)">
-                                                        {selectedSkill.name}
-                                                    </Text>
-                                                    <Text fontSize="12px" color="var(--ink-tertiary)" whiteSpace="nowrap">
-                                                        {selectedSkill.category} · {selectedSkill.source}
-                                                    </Text>
-                                                    <Text fontSize="12px" color="var(--ink-secondary)" lineHeight="1.6">
-                                                        {selectedSkill.description}
-                                                    </Text>
-                                                </Flex>
-                                            </Flex>
-                                        ) : (
-                                            <Text fontSize="12px" color="var(--ink-tertiary)">
-                                                Select a skill to see what it analyzes
-                                            </Text>
-                                        )}
-                                    </Box>
-                                </Flex>
-                            </Flex>
                         </StepSection>
 
                         {/* Model */}
