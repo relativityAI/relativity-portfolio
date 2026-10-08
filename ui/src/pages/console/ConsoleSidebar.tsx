@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { Bot, Blocks, Sparkles, Wrench, ArrowLeft } from "lucide-react";
+import { Bot, Blocks, ArrowLeft } from "lucide-react";
 import {
     Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent,
     SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton,
@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
     { to: "/console", label: "Agents", icon: Bot, end: true },
     { to: "/console/skills", label: "Agent Skills", icon: Blocks, end: false },
-    { to: "/console/builder", label: "Agent Builder", icon: Sparkles, end: false },
 ];
 
 export interface ConsoleSidebarAgent {
@@ -91,8 +90,8 @@ export default function ConsoleSidebar({ agent }: ConsoleSidebarProps) {
                                                 isActive={isActive}
                                                 tooltip={item.label}
                                                 className={cn(
-                                                    "w-full",
-                                                    isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+                                                    "w-full !bg-transparent",
+                                                    isActive && "font-bold text-white hover:!bg-transparent",
                                                 )}
                                             >
                                                 <item.icon />
@@ -106,35 +105,11 @@ export default function ConsoleSidebar({ agent }: ConsoleSidebarProps) {
                     </SidebarGroupContent>
                 </SidebarGroup>
 
-                <SidebarGroup>
-                    <SidebarGroupLabel>Reference</SidebarGroupLabel>
-                    <SidebarGroupContent>
-                        <SidebarMenu>
-                            <SidebarMenuItem>
-                                <NavLink to="/console/tools">
-                                    {({ isActive }) => (
-                                        <SidebarMenuButton
-                                            isActive={isActive}
-                                            tooltip="Agent Tools"
-                                            className={cn(
-                                                "w-full",
-                                                isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
-                                            )}
-                                        >
-                                            <Wrench />
-                                            <span>Agent Tools</span>
-                                        </SidebarMenuButton>
-                                    )}
-                                </NavLink>
-                            </SidebarMenuItem>
-                        </SidebarMenu>
-                    </SidebarGroupContent>
-                </SidebarGroup>
-            </SidebarContent>
+                </SidebarContent>
 
             <SidebarFooter>
                 <p className="px-2 pb-2 text-[11px] leading-relaxed text-sidebar-foreground/50 group-data-[collapsible=icon]:hidden">
-                    Build analysts, give them skills, and let the AI co-write either.
+                    Build analysts, give them skills, and put them to work.
                 </p>
             </SidebarFooter>
             <SidebarRail />

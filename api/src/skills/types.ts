@@ -5,6 +5,7 @@
  * what data to fetch, how to analyze it, what to score (verdict anchors),
  * and what to plot (chart specs). See ./parse.ts for the grammar.
  */
+import type { SkillArtifact } from "./artifacts/types.js";
 
 export type SkillCategory =
   | "valuation"
@@ -118,6 +119,11 @@ export interface SkillOutput {
   citations: SkillCitation[];
   /** Raw verbatim tool observations — the unvarnished data the analysis ran on. */
   raw_observations: SkillRawObservation[];
+  /**
+   * Downloadable files built from the observations. The recipe is JSON and lives
+   * in the same row; the binary is rendered only when the user downloads it.
+   */
+  artifacts?: SkillArtifact[];
   /** Set when the analyst produced no usable result at all. */
   error?: string;
   /** "deterministic" for rule-screen skills scored in code. */

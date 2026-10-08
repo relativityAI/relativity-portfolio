@@ -16,10 +16,12 @@ Determines what the business is worth today from the cash it actually produces. 
 
 1. Pull the TTM metrics snapshot; record current price, market capitalization, P/E, EV/EBITDA, and per-share figures (EPS, book value, FCF per share). Note explicitly which price-derived fields are missing (price_data=unavailable) and mark affected anchors INSUFFICIENT rather than reconstructing prices.
 2. Pull the last five years of cash flows; take operating cash flow minus capital expenditure per year to trace free cash flow, and compute the historical FCF trajectory (growing, stable, erratic).
-3. Build an owner-earnings view: TTM EPS and FCF per share, the growth the filings actually support (revenue_growth, earnings_growth), and a conservative range of sustainable growth — grounded in observed history, not optimism.
+3. Build a discounted cash flow: project free cash flow forward five years at the historical FCF CAGR (clamped to a conservative range), discount at a stated required return, and add a Gordon-growth terminal value. State the discount rate and terminal growth explicitly — these are assumptions, not data.
 4. Cross-check with the market's own pricing: current P/E vs the growth implied by filings, EV/EBITDA vs the company's sector peers via compare_financial_metrics. Where a peer's symbol is unknown, resolve it with search_symbol first — never guess a ticker.
 5. Compute margin-of-safety reasoning: at what growth and discount assumptions does the current price make sense, and do the filings support them? State plainly when the observed data cannot support the price.
 6. Check reasonableness: implied multiples and growth assumptions must be plausible for the sector; flag any check that fails.
+
+A downloadable workbook with live formulas is built from the same cash-flow and metrics data. Its numbers are computed independently of this analysis — if the workbook and this narrative disagree, the workbook is authoritative and the discrepancy should be flagged.
 
 
 

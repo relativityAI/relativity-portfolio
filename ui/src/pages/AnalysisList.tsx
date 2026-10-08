@@ -8,6 +8,7 @@ import SkillAvatar from "@/components/shared/SkillAvatar";
 import Echart from "@/components/shared/Echart";
 import { resolveAgent } from "@/lib/agentIdentity";
 import { ModelLogo, modelLogoAsset } from "@/lib/modelLogos";
+import { TickerLogo } from "@/lib/sourceLogos";
 import { mixHex, resolvedTheme, tooltipStyle, type ECOption, type ResolvedTheme } from "@/lib/echarts";
 import { useColorMode } from "@/components/ui/color-mode";
 import { motion, AnimatePresence } from "motion/react";
@@ -1066,9 +1067,12 @@ export default function AnalysisList() {
                                                                         <AgentAvatar agent={resolveAgent(sec.key, agents)} size={18} />
                                                                     ) : viewMode === "model" ? (
                                                                         <ModelLogo model={sec.key} size={14} />
-                                                                    ) : viewMode === "stock" ? (
-                                                                        <span className="h-2 w-2 shrink-0 rounded-[1px] bg-[var(--grid-line)]" />
-                                                                    ) : null
+) : viewMode === "stock" ? (
+                                                                    <TickerLogo
+                                                                        symbol={sections.find((s) => s.key === sec.key)?.items[0]?.symbol}
+                                                                        size={18}
+                                                                    />
+                                                                ) : null
                                                                 }
                                                                 label={viewMode === "date" ? formatGroupDate(sec.key) : sec.key}
                                                                 count={sections.find((s) => s.key === sec.key)?.items.length ?? sec.items.length}
@@ -1108,18 +1112,21 @@ export default function AnalysisList() {
                                                         >
                                                             {/* Share — plain text, not badge */}
                                                             <td className="px-4 py-3">
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-[13.5px] leading-snug font-medium text-[var(--ink-primary)]">
-                                                                        {item.share_name ||
-                                                                            item.symbol ||
-                                                                            "—"}
-                                                                    </span>
-                                                                    {item.share_name &&
-                                                                        item.symbol && (
-                                                                            <span className="font-app-mono text-[11px] text-[var(--ink-tertiary)]">
-                                                                                {item.symbol}
-                                                                            </span>
-                                                                        )}
+                                                                <div className="flex items-center gap-2.5">
+                                                                    <TickerLogo symbol={item.symbol} size={22} />
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-[13.5px] leading-snug font-medium text-[var(--ink-primary)]">
+                                                                            {item.share_name ||
+                                                                                item.symbol ||
+                                                                                "—"}
+                                                                        </span>
+                                                                        {item.share_name &&
+                                                                            item.symbol && (
+                                                                                <span className="font-app-mono text-[11px] text-[var(--ink-tertiary)]">
+                                                                                    {item.symbol}
+                                                                                </span>
+                                                                            )}
+                                                                    </div>
                                                                 </div>
                                                             </td>
 

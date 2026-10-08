@@ -127,9 +127,7 @@ function AppRoutes() {
   const isPublicPage = PUBLIC_PATHS.includes(locationPath);
   // The new analysis page owns the whole viewport — no footer under it.
   const isAnalysisPage =
-    locationPath === "/analysis" ||
-    locationPath.startsWith("/analysis/") ||
-    locationPath.startsWith("/analysis-result/") ||
+    locationPath.startsWith("/analysis") ||
     (locationPath === "/" && !!user);
   const showNav = !isLogin && !isLanding;
   // Remove footer from analysis result page (and analysis-related pages as requested)
@@ -142,7 +140,7 @@ function AppRoutes() {
 
         <Box w="100%" flex={1} overflowY="auto" overflowX={isConsole ? undefined : "hidden"} paddingX={isLanding || isConsole ? 0 : { base: 4, md: 16 }}>
             <AnimatePresence mode="wait">
-              <motion.div key={location.pathname} variants={page} style={{ height: "100%" }} initial="initial" animate="animate" exit="exit">
+              <motion.div key={isConsole ? "console" : location.pathname} variants={page} style={{ height: "100%" }} initial="initial" animate="animate" exit="exit">
                 <Suspense fallback={<PageFallback />}>
                   <Routes location={location}>
                     <Route path="/login" element={<Login />} />

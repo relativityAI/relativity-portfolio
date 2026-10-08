@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
-    Search, PenLine, Sparkles, Trash2, ShieldCheck, Link2,
+    Search, PenLine, Trash2, ShieldCheck, Link2,
     ListFilter, ChevronDown, X, ArrowLeft,
 } from "lucide-react";
 import { SkillService, AgentService, type SkillSummary } from "@/db";
 import { useSkillLibrary, SkillEditor } from "@/components/skills/SkillBrowser";
 import SkillAvatar from "@/components/shared/SkillAvatar";
 import SkillCreatePane from "@/components/skills/SkillCreatePane";
-import { SourceMark, type SourceKey } from "@/lib/sourceLogos";
+import { SkillMarkdown } from "@/components/skills/SkillMarkdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -35,16 +35,6 @@ const CATEGORY_LABELS: Record<string, string> = {
     custom: "Custom",
 };
 
-function sourcesForSkill(skill: SkillSummary): SourceKey[] {
-    const out: SourceKey[] = ["voyager"];
-    const cat = skill.category;
-    if (cat === "valuation" || cat === "fundamentals") out.push("sec", "nse");
-    if (cat === "market") out.push("news");
-    if (cat === "qualitative") out.push("reddit", "youtube");
-    if (cat === "macro") out.push("news", "web");
-    return out;
-}
-
 type Mode = "inspect" | "create";
 
 /** Section heading with the pencil that says "this section is editable". */
@@ -65,7 +55,6 @@ function SectionHead({ children, onEdit }: { children: ReactNode; onEdit: () => 
 }
 
 export default function AgentSkills() {
-    const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const { library, loading, error: libraryError, setLibrary } = useSkillLibrary();
     const [selected, setSelected] = useState<SkillSummary | null>(null);
@@ -264,7 +253,7 @@ export default function AgentSkills() {
                 {loading ? (
                     <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" role="status" aria-label="Loading skills">
                         {Array.from({ length: 8 }).map((_, i) => (
-                            <div key={i} className="h-[92px] animate-pulse rounded-xl bg-console-recessed" />
+                            <div key={i} className="h-[76px] animate-pulse rounded-xl bg-console-recessed" />
                         ))}
                     </div>
                 ) : libraryError ? (
@@ -276,7 +265,7 @@ export default function AgentSkills() {
                         {filtered.length === 0 && (
                             <p className="col-span-full py-8 text-center text-[13px] text-console-ink-3">
                                 {library.length === 0
-                                    ? "No skills yet — create the first one with the buttons above."
+                                    ? "No skills yet — create the first one with New manually."
                                     : "No skills match that search."}
                             </p>
                         )}
@@ -284,17 +273,17 @@ export default function AgentSkills() {
                             <button
                                 key={s.id}
                                 onClick={() => openSkill(s)}
-                                className="flex items-start gap-3 rounded-xl bg-console-surface p-3 text-left shadow-console transition hover:shadow-console-lift focus-visible:ring-2 focus-visible:ring-console-accent/40 focus-visible:outline-none"
+                                className="flex items-start gap-2.5 rounded-xl bg-console-surface p-2.5 text-left shadow-console transition hover:shadow-console-lift focus-visible:ring-2 focus-visible:ring-console-accent/40 focus-visible:outline-none"
                             >
-                                <SkillAvatar skill={s} size={34} />
+                                <SkillAvatar skill={s} size={28} />
                                 <span className="min-w-0 flex-1">
                                     <span className="flex items-center gap-1.5">
                                         <span className="min-w-0 truncate text-[13px] font-semibold text-console-ink">{s.name}</span>
                                     </span>
                                     <span className="mt-0.5 line-clamp-2 block text-[11.5px] leading-snug text-console-ink-3">
-                                        {s.description.length > 120 ? s.description.slice(0, 120) + "…" : s.description}
+                                        {s.description.length > 96 ? s.description.slice(0, 96) + "…" : s.description}
                                     </span>
-                                    <span className="mt-1.5 block text-[10px] font-medium tracking-wide text-console-ink-4 uppercase">
+                                    <span className="mt-1 block text-[10px] font-medium tracking-wide text-console-ink-4 uppercase">
                                         {CATEGORY_LABELS[s.category] || s.category}
                                     </span>
                                 </span>
@@ -334,9 +323,6 @@ export default function AgentSkills() {
                         <>
                             <Button variant="secondary" size="sm" onClick={startCreate}>
                                 <PenLine /> New manually
-                            </Button>
-                            <Button variant="accentSoft" size="sm" onClick={() => navigate("/console/builder?mode=skill")}>
-                                <Sparkles /> New with AI
                             </Button>
                         </>
                     )}
@@ -437,27 +423,15 @@ function SkillDetail({
             )}
 
             <section>
-                <SectionHead onEdit={onEdit}>Draws on</SectionHead>
-                <div className="flex flex-wrap gap-2">
-                    {sourcesForSkill(skill).map((src) => (
-                        <span key={src} className="inline-flex items-center gap-1.5 rounded-full bg-console-recessed px-2.5 py-1">
-                            <SourceMark source={src} size={12} />
-                            <span className="text-[11px] text-console-ink-2">{src}</span>
-                        </span>
-                    ))}
-                </div>
-            </section>
-
-            <section>
-                <SectionHead onEdit={onEdit}>Full document</SectionHead>
+                <SectionHead onEdit={onEdit}>Document</SectionHead>
                 {docError ? (
                     <p className="text-[13px] text-console-negative">Couldn't load this skill's document.</p>
                 ) : markdown === null ? (
                     <div className="h-24 animate-pulse rounded-xl bg-console-recessed" />
                 ) : (
-                    <pre className="max-h-[60vh] overflow-y-auto rounded-2xl bg-console-recessed p-4 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-console-ink-2">
-                        {markdown}
-                    </pre>
+                    <div className="max-w-[75ch]">
+                        <SkillMarkdown>{markdown}</SkillMarkdown>
+                    </div>
                 )}
             </section>
         </div>

@@ -24,7 +24,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { CountUp, dur, ease } from "@/lib/motion";
 import { ReportBlockRenderer } from "../components/builder/ReportBlockRenderer";
 import SkillResultCard from "./sections/SkillResultCard";
-import { SourceMark } from "@/lib/sourceLogos";
+import { SourceMark, TickerLogo } from "@/lib/sourceLogos";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { runProgressPct } from "./shared/RunStatus";
 import {
@@ -460,6 +460,7 @@ export default function AnalysisResult() {
                                     Analyses
                                 </Text>
                             </Link>
+                            <TickerLogo symbol={analysis.symbol} size={24} />
                             <Text
                                 fontSize="17px"
                                 fontWeight={600}
@@ -818,7 +819,7 @@ export default function AnalysisResult() {
                                             {skillOutputs.length > 0 ? (
                                                 <Flex direction="column" gap={6}>
                                                     {skillOutputs.map((out: any, i: number) => (
-                                                        <SkillResultCard key={out.skill_id || out.skill_name || i} output={out} />
+                                                        <SkillResultCard key={out.skill_id || out.skill_name || i} output={out} analysisId={id} />
                                                     ))}
                                                 </Flex>
                                             ) : (
@@ -867,6 +868,19 @@ export default function AnalysisResult() {
 
                     </Tabs.Root>
                     </Box>
+
+                    {/* Attribution the ticker-logo CDN licence requires; this
+                        page hides the app footer, so it lives here instead. */}
+                    <p className="mt-8 text-center text-[10px] text-[var(--ink-tertiary)]">
+                        <a
+                            href="https://www.allinvestview.com/tools/ticker-logos/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:text-[var(--ink-secondary)]"
+                        >
+                            Logos by AllInvestView
+                        </a>
+                    </p>
             </Container>
         </Box>
     );

@@ -13,6 +13,11 @@ import { log } from "./logger.js";
 import { agentChipPng, agentSeed } from "./agentIdentity.js";
 import { LOGO_PNG_DATA_URI } from "./reportLogo.js";
 import { NSE_LOGO_DATA_URI, SEC_LOGO_DATA_URI } from "./exchangeLogos.js";
+import { tickerLogoDataUri } from "./tickerLogos.js";
+
+// Attribution URL required by the Ticker Logos licence (their terms ask for a
+// visible dofollow link wherever a logo appears).
+const TICKER_LOGOS_ATTR = "https://www.allinvestview.com/tools/ticker-logos/";
 
 // pdfmake ships a CJS browser build that Vite's transformer breaks. Load it via
 // Node's native require (identical in tsc-runtime and vitest).
@@ -1159,6 +1164,9 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
     : run.agent_name || "";
   const tokensLine = tokensMeta(run);
   const traceCount = Array.isArray(run.trace) ? run.trace.length : 0;
+  // Subject's own logo, hotlinked from the Ticker Logos CDN — never stored.
+  // A miss just means the title renders without it.
+  const tickerLogo = await tickerLogoDataUri(run.symbol);
 
   // ── Section 01: executive summary (agent runs only, mirrors the UI) ──
   const execNodes: PdfNode[] = [];
@@ -1253,7 +1261,17 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
           margin: [0, 1, 0, 0],
         },
         { text: `Relativity · ${run.share_name || run.symbol}${footerAgent ? ` · ${footerAgent}` : ""}`, style: "footer", alignment: "left", margin: [0, 3, 0, 0] },
-        { text: `page ${currentPage} of ${pageCount}`, style: "footer", alignment: "right", margin: [0, 3, 0, 0] },
+        {
+          text: [
+            { text: `page ${currentPage} of ${pageCount}` },
+            // Attribution the Ticker Logos licence requires wherever its
+            // logo is printed — linked, same footer size and colour.
+            ...(tickerLogo ? [{ text: " · Logos by AllInvestView", link: TICKER_LOGOS_ATTR }] : []),
+          ],
+          style: "footer",
+          alignment: "right",
+          margin: [0, 3, 0, 0],
+        },
       ],
       columnGap: 6,
       margin: [44, 20, 44, 0],
@@ -1267,7 +1285,17 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
         height: 26,
         margin: [0, 0, 0, 10],
       },
-      { text: run.share_name || run.symbol || "Equity Analysis", style: "title" },
+      // Subject's logo sits left of the title; an empty spacer keeps the
+      // column geometry identical when the CDN has no logo for the ticker.
+      {
+        columns: [
+          tickerLogo
+            ? { image: tickerLogo, width: 34, fit: [34, 34], margin: [0, 5, 0, 0] }
+            : { text: "", width: 34 },
+          { text: run.share_name || run.symbol || "Equity Analysis", style: "title" },
+        ],
+        columnGap: 12,
+      },
       // Exchange mark for the market this stock was selected on, sized to read
       // at print size (the old report carried the source only as 12px text).
       {

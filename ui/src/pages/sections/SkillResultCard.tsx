@@ -1,5 +1,7 @@
-import { Box, Text, Flex, Badge } from "@/compat/ui"
+import { Box, Text, Flex } from "@/compat/ui"
 import { SiAgentskills } from "react-icons/si"
+import { TbFileSpreadsheet } from "react-icons/tb"
+import { LuDownload } from "react-icons/lu"
 import { useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -8,11 +10,14 @@ import {
     MdExpandLess,
     MdDataset,
     MdOutlineWarningAmber,
+    MdOutlineDownload,
     MdOutlineOpenInNew,
     MdOutlineCalendarToday,
 } from "react-icons/md"
 import { SOURCE_DEFS, SourceMark, sourceForTool, FaviconMark, type SourceKey } from "@/lib/sourceLogos"
 import SkillAvatar from "@/components/shared/SkillAvatar"
+import { Button } from "@/components/ui/button"
+import { AnalysisService } from "@/db"
 
 // SkillResultCard — one skill's report. Design contract:
 // 1. Evidence leads. Every claim shows the source it came from; a source with
@@ -34,6 +39,8 @@ interface RawObservation {
     tool: string;
     args?: string;
     result: string;
+    /** The table text the skill model received, verbatim (api/tools.formatToolData). */
+    rendered?: string;
     status: string;
     url?: string;
 }
@@ -65,6 +72,7 @@ interface SkillOutput {
     tools_used?: string[];
     citations?: Citation[];
     raw_observations?: RawObservation[];
+    artifacts?: SkillArtifact[];
     error?: string;
     score_0_100?: number | null;
     coverage?: number;
@@ -74,6 +82,18 @@ interface SkillOutput {
     total_checklist?: number;
 }
 
+interface SkillArtifact {
+    id: string;
+    skill_id: string;
+    kind: string;
+    status: "ready" | "partial" | "unavailable";
+    recipe: { filename: string; description: string } | null;
+    summary: string;
+    assumptions: { label: string; value: string; reason: string }[];
+    observation_refs: number[];
+    note?: string;
+}
+
 function SkillSummaryMarkdown({ children }: { children: string }) {
     return (
         <Box
@@ -81,7 +101,7 @@ function SkillSummaryMarkdown({ children }: { children: string }) {
             color="var(--ink-secondary)"
             lineHeight="relaxed"
             css={{
-                "& h1, & h2, & h3, & h4": { color: "var(--ink-primary)", fontWeight: 600, lineHeight: 1.3, marginTop: "1em", marginBottom: "0.4em" },
+                "& h1, & h2, & h3, & h4": { color: "var(--ink-primary)", fontWeight: 400, fontFamily: "var(--font-display)", lineHeight: 1.3, marginTop: "1em", marginBottom: "0.4em" },
                 "& h1": { fontSize: "1.35em" },
                 "& h2": { fontSize: "1.2em" },
                 "& h3, & h4": { fontSize: "1.05em" },
@@ -378,6 +398,93 @@ function PayloadFields({ fields }: { fields: { label: string; value: string }[] 
 }
 
 /**
+ * A workbook the skill built, offered as a download.
+ *
+ * One row, like a file attachment. The assumptions and the build note are the
+ * interesting part, but printing them costs the row its height and buries the
+ * only thing it is for — they are surfaced on hover instead, and the assumptions
+ * are editable in the file itself.
+ */
+function ArtifactCard({ artifact, analysisId }: { artifact: SkillArtifact; analysisId?: string }) {
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    // A partial workbook is still a real, downloadable file — only the data behind it is thin.
+    const downloadable = !!artifact.recipe && artifact.status !== "unavailable";
+    const statusLabel = artifact.status === "ready" ? "Ready" : artifact.status === "partial" ? "Partial" : "Unavailable";
+    const statusTone = {
+        ready: "text-[var(--signal-positive)]",
+        partial: "text-[var(--signal-caution)]",
+        unavailable: "text-[var(--signal-negative)]",
+    }[artifact.status];
+
+    const download = async () => {
+        if (!analysisId || !artifact.recipe) return;
+        setBusy(true);
+        setError(null);
+        try {
+            const blob = await AnalysisService.downloadArtifact(analysisId, artifact.id);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = artifact.recipe.filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e: any) {
+            setError(e?.response?.data?.error || "Download failed. Try again.");
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div
+            tabIndex={0}
+            className="group mt-3 flex items-center gap-3 rounded-[6px] border border-[var(--hairline)] bg-[var(--surface-panel)] px-3 py-2 transition-[border-color,box-shadow,background-color] duration-150 hover:border-[color-mix(in_srgb,var(--accent-primary)_55%,transparent)] hover:bg-[color-mix(in_srgb,var(--accent-primary)_5%,var(--surface-panel))] hover:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--accent-primary)_30%,transparent)] focus-visible:border-[var(--accent-primary)] focus-visible:shadow-[inset_0_0_0_1px_var(--accent-primary)] focus-visible:outline-none"
+        >
+            <span
+                className="flex size-9 shrink-0 items-center justify-center rounded-[5px]"
+                style={{ background: "color-mix(in srgb, var(--file-sheet) 12%, #EEF4F0)", color: "var(--file-sheet)" }}
+            >
+                <TbFileSpreadsheet size={18} aria-hidden />
+            </span>
+
+            <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-[var(--ink-primary)]">
+                {artifact.recipe?.filename ?? statusLabel}
+            </span>
+
+            <span className="hidden min-w-0 flex-1 truncate text-[11px] text-[var(--ink-tertiary)] md:block">
+                {artifact.summary}
+            </span>
+
+            <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.06em] ${statusTone}`}>
+                {statusLabel}
+            </span>
+
+            {downloadable && (
+                <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={busy}
+                    disabled={!analysisId}
+                    onClick={download}
+                    aria-busy={busy}
+                    className="border-0 bg-[var(--file-sheet)] text-white hover:bg-[color-mix(in_srgb,var(--file-sheet)_88%,black)]"
+                >
+                    {!busy && <LuDownload aria-hidden />}
+                    Download
+                </Button>
+            )}
+
+            {error && (
+                <span role="alert" className="shrink-0 text-[11px] text-[var(--signal-negative)]">
+                    {error}
+                </span>
+            )}
+        </div>
+    );
+}
+
+/**
  * The verbatim record of what the tools returned, rendered as SOURCE DATA —
  * a visually separate, branded section under the analysis. Each observation
  * leads with where it came from (icon + domain/feed), shows readable content
@@ -416,10 +523,87 @@ function SourceDataPanel({ observations }: { observations: RawObservation[] }) {
     );
 }
 
+/** Split a rendered tool payload into monotone text and markdown pipe tables. */
+type EvidenceBlock = { kind: "text"; text: string } | { kind: "table"; head: string[]; rows: string[][] };
+
+function evidenceCells(line: string): string[] {
+    return line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim().replace(/\\\|/g, "|"));
+}
+
+function parseEvidence(text: string): EvidenceBlock[] {
+    const lines = text.split("\n");
+    const blocks: EvidenceBlock[] = [];
+    let buf: string[] = [];
+    const flush = () => { if (buf.length) { blocks.push({ kind: "text", text: buf.join("\n") }); buf = []; } };
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        const next = lines[i + 1]?.trim() ?? "";
+        const isSep = (l: string) => evidenceCells(l).every((c) => /^:?-+:?$/.test(c));
+        if (/^\|.*\|$/.test(line) && /^\|.*\|$/.test(next) && isSep(next)) {
+            const head = evidenceCells(line);
+            const rows: string[][] = [];
+            i += 2;
+            while (i < lines.length && /^\|.*\|$/.test(lines[i].trim())) {
+                if (!isSep(lines[i].trim())) rows.push(evidenceCells(lines[i]));
+                i++;
+            }
+            i--;
+            flush();
+            blocks.push({ kind: "table", head, rows });
+        } else {
+            buf.push(lines[i]);
+        }
+    }
+    flush();
+    return blocks;
+}
+
+/** The exact table text the model received — tables rendered, the rest verbatim. */
+function RenderedEvidence({ text }: { text: string }) {
+    const blocks = parseEvidence(text);
+    return (
+        <Flex direction="column" gap={2} px={3} py={2} maxH={420} overflow="auto">
+            {blocks.map((b, i) =>
+                b.kind === "text" ? (
+                    <Text key={i} as="pre" m={0} fontSize="11px" lineHeight="1.55" color="var(--ink-tertiary)" fontFamily="var(--font-mono)" whiteSpace="pre-wrap">
+                        {b.text}
+                    </Text>
+                ) : (
+                    <Box key={i} overflowX="auto">
+                        <Box as="table" style={{ borderCollapse: "collapse", width: "100%" }}>
+                            <Box as="thead">
+                                <Box as="tr">
+                                    {b.head.map((c, j) => (
+                                        <Box as="th" key={j} style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid var(--hairline)", fontSize: "10.5px", color: "var(--ink-tertiary)", whiteSpace: "nowrap" }}>
+                                            {c}
+                                        </Box>
+                                    ))}
+                                </Box>
+                            </Box>
+                            <Box as="tbody">
+                                {b.rows.map((r, j) => (
+                                    <Box as="tr" key={j}>
+                                        {r.map((c, k) => (
+                                            <Box as="td" key={k} style={{ padding: "4px 6px", fontSize: "11.5px", color: "var(--ink-secondary)", borderBottom: "1px solid var(--hairline)", whiteSpace: "nowrap" }}>
+                                                {c}
+                                            </Box>
+                                        ))}
+                                    </Box>
+                                ))}
+                            </Box>
+                        </Box>
+                    </Box>
+                ),
+            )}
+        </Flex>
+    );
+}
+
 /** One tool observation as a source-data card. */
 function ObservationCard({ o }: { o: RawObservation }) {
     const [open, setOpen] = useState(false);
     const parsed = parsePayload(o.result || "");
+    const rendered = o.status === "ok" && o.rendered?.trim() ? o.rendered.trim() : "";
     const sourceKey = o.url && parsed.items.length === 0 ? ("web" as SourceKey) : sourceForTool(o.tool);
     const headerLabel = o.url && parsed.items.length === 0 ? domainOf(o.url) : SOURCE_DEFS[sourceKey].label;
     const argsFields = o.args ? payloadFields((() => { try { return JSON.parse(o.args!); } catch { return null; } })()) : [];
@@ -470,8 +654,10 @@ function ObservationCard({ o }: { o: RawObservation }) {
 
             {open && <>
             {argsFields.length > 0 && <PayloadFields fields={argsFields} />}
-            {/* Readable content: story cards for web results, readouts for feeds */}
-            {ok && parsed.items.length > 0 ? (
+            {/* Readable content: the exact LLM table when stored, else story cards for web results, readouts for feeds */}
+            {ok && rendered ? (
+                <RenderedEvidence text={rendered} />
+            ) : ok && parsed.items.length > 0 ? (
                 <Flex direction="column" gap={0}>
                     {parsed.items.map((it, j) => (
                         <Box
@@ -627,7 +813,7 @@ function renderBlock(b: Block, datasets?: any[]) {
     return null
 }
 
-export default function SkillResultCard({ output }: { output: SkillOutput }) {
+export default function SkillResultCard({ output, analysisId }: { output: SkillOutput; analysisId?: string }) {
     const scored = typeof output.score_0_100 === "number";
     const hasAnalysis = !!output.analysis?.trim();
     const summaryOnly = output.scored_by === "summary" || hasAnalysis || (output.findings || []).some((f) => f.title === "Skill summary");
@@ -770,6 +956,10 @@ export default function SkillResultCard({ output }: { output: SkillOutput }) {
                 {!hasError && !hasVerdicts && !hasFindings && !hasAnalysis && (
                     <NoDataNote message="This skill completed but returned no findings or verdicts — nothing was assessable in the data available." />
                 )}
+
+                {(output.artifacts || []).map((a) => (
+                    <ArtifactCard key={a.id} artifact={a} analysisId={analysisId} />
+                ))}
 
                 <SourceDataPanel observations={observations} />
             </Box>

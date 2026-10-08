@@ -1,35 +1,39 @@
-import { useColorModeValue } from "@/components/ui/color-mode";
-import logoLight from "@/assets/logo-light.png";
-import logoDark from "@/assets/logo-dark.png";
-
 type Preset = "nav" | "landing" | "login";
 
-const PRESETS: Record<Preset, { height: number; radius: number; textSize?: string; letterSpacing?: string; showWord: boolean }> = {
-  nav: { height: 20, radius: 5, textSize: "text-xs md:text-sm", showWord: true },
-  // Wordmark cap-height is tuned to match the 34px mark so the lockup reads
-  // as one unit rather than a big glyph with a small word beside it.
-  landing: { height: 34, radius: 8, textSize: "text-xl", letterSpacing: "tracking-[0.14em]", showWord: true },
-  login: { height: 22, radius: 8, textSize: "text-xs", letterSpacing: "tracking-[0.2em]", showWord: true },
+const PRESETS: Record<Preset, { mark: number; word: number; showWord: boolean }> = {
+  // Wordmark is sized ~62% of the mark's cap height so the lockup reads as
+  // one Newsreader brand unit rather than a big glyph with a small word.
+  nav: { mark: 22, word: 14, showWord: true },
+  landing: { mark: 32, word: 20, showWord: true },
+  login: { mark: 24, word: 15, showWord: true },
 };
 
 /**
- * Theme-aware brand mark. Renders the dark glyph in light mode and the light
- * glyph in dark mode so the mark always sits on a contrasting background.
+ * Brand mark. The mark is a single "R." set in the display face with no
+ * favicon-style tile — it stays legible on every surface in both themes.
  */
-export default function Logo({ preset = "nav", showWordmark = true }: { preset?: Preset; showWordmark?: boolean }) {
-  const src = useColorModeValue(logoLight, logoDark);
+export default function Logo({ preset = "nav", showWordmark = true, showMark = true, fontWeight }: { preset?: Preset; showWordmark?: boolean; showMark?: boolean; fontWeight?: number }) {
   const p = PRESETS[preset];
-  if (!p.showWord || !showWordmark) {
-    return <img src={src} alt="Relativity" style={{ height: p.height, width: "auto", borderRadius: p.radius, flexShrink: 0 }} />;
-  }
   return (
     <div className="flex items-center gap-2 min-w-0">
-      <img src={src} alt="Relativity" style={{ height: p.height, width: "auto", borderRadius: p.radius, flexShrink: 0 }} />
-      <span
-        className={`font-bold font-[family-name:var(--font-mono)] ${p.textSize || ""} ${p.letterSpacing ?? "tracking-tight"} text-[var(--ink-primary)] overflow-hidden text-ellipsis whitespace-nowrap max-[379px]:hidden`}
-      >
-        RELATIVITY
-      </span>
+      {showMark && (
+        <span
+          className="leading-none text-[var(--ink-primary)] select-none shrink-0"
+          style={{ fontFamily: "var(--font-display)", fontSize: p.mark, fontWeight: fontWeight ?? 700 }}
+          aria-label="Relativity."
+          role="img"
+        >
+          R.
+        </span>
+      )}
+      {showWordmark && p.showWord && (
+        <span
+          className="text-[var(--ink-primary)] tracking-tight overflow-hidden text-ellipsis whitespace-nowrap max-[379px]:hidden"
+          style={{ fontFamily: "var(--font-display)", fontSize: p.word, fontWeight: fontWeight ?? 600 }}
+        >
+          Relativity.
+        </span>
+      )}
     </div>
   );
 }

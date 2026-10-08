@@ -51,7 +51,7 @@ export const AgentService = {
         return response.data;
     },
 
-    async validateMd(md: string): Promise<{ valid: boolean; parsed?: any; issues: { line: number; message: string; severity: "warn" | "error" }[] }> {
+    async validateMd(md: string): Promise<{ valid: boolean; parsed?: any; issues: { line: number; message: string; severity: "warn" | "error" }[]; fixed?: string | null }> {
         const response = await axios.post(`${API_BASE}/agents/validate-md`, { md });
         return response.data;
     },
@@ -81,6 +81,15 @@ export const AnalysisService = {
     async readAnalysis(id: string) {
         const response = await axios.get(`${API_BASE}/analysis/${encodeURIComponent(id)}`);
         return response.data;
+    },
+
+    /** Auth is a Bearer token, so a plain <a href> cannot download — fetch as a blob. */
+    async downloadArtifact(analysisId: string, artifactId: string): Promise<Blob> {
+        const response = await axios.get(
+            `${API_BASE}/analysis/${encodeURIComponent(analysisId)}/artifact/${encodeURIComponent(artifactId)}`,
+            { responseType: "blob" },
+        );
+        return response.data as Blob;
     },
 
     async createAnalysis() {
@@ -157,8 +166,8 @@ export const SkillService = {
         return response.data;
     },
 
-    async validateMarkdown(markdown: string): Promise<{ valid: boolean; issues: { line: number; message: string; severity: string }[] }> {
-        const response = await axios.post(`${API_BASE}/skills/validate`, { markdown });
+    async validateMarkdown(markdown: string, fallbackName?: string): Promise<{ valid: boolean; issues: { line: number; message: string; severity: string }[]; fixed?: string | null }> {
+        const response = await axios.post(`${API_BASE}/skills/validate`, { markdown, fallbackName });
         return response.data;
     },
 
