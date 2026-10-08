@@ -36,29 +36,6 @@ The price chart is the record of every participant's decisions. This skill reads
 - The level map is actionable (defined support/resistance with touch counts, a stop grounded in ATR or structure, and R:R to TP1 at or better than 1:1) — weight 4
 - Scenario framing is honest (bull/bear/neutral triggers stated, invalidation level defined, no single-sided story) — weight 3
 
-## Charts
-
-- type: candlestick | title: Price — 1 year daily with SMA 20/50/200 | data: price_daily
-- type: line | title: RSI (14) — last 6 months | data: rsi_series
-- type: bar | title: Volume — last 3 months | data: volume_series
-- type: bar | title: Volume Profile — volume traded per price zone | data: technicals_volume_profile
-- type: bar | title: Signal counts by timeframe — bullish vs bearish | data: technicals_mtf_matrix
-
-## Chart Rendering — Lightweight Charts (STRICT)
-
-The report's charts render with TradingView Lightweight Charts (`lightweight-charts`, already a project dependency — v5 API). These rules are binding for every chart this skill contributes; a chart that violates them is a defect, not a style choice.
-
-1. Library discipline. Use ONLY `lightweight-charts` for price-type series (candlestick, line overlays, volume histogram). General-purpose chart engines (ECharts and similar) are reserved for non-time-series visuals (radar, pie, scatter of fundamentals). Never mix two engines in one chart.
-2. API generation. This is Lightweight Charts v5: series are created with `chart.addSeries(CandlestickSeries | LineSeries | HistogramSeries | AreaSeries, options)`. The v4 `chart.addCandlestickSeries(...)`-style shortcut methods do not exist — using them fails at runtime.
-3. Time handling. All `time` values are either `YYYY-MM-DD` business-day strings or UTC timestamps (`UTCTimestamp`, seconds — never milliseconds). Sort every series ascending by time and deduplicate; duplicate or out-of-order points throw at `setData`.
-4. Data integrity. Chart values come ONLY from the code-grounded data feed (price history / Technicals report). The model never authors chart numbers. A series with fewer than 2 (line) or 5 (candle) valid points renders as its empty-state message instead — never pad, interpolate, or fabricate points to make a chart look fuller.
-5. Nulls. Filter non-finite values (`Number.isFinite`) before `setData`; lightweight-charts cannot parse `null` or `NaN` in line data.
-6. Theming. Do not hardcode a palette. Read the current theme once (light/dark) and map: background transparent; text/grid colors from the theme's ink/hairline tokens; candles up = theme positive, down = theme negative; overlay lines use the shared block series colors. Lightweight-charts parses colors itself — `var(--token)` strings are invalid; resolve tokens with `getComputedStyle(...).getPropertyValue(...).trim()` and provide a concrete fallback.
-7. Composition. One price pane: candlestick + SMA 20/50/200 overlays. Volume as a `HistogramSeries` on a separate pane/scale — never overlaid on the price scale. RSI is its own chart (bounded 0–100; set the price scale's `autoscaleInfoProvider` or min/max so the axis never clips at 100). Volume Profile is a horizontal bar chart keyed by price zone — not a time series.
-8. Sizing & lifecycle. Set an explicit pixel height on the container; `width: 100%`; on resize update via `chart.applyOptions({ width })` from a `ResizeObserver`. Always `chart.remove()` on unmount. Never animate price series (candle charts do not tween).
-9. Accessibility. The canvas is invisible to assistive tech: give each chart a `role="img"` `aria-label` summarizing the data in one sentence (period, first/last values, direction), plus a visually-hidden compact data table. Pair each chart with a small legend naming every series on it (color swatch + label) — SMA overlays are meaningless without one.
-10. Attribution. Plots render without the library's TradingView notice (`layout.attributionLogo: false` — product decision); never add a watermark or attribution mark to a chart.
-
 ## Output Template
 
 State the trend call in the first sentence with the regime and SMA-alignment evidence, then momentum (with timeframes), volume confirmation, volatility/ATR context, and the level map (nearest support and resistance with touch counts, stop, TP1–TP3, R:R, 52-week range position as a percentage). Close with the scenario triggers and the invalidation level. Always name the `as_of` date of the Technicals report. If the report was unavailable, say the analysis rests on price-history indicators only and mark the level-map and confluence anchors INSUFFICIENT.
