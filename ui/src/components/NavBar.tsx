@@ -8,7 +8,6 @@ import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX, LuSun, LuMoon } from "
 import { useColorMode } from "@/components/ui/color-mode";
 import { useAuth } from "@/auth/useAuth";
 import { motion } from "motion/react";
-import Logo from "@/components/Logo";
 import UserAvatar from "@/components/shared/UserAvatar";
 
 const HEALTH_CHECK_INTERVAL_MS = 15000;
@@ -162,9 +161,9 @@ export default function NavBar() {
             bg="var(--surface-canvas)"
             height="44px"
         >
-            <Flex align="center" gap={{ base: 5, md: 4, lg: 8 }} minW={0} flexShrink={1}>
+            <Flex align="center" gap={{ base: 6, md: 8, lg: 12 }} minW={0} flexShrink={1}>
                 <Flex align="center" gap={2} minW={0}>
-                    <Logo preset="nav" showWordmark={false} />
+                    <Link to="/" className="text-[var(--ink-primary)] select-none" style={{ fontFamily: "var(--font-display)", fontWeight: 400, fontSize: 24 }}>Relativity.</Link>
                 </Flex>
 
                 <Flex gap={{ md: 3, lg: 6 }} align="center" display={{ base: "none", md: "flex" }} minW={0}>
@@ -174,7 +173,6 @@ export default function NavBar() {
                         return (
                             <Link key={item.to} to={item.to}>
                                 <Flex gap={1.5} align="center" position="relative" py={1}>
-                                    <item.icon size={16} color={active ? "var(--chakra-colors-fg)" : "var(--chakra-colors-fg-muted)"} />
                                     <Text fontSize={{ md: "xs", lg: "sm" }} whiteSpace="nowrap" flexShrink={0} fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{item.label}</Text>
                                     {count !== null && count > 0 && (
                                         <Badge size="xs" variant="subtle" colorPalette="gray" borderRadius="full">{count}</Badge>
@@ -190,7 +188,7 @@ export default function NavBar() {
                 </Flex>
             </Flex>
 
-            <Flex justify={"flex-end"} gap={{ base: 1.5, md: 2 }} align="center" flexShrink={0}>
+            <Flex justify={"flex-end"} gap={{ base: 2, md: 4 }} align="center" flexShrink={0}>
                 <IconButton
                     aria-label="Open navigation menu"
                     variant="ghost"
@@ -290,10 +288,7 @@ export default function NavBar() {
                             py={3}
                         >
                             <Flex align="center" gap={2} minW={0}>
-                                <Flex align="center" gap={1.5}>
-              <Logo preset="nav" showWordmark={false} />
-              <Text fontFamily="var(--font-display)" fontSize="md" fontWeight={600} color="var(--ink-primary)">Relativity.</Text>
-            </Flex>
+                                <Link to="/" className="text-[var(--ink-primary)] select-none" style={{ fontFamily: "var(--font-display)", fontWeight: 400, fontSize: 16 }}>Relativity.</Link>
                             </Flex>
                             <Drawer.CloseTrigger asChild>
                                 <IconButton

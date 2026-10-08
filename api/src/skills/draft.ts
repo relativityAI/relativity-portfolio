@@ -10,7 +10,7 @@
 
 import { generateText } from "ai";
 import { buildModel, type LlmKeys } from "../agent.js";
-import { buildWebSearchTool } from "../tools.js";
+import { buildWebSearchTool, renderToolResults } from "../tools.js";
 import { runAgentTurn } from "../harness.js";
 import { classifyModelError } from "../modelcheck.js";
 import { keyPool } from "../keypool.js";
@@ -126,7 +126,7 @@ export async function skillDraftTurn(req: SkillDraftRequest): Promise<SkillDraft
   // Web search is always available (free DuckDuckGo default; Tavily when a
   // key is configured) — skill authoring should ground named methodologies
   // even with zero keys configured.
-  const tools = searchRequested ? { web_search: buildWebSearchTool(req.llm_keys.tavily) } : undefined;
+  const tools = searchRequested ? renderToolResults({ web_search: buildWebSearchTool(req.llm_keys.tavily) }) : undefined;
 
   // "Search for X and build a skill" style asks must search, not draft from
   // memory — same trigger vocabulary as the agent builder.

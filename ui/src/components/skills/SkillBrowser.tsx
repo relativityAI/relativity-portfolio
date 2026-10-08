@@ -8,6 +8,7 @@ import { SkillService, type SkillSummary } from "@/db";
 import SkillDraftPane from "@/components/skills/SkillDraftPane";
 import SkillCreatePane from "@/components/skills/SkillCreatePane";
 import SkillAvatar from "@/components/shared/SkillAvatar";
+import { SkillMarkdown } from "@/components/skills/SkillMarkdown";
 import { MdAutoAwesome } from "react-icons/md";
 
 /**
@@ -76,6 +77,7 @@ export function SkillEditor({ skill, onSaved, onCancel }: {
     const [validating, setValidating] = useState(false);
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
+    const [fixNotice, setFixNotice] = useState<string | null>(null);
     const [loadError, setLoadError] = useState(false);
 
     useEffect(() => {
@@ -92,13 +94,29 @@ export function SkillEditor({ skill, onSaved, onCancel }: {
     const runValidate = async (text: string) => {
         setValidating(true);
         try {
-            const res = await SkillService.validateMarkdown(text);
-            setIssues(res.issues || []);
-            // The click must visibly answer: a clean check shows an explicit
-            // ok, not just the absence of error lines.
-            setValidated(!res.issues?.some((i) => i.severity === "error") && !!text.trim());
+            const res = await SkillService.validateMarkdown(text, skill.id);
+            if (typeof res.fixed === "string") {
+                // The server repaired the document — apply it so the user
+                // reviews the fix rather than the error list.
+                const errors = (res.issues || []).filter((i) => i.severity === "error").length;
+                setMd(res.fixed);
+                setIssues([]);
+                setFixNotice(
+                    errors > 0
+                        ? `✓ We fixed ${errors} issue${errors === 1 ? "" : "s"} in your document — review it, then save.`
+                        : "✓ We tidied your document — review it, then save.",
+                );
+                setValidated(false);
+            } else {
+                setIssues(res.issues || []);
+                setFixNotice(null);
+                // The click must visibly answer: a clean check shows an explicit
+                // ok, not just the absence of error lines.
+                setValidated(!res.issues?.some((i) => i.severity === "error") && !!text.trim());
+            }
         } catch {
             setIssues([]);
+            setFixNotice(null);
             setValidated(false);
         } finally {
             setValidating(false);
@@ -146,7 +164,7 @@ export function SkillEditor({ skill, onSaved, onCancel }: {
             <Box
                 as="textarea"
                 value={md}
-                onChange={(e: any) => { setMd(e.target.value); setValidated(false); }}
+                onChange={(e: any) => { setMd(e.target.value); setValidated(false); setFixNotice(null); }}
                 onBlur={() => md && runValidate(md)}
                 spellCheck={false}
                 fontFamily="var(--font-mono)"
@@ -165,6 +183,9 @@ export function SkillEditor({ skill, onSaved, onCancel }: {
             {validated && issues.length === 0 && (
                 <Text fontSize="12px" color="var(--signal-positive)" fontWeight={500}>✓ Document is valid — ready to save</Text>
             )}
+            {fixNotice && (
+                <Text fontSize="12px" color="var(--signal-positive)" fontWeight={500}>{fixNotice}</Text>
+            )}
             {issues.length > 0 && (
                 <Flex direction="column" gap={0.5}>
                     {issues.map((iss, i) => (
@@ -177,18 +198,34 @@ export function SkillEditor({ skill, onSaved, onCancel }: {
             {saveError && (
                 <Text fontSize="12px" color="var(--signal-negative)">{saveError}</Text>
             )}
-            <Flex gap={2} justify="flex-end">
-                <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
+            <Flex gap={3.5} justify="flex-end">
                 <Button
                     size="sm"
-                    variant="subtle"
+                    variant="ghost"
+                    bg="transparent"
+                    color="white"
+                    fontWeight={400}
+                    _hover={{ bg: "transparent", fontWeight: 800 }}
+                    _active={{ bg: "transparent" }}
+                    transition="font-weight 100ms ease"
+                    onClick={onCancel}
+                >Cancel</Button>
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    bg="transparent"
+                    color="white"
+                    fontWeight={400}
+                    _hover={{ bg: "transparent", fontWeight: 800 }}
+                    _active={{ bg: "transparent" }}
+                    transition="font-weight 100ms ease"
                     loading={validating}
                     onClick={() => md && runValidate(md)}
                     disabled={!md?.trim()}
                 >
                     Validate
                 </Button>
-                <Button size="sm" variant="solid" colorPalette="teal" loading={saving} onClick={save} disabled={!canSave}>
+                <Button size="sm" variant="outline" className="rounded-full px-4" loading={saving} onClick={save} disabled={!canSave}>
                     Save changes
                 </Button>
             </Flex>
@@ -277,8 +314,8 @@ export function SkillDetail({ skill, onEdit, onEditWithAi, onDelete }: { skill: 
                 </Box>
             )}
 
-            <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" mb={1.5} letterSpacing="0.05em">
-                FULL SKILL DOCUMENT
+            <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" mb={2} letterSpacing="0.05em">
+                SKILL DOCUMENT
             </Text>
             {error ? (
                 <Text fontSize="13px" color="var(--signal-negative)">
@@ -287,22 +324,7 @@ export function SkillDetail({ skill, onEdit, onEditWithAi, onDelete }: { skill: 
             ) : markdown === null ? (
                 <Flex py={4}><Spinner size="sm" /></Flex>
             ) : (
-                <Box
-                    as="pre"
-                    m={0}
-                    p={4}
-                    borderRadius="6px"
-                    border="var(--hairline-w) solid var(--hairline)"
-                    bg="var(--surface-recessed)"
-                    fontSize="12px"
-                    lineHeight="1.7"
-                    color="var(--ink-secondary)"
-                    fontFamily="var(--font-mono)"
-                    whiteSpace="pre-wrap"
-                    wordBreak="break-word"
-                >
-                    {markdown}
-                </Box>
+                <SkillMarkdown>{markdown}</SkillMarkdown>
             )}
         </Box>
     );

@@ -164,6 +164,41 @@ export function parseAgentMd(raw: string): AgentMdResult {
   return { agent, issues, opaque, extraFrontmatter };
 }
 
+/**
+ * Repair an agent document so it parses. Conservative: no body line moves;
+ * only the frontmatter is rebuilt (a missing opener/closer, or an absent
+ * `name`). Returns null when nothing changed.
+ */
+export function fixAgentMarkdown(raw: string): string | null {
+  const lines = raw.replace(/\r\n/g, "\n").split("\n");
+  const fm: [string, string][] = [];
+  const body: string[] = [];
+
+  const parseKv = (line: string): [string, string] | null => {
+    const m = line.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
+    return m ? [m[1], m[2].trim()] : null;
+  };
+
+  if (lines[0]?.trim() !== "---") {
+    body.push(...lines);
+  } else {
+    let i = 1;
+    for (; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (t === "---") { i++; break; }
+      const kv = parseKv(lines[i]);
+      if (kv) fm.push(kv);
+      else if (t) break; // content with no closing delimiter ends the block
+    }
+    body.push(...lines.slice(i));
+  }
+
+  if (!fm.some(([k]) => k === "name")) fm.unshift(["name", "Untitled agent"]);
+
+  const out = `---\n${fm.map(([k, v]) => `${k}: ${v}`).join("\n")}\n---\n\n${body.join("\n").replace(/^\n+/, "").trimEnd()}\n`;
+  return out.trim() === raw.trim() ? null : out.trimEnd();
+}
+
 /** Serialize an agent config to markdown; opaque sections survive round-trips. */
 export function serializeAgentMd(agent: AgentConfigV3, prevMd?: string): string {
   const prev = prevMd ? parseAgentMd(prevMd) : { opaque: [], extraFrontmatter: [] };

@@ -143,6 +143,95 @@ export function parseSkillMarkdown(
   };
 }
 
+/**
+ * Repair a skill document so the parser accepts it. Conservative: preserves
+ * the body and every readable frontmatter value, and only rewrites the bits
+ * that failed validation. Returns null when nothing could be improved.
+ */
+export function fixSkillMarkdown(src: string, fallbackName?: string): string | null {
+  let raw = src.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  if (!raw.trim()) return null;
+  let frontmatter: Record<string, unknown> = {};
+  let body = raw;
+  let salvaged = false; // true when an ill-formed block had to be reconstructed
+
+  if (raw.startsWith("---")) {
+    const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
+    if (m) {
+      try {
+        const parsed = parseYaml(m[1]);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          frontmatter = parsed as Record<string, unknown>;
+          body = m[2] ?? "";
+        }
+      } catch {
+        // Broken YAML — salvage scalar "key: value" lines.
+        salvaged = true;
+        for (const line of m[1].split("\n")) {
+          const kv = line.match(/^([^:]+):\s*(.*)$/);
+          if (kv) frontmatter[kv[1].trim()] = kv[2].trim();
+        }
+        body = m[2] ?? "";
+      }
+    } else {
+      // Missing/duplicate closing delimiter: treat the leading "key: value"
+      // lines as frontmatter and everything after as body.
+      salvaged = true;
+      const lines = raw.split("\n");
+      let i = 1;
+      for (; i < lines.length; i++) {
+        const t = lines[i].trim();
+        if (t === "---") { i++; break; }
+        const kv = t.match(/^([^:]+):\s*(.*)$/);
+        if (kv) frontmatter[kv[1].trim()] = kv[2].trim();
+        else if (t) break; // first content line ends the block
+      }
+      body = lines.slice(i).join("\n");
+    }
+  } else {
+    salvaged = true; // no frontmatter at all — the whole doc is restored as-is
+  }
+
+  const final: Record<string, unknown> = {};
+
+  const rawName = frontmatter.name;
+  final.name = typeof rawName === "string" && SPEC_NAME_RE.test(rawName)
+    ? rawName
+    : slugifySkillName(typeof rawName === "string" ? rawName : (fallbackName || "custom-skill"));
+
+  const rawDesc = frontmatter.description;
+  if (typeof rawDesc === "string" && rawDesc.length >= 1 && rawDesc.length <= 1024) {
+    final.description = rawDesc;
+  } else {
+    const first = body.split("\n").map((l) => l.trim()).find((l) => l && !/^#{1,6}\s/.test(l));
+    final.description = String(first ?? rawDesc ?? "(no description)").slice(0, 1024);
+  }
+
+  for (const [k, v] of Object.entries(frontmatter)) {
+    if (k === "name" || k === "description") continue;
+    if (k === "license" || k === "compatibility") { final[k] = typeof v === "string" ? v : String(v); continue; }
+    if (k === "allowed-tools") { final[k] = Array.isArray(v) ? v.map(String).join(" ") : String(v); continue; }
+    if (k === "metadata") {
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        final[k] = Object.fromEntries(
+          Object.entries(v as Record<string, unknown>).map(([kk, vv]) => [kk, String(vv)]),
+        );
+      }
+      // malformed metadata is dropped so the document passes
+      continue;
+    }
+    final[k] = v;
+  }
+
+  // A well-formed block only counts as "fixed" when a value actually changed.
+  const recognized = ["name", "description", "license", "compatibility", "allowed-tools", "metadata"];
+  const changed = salvaged || recognized.some((k) => final[k] !== frontmatter[k]);
+  if (!changed) return null;
+
+  const out = `---\n${stringifyYaml(final).trimEnd()}\n---\n\n${body.replace(/^\n+/, "").trimEnd()}\n`;
+  return out.trim() === raw.trim() ? null : out.trimEnd();
+}
+
 /** Keep a skill's original frontmatter and body byte-for-byte when available. */
 export function serializeSkill(skill: SkillDefinition): string {
   if (skill.markdown) return skill.markdown;

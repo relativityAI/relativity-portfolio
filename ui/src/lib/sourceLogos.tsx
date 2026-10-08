@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { LuNewspaper, LuGlobe } from "react-icons/lu";
 import type { IconType } from "react-icons";
+import { API_BASE } from "@/db";
 import secLogo from "@/assets/sec_logo.png";
 import nseLogo from "@/assets/nse_logo.png";
 import voyagerLogo from "@/assets/voyager_logo.png";
@@ -64,6 +66,59 @@ export function FaviconMark({ url, size = 12 }: { url: string; size?: number }) 
             title={host}
             onError={(e) => (e.currentTarget.style.visibility = "hidden")}
             style={{ width: size, height: size, borderRadius: 2, flexShrink: 0, display: "inline-block" }}
+        />
+    );
+}
+
+// Company logo for a ticker, served by our own /logo/:symbol route (which
+// resolves symbol → domain server-side and redirects to the Ticker Logos
+// CDN). Unknown ticker falls back to its initial rather than a broken image.
+export function TickerLogo({ symbol, size = 20 }: { symbol?: string; size?: number }) {
+    const sym = String(symbol || "").trim();
+    const [failed, setFailed] = useState(false);
+    const radius = Math.max(3, Math.round(size * 0.15));
+    if (!sym) return null;
+    if (failed) {
+        return (
+            <span
+                aria-hidden="true"
+                title={sym}
+                style={{
+                    width: size,
+                    height: size,
+                    flexShrink: 0,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: radius,
+                    background: "var(--surface-recessed)",
+                    color: "var(--ink-tertiary)",
+                    fontSize: Math.max(9, Math.round(size * 0.5)),
+                    fontWeight: 600,
+                    lineHeight: 1,
+                }}
+            >
+                {sym[0].toUpperCase()}
+            </span>
+        );
+    }
+    return (
+        <img
+            src={`${API_BASE}/logo/${encodeURIComponent(sym)}`}
+            alt=""
+            aria-hidden="true"
+            title={sym}
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailed(true)}
+            style={{
+                width: size,
+                height: size,
+                objectFit: "contain",
+                flexShrink: 0,
+                display: "inline-block",
+                borderRadius: radius,
+            }}
         />
     );
 }

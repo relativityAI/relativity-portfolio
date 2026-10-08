@@ -1,7 +1,3 @@
-import { useColorModeValue } from "@/compat/ui";
-import logoLight from "@/assets/logo-light.png";
-import logoDark from "@/assets/logo-dark.png";
-
 /**
  * Provenance tag for a skill: "Built-in" (shipped with Relativity — carries
  * the Relativity mark) vs "Custom" (the user's own creation). The wording
@@ -15,9 +11,6 @@ export function SkillSourceBadge({
     source: "builtin" | "custom" | undefined;
     className?: string;
 }) {
-    // Theme-aware brand mark — same pair the navbar Logo uses, so the badge
-    // carries the current brand glyph instead of the retired logo-mark.
-    const logoMark = useColorModeValue(logoLight, logoDark);
     if (source === "custom") {
         return (
             <span
@@ -39,7 +32,13 @@ export function SkillSourceBadge({
             }
             title="Provided by Relativity — editing it saves your own copy"
         >
-            <img src={logoMark} alt="" aria-hidden className="size-3 object-contain" />
+            <span
+                className="font-bold leading-none text-console-accent-strong"
+                style={{ fontFamily: "var(--font-display)" }}
+                aria-hidden="true"
+            >
+                R.
+            </span>
             Built-in
         </span>
     );

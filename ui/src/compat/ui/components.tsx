@@ -65,6 +65,9 @@ export const Button = function Button(props: AnyProps) {
     const style: CSSProperties = {
         display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
         borderRadius: "var(--radius-box)",
+        // Buttons do not inherit font-family from the page, so without this every
+        // button renders in the browser's default UI font.
+        fontFamily: "inherit",
         fontWeight: 500,
         cursor: disabled || loading ? "not-allowed" : "pointer",
         opacity: disabled || loading ? 0.55 : 1,

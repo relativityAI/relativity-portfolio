@@ -336,7 +336,11 @@ export async function runAgentTurn(opts: HarnessOptions): Promise<HarnessResult>
       for await (const part of result.fullStream) {
         switch (part?.type) {
           case "text-delta":
-            text += stripControlEnvelopes(part.text);
+            // NB: never trim per-chunk — streamed deltas split mid-sentence
+            // ("I can" + " help"), so a per-chunk trim eats the inter-word
+            // spaces and yields "Icanhelp". Envelopes are stripped once on the
+            // accumulated text after the loop, as designed.
+            text += part.text;
             sawOutputPart = true;
             break;
           case undefined:
@@ -422,7 +426,7 @@ export async function runAgentTurn(opts: HarnessOptions): Promise<HarnessResult>
       }
       const lastStep = steps[steps.length - 1] as any;
       matched = {
-        text,
+        text: stripControlEnvelopes(text),
         steps,
         streamError: streamErrorText,
         toolCalls:

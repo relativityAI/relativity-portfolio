@@ -196,6 +196,7 @@ export default function SkillCreatePane({
     const [validating, setValidating] = useState(false);
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
+    const [fixNotice, setFixNotice] = useState<string | null>(null);
 
     useEffect(() => {
         ToolService.getCatalog().then(setTools).catch(() => setTools([]));
@@ -215,10 +216,25 @@ export default function SkillCreatePane({
     const runValidate = async (text: string) => {
         setValidating(true);
         try {
-            const res = await SkillService.validateMarkdown(text);
-            setIssues(res.issues || []);
+            const res = await SkillService.validateMarkdown(text, id);
+            if (typeof res.fixed === "string" && mode === "markdown" && md !== null) {
+                // The server repaired the document — apply it so the user
+                // reviews the fix rather than the error list.
+                const errors = (res.issues || []).filter((i) => i.severity === "error").length;
+                setMd(res.fixed);
+                setIssues([]);
+                setFixNotice(
+                    errors > 0
+                        ? `✓ We fixed ${errors} issue${errors === 1 ? "" : "s"} in your document — review it, then create.`
+                        : "✓ We tidied your document — review it, then create.",
+                );
+            } else {
+                setIssues(res.issues || []);
+                setFixNotice(null);
+            }
         } catch {
             setIssues([]);
+            setFixNotice(null);
         } finally {
             setValidating(false);
         }
@@ -497,7 +513,7 @@ export default function SkillCreatePane({
                 <Box
                     as="textarea"
                     value={md ?? ""}
-                    onChange={(e: any) => setMd(e.target.value)}
+                    onChange={(e: any) => { setMd(e.target.value); setFixNotice(null); }}
                     onBlur={() => md?.trim() && runValidate(md)}
                     spellCheck={false}
                     aria-label="Skill document (markdown)"
@@ -516,6 +532,9 @@ export default function SkillCreatePane({
                 />
             )}
 
+            {fixNotice && (
+                <Text fontSize="12px" color="var(--signal-positive)" fontWeight={500}>{fixNotice}</Text>
+            )}
             {issues.length > 0 && (
                 <Flex direction="column" gap={0.5}>
                     {issues.map((iss, i) => (
@@ -527,18 +546,34 @@ export default function SkillCreatePane({
             )}
             {saveError && <Text fontSize="12px" color="var(--signal-negative)">{saveError}</Text>}
 
-            <Flex gap={2} justify="flex-end">
-                <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
+            <Flex gap={3.5} justify="flex-end">
                 <Button
                     size="sm"
-                    variant="subtle"
+                    variant="ghost"
+                    bg="transparent"
+                    color="white"
+                    fontWeight={400}
+                    _hover={{ bg: "transparent", fontWeight: 800 }}
+                    _active={{ bg: "transparent" }}
+                    transition="font-weight 100ms ease"
+                    onClick={onCancel}
+                >Cancel</Button>
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    bg="transparent"
+                    color="white"
+                    fontWeight={400}
+                    _hover={{ bg: "transparent", fontWeight: 800 }}
+                    _active={{ bg: "transparent" }}
+                    transition="font-weight 100ms ease"
                     loading={validating}
                     onClick={() => runValidate(markdown)}
                     disabled={!markdown.trim()}
                 >
                     Validate
                 </Button>
-                <Button size="sm" variant="solid" colorPalette="teal" loading={saving} onClick={save} disabled={!canSave}>
+                <Button size="sm" variant="outline" className="rounded-full px-4" loading={saving} onClick={save} disabled={!canSave}>
                     Create skill
                 </Button>
             </Flex>

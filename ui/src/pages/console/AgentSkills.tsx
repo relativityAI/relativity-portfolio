@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
     Search, PenLine, Trash2, ShieldCheck, Link2,
@@ -9,7 +9,7 @@ import { SkillService, AgentService, type SkillSummary } from "@/db";
 import { useSkillLibrary, SkillEditor } from "@/components/skills/SkillBrowser";
 import SkillAvatar from "@/components/shared/SkillAvatar";
 import SkillCreatePane from "@/components/skills/SkillCreatePane";
-import { SourceMark, type SourceKey } from "@/lib/sourceLogos";
+import { SkillMarkdown } from "@/components/skills/SkillMarkdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,10 +18,6 @@ import {
 import { toaster } from "@/compat/ui";
 import { SkillSourceBadge } from "@/components/console/SkillSourceBadge";
 import { cn } from "@/lib/utils";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import SyntaxHighlighter from "react-syntax-highlighter";
-import { atomDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 /**
  * Agent Skills — one full-width console page. Title, search and the create
@@ -38,16 +34,6 @@ const CATEGORY_LABELS: Record<string, string> = {
     macro: "Macro",
     custom: "Custom",
 };
-
-function sourcesForSkill(skill: SkillSummary): SourceKey[] {
-    const out: SourceKey[] = ["voyager"];
-    const cat = skill.category;
-    if (cat === "valuation" || cat === "fundamentals") out.push("sec", "nse");
-    if (cat === "market") out.push("news");
-    if (cat === "qualitative") out.push("reddit", "youtube");
-    if (cat === "macro") out.push("news", "web");
-    return out;
-}
 
 type Mode = "inspect" | "create";
 
@@ -69,7 +55,6 @@ function SectionHead({ children, onEdit }: { children: ReactNode; onEdit: () => 
 }
 
 export default function AgentSkills() {
-    const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const { library, loading, error: libraryError, setLibrary } = useSkillLibrary();
     const [selected, setSelected] = useState<SkillSummary | null>(null);
@@ -268,7 +253,7 @@ export default function AgentSkills() {
                 {loading ? (
                     <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" role="status" aria-label="Loading skills">
                         {Array.from({ length: 8 }).map((_, i) => (
-                            <div key={i} className="h-[70px] animate-pulse rounded-xl bg-console-recessed" />
+                            <div key={i} className="h-[76px] animate-pulse rounded-xl bg-console-recessed" />
                         ))}
                     </div>
                 ) : libraryError ? (
@@ -280,7 +265,7 @@ export default function AgentSkills() {
                         {filtered.length === 0 && (
                             <p className="col-span-full py-8 text-center text-[13px] text-console-ink-3">
                                 {library.length === 0
-                                    ? "No skills yet — create the first one with the buttons above."
+                                    ? "No skills yet — create the first one with New manually."
                                     : "No skills match that search."}
                             </p>
                         )}
@@ -288,17 +273,17 @@ export default function AgentSkills() {
                             <button
                                 key={s.id}
                                 onClick={() => openSkill(s)}
-                                className="flex items-start gap-2.5 rounded-xl bg-console-surface p-2.5 text-left shadow-console transition hover:shadow-console-lift focus-visible:ring-2 focus-visible:ring-console-accent/40 focus-visible:outline-none min-h-[60px]"
+                                className="flex items-start gap-2.5 rounded-xl bg-console-surface p-2.5 text-left shadow-console transition hover:shadow-console-lift focus-visible:ring-2 focus-visible:ring-console-accent/40 focus-visible:outline-none"
                             >
                                 <SkillAvatar skill={s} size={28} />
                                 <span className="min-w-0 flex-1">
                                     <span className="flex items-center gap-1.5">
-                                        <span className="min-w-0 truncate text-[12.5px] font-semibold text-console-ink">{s.name}</span>
+                                        <span className="min-w-0 truncate text-[13px] font-semibold text-console-ink">{s.name}</span>
                                     </span>
-                                    <span className="mt-0.5 line-clamp-1 block text-[11px] leading-snug text-console-ink-3">
-                                        {s.description}
+                                    <span className="mt-0.5 line-clamp-2 block text-[11.5px] leading-snug text-console-ink-3">
+                                        {s.description.length > 96 ? s.description.slice(0, 96) + "…" : s.description}
                                     </span>
-                                    <span className="mt-1 block text-[9.5px] font-medium tracking-wide text-console-ink-4 uppercase">
+                                    <span className="mt-1 block text-[10px] font-medium tracking-wide text-console-ink-4 uppercase">
                                         {CATEGORY_LABELS[s.category] || s.category}
                                     </span>
                                 </span>
@@ -339,7 +324,6 @@ export default function AgentSkills() {
                             <Button variant="secondary" size="sm" onClick={startCreate}>
                                 <PenLine /> New manually
                             </Button>
-
                         </>
                     )}
                     {isDetail && !editing && (
@@ -438,43 +422,18 @@ function SkillDetail({
                 </section>
             )}
 
-            {markdown !== null && !docError && (
-                <section>
-                    <SectionHead onEdit={onEdit}>Skill document</SectionHead>
-                    <div className="prose prose-sm max-w-none dark:prose-invert prose-p:leading-relaxed prose-pre:bg-console-recessed prose-pre:text-console-ink-2 prose-code:bg-console-recessed prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
-                        <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                                code({ className, children, ...props }) {
-                                    const match = /language-(\w+)/.exec(className || "");
-                                    return match ? (
-                                        <SyntaxHighlighter
-                                            language={match[1]}
-                                            PreTag="div"
-                                            style={atomDark}
-                                            customStyle={{ margin: 0, borderRadius: "0.5rem" }}
-                                        >
-                                            {String(children).replace(/\n$/, "")}
-                                        </SyntaxHighlighter>
-                                    ) : (
-                                        <code className={className} {...props}>
-                                            {children}
-                                        </code>
-                                    );
-                                },
-                            }}
-                        >
-                            {markdown}
-                        </ReactMarkdown>
+            <section>
+                <SectionHead onEdit={onEdit}>Document</SectionHead>
+                {docError ? (
+                    <p className="text-[13px] text-console-negative">Couldn't load this skill's document.</p>
+                ) : markdown === null ? (
+                    <div className="h-24 animate-pulse rounded-xl bg-console-recessed" />
+                ) : (
+                    <div className="max-w-[75ch]">
+                        <SkillMarkdown>{markdown}</SkillMarkdown>
                     </div>
-                </section>
-            )}
-            {docError && (
-                <p className="text-[13px] text-console-negative">Couldn't load this skill's document.</p>
-            )}
-            {markdown === null && (
-                <div className="h-24 animate-pulse rounded-xl bg-console-recessed" />
-            )}
+                )}
+            </section>
         </div>
     );
 }

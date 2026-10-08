@@ -1,6 +1,6 @@
 import { Flex, Text, Spinner, Box, HStack } from "@chakra-ui/react";
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment, type ElementType } from "react";
-import { MdInfoOutline, MdCheck, MdClose, MdArrowForward, MdOutlineOpenInNew } from "react-icons/md";
+import { MdInfoOutline, MdCheck, MdClose, MdArrowForward } from "react-icons/md";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AnalysisService, AgentService, SettingsService, API_BASE, isServerFreeModel } from "@/db";
 import { formatSeconds, agentDisplayName } from "@/utils";
@@ -9,7 +9,7 @@ import SkillAvatar from "@/components/shared/SkillAvatar";
 import { useSkillLibrary } from "@/components/skills/SkillBrowser";
 import { resolveAgent } from "@/lib/agentIdentity";
 import { ModelLogo } from "@/lib/modelLogos";
-import { AlertCircleIcon, ChevronDown } from "lucide-react";
+import { AlertCircleIcon, Bot, ChevronDown, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -25,7 +25,7 @@ import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress
 import AgentActivity from "@/components/shared/AgentActivity";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease, stagger, staggerItem } from "@/lib/motion";
-import { SourceMark } from "@/lib/sourceLogos";
+import { SourceMark, TickerLogo } from "@/lib/sourceLogos";
 
 /** The one line this page opens with. */
 const HEADLINE = "Which agent are we running today?";
@@ -246,6 +246,53 @@ function RailChip({ icon, label, sub, muted }: { icon?: React.ReactNode; label: 
     );
 }
 
+/**
+ * Run Now — a live call-to-action. Once every selection is made it keeps a
+ * quiet heartbeat (a soft accent halo that breathes), signaling "tap me now"
+ * without flashing. Reduced-motion users get the plain button via
+ * MotionConfig reducedMotion="user".
+ */
+function RunNowCta({ onClick, disabled }: { onClick: () => void; disabled: boolean }) {
+    const alive = !disabled;
+    const beat = {
+        duration: 2.2,
+        ease: "easeInOut" as const,
+        repeat: Infinity,
+        times: [0, 0.12, 0.2, 0.32, 1],
+    };
+    return (
+        <motion.div
+            className="relative w-full"
+            initial={false}
+            animate={alive ? "heartbeat" : "still"}
+            variants={{
+                still: { scale: 1 },
+                heartbeat: {
+                    scale: [1, 1.025, 1, 1.012, 1],
+                    transition: beat,
+                },
+            }}
+        >
+            <motion.span
+                aria-hidden
+                className="pointer-events-none absolute -inset-[3px] rounded-md"
+                style={{ background: "color-mix(in srgb, var(--accent-primary) 16%, transparent)" }}
+                animate={alive ? "heartbeat" : "still"}
+                variants={{
+                    still: { opacity: 0 },
+                    heartbeat: {
+                        opacity: [0, 0.9, 0, 0.45, 0],
+                        transition: beat,
+                    },
+                }}
+            />
+            <Button size="lg" className="relative w-full font-semibold" onClick={onClick} disabled={disabled}>
+                Run Now
+            </Button>
+        </motion.div>
+    );
+}
+
 function RailWebSearch({ id, hasTavily, webSearch, setWebSearch }: { id: string; hasTavily: boolean; webSearch: boolean; setWebSearch: (v: boolean) => void }) {
     return (
         <div className="flex items-center justify-between gap-3 py-2">
@@ -293,6 +340,11 @@ function AnalysisSummaryRail(props: {
     skillObj: any;
     model: string;
     isDefaultModel: boolean;
+    defaultModel: string;
+    modelValidated: boolean;
+    modelValidating: boolean;
+    modelError: string | null;
+    modelSiblings: number;
     hasTavily: boolean;
     webSearch: boolean;
     setWebSearch: (v: boolean) => void;
@@ -306,8 +358,12 @@ function AnalysisSummaryRail(props: {
 }) {
     const { variant, status } = props;
     const [expanded, setExpanded] = useState(false);
+    const [personaOpen, setPersonaOpen] = useState(false);
+    useEffect(() => setPersonaOpen(false), [props.agentName]);
 
     const companyLabel = props.share ? (props.shareName || props.share) : null;
+    const agentDetail = typeof props.agentObj === "object" && props.agentObj ? props.agentObj : null;
+    const persona = agentDetail?.philosophy || agentDetail?.persona?.philosophy_and_mindset || "";
 
     // ── Shared pieces ─────────────────────────────────────────────
     const companyChip = (
@@ -341,20 +397,110 @@ function AnalysisSummaryRail(props: {
         />
     );
 
-    const idleBody = (
-        <Flex direction="column" gap={2.5}>
-            <Flex direction="column" gap={2.5}>
-                {companyChip}
-                {props.runMode === "skill" ? skillChip : agentChip}
-                {modelChip}
-                {props.isDefaultModel && props.model && (
-                    <Text fontSize="9.5px" fontWeight={600} color="var(--accent-primary)" textTransform="uppercase" letterSpacing="0.05em" pl={0.5}>
+    // Rich "what exactly will run" blocks — the details that used to sit
+    // beside each dropdown now live in the summary card itself.
+    const agentBlock = props.agentName ? (
+        <Flex direction="column" gap={2} minW={0}>
+            <Flex align="center" gap={2.5} minW={0}>
+                <AgentAvatar agent={props.agentObj ?? props.agentName} size={34} label={props.agentName} />
+                <Box minW={0}>
+                    <Text fontSize="14px" fontWeight={600} color="var(--ink-primary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                        {props.agentName}
+                    </Text>
+                    <Text fontSize="11px" color="var(--ink-tertiary)">
+                        {agentDetail?.skills?.length || 0} skill{agentDetail?.skills?.length === 1 ? "" : "s"}
+                    </Text>
+                </Box>
+            </Flex>
+            {persona && (
+                <Box minW={0}>
+                    <Text fontSize="11px" color="var(--ink-secondary)" lineHeight="1.55" noOfLines={personaOpen ? undefined : 2}>
+                        {persona}
+                    </Text>
+                    <button
+                        type="button"
+                        onClick={() => setPersonaOpen((v) => !v)}
+                        className="mt-0.5 text-[10.5px] font-medium text-[var(--accent-primary)]"
+                    >
+                        {personaOpen ? "Show less" : "Read the persona"}
+                    </button>
+                </Box>
+            )}
+        </Flex>
+    ) : null;
+
+    const skillBlock = props.skillName ? (
+        <Flex align="flex-start" gap={2.5} minW={0}>
+            <SkillAvatar skill={props.skillObj ?? props.skillName} size={34} label={props.skillName} />
+            <Box minW={0}>
+                <Text fontSize="14px" fontWeight={600} color="var(--ink-primary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                    {props.skillName}
+                </Text>
+                <Text fontSize="10.5px" color="var(--ink-tertiary)" whiteSpace="nowrap">
+                    {props.skillObj?.category} · {props.skillObj?.source}
+                </Text>
+                <Text fontSize="11px" color="var(--ink-secondary)" lineHeight="1.55" noOfLines={2}>
+                    {props.skillObj?.description}
+                </Text>
+            </Box>
+        </Flex>
+    ) : null;
+
+    const modelDetail = props.model ? (
+        <Flex direction="column" gap={1} minW={0}>
+            <Flex align="center" gap={2}>
+                <ModelLogo model={props.model} size={15} />
+                <Text fontSize="10.5px" fontWeight={600} letterSpacing="0.06em" textTransform="uppercase" color="var(--accent-primary)">
+                    {providerLabel(modelPrefix(props.model))}
+                </Text>
+                {props.isDefaultModel && (
+                    <Text fontSize="9.5px" fontWeight={600} color="var(--ink-tertiary)" textTransform="uppercase" letterSpacing="0.04em" border="1px solid var(--hairline)" px={1.5} py={0.5} borderRadius="3px">
                         Recommended
                     </Text>
                 )}
-                <Box borderTop="1px solid var(--hairline)" my={0.5} />
-                <RailWebSearch id="web-search-rail" hasTavily={props.hasTavily} webSearch={props.webSearch} setWebSearch={props.setWebSearch} />
+                {props.modelValidated && !props.modelValidating && !props.modelError && (
+                    <MdCheck size={12} color="var(--signal-positive)" />
+                )}
             </Flex>
+            <Text fontSize="13px" fontWeight={600} color="var(--ink-primary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                {modelName(props.model)}
+            </Text>
+            <Text fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap">
+                {props.model}
+            </Text>
+            <Text fontSize="10.5px" color="var(--ink-tertiary)">
+                {props.modelSiblings > 0
+                    ? `${props.modelSiblings} other model${props.modelSiblings === 1 ? "" : "s"} from `
+                    : ""}
+                {providerLabel(modelPrefix(props.model))}
+                {props.model === props.defaultModel ? " · auto-selected default" : ""}
+            </Text>
+            {props.modelValidating ? (
+                <Flex align="center" gap={1.5}>
+                    <Spinner size="xs" borderWidth="1px" color="var(--ink-tertiary)" />
+                    <Text fontSize="10.5px" color="var(--ink-tertiary)">Checking access…</Text>
+                </Flex>
+            ) : props.modelError ? (
+                <Text fontSize="10.5px" color="var(--signal-negative)">Access could not be verified</Text>
+            ) : props.modelValidated ? (
+                <Text fontSize="10.5px" color="var(--signal-positive)">Access verified</Text>
+            ) : null}
+        </Flex>
+    ) : null;
+
+    const targetBlock = props.runMode === "skill"
+        ? (skillBlock ?? skillChip)
+        : (agentBlock ?? agentChip);
+
+    const selectionBody = (
+        <Flex direction="column" gap={3}>
+            {companyChip}
+            <Box borderTop="1px solid var(--hairline)" />
+            {targetBlock}
+            <Box borderTop="1px solid var(--hairline)" />
+            {modelDetail ?? modelChip}
+            <Box borderTop="1px solid var(--hairline)" my={0.5} />
+            <RailWebSearch id="web-search-rail" hasTavily={props.hasTavily} webSearch={props.webSearch} setWebSearch={props.setWebSearch} />
         </Flex>
     );
 
@@ -396,7 +542,7 @@ function AnalysisSummaryRail(props: {
                             Run again
                         </Button>
                     </div>
-                    {idleBody}
+                    {selectionBody}
                 </Flex>
             );
         }
@@ -417,7 +563,7 @@ function AnalysisSummaryRail(props: {
                             Try again
                         </Button>
                     </div>
-                    {idleBody}
+                    {selectionBody}
                 </Flex>
             );
         }
@@ -437,14 +583,7 @@ function AnalysisSummaryRail(props: {
                 <Text fontSize="11px" color="var(--ink-tertiary)" textAlign="center" mb={2}>
                     {props.typicalDuration ? `Typically takes ${props.typicalDuration}` : "Typically takes a few minutes"}
                 </Text>
-                <Button
-                    size="lg"
-                    className={`w-full font-semibold ${props.canRun ? 'pulse-animate' : ''}`}
-                    onClick={props.onRun}
-                    disabled={!props.canRun}
-                >
-                    Run Now
-                </Button>
+                <RunNowCta onClick={props.onRun} disabled={!props.canRun} />
                 {!props.canRun && (
                     <Text mt={2} fontSize="11px" color="var(--ink-tertiary)" textAlign="center">
                         Choose a company and an agent or skill to enable the run
@@ -462,7 +601,7 @@ function AnalysisSummaryRail(props: {
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: dur.base, ease }}
-                w="320px"
+                w="360px"
                 flexShrink={0}
             >
                 <Card className="sticky top-[60px] gap-3 rounded-lg py-4 shadow-none">
@@ -476,14 +615,12 @@ function AnalysisSummaryRail(props: {
                             <Flex direction="column" gap={3}>
                                 {actionArea}
                                 <Flex direction="column" gap={1.5} pt={1} borderTop="1px solid var(--hairline)">
-                                    {companyChip}
-                                    {props.runMode === "skill" ? skillChip : agentChip}
-                                    {modelChip}
+                                    {selectionBody}
                                 </Flex>
                             </Flex>
                         ) : (
                             <Flex direction="column" gap={3}>
-                                {idleBody}
+                                {selectionBody}
                                 <Box borderTop="1px solid var(--hairline)" />
                                 {actionArea}
                             </Flex>
@@ -543,18 +680,12 @@ function AnalysisSummaryRail(props: {
             </Flex>
             {expanded && status === "EMPTY" && !props.resuming && (
                 <Box pt={2} mt={2} borderTop="1px solid var(--hairline)">
-                    {idleBody}
+                    {selectionBody}
                 </Box>
             )}
             <Box pt={2.5}>
                 {status === "EMPTY" && !props.resuming ? (
-                    <Button
-                        className={`w-full font-semibold ${props.canRun ? 'pulse-animate' : ''}`}
-                        onClick={props.onRun}
-                        disabled={!props.canRun}
-                    >
-                        Run Now
-                    </Button>
+                    <RunNowCta onClick={props.onRun} disabled={!props.canRun} />
                 ) : status === "PENDING" ? null : status === "COMPLETED" ? (
                     <div className="mt-2.5 flex gap-2">
                         {props.correlationId && (
@@ -931,29 +1062,26 @@ export default function Analysis() {
         }
     }, [status, correlationId, navigate]);
 
-    const selectedAgent = useMemo(
-        () => availableAgents.find((a: any) => (a._id || a.id) === config.agent || a.name === config.agent),
-        [availableAgents, config.agent]
-    );
-
     // Completed steps collapse to a one-line summary; the active step stays open.
     const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
     const stepSummary = (step: string) => {
         if (step === "company") return config.share ? `${config.source} · ${config.share.toUpperCase()}` : undefined;
-        if (step === "agent") return config.agent ? agentDisplayName(config.agent, availableAgents) || config.agent : undefined;
-        if (step === "model") return selectedModel ? modelName(selectedModel) : undefined;
+        if (step === "agent") {
+            const target = runMode === "skill"
+                ? selectedSkill?.name
+                : (config.agent ? agentDisplayName(config.agent, availableAgents) || config.agent : undefined);
+            const model = selectedModel ? modelName(selectedModel) : undefined;
+            return [target, model].filter(Boolean).join(" · ") || undefined;
+        }
         return undefined;
     };
-    const persona = selectedAgent?.philosophy || selectedAgent?.persona?.philosophy_and_mindset || "";
-    const [personaOpen, setPersonaOpen] = useState(false);
-    useEffect(() => { setPersonaOpen(false); }, [config.agent]);
 
     // Steps stay open while the user configures the run — selecting a company
     // or an agent must not fold the form away under them. Everything collapses
     // only once a run is actually in flight.
     useEffect(() => {
         if (status === "PENDING" || status === "COMPLETED" || status === "ERROR") {
-            setCollapsedSteps({ company: true, agent: true, model: true });
+            setCollapsedSteps({ company: true, agent: true });
         }
     }, [status]);
     useEffect(() => {
@@ -965,6 +1093,7 @@ export default function Analysis() {
     );
     const isConfigComplete = config.share !== "" && (runMode === "skill" ? !!skillId : !!config.agent);
     const canRunAnalysis = isConfigComplete;
+    const modelSiblings = selectedModel ? siblingModelCount(selectedModel) : 0;
 
     // Real historical average from completed runs, so the "typically takes"
     // line sets an honest expectation instead of a guess.
@@ -1106,8 +1235,11 @@ export default function Analysis() {
                                                         value={stock[sourceKeys.mainKey]}
                                                     >
                                                         <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                                                            <span className="truncate text-[13px] font-medium">
-                                                                {stock[sourceKeys.mainKey]}
+                                                            <span className="flex min-w-0 items-center gap-2">
+                                                                <TickerLogo symbol={stock[sourceKeys.mainKey]} size={18} />
+                                                                <span className="truncate text-[13px] font-medium">
+                                                                    {stock[sourceKeys.mainKey]}
+                                                                </span>
                                                             </span>
                                                             <span className="truncate text-[11px] text-muted-foreground">
                                                                 {stock[sourceKeys.secondaryKey]}
@@ -1122,33 +1254,52 @@ export default function Analysis() {
                             </Flex>
                         </StepSection>
 
-                        {/* Agent / Skill */}
+                        {/* Agent / Skill + Model — the "who runs the analysis" row */}
                         <StepSection
                             done={runMode === "skill" ? !!skillId : !!config.agent}
                             collapsed={!!collapsedSteps["agent"]}
                             onToggle={() => setCollapsedSteps(p => ({ ...p, agent: !p["agent"] }))}
-                            summary={runMode === "skill" ? selectedSkill?.name : stepSummary("agent")}
+                            summary={stepSummary("agent")}
                         >
-                            <Flex direction="column" gap={4}>
+                            <Flex direction="column" gap={5}>
+                                {/* Mode toggle: each option explains itself, no jargon needed. */}
                                 <ToggleGroup
                                     type="single"
                                     value={runMode}
                                     onValueChange={(v) => { if (v) setRunMode(v as "agent" | "skill"); }}
                                     aria-label="Evaluation mode"
-                                    className="flex-col sm:flex-row gap-2"
+                                    className="w-full h-auto md:w-fit"
                                 >
-                                    <div className="flex-1 flex flex-col items-start gap-1 p-3 rounded-lg border border-[var(--hairline)] data-[state=on]:border-[var(--accent-primary)] bg-[var(--surface-panel)]">
-                                        <ToggleGroupItem value="agent" className="w-full justify-start font-semibold data-[state=on]:bg-[var(--accent-primary)] data-[state=on]:text-white">Agent</ToggleGroupItem>
-                                        <span className="text-xs text-muted-foreground px-1">Run a full agent with multiple skills</span>
-                                    </div>
-                                    <div className="flex-1 flex flex-col items-start gap-1 p-3 rounded-lg border border-[var(--hairline)] data-[state=on]:border-[var(--signal-positive)] bg-[var(--surface-panel)]">
-                                        <ToggleGroupItem value="skill" className="w-full justify-start font-semibold data-[state=on]:bg-[var(--signal-positive)] data-[state=on]:text-white">Skill</ToggleGroupItem>
-                                        <span className="text-xs text-muted-foreground px-1">Single skill analysis or individual parameter evaluation</span>
-                                    </div>
+                                    <ToggleGroupItem
+                                        value="agent"
+                                        aria-label="Agent — runs the full agent with all its skills"
+                                        className="group h-auto flex-col items-center justify-center gap-1 px-4 py-2 data-[state=on]:bg-[var(--accent-primary)] data-[state=on]:text-white"
+                                    >
+                                        <span className="flex items-center justify-center gap-1.5 text-[13px] font-semibold leading-none group-data-[state=on]:text-white">
+                                            <Bot size={13} aria-hidden />
+                                            Agent
+                                        </span>
+                                        <span className="text-[10px] leading-tight font-normal text-[var(--ink-tertiary)] group-data-[state=on]:text-white/80">
+                                            Runs the full agent with many skills
+                                        </span>
+                                    </ToggleGroupItem>
+                                    <ToggleGroupItem
+                                        value="skill"
+                                        aria-label="Skill — analyzes a single skill on its own"
+                                        className="group h-auto flex-col items-center justify-center gap-1 px-4 py-2 data-[state=on]:bg-[var(--signal-positive)] data-[state=on]:text-white"
+                                    >
+                                        <span className="flex items-center justify-center gap-1.5 text-[13px] font-semibold leading-none group-data-[state=on]:text-white">
+                                            <Target size={13} aria-hidden />
+                                            Skill
+                                        </span>
+                                        <span className="text-[10px] leading-tight font-normal text-[var(--ink-tertiary)] group-data-[state=on]:text-white/80">
+                                            Analyzes one skill on its own
+                                        </span>
+                                    </ToggleGroupItem>
                                 </ToggleGroup>
 
-                                <Flex direction="column" gap={4}>
-                                    <Flex direction={{ base: "column", md: "row" }} gap={{ base: 3, md: 4 }} align={{ md: "stretch" }}>
+                                <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
+                                    {runMode === "agent" ? (
                                         <Box flex={1} minW={0}>
                                             <FieldLabel>Agent</FieldLabel>
                                             <Combobox
@@ -1157,7 +1308,6 @@ export default function Analysis() {
                                                 itemToValue={(a: any) => a._id || a.id || a.name}
                                                 itemToString={(a: any) => a.name}
                                                 onValueChange={(v) => setConfig(prev => ({ ...prev, agent: v }))}
-                                                disabled={runMode === "skill"}
                                             >
                                                 <ComboboxInput placeholder="Select an agent" showClear />
                                                 <ComboboxContent>
@@ -1181,7 +1331,17 @@ export default function Analysis() {
                                                     </ComboboxList>
                                                 </ComboboxContent>
                                             </Combobox>
+                                            <Flex align="center" gap={1.5} mt={1.5}>
+                                                <MdInfoOutline size={12} color="var(--ink-tertiary)" />
+                                                <Text fontSize="11px" color="var(--ink-tertiary)">
+                                                    Create or edit agents in the{" "}
+                                                    <Link to="/agent/new" style={{ color: "var(--accent-primary)" }}>
+                                                        Agent Builder
+                                                    </Link>
+                                                </Text>
+                                            </Flex>
                                         </Box>
+                                    ) : (
                                         <Box flex={1} minW={0}>
                                             <FieldLabel>Skill</FieldLabel>
                                             <Combobox
@@ -1190,7 +1350,6 @@ export default function Analysis() {
                                                 itemToValue={(s: any) => s.id}
                                                 itemToString={(s: any) => s.name}
                                                 onValueChange={(v) => setSkillId(v)}
-                                                disabled={runMode === "agent"}
                                             >
                                                 <ComboboxInput placeholder="Select a skill" showClear />
                                                 <ComboboxContent>
@@ -1210,224 +1369,122 @@ export default function Analysis() {
                                                     </ComboboxList>
                                                 </ComboboxContent>
                                             </Combobox>
-                                        </Box>
-                                    </Flex>
-                                                        {persona && (
-                                                            <Box minW={0} w="full">
-                                                                <AnimatePresence initial={false}>
-                                                                    {personaOpen && (
-                                                                        <Box
-                                                                            as={motion.div}
-                                                                            initial={{ height: 0, opacity: 0 }}
-                                                                            animate={{ height: "auto", opacity: 1 }}
-                                                                            exit={{ height: 0, opacity: 0 }}
-                                                                            transition={{ duration: dur.base, ease }}
-                                                                            overflow="hidden"
-                                                                        >
-                                                                            <Box borderLeft="2px solid var(--hairline)" pl={3} py={1} mb={2} maxH="160px" overflowY="auto">
-                                                                                <Text fontSize="12px" color="var(--ink-secondary)" lineHeight="1.6" whiteSpace="pre-line">
-                                                                                    {persona}
-                                                                                </Text>
-                                                                            </Box>
-                                                                        </Box>
-                                                                    )}
-                                                                </AnimatePresence>
-                                                                {!personaOpen && (
-                                                                    <Flex align="flex-start" gap={1.5} minW={0}>
-                                                                        <Text fontSize="12px" color="var(--ink-tertiary)" lineHeight="1.6" noOfLines={1} flex={1} minW={0}>
-                                                                            {persona}
-                                                                        </Text>
-                                                                        <Link
-                                                                            to={`/agent/${selectedAgent._id || selectedAgent.id || selectedAgent.name}`}
-                                                                            target="_blank"
-                                                                            rel="noopener noreferrer"
-                                                                            aria-label={`Open ${selectedAgent.name} in a new tab`}
-                                                                            style={{ flexShrink: 0, marginTop: "2px", color: "var(--ink-tertiary)" }}
-                                                                        >
-                                                                            <MdOutlineOpenInNew size={12} />
-                                                                        </Link>
-                                                                    </Flex>
-                                                                )}
-                                                                <Text
-                                                                    as="button"
-                                                                    fontSize="11px"
-                                                                    fontWeight={500}
-                                                                    color="var(--accent-primary)"
-                                                                    cursor="pointer"
-                                                                    mt={1}
-                                                                    onClick={() => setPersonaOpen((v) => !v)}
-                                                                >
-                                                                    {personaOpen ? "Hide persona" : "Read full persona"}
-                                                                </Text>
-                                                            </Box>
-                                                        )}
-                                                    </Flex>
-                                                </Flex>
-                        </StepSection>
-
-                        {/* Model */}
-                        <StepSection done={!!selectedModel} collapsed={!!collapsedSteps["model"]} onToggle={() => setCollapsedSteps(p => ({ ...p, model: !p["model"] }))} summary={stepSummary("model")}>
-                            <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
-                                <Box w={{ base: "full", md: "380px" }} flexShrink={0}>
-                                    <FieldLabel>Model</FieldLabel>
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <button
-                                                type="button"
-                                                className="flex w-full items-center gap-2 rounded-sm border border-hairline bg-surface-panel px-3 py-1.5 text-left transition-colors hover:border-ink-tertiary focus-visible:border-accent-primary"
-                                                style={{ borderColor: "var(--hairline)", background: "var(--surface-panel)", minHeight: "36px" }}
-                                                aria-label="Model"
-                                            >
-                                                {selectedModel ? (
-                                                    <>
-                                                        <ModelLogo model={selectedModel} size={15} />
-                                                        <span className="min-w-0 flex-1">
-                                                            <span className="block truncate text-[12.5px] font-medium leading-tight" style={{ color: "var(--ink-primary)" }}>
-                                                                {modelName(selectedModel)}
-                                                            </span>
-                                                            <span className="block truncate font-mono text-[10px] leading-tight" style={{ color: "var(--ink-tertiary)" }}>
-                                                                {selectedModel}
-                                                            </span>
-                                                        </span>
-                                                    </>
-                                                ) : (
-                                                    <span className="flex-1 text-[12.5px]" style={{ color: "var(--ink-tertiary)" }}>Select model</span>
-                                                )}
-                                                <ChevronDown size={14} color="var(--ink-tertiary)" style={{ flexShrink: 0 }} />
-                                            </button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="start" sideOffset={4} className="max-h-80 w-72 overflow-y-auto">
-                                            {(() => {
-                                                const groups = new Map<string, string[]>();
-                                                for (const m of availableModels) {
-                                                    const p = modelPrefix(m);
-                                                    if (!groups.has(p)) groups.set(p, []);
-                                                    groups.get(p)!.push(m);
-                                                }
-                                                // Recommended model's group leads, and the model leads within it.
-                                                const order = [...groups.keys()];
-                                                if (defaultModel) {
-                                                    const dp = modelPrefix(defaultModel);
-                                                    if (order.includes(dp)) {
-                                                        order.splice(order.indexOf(dp), 1);
-                                                        order.unshift(dp);
-                                                        groups.set(dp, [defaultModel, ...groups.get(dp)!.filter(m => m !== defaultModel)]);
-                                                    }
-                                                }
-                                                return order.map((prefix) => (
-                                                    <DropdownMenuGroup key={prefix}>
-                                                        <DropdownMenuLabel>
-                                                            <Flex align="center" gap={1.5}>
-                                                                <ModelLogo model={prefix} size={12} />
-                                                                <Text fontSize="10px" fontWeight={600} color="var(--ink-tertiary)" textTransform="uppercase" letterSpacing="0.06em">
-                                                                    {providerLabel(prefix)}
-                                                                </Text>
-                                                                <Text fontSize="10px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" ml="auto">
-                                                                    {groups.get(prefix)!.length}
-                                                                </Text>
-                                                            </Flex>
-                                                        </DropdownMenuLabel>
-                                                        {groups.get(prefix)!.map((m) => (
-                                                            <DropdownMenuItem key={m} value={m} onClick={() => { setSelectedModel(m); setModelError(null); }}>
-                                                                <ModelLogo model={m} size={15} />
-                                                                <Box minW={0} flex={1}>
-                                                                    <Text as="span" display="block" fontSize="12.5px" fontWeight={m === selectedModel ? 600 : 500} color="var(--ink-primary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" lineHeight="1.3">
-                                                                        {modelName(m)}
-                                                                    </Text>
-                                                                    <Text as="span" display="block" fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" lineHeight="1.3">
-                                                                        {m}
-                                                                    </Text>
-                                                                </Box>
-                                                                {m === defaultModel && (
-                                                                    <Text fontSize="9.5px" fontWeight={600} color="var(--accent-primary)" textTransform="uppercase" letterSpacing="0.05em" flexShrink={0}>
-                                                                        Recommended
-                                                                    </Text>
-                                                                )}
-                                                                {m === selectedModel && <MdCheck size={13} color="var(--signal-positive)" flexShrink={0} />}
-                                                            </DropdownMenuItem>
-                                                        ))}
-                                                    </DropdownMenuGroup>
-                                                ));
-                                            })()}
-                                            {availableModels.length === 0 && (
-                                                <DropdownMenuItem disabled>No models available</DropdownMenuItem>
-                                            )}
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                    {modelError && (
-                                        <Text mt={2} fontSize="11.5px" color="var(--signal-negative)">
-                                            {modelError}
-                                        </Text>
-                                    )}
-                                    {validatingModel && (
-                                        <Flex align="center" gap={1.5} mt={1.5}>
-                                            <Spinner size="xs" color="var(--ink-secondary)" />
-                                            <Text fontSize="11px" color="var(--ink-secondary)">Checking model access…</Text>
-                                        </Flex>
-                                    )}
-                                    {!validatingModel && !modelError && modelValidated && (
-                                        <Text mt={2} fontSize="11.5px" color="var(--signal-positive)">
-                                            {modelName(selectedModel)} responded. Access verified.
-                                        </Text>
-                                    )}
-                                    <Flex align="center" gap={1.5} mt={2}>
-                                        <MdInfoOutline size={12} color="var(--ink-tertiary)" />
-                                        <Text fontSize="11px" color="var(--ink-tertiary)">
-                                            {providerCount > 0 ? `${providerCount} provider${providerCount === 1 ? "" : "s"} configured · add more in ` : "No API keys configured · add "}
-                                            <Link to="/settings" style={{ color: "var(--accent-primary)" }}>
-                                                Settings
-                                            </Link>
-                                        </Text>
-                                    </Flex>
-
-                                </Box>
-                                <Box flex={1} minW={0} pt={{ base: 1, md: 5 }}>
-                                    {selectedModel ? (
-                                        <Flex direction="column" gap={0.5}>
-                                            <Flex align="center" gap={2}>
-                                                <ModelLogo model={selectedModel} size={16} />
-                                                <Text
-                                                    fontSize="10.5px"
-                                                    fontWeight={600}
-                                                    letterSpacing="0.06em"
-                                                    textTransform="uppercase"
-                                                    color="var(--accent-primary)"
-                                                >
-                                                    {providerLabel(modelPrefix(selectedModel))}
+                                            <Flex align="center" gap={1.5} mt={1.5}>
+                                                <MdInfoOutline size={12} color="var(--ink-tertiary)" />
+                                                <Text fontSize="11px" color="var(--ink-tertiary)">
+                                                    Just this skill — no agent, no persona. Useful for testing it on its own.
                                                 </Text>
-                                                {modelValidated && !validatingModel && !modelError && (
-                                                    <MdCheck size={13} color="var(--signal-positive)" />
-                                                )}
                                             </Flex>
-                                            <Text mt={0.5} fontSize="16px" fontWeight={600} color="var(--ink-primary)" lineHeight="short" wordBreak="break-word">
-                                                {modelName(selectedModel)}
-                                            </Text>
-                                            <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
-                                                {selectedModel}
-                                            </Text>
-                                            <Text fontSize="12px" color="var(--ink-secondary)">
-                                                {siblingModelCount(selectedModel)} other model{siblingModelCount(selectedModel) === 1 ? "" : "s"} from {providerLabel(modelPrefix(selectedModel))}
-                                            </Text>
-                                            {validatingModel ? (
-                                                <Flex align="center" gap={1.5}>
-                                                    <Spinner size="xs" borderWidth="1px" color="var(--ink-tertiary)" />
-                                                    <Text fontSize="11px" color="var(--ink-tertiary)">Checking access…</Text>
-                                                </Flex>
-                                            ) : modelError ? (
-                                                <Text fontSize="11px" color="var(--signal-negative)">Access could not be verified</Text>
-                                            ) : null}
-                                            {selectedModel === defaultModel && (
-                                                <Text fontSize="11px" color="var(--accent-primary)" fontFamily="var(--font-mono)">
-                                                    auto-selected default
-                                                </Text>
-                                            )}
-                                        </Flex>
-                                    ) : (
-                                        <Text fontSize="12px" color="var(--ink-tertiary)">
-                                            Select a model to see its details
-                                        </Text>
+                                        </Box>
                                     )}
-                                </Box>
+                                    <Box flex={1} minW={0}>
+                                        <FieldLabel>Model</FieldLabel>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <button
+                                                    type="button"
+                                                    className="flex w-full items-center gap-2 rounded-sm border border-hairline bg-surface-panel px-3 py-1.5 text-left transition-colors hover:border-ink-tertiary focus-visible:border-accent-primary"
+                                                    style={{ borderColor: "var(--hairline)", background: "var(--surface-panel)", minHeight: "36px" }}
+                                                    aria-label="Model"
+                                                >
+                                                    {selectedModel ? (
+                                                        <>
+                                                            <ModelLogo model={selectedModel} size={15} />
+                                                            <span className="min-w-0 flex-1">
+                                                                <span className="block truncate text-[12.5px] font-medium leading-tight" style={{ color: "var(--ink-primary)" }}>
+                                                                    {modelName(selectedModel)}
+                                                                </span>
+                                                                <span className="block truncate font-mono text-[10px] leading-tight" style={{ color: "var(--ink-tertiary)" }}>
+                                                                    {selectedModel}
+                                                                </span>
+                                                            </span>
+                                                        </>
+                                                    ) : (
+                                                        <span className="flex-1 text-[12.5px]" style={{ color: "var(--ink-tertiary)" }}>Select model</span>
+                                                    )}
+                                                    <ChevronDown size={14} color="var(--ink-tertiary)" style={{ flexShrink: 0 }} />
+                                                </button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="start" sideOffset={4} className="max-h-80 w-72 overflow-y-auto">
+                                                {(() => {
+                                                    const groups = new Map<string, string[]>();
+                                                    for (const m of availableModels) {
+                                                        const p = modelPrefix(m);
+                                                        if (!groups.has(p)) groups.set(p, []);
+                                                        groups.get(p)!.push(m);
+                                                    }
+                                                    // Recommended model's group leads, and the model leads within it.
+                                                    const order = [...groups.keys()];
+                                                    if (defaultModel) {
+                                                        const dp = modelPrefix(defaultModel);
+                                                        if (order.includes(dp)) {
+                                                            order.splice(order.indexOf(dp), 1);
+                                                            order.unshift(dp);
+                                                            groups.set(dp, [defaultModel, ...groups.get(dp)!.filter(m => m !== defaultModel)]);
+                                                        }
+                                                    }
+                                                    return order.map((prefix) => (
+                                                        <DropdownMenuGroup key={prefix}>
+                                                            <DropdownMenuLabel>
+                                                                <Flex align="center" gap={1.5}>
+                                                                    <ModelLogo model={prefix} size={12} />
+                                                                    <Text fontSize="10px" fontWeight={600} color="var(--ink-tertiary)" textTransform="uppercase" letterSpacing="0.06em">
+                                                                        {providerLabel(prefix)}
+                                                                    </Text>
+                                                                    <Text fontSize="10px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" ml="auto">
+                                                                        {groups.get(prefix)!.length}
+                                                                    </Text>
+                                                                </Flex>
+                                                            </DropdownMenuLabel>
+                                                            {groups.get(prefix)!.map((m) => (
+                                                                <DropdownMenuItem key={m} value={m} onClick={() => { setSelectedModel(m); setModelError(null); }}>
+                                                                    <ModelLogo model={m} size={15} />
+                                                                    <Box minW={0} flex={1}>
+                                                                        <Text as="span" display="block" fontSize="12.5px" fontWeight={m === selectedModel ? 600 : 500} color="var(--ink-primary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" lineHeight="1.3">
+                                                                            {modelName(m)}
+                                                                        </Text>
+                                                                        <Text as="span" display="block" fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" lineHeight="1.3">
+                                                                            {m}
+                                                                        </Text>
+                                                                    </Box>
+                                                                    {m === defaultModel && (
+                                                                        <Text fontSize="9.5px" fontWeight={600} color="var(--accent-primary)" textTransform="uppercase" letterSpacing="0.05em" flexShrink={0}>
+                                                                            Recommended
+                                                                        </Text>
+                                                                    )}
+                                                                    {m === selectedModel && <MdCheck size={13} color="var(--signal-positive)" flexShrink={0} />}
+                                                                </DropdownMenuItem>
+                                                            ))}
+                                                        </DropdownMenuGroup>
+                                                    ));
+                                                })()}
+                                                {availableModels.length === 0 && (
+                                                    <DropdownMenuItem disabled>No models available</DropdownMenuItem>
+                                                )}
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                        {validatingModel && (
+                                            <Flex align="center" gap={1.5} mt={1.5}>
+                                                <Spinner size="xs" color="var(--ink-secondary)" />
+                                                <Text fontSize="11px" color="var(--ink-secondary)">Checking model access…</Text>
+                                            </Flex>
+                                        )}
+                                        {modelError && (
+                                            <Text mt={2} fontSize="11.5px" color="var(--signal-negative)">
+                                                {modelError}
+                                            </Text>
+                                        )}
+                                        <Flex align="center" gap={1.5} mt={2}>
+                                            <MdInfoOutline size={12} color="var(--ink-tertiary)" />
+                                            <Text fontSize="11px" color="var(--ink-tertiary)">
+                                                {providerCount > 0 ? `${providerCount} provider${providerCount === 1 ? "" : "s"} configured · add more in ` : "No API keys configured · add "}
+                                                <Link to="/settings" style={{ color: "var(--accent-primary)" }}>
+                                                    Settings
+                                                </Link>
+                                            </Text>
+                                        </Flex>
+                                    </Box>
+                                </Flex>
                             </Flex>
                         </StepSection>
                     </Flex>
@@ -1449,6 +1506,11 @@ export default function Analysis() {
                         skillObj={selectedSkill}
                         model={selectedModel || ""}
                         isDefaultModel={!!selectedModel && selectedModel === defaultModel}
+                        defaultModel={defaultModel}
+                        modelValidated={modelValidated}
+                        modelValidating={validatingModel}
+                        modelError={modelError}
+                        modelSiblings={modelSiblings}
                         hasTavily={hasTavily}
                         webSearch={webSearch}
                         setWebSearch={setWebSearch}
@@ -1526,6 +1588,19 @@ export default function Analysis() {
                         </Flex>
                     )}
 
+                    {/* Attribution the ticker-logo CDN licence requires; this
+                        page hides the app footer, so it lives here instead. */}
+                    <p className="mt-4 text-center text-[10px] text-[var(--ink-tertiary)]">
+                        <a
+                            href="https://www.allinvestview.com/tools/ticker-logos/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:text-[var(--ink-secondary)]"
+                        >
+                            Logos by AllInvestView
+                        </a>
+                    </p>
+
                     {/* Spacer: clears the fixed mobile bottom bar; small on desktop */}
                     <Box display={{ base: "block", lg: "none" }} h="150px" />
                     <Box display={{ base: "none", lg: "block" }} h={10} />
@@ -1548,6 +1623,11 @@ export default function Analysis() {
                     skillObj={selectedSkill}
                     model={selectedModel || ""}
                     isDefaultModel={!!selectedModel && selectedModel === defaultModel}
+                    defaultModel={defaultModel}
+                    modelValidated={modelValidated}
+                    modelValidating={validatingModel}
+                    modelError={modelError}
+                    modelSiblings={modelSiblings}
                     hasTavily={hasTavily}
                     webSearch={webSearch}
                     setWebSearch={setWebSearch}

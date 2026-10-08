@@ -1,145 +1,87 @@
-import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Helmet } from "react-helmet-async";
-import { useNavigate } from "react-router-dom";
-import resultScreenshot from "@/assets/hero-screenshot.png";
-import secLogo from "@/assets/sec_logo.png";
-import nseLogo from "@/assets/nse_logo.png";
-import redditLogo from "@/assets/reddit_logo.png";
-import voyagerLogo from "@/assets/voyager_logo.png";
-import youtubeLogo from "@/assets/youtube_logo.png";
-import webLogo from "@/assets/web.svg";
+import { Link, useNavigate } from "react-router-dom";
 import Footer from "@/components/Footer";
+import resultScreenshot from "@/assets/hero-screenshot.png";
+import { SOURCE_DEFS, SourceMark, type SourceKey } from "@/lib/sourceLogos";
+
+const SOURCE_KEYS: SourceKey[] = ["nse", "sec", "voyager", "reddit", "youtube", "web"];
 
 export default function Landing() {
   const navigate = useNavigate();
-  const rootRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div ref={rootRef} className="landing h-full overflow-y-auto overflow-x-hidden relative bg-[var(--surface-canvas)]">
+    <div className="landing h-full overflow-y-auto overflow-x-hidden relative bg-[var(--surface-canvas)]">
       <Helmet>
-        <title>Relativity AI — Customizable Agents for Stock Analysis</title>
-        <meta name="description" content="Create custom agents connected to real market data to automate your research process." />
+        <title>Relativity — Research agents on live market data</title>
+        <meta name="description" content="Create research agents wired to live market data. They read filings, prices, and news, and score stocks against your thesis — no trade calls, no recommendations." />
+        <meta property="og:title" content="Relativity — Research agents on live market data" />
+        <meta property="og:description" content="Create research agents wired to live market data." />
       </Helmet>
 
-      <header className="max-w-[1200px] mx-auto px-4 md:px-6 py-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div
-              className="flex items-center justify-center"
-              style={{
-                width: 28,
-                height: 28,
-                backgroundColor: "#1a1a1a",
-                color: "#ffffff",
-                borderRadius: 6,
-                fontFamily: "var(--font-display)",
-                fontSize: "14px",
-                fontWeight: 700,
-                flexShrink: 0,
-              }}
-            >
-              R.
-            </div>
-            <span className="font-[family-name:var(--font-display)] text-lg font-semibold text-[var(--ink-primary)]">Relativity.</span>
-          </div>
+      <header className="sticky top-0 z-50 px-4 md:px-8 py-4">
+        <div className="max-w-[1500px] mx-auto flex items-center justify-between">
+          <Link to="/" aria-label="Relativity home" className="text-[var(--ink-primary)] select-none" style={{ fontFamily: "var(--font-display)", fontWeight: 400, fontSize: 28 }}>
+            Relativity.
+          </Link>
           <Button size="sm" variant="outline" className="rounded-full px-4" onClick={() => navigate("/login")}>
             Log in
           </Button>
         </div>
       </header>
 
-      <main className="max-w-[1200px] mx-auto px-4 md:px-6 py-8 md:py-12">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center">
-          <div className="flex justify-start">
-            <div className="w-full max-w-[980px] rounded-2xl overflow-hidden border border-[var(--hairline)] bg-[var(--surface-panel)] shadow-sm">
-              <div className="flex items-center gap-3 px-4 md:px-5 py-3 border-b border-b-[var(--hairline)]">
-                <div className="flex gap-1.5" aria-hidden="true">
-                  <div className="w-[9px] h-[9px] rounded-full bg-[var(--hairline)]" />
-                  <div className="w-[9px] h-[9px] rounded-full bg-[var(--hairline)]" />
-                  <div className="w-[9px] h-[9px] rounded-full bg-[var(--hairline)]" />
-                </div>
-                <p className="font-[family-name:var(--font-mono)] text-[10px] md:text-[11px] font-medium text-[var(--ink-tertiary)] tracking-[0.08em]">
-                  RELATIVITY / ANALYSIS RESULT
-                </p>
-                <div className="flex-1" />
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-[var(--signal-positive)]" />
-                  <p className="font-[family-name:var(--font-mono)] text-[10px] md:text-[11px] font-medium text-[var(--signal-positive)]">
-                    COMPLETE
-                  </p>
-                </div>
-              </div>
-              <img
-                src={resultScreenshot}
-                alt="Relativity analysis result"
-                style={{ display: "block", width: "100%", height: "auto" }}
-                fetchPriority="high"
-              />
-            </div>
+      <section className="max-w-[1500px] mx-auto px-4 md:px-8 pt-8 md:pt-12 pb-10 md:pb-14">
+        <div className="grid lg:grid-cols-[2.1fr_1fr] gap-8 lg:gap-10 items-center">
+          {/* Analysis result screenshot — kept as the first thing a visitor sees */}
+          <div className="relative lg:-ml-4">
+            <img
+              src={resultScreenshot}
+              alt="Relativity analysis result: a stock scored against an agent's rules with per-criterion breakdown"
+              className="w-full h-auto rounded-2xl border border-[var(--hairline)] bg-[var(--surface-panel)] shadow-[0_40px_100px_-24px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.06)]"
+              style={{ display: "block" }}
+              fetchPriority="high"
+            />
           </div>
 
-          <div className="flex flex-col gap-6 md:gap-8">
-            <div>
-              <p className="text-lg md:text-xl text-[var(--ink-primary)] leading-relaxed max-w-[60ch] font-[family-name:var(--font-body)]">
-                Relativity helps you create custom agents which are connected to real market data for you to automate your research process.
-              </p>
-            </div>
+          {/* Short, plain-language pitch */}
+          <div className="flex flex-col gap-5 lg:gap-6">
+            <h1 className="font-[family-name:var(--font-display)] text-[clamp(1.6rem,2.6vw,2.4rem)] leading-[1.15] font-normal tracking-[-0.01em] text-[var(--ink-primary)]">
+              Relativity helps you create custom agents connected to real market data — so your research runs itself.
+            </h1>
 
-            <div className="flex flex-col gap-4">
-              <p className="text-sm text-[var(--ink-secondary)] font-[family-name:var(--font-body)]">Data sources</p>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="group relative flex items-center justify-center p-2 rounded-lg border border-[var(--hairline)] bg-[var(--surface-panel)]">
-                  <img src={nseLogo} alt="NSE" className="h-6 w-auto object-contain" />
-                  <span className="pointer-events-none absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-[var(--surface-inverse)] px-2 py-1 text-xs text-[var(--ink-inverse-primary)] opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                    NSE
+            <p className="text-base md:text-lg text-[var(--ink-secondary)] leading-relaxed max-w-[44ch]">
+              Agents pull from filings, prices, and news, score stocks against your thesis, and show the reasoning.
+            </p>
+
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-[var(--ink-tertiary)]">Data sources</p>
+              <div className="flex items-center gap-5">
+                {SOURCE_KEYS.map((k) => (
+                  <span key={k} title={SOURCE_DEFS[k].full} className="opacity-70 hover:opacity-100 transition-opacity duration-150 cursor-help flex items-center">
+                    <SourceMark source={k} size={24} />
                   </span>
-                </div>
-                <div className="group relative flex items-center justify-center p-2 rounded-lg border border-[var(--hairline)] bg-[var(--surface-panel)]">
-                  <img src={secLogo} alt="SEC" className="h-6 w-auto object-contain" />
-                  <span className="pointer-events-none absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-[var(--surface-inverse)] px-2 py-1 text-xs text-[var(--ink-inverse-primary)] opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                    SEC
-                  </span>
-                </div>
-                <div className="group relative flex items-center justify-center p-2 rounded-lg border border-[var(--hairline)] bg-[var(--surface-panel)]">
-                  <img src={redditLogo} alt="Reddit" className="h-6 w-auto object-contain" />
-                  <span className="pointer-events-none absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-[var(--surface-inverse)] px-2 py-1 text-xs text-[var(--ink-inverse-primary)] opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                    Reddit
-                  </span>
-                </div>
-                <div className="group relative flex items-center justify-center p-2 rounded-lg border border-[var(--hairline)] bg-[var(--surface-panel)]">
-                  <img src={voyagerLogo} alt="Voyager" className="h-6 w-auto object-contain" />
-                  <span className="pointer-events-none absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-[var(--surface-inverse)] px-2 py-1 text-xs text-[var(--ink-inverse-primary)] opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                    Voyager
-                  </span>
-                </div>
-                <div className="group relative flex items-center justify-center p-2 rounded-lg border border-[var(--hairline)] bg-[var(--surface-panel)]">
-                  <img src={youtubeLogo} alt="YouTube" className="h-6 w-auto object-contain" />
-                  <span className="pointer-events-none absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-[var(--surface-inverse)] px-2 py-1 text-xs text-[var(--ink-inverse-primary)] opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                    YouTube
-                  </span>
-                </div>
-                <div className="group relative flex items-center justify-center p-2 rounded-lg border border-[var(--hairline)] bg-[var(--surface-panel)]">
-                  <img src={webLogo} alt="Web" className="h-6 w-auto object-contain" />
-                  <span className="pointer-events-none absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-[var(--surface-inverse)] px-2 py-1 text-xs text-[var(--ink-inverse-primary)] opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                    Web
-                  </span>
-                </div>
+                ))}
               </div>
             </div>
 
-            <div>
-              <Button
-                size="lg"
-                variant="default"
-                onClick={() => navigate("/login")}
-              >
-                Get started
-              </Button>
-            </div>
+            <Button
+              size="lg"
+              variant="default"
+              className="w-fit min-h-[44px] hover:scale-[1.02] hover:shadow-[0_10px_30px_-10px_var(--accent-primary)] active:scale-[0.98]"
+              onClick={() => navigate("/login")}
+            >
+              Get started
+            </Button>
           </div>
         </div>
-      </main>
+      </section>
+
+      {/* What this is not — small, quiet, one line */}
+      <section className="px-4 md:px-8 pb-4">
+        <p className="text-center text-xs md:text-sm text-[var(--ink-tertiary)] max-w-[46ch] mx-auto leading-relaxed">
+          Not investment advice · no trade calls · no hidden ranking — research only.
+        </p>
+      </section>
 
       <Footer />
     </div>

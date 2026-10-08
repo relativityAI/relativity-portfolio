@@ -11,7 +11,7 @@ import { getSchemaDescriptor, type SchemaDescriptor } from "./schema.js";
 import type { MetricDef } from "./metrics.js";
 import { normalizeQuantRules } from "./metrics.js";
 import { buildAgentBuilderSystemPrompt, buildBuilderRecoveryPrompt, buildDocumentExtractionPrompt } from "./prompts.js";
-import { buildWebSearchTool, getToolCatalog } from "./tools.js";
+import { buildWebSearchTool, getToolCatalog, renderToolResults } from "./tools.js";
 import { getDb } from "./db.js";
 import { runAgentTurn, type HarnessTraceEvent } from "./harness.js";
 import { classifyModelError } from "./modelcheck.js";
@@ -377,7 +377,7 @@ export async function processBuilderTurn(
     "\n\nRespond with JSON only.";
 
   // Web search is always on (free DuckDuckGo default; Tavily when configured).
-  const tools = { web_search: buildWebSearchTool(req.llm_keys.tavily) };
+  const tools = renderToolResults({ web_search: buildWebSearchTool(req.llm_keys.tavily) });
 
   // When the user explicitly asks to search the web, force the tool so the
   // model can't shortcut straight to memory.

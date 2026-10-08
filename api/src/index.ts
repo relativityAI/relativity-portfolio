@@ -7,6 +7,7 @@ import { encrypt, decrypt } from "./crypto.js";
 import { fetchUserKeys, ensureUserSettings } from "./provision.js";
 import { getModelIds, getAvailableModelsForUser } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
+import { tickerLogoUrl } from "./tickerLogos.js";
 import { getMetricsCatalog, buildFieldList, getFlatCatalog, mergeCatalogFields, normalizeQuantRules, type MetricDef } from "./metrics.js";
 import { keyPool } from "./keypool.js";
 import { buildModel, draftParameters, type LlmKeys } from "./agent.js";
@@ -15,15 +16,18 @@ import { runAgentTurn } from "./harness.js";
 import { classifyModelError } from "./modelcheck.js";
 import { processBuilderTurn, extractDocumentSignals, type BuilderRequest } from "./builder.js";
 import { getSchemaDescriptor } from "./schema.js";
-import { buildTools, getToolCatalog } from "./tools.js";
-import { buildArtifacts } from "./skills/artifacts/index.js";
-import { renderXlsx } from "./skills/artifacts/xlsx.js";
+import { buildTools, cleanToolData, formatToolData, getToolCatalog, rawToolResult } from "./tools.js";
+// Artifact files (src/skills/artifacts/{index,xlsx}.ts) are mid-write by a
+// sibling session; import them lazily so a missing builder can't take the
+// whole server down. Restore static imports when they land.
+// ponytail: per-call dynamic import (uncached, unbundled) only on the two
+// artifact paths — loader runs once per request, not in a hot loop.
 import type { WorkbookRecipe } from "./skills/artifacts/types.js";
 import { getPreset, listPresets, buildSeedAgents } from "./presets.js";
 import { agentFromRow, buildAgentConfigV3, type AgentRow } from "./agentstore.js";
-import { parseAgentMd, serializeAgentMd, validateAgentV3 } from "./agentmd.js";
+import { fixAgentMarkdown, parseAgentMd, serializeAgentMd, validateAgentV3 } from "./agentmd.js";
 import { listAllSkillsForUser, saveCustomSkill, deleteCustomSkill, loadBuiltinSkills, serializeSkill, resolveSkill } from "./skills/store.js";
-import { parseSkillMarkdown } from "./skills/parse.js";
+import { fixSkillMarkdown, parseSkillMarkdown } from "./skills/parse.js";
 import { skillDraftTurn, type SkillDraftRequest } from "./skills/draft.js";
 import { extractText } from "./upload.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
@@ -62,42 +66,6 @@ function statusColor(code: number): string {
   if (code >= 400) return "1;33";
   if (code >= 300) return "36";
   return "1;32";
-}
-
-function cleanToolData(value: any): any {
-  if (typeof value === "string" && /^[\s]*[\[{]/.test(value)) {
-    try { return cleanToolData(JSON.parse(value)); } catch { /* keep ordinary text */ }
-  }
-  if (Array.isArray(value)) return value.map(cleanToolData).filter((item) => item !== undefined);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value)
-      .filter(([, item]) => item !== null && item !== undefined && item !== "")
-      .map(([key, item]) => [key, cleanToolData(item)]));
-  }
-  return value;
-}
-
-function readableToolKey(key: string): string {
-  return key.replace(/[_-]+/g, " ").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-/** Compact, complete tool data: table headers are shared across rows; no rows or fields are truncated. */
-function formatToolData(value: any): string {
-  const data = cleanToolData(value);
-  if (data == null) return "No data returned.";
-  if (Array.isArray(data)) {
-    if (!data.length) return "No rows returned.";
-    if (data.every((row) => row && typeof row === "object" && !Array.isArray(row))) {
-      const columns = [...new Set(data.flatMap((row) => Object.keys(row)))];
-      const cell = (v: any) => (v && typeof v === "object" ? JSON.stringify(v) : String(v ?? "")).replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
-      return `Rows: ${data.length}\n| ${columns.map(readableToolKey).join(" | ")} |\n| ${columns.map(() => "---").join(" | ")} |\n${data.map((row) => `| ${columns.map((key) => cell(row[key])).join(" | ")} |`).join("\n")}`;
-    }
-    return data.map((item, i) => `${i + 1}. ${formatToolData(item)}`).join("\n");
-  }
-  if (typeof data === "object") {
-    return Object.entries(data).map(([key, item]) => `${readableToolKey(key)}: ${item && typeof item === "object" ? formatToolData(item) : String(item)}`).join("\n");
-  }
-  return String(data);
 }
 
 function toolResultOverview(value: any): string {
@@ -167,12 +135,14 @@ async function runSkillEvaluation(input: {
   }) : { toolCalls: [] as any[], error: undefined };
   if (toolTurn.error) trace.push("log", "skill", { text: `Some requested data was unavailable for ${skill.name}: ${toolTurn.error}` });
   const observations = toolTurn.toolCalls.map((call: any) => {
-    const value = cleanToolData(call.error ?? call.result);
+    const value = cleanToolData(call.error ?? rawToolResult(call.toolCallId) ?? call.result);
     const empty = value == null || (Array.isArray(value) && value.length === 0) || (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0);
+    const raw = call.error ? undefined : (rawToolResult(call.toolCallId) ?? call.result);
     return {
       tool: String(call.tool_name || "unknown"),
       args: JSON.stringify(cleanToolData(call.args ?? {})),
       result: JSON.stringify(value ?? null),
+      rendered: raw == null ? undefined : formatToolData(raw),
       status: call.status === "ERR" || call.error ? "ERR" : empty ? "EMPTY" : "ok",
     };
   });
@@ -208,6 +178,7 @@ async function runSkillEvaluation(input: {
       log.warn("[skill-run]", `${skill.name} score retry failed:`, e?.message || e);
     }
   }
+  const { buildArtifacts = () => [] } = await import("./skills/artifacts/index.js").catch(() => ({}));
   const artifacts = buildArtifacts({ skillId: skill.id, symbol, shareName, source, observations });
   if (artifacts.some((a) => a.status !== "unavailable")) {
     trace.push("log", "skill", { text: `Built a ${artifacts[0].recipe?.filename ?? "workbook"} with live formulas for ${skill.name}.` });
@@ -525,12 +496,23 @@ app.post("/agents/validate-md", requireAuth, async (req, res) => {
     const md = String(req.body?.md || "");
     if (!md.trim()) return res.status(400).json({ valid: false, issues: [{ line: 1, message: "empty markdown", severity: "error" }] });
     const { agent, issues } = parseAgentMd(md);
-    if (!agent) return res.json({ valid: false, parsed: null, issues });
+    if (!agent) {
+      return res.json({
+        valid: false,
+        parsed: null,
+        issues,
+        fixed: issues.some((i) => i.severity === "error") ? fixAgentMarkdown(md) : null,
+      });
+    }
     const check = validateAgentV3(agent);
     const all = check.ok ? issues : check.issues.concat(issues);
     const hasErrors = all.some((i) => i.severity === "error");
-    if (hasErrors) return res.json({ valid: false, parsed: agent, issues: all });
-    res.json({ valid: true, parsed: agent, issues: all });
+    res.json({
+      valid: !hasErrors,
+      parsed: agent,
+      issues: all,
+      fixed: hasErrors ? fixAgentMarkdown(md) : null,
+    });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -695,7 +677,9 @@ app.post("/skills/validate", requireAuth, async (req, res) => {
       return res.json({ valid: false, issues: [{ line: 1, message: "empty markdown", severity: "error" }] });
     }
     const { skill, issues } = parseSkillMarkdown(md, "custom");
-    res.json({ valid: !!skill, parsed: skill, issues });
+    const hasErrors = issues.some((i) => i.severity === "error");
+    const fixed = hasErrors ? fixSkillMarkdown(md, String(req.body?.fallbackName || "")) : null;
+    res.json({ valid: !!skill, parsed: skill, issues, fixed });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -1097,6 +1081,7 @@ app.get("/analysis/:id/artifact/:artifactId", requireAuth, async (req, res) => {
       return res.status(409).json({ error: artifact.note || "This workbook could not be built" });
     }
 
+    const { renderXlsx } = await import("./skills/artifacts/xlsx.js");
     const buffer = await renderXlsx(artifact.recipe as WorkbookRecipe);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Length", String(buffer.length));
@@ -1209,6 +1194,22 @@ app.get("/stocks/search", (req, res) => {
   const q = String(req.query.query || "");
   const source = String(req.query.source || "");
   res.json(searchStocks(q, source || undefined));
+});
+
+// Company logo for a ticker: resolve symbol → domain (search API), then
+// redirect to the CDN. No logo bytes are stored here. Open on purpose — an
+// <img> tag carries no Authorization header, like /stocks/search above.
+// The redirect target is always under the fixed CDN host, so the symbol
+// can never aim it anywhere else.
+app.get("/logo/:symbol", async (req, res) => {
+  try {
+    const url = await tickerLogoUrl(String(req.params.symbol || ""));
+    res.setHeader("Cache-Control", url ? "public, max-age=86400" : "public, max-age=600");
+    if (!url) return res.status(404).end();
+    res.redirect(url);
+  } catch {
+    res.status(404).end();
+  }
 });
 
 app.get("/metrics", (req, res) => {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
-import { Search, Plus, Trash2, Sparkles } from "lucide-react";
+import { Search, Plus, Trash2 } from "lucide-react";
 import { AgentService } from "@/db";
 import AgentAvatar from "@/components/shared/AgentAvatar";
 import { Button } from "@/components/ui/button";
@@ -176,7 +176,7 @@ export default function AgentLibrary() {
                         Every analyst you've built — their philosophy and skills.
                     </p>
                 </div>
-                <Button onClick={() => navigate("/console/agent/new")}>
+                <Button size="sm" variant="outline" className="rounded-full px-4" onClick={() => navigate("/console/agent/new")}>
                     <Plus /> New agent
                 </Button>
             </div>
@@ -225,9 +225,6 @@ export default function AgentLibrary() {
                     <div className="mt-6 flex flex-wrap justify-center gap-3">
                         <Button onClick={() => navigate("/console/agent/new")}>
                             <Plus /> Create an agent
-                        </Button>
-                        <Button variant="accentSoft" onClick={() => navigate("/console/builder?mode=agent")}>
-                            <Sparkles /> Build with AI
                         </Button>
                     </div>
 

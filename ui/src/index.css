@@ -8,6 +8,11 @@
   --hairline: #D9D9D5;
   --grid-line: #C7C7C2;
 
+  /* Structure. Referenced by the compat/ui primitives; without these every
+     border-radius and border-width in those components silently resolves to 0. */
+  --hairline-w: 1px;
+  --radius-box: 6px;
+
   /* Ink */
   --ink-primary: #16181B;
   --ink-secondary: #5A6270;
@@ -19,7 +24,7 @@
   --ink-inverse-tertiary: #6B7280;
 
   /* Accent — 4.8:1 on white panel, so it is legal as text, not just as fill */
-  --accent-primary: #426BD9;
+  --accent-primary: #6b7280;
 
   /* Ambient blobs — light value (dark overrides below) */
   --blob-opacity: 0.2;
@@ -30,11 +35,17 @@
   --signal-warning: #FFB300;
   --signal-negative: #B85C5C;
 
+  /* File-type accents. Spreadsheet green is Excel's own, so the icon and button
+     read as "this is a workbook" rather than as decoration.
+     The icon chip mixes it into a fixed pale tint rather than the theme
+     surface, which keeps the glyph above 4:1 in light and dark alike. */
+  --file-sheet: #107C41;
+
   /* Typography */
   --font-body: 'Anek Latin', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'IBM Plex Mono', 'SF Mono', 'Menlo', monospace;
   --font-tabular: 'IBM Plex Mono', 'Inter', monospace;
-  --font-display: 'Newsreader', 'Anek Latin', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Newsreader', 'Inter', Georgia, serif;
 }
 
 /* Dark theme. Driven ONLY by the theme class on <html> (next-themes sets
@@ -61,7 +72,7 @@ html.dark {
   --ink-tertiary: #868D95;
 
   /* Accent lifts on dark so it stays AA as text — the light value goes to 4.0:1 here */
-  --accent-primary: #8AA6F0;
+  --accent-primary: #9ca3af;
 
   --blob-opacity: 0.22;
 }
@@ -70,6 +81,9 @@ html.dark {
 html,
 body {
   background: var(--surface-canvas);
+  /* Tailwind preflight is not loaded (console.css imports theme + utilities
+     only), so nothing else sets a body face. Without this the whole app —
+     including buttons, which do not inherit font-family — renders serif. */
   font-family: var(--font-body);
 }
 
@@ -124,73 +138,22 @@ body {
   }
 }
 
-/* Landing page display font — Sora, scoped so the app keeps Inter.
-   Applied via the .landing wrapper on the Landing page only. */
+/* Landing page type: Anek Latin for body copy, Newsreader for important text.
+   Scoped so the app keeps Inter. Applied via the .landing wrapper only, with
+   the logo's Newsreader mark defined globally through --font-display. */
 .landing {
-  --font-display: 'Newsreader', 'Anek Latin', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Anek Latin', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.landing {
+  font-family: var(--font-body);
 }
 
 .landing h1,
 .landing h2,
 .landing h3 {
   font-family: var(--font-display);
-  letter-spacing: -0.03em;
-}
-
-/* Data-source marquee */
-@keyframes marquee {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-
-.marquee-track {
-  display: flex;
-  width: max-content;
-  animation: marquee 30s linear infinite;
-}
-
-.marquee-track:hover,
-.marquee-track:focus-within {
-  animation-play-state: paused;
-}
-
-@keyframes heartbeat {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.03);
-  }
-}
-
-.pulse-animate {
-  animation: heartbeat 2s ease-in-out infinite;
-  box-shadow: 0 0 0 0 rgba(66, 107, 217, 0.7);
-  animation-duration: 2s;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .marquee-track {
-    animation: none;
-  }
-  .pulse-animate {
-    animation: none;
-  }
-}
-
-/* Ambient color blobs — light mode only, so dark mode keeps its clean
-   recessed-surface depth. One accent, large and soft, never animated. */
-.ambient-blob {
-  position: absolute;
-  width: 48vw;
-  height: 48vw;
-  min-width: 360px;
-  min-height: 360px;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--accent-primary) 0%, var(--accent-primary) 22%, transparent 70%);
-  opacity: var(--blob-opacity, 0);
-  pointer-events: none;
-  z-index: 0;
+  letter-spacing: -0.02em;
 }
 
 /* ── Print stylesheet ─────────────────────────────────────────────────────────
@@ -263,66 +226,28 @@ body {
     color: inherit;
   }
 }
-
-/* Hover behavior: brighten text instead of background highlight */
-button:hover:not(:disabled),
+/* Hover behavior: no background change, just text brightness */
+[class*="hover:bg"]:not(.bg-transparent):hover {
+  background-color: transparent !important;
+}
+[class*="hover:bg-sidebar"]:hover,
+[class*="hover:bg-accent"]:hover {
+  background-color: transparent !important;
+}
+[class*="hover:text-"]:hover,
+[class*="hover:opacity"]:hover,
+[role="button"]:hover,
+button:hover,
 a:hover,
-[role="button"]:hover:not(:disabled),
-.chakra-button:hover:not(:disabled),
-.chakra-menu__menuitem:hover,
-.chakra-tabs__tab:hover {
-  color: var(--ink-primary) !important;
-  filter: brightness(1.15) !important;
+.group:hover * {
+  transition: color 120ms ease, filter 120ms ease, opacity 120ms ease;
+}
+[role="button"]:not([class*="bg-"]):hover,
+button:not([class*="bg-"]):hover,
+[class*="hover:text-"]:hover {
+  filter: brightness(1.15) saturate(1.05);
+}
+[data-sidebar="menu-button"]:hover {
   background-color: transparent !important;
-}
-
-/* Keep background for specific elements that need it? Override - avoid background change */
-.chakra-button:hover:not(:disabled) {
-  background-color: transparent !important;
-}
-.chakra-menu__menuitem:hover {
-  background-color: transparent !important;
-}
-
-/* Sidebar/menu items - brighten on hover */
-[data-sidebar="menu-button"]:hover,
-[data-sidebar="menu-sub-button"]:hover,
-[cmdk-item]:hover {
-  color: var(--ink-primary) !important;
-  background-color: transparent !important;
-  filter: brightness(1.15) !important;
-}
-
-/* Global font overrides */
-* {
-  font-family: var(--font-body);
-}
-h1, h2, h3, h4, h5, h6,
-.font-display,
-[style*="font-display"] {
-  font-family: var(--font-display) !important;
-}
-
-/* Markdown heading fonts in analysis results */
-.markdown-content h1,
-.markdown-content h2,
-.markdown-content h3,
-.markdown-content h4,
-.markdown-content h5,
-.markdown-content h6,
-.analysis-markdown h1,
-.analysis-markdown h2,
-.analysis-markdown h3,
-.analysis-markdown h4,
-.analysis-markdown h5,
-.analysis-markdown h6,
-.report-container h1,
-.report-container h2,
-.report-container h3,
-.report-container h4,
-.report-container h5,
-.report-container h6 {
-  font-family: var(--font-display) !important;
-  font-weight: 700 !important;
-  letter-spacing: -0.01em !important;
+  filter: brightness(1.15);
 }
