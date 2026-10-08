@@ -1,5 +1,5 @@
 import { Flex, Text, Spinner, Box, HStack } from "@chakra-ui/react";
-import { useEffect, useState, useMemo, useCallback, useRef, Fragment, type ElementType } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { MdInfoOutline, MdCheck, MdClose, MdArrowForward } from "react-icons/md";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AnalysisService, AgentService, SettingsService, API_BASE, isServerFreeModel } from "@/db";
@@ -24,41 +24,12 @@ import { type RunStep, runProgressPct } from "./shared/RunStatus";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import AgentActivity from "@/components/shared/AgentActivity";
 import { motion, AnimatePresence } from "motion/react";
-import { dur, ease, stagger, staggerItem } from "@/lib/motion";
+import { dur, ease, stagger, staggerItem, TypeText } from "@/lib/motion";
 import { SourceMark, TickerLogo } from "@/lib/sourceLogos";
 
 /** The one line this page opens with. */
 const HEADLINE = "Which agent are we running today?";
 const TAGLINE = "Market. Model. Magic.";
-
-const WORD = {
-    initial: { opacity: 0, y: 16, filter: "blur(8px)" },
-    animate: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 1.2, ease } },
-};
-
-/** Word-by-word blur-up. Shared by the headline and its tagline. */
-function Staggered({
-    as: Tag, text, className, delay = 0.2,
-}: { as: ElementType; text: string; className?: string; delay?: number }) {
-    const words = text.split(" ");
-    return (
-        <Tag
-            className={className}
-            initial="initial"
-            animate="animate"
-            variants={{ animate: { transition: { staggerChildren: 0.26, delayChildren: delay } } }}
-        >
-            {words.map((word, i) => (
-                <Fragment key={`${word}-${i}`}>
-                    <motion.span className="inline-block" variants={WORD}>
-                        {word}
-                    </motion.span>
-                    {i < words.length - 1 ? " " : null}
-                </Fragment>
-            ))}
-        </Tag>
-    );
-}
 
 const MAX_POLL_RETRIES = 600;
 
@@ -169,6 +140,16 @@ function RunningNow({ agents }: { agents?: any[] }) {
 
 function StepSection({ done, collapsed, onToggle, summary, children }: { done: boolean; collapsed?: boolean; onToggle?: () => void; summary?: string; children: any }) {
     const headerIsButton = !!collapsed && !!onToggle;
+    const summaryRow = (
+        <>
+            {summary && (
+                <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-secondary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" maxW="70%">
+                    {summary}
+                </Text>
+            )}
+            {done && <MdCheck size={12} color="var(--signal-positive)" aria-label="Selected" />}
+        </>
+    );
     return (
         <Box as={motion.div} variants={staggerItem} py={{ base: 4, md: 5 }}>
             {headerIsButton && (
@@ -184,15 +165,16 @@ function StepSection({ done, collapsed, onToggle, summary, children }: { done: b
                     aria-expanded={false}
                     textAlign="left"
                 >
-                    {summary && (
-                        <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-secondary)" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" maxW="70%">
-                            {summary}
-                        </Text>
-                    )}
-                    {done && <MdCheck size={12} color="var(--signal-positive)" aria-label="Selected" />}
+                    {summaryRow}
                     <Text fontSize="10px" color="var(--ink-tertiary)" textTransform="uppercase" letterSpacing="0.05em" flexShrink={0} ml="auto">
                         Edit
                     </Text>
+                </Flex>
+            )}
+            {/* Once a run has started the step locks: same one-line summary, no Edit. */}
+            {collapsed && !headerIsButton && (
+                <Flex align="center" gap={2.5} mb={4} w="full" textAlign="left">
+                    {summaryRow}
                 </Flex>
             )}
             {collapsed ? null : children}
@@ -223,7 +205,7 @@ const modelName = (id: string) => id.split("/").slice(1).join("/") || id;
 /** One compact selection chip used across both rail variants. */
 function RailChip({ icon, label, sub, muted }: { icon?: React.ReactNode; label: string; sub?: string; muted?: boolean }) {
     return (
-        <Flex align="center" gap={1.5} minW={0}>
+        <Flex align="center" gap={1.5} minW={0} flexGrow={1}>
             {icon}
             <Box minW={0}>
                 <Text
@@ -368,7 +350,11 @@ function AnalysisSummaryRail(props: {
     // ── Shared pieces ─────────────────────────────────────────────
     const companyChip = (
         <RailChip
-            icon={<SourceMark source={props.source === "SEC" ? "sec" : "nse"} size={18} />}
+            icon={
+                props.share
+                    ? <TickerLogo symbol={props.share} size={18} />
+                    : <SourceMark source={props.source === "SEC" ? "sec" : "nse"} size={18} />
+            }
             label={companyLabel || "Not set"}
             sub={props.share ? props.share.toUpperCase() : undefined}
             muted={!companyLabel}
@@ -507,17 +493,22 @@ function AnalysisSummaryRail(props: {
     const actionArea = (() => {
         if (status === "PENDING") {
             return (
-                <HStack gap={2}>
-                    <Spinner size="sm" borderWidth="2px" color="var(--accent-primary)" />
-                    <Text fontSize="13px" fontWeight={600} color="var(--ink-primary)">
-                        {props.resuming ? "Resuming" : "Running"}
-                    </Text>
-                    {props.elapsedTime > 0 && (
-                        <Text fontSize="12px" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" color="var(--ink-tertiary)">
-                            {formatSeconds(props.elapsedTime)}
+                <Flex direction="column" gap={2.5} w="full">
+                    <HStack gap={2}>
+                        <Spinner size="sm" borderWidth="2px" color="var(--accent-primary)" />
+                        <Text fontSize="13px" fontWeight={600} color="var(--ink-primary)">
+                            {props.resuming ? "Resuming" : "Running"}
                         </Text>
-                    )}
-                </HStack>
+                        {props.elapsedTime > 0 && (
+                            <Text fontSize="12px" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" color="var(--ink-tertiary)">
+                                {formatSeconds(props.elapsedTime)}
+                            </Text>
+                        )}
+                    </HStack>
+                    <Button variant="outline" onClick={props.onReset}>
+                        Run another
+                    </Button>
+                </Flex>
             );
         }
         if (status === "COMPLETED") {
@@ -542,7 +533,6 @@ function AnalysisSummaryRail(props: {
                             Run again
                         </Button>
                     </div>
-                    {selectionBody}
                 </Flex>
             );
         }
@@ -563,7 +553,6 @@ function AnalysisSummaryRail(props: {
                             Try again
                         </Button>
                     </div>
-                    {selectionBody}
                 </Flex>
             );
         }
@@ -611,19 +600,15 @@ function AnalysisSummaryRail(props: {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="px-4">
-                        {status === "PENDING" ? (
-                            <Flex direction="column" gap={3}>
-                                {actionArea}
-                                <Flex direction="column" gap={1.5} pt={1} borderTop="1px solid var(--hairline)">
-                                    {selectionBody}
-                                </Flex>
-                            </Flex>
-                        ) : (
+                        {status === "EMPTY" ? (
                             <Flex direction="column" gap={3}>
                                 {selectionBody}
                                 <Box borderTop="1px solid var(--hairline)" />
                                 {actionArea}
                             </Flex>
+                        ) : (
+                            /* Run started: status + actions only — no edit affordances. */
+                            actionArea
                         )}
                     </CardContent>
                 </Card>
@@ -686,7 +671,11 @@ function AnalysisSummaryRail(props: {
             <Box pt={2.5}>
                 {status === "EMPTY" && !props.resuming ? (
                     <RunNowCta onClick={props.onRun} disabled={!props.canRun} />
-                ) : status === "PENDING" ? null : status === "COMPLETED" ? (
+                ) : status === "PENDING" ? (
+                    <Button variant="outline" className="w-full mt-2.5" onClick={props.onReset}>
+                        Run another
+                    </Button>
+                ) : status === "COMPLETED" ? (
                     <div className="mt-2.5 flex gap-2">
                         {props.correlationId && (
                             <Button asChild className="flex-1">
@@ -1123,15 +1112,17 @@ export default function Analysis() {
                     <Box w="full" mb={{ base: 5, md: 7 }}>
                         <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={4} wrap="wrap">
                             <Box>
-                                <Staggered
-                                    as={motion.h1}
+                                <TypeText
+                                    as="h1"
                                     text={HEADLINE}
+                                    delay={0.15}
                                     className="text-[26px] leading-[1.15] font-semibold tracking-tight text-[var(--ink-primary)] md:text-[34px]"
                                 />
-                                <Staggered
-                                    as={motion.p}
+                                <TypeText
+                                    as="p"
                                     text={TAGLINE}
-                                    delay={1.1}
+                                    delay={0.15 + (HEADLINE.length + 1) / 40}
+                                    cps={60}
                                     className="mt-2 text-[13px] md:text-[15px] text-[var(--ink-tertiary)]"
                                 />
                             </Box>
@@ -1173,7 +1164,7 @@ export default function Analysis() {
                     <Flex direction={{ base: "column", lg: "row" }} gap={{ base: 0, lg: 8 }} align={{ lg: "flex-start" }}>
                     <Flex direction="column" flex={1} minW={0} as={motion.div} variants={stagger} initial="initial" animate="animate">
                         {/* Company: market + ticker */}
-                        <StepSection done={!!config.share} collapsed={!!collapsedSteps["company"]} onToggle={() => setCollapsedSteps(p => ({ ...p, company: !p["company"] }))} summary={stepSummary("company")}>
+                        <StepSection done={!!config.share} collapsed={!!collapsedSteps["company"]} onToggle={status === "EMPTY" ? () => setCollapsedSteps(p => ({ ...p, company: !p["company"] })) : undefined} summary={stepSummary("company")}>
                             <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
                                 <Box w={{ base: "full", md: "180px" }} flexShrink={0}>
                                     <FieldLabel>Market</FieldLabel>
@@ -1258,7 +1249,7 @@ export default function Analysis() {
                         <StepSection
                             done={runMode === "skill" ? !!skillId : !!config.agent}
                             collapsed={!!collapsedSteps["agent"]}
-                            onToggle={() => setCollapsedSteps(p => ({ ...p, agent: !p["agent"] }))}
+                            onToggle={status === "EMPTY" ? () => setCollapsedSteps(p => ({ ...p, agent: !p["agent"] })) : undefined}
                             summary={stepSummary("agent")}
                         >
                             <Flex direction="column" gap={5}>
@@ -1521,6 +1512,9 @@ export default function Analysis() {
                         analysisDuration={analysisDuration}
                         correlationId={correlationId}
                         onReset={() => {
+                            // Clear the route id too: resuming = !!id && EMPTY, so
+                            // staying on /analysis/:id would re-render as "Resuming".
+                            navigate("/analysis");
                             setStatus("EMPTY");
                             setRunError(null);
                             setSteps([]);
@@ -1588,19 +1582,6 @@ export default function Analysis() {
                         </Flex>
                     )}
 
-                    {/* Attribution the ticker-logo CDN licence requires; this
-                        page hides the app footer, so it lives here instead. */}
-                    <p className="mt-4 text-center text-[10px] text-[var(--ink-tertiary)]">
-                        <a
-                            href="https://www.allinvestview.com/tools/ticker-logos/"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="hover:text-[var(--ink-secondary)]"
-                        >
-                            Logos by AllInvestView
-                        </a>
-                    </p>
-
                     {/* Spacer: clears the fixed mobile bottom bar; small on desktop */}
                     <Box display={{ base: "block", lg: "none" }} h="150px" />
                     <Box display={{ base: "none", lg: "block" }} h={10} />
@@ -1638,7 +1619,9 @@ export default function Analysis() {
                     analysisDuration={analysisDuration}
                     correlationId={correlationId}
                     onReset={() => {
+                        navigate("/analysis");
                         setStatus("EMPTY");
+                        setRunError(null);
                         setSteps([]);
                     }}
                 />

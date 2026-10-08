@@ -3,12 +3,13 @@ import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
     Search, PenLine, Trash2, ShieldCheck, Link2,
-    ListFilter, ChevronDown, X, ArrowLeft,
+    ListFilter, ChevronDown, X, ArrowLeft, Globe,
 } from "lucide-react";
 import { SkillService, AgentService, type SkillSummary } from "@/db";
 import { useSkillLibrary, SkillEditor } from "@/components/skills/SkillBrowser";
 import SkillAvatar from "@/components/shared/SkillAvatar";
 import SkillCreatePane from "@/components/skills/SkillCreatePane";
+import SkillImportPane from "@/components/skills/SkillImportPane";
 import { SkillMarkdown } from "@/components/skills/SkillMarkdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +36,7 @@ const CATEGORY_LABELS: Record<string, string> = {
     custom: "Custom",
 };
 
-type Mode = "inspect" | "create";
+type Mode = "inspect" | "create" | "download";
 
 /** Section heading with the pencil that says "this section is editable". */
 function SectionHead({ children, onEdit }: { children: ReactNode; onEdit: () => void }) {
@@ -58,8 +59,6 @@ export default function AgentSkills() {
     const [searchParams, setSearchParams] = useSearchParams();
     const { library, loading, error: libraryError, setLibrary } = useSkillLibrary();
     const [selected, setSelected] = useState<SkillSummary | null>(null);
-    const [markdown, setMarkdown] = useState<string | null>(null);
-    const [docError, setDocError] = useState(false);
     const [mode, setMode] = useState<Mode>("inspect");
     const [editing, setEditing] = useState(false);
     const [query, setQuery] = useState("");
@@ -87,16 +86,6 @@ export default function AgentSkills() {
             .then((data) => { if (Array.isArray(data)) setAgents(data); })
             .catch(() => {});
     }, []);
-
-    useEffect(() => {
-        if (!selected || mode !== "inspect" || editing) { setMarkdown(null); return; }
-        let cancelled = false;
-        setDocError(false);
-        SkillService.readSkill(selected.id)
-            .then((s) => { if (!cancelled) setMarkdown(s.markdown || ""); })
-            .catch(() => { if (!cancelled) setDocError(true); });
-        return () => { cancelled = true; };
-    }, [selected, mode, editing]);
 
     const categories = useMemo(() => Array.from(new Set(library.map((s) => s.category))), [library]);
 
@@ -150,6 +139,13 @@ export default function AgentSkills() {
         setSearchParams({}, { replace: true });
     };
 
+    const startDownload = () => {
+        setMode("download");
+        setSelected(null);
+        setEditing(false);
+        setSearchParams({}, { replace: true });
+    };
+
     const isDetail = mode === "inspect" && !!selected;
 
     /* ── Main pane: create > detail > grid ────────────────────────────── */
@@ -168,6 +164,18 @@ export default function AgentSkills() {
                         }}
                     />
                 </div>
+            );
+        }
+
+        if (mode === "download") {
+            return (
+                <SkillImportPane
+                    library={library}
+                    onCancel={() => setMode("inspect")}
+                    onSaved={(skill) =>
+                        setLibrary((lib) => [...lib.filter((s) => s.id !== skill.id), skill])
+                    }
+                />
             );
         }
 
@@ -195,8 +203,6 @@ export default function AgentSkills() {
                             ) : (
                                 <SkillDetail
                                     skill={selected}
-                                    markdown={markdown}
-                                    docError={docError}
                                     onEdit={() => setEditing(true)}
                                 />
                             )}
@@ -209,8 +215,8 @@ export default function AgentSkills() {
         // Grid view — the library itself.
         return (
             <>
-                {/* Search: filter dropdown + input + clear, as one attached group. */}
-                <div className="mt-5 flex max-w-md items-stretch">
+                {/* Search: filter dropdown + input + clear, as one full-width group. */}
+                <div className="mt-5 flex items-stretch">
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button variant="outline" aria-label="Filter by category" className="rounded-r-none border-r-0 px-2.5">
@@ -265,7 +271,7 @@ export default function AgentSkills() {
                         {filtered.length === 0 && (
                             <p className="col-span-full py-8 text-center text-[13px] text-console-ink-3">
                                 {library.length === 0
-                                    ? "No skills yet — create the first one with New manually."
+                                    ? "No skills yet — download one from GitHub or create it manually."
                                     : "No skills match that search."}
                             </p>
                         )}
@@ -309,20 +315,33 @@ export default function AgentSkills() {
                     {selected ? (
                         <>
                             <SkillAvatar skill={selected} size={28} />
-                            <h1 className="min-w-0 truncate text-[28px] font-bold tracking-tight text-console-ink">
+                            <h1 className="font-app-display min-w-0 truncate text-[30px] font-medium tracking-tight text-console-ink">
                                 {selected.name}
                             </h1>
                             <SkillSourceBadge source={selected.source} />
                         </>
                     ) : (
-                        <h1 className="text-[28px] font-bold tracking-tight text-console-ink">Agent Skills</h1>
+                        <h1 className="font-app-display text-[30px] font-medium tracking-tight text-console-ink">Agent Skills</h1>
                     )}
                 </div>
                 <div className="ml-auto flex shrink-0 items-center gap-2">
-                    {!selected && mode !== "create" && (
+                    {!selected && mode === "inspect" && (
                         <>
-                            <Button variant="secondary" size="sm" onClick={startCreate}>
-                                <PenLine /> New manually
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={startCreate}
+                                className="bg-transparent font-normal text-console-ink-3 hover:bg-transparent hover:text-console-ink!"
+                            >
+                                <PenLine /> Create new skill
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={startDownload}
+                                className="bg-transparent font-normal text-console-ink-3 hover:bg-transparent hover:text-console-ink!"
+                            >
+                                <Globe /> Download skills
                             </Button>
                         </>
                     )}
@@ -385,14 +404,7 @@ export default function AgentSkills() {
 
 /* ── Skill detail ─────────────────────────────────────────────────────── */
 
-function SkillDetail({
-    skill, markdown, docError, onEdit,
-}: {
-    skill: SkillSummary;
-    markdown: string | null;
-    docError: boolean;
-    onEdit: () => void;
-}) {
+function SkillDetail({ skill, onEdit }: { skill: SkillSummary; onEdit: () => void }) {
     return (
         <div className="mt-5 flex flex-col gap-5">
             <p className="max-w-[75ch] text-sm leading-relaxed text-console-ink-2">{skill.description}</p>
@@ -400,9 +412,9 @@ function SkillDetail({
             {skill.purpose && (
                 <section>
                     <SectionHead onEdit={onEdit}>What it measures</SectionHead>
-                    <p className="max-w-[75ch] text-[13px] leading-relaxed whitespace-pre-wrap text-console-ink-2">
-                        {skill.purpose}
-                    </p>
+                    <div className="max-w-[75ch]">
+                        <SkillMarkdown>{skill.purpose}</SkillMarkdown>
+                    </div>
                 </section>
             )}
 
@@ -421,19 +433,6 @@ function SkillDetail({
                     </div>
                 </section>
             )}
-
-            <section>
-                <SectionHead onEdit={onEdit}>Document</SectionHead>
-                {docError ? (
-                    <p className="text-[13px] text-console-negative">Couldn't load this skill's document.</p>
-                ) : markdown === null ? (
-                    <div className="h-24 animate-pulse rounded-xl bg-console-recessed" />
-                ) : (
-                    <div className="max-w-[75ch]">
-                        <SkillMarkdown>{markdown}</SkillMarkdown>
-                    </div>
-                )}
-            </section>
         </div>
     );
 }

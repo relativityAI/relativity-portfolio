@@ -198,6 +198,42 @@ export const SkillService = {
     }
 };
 
+/** A GitHub repository configured as a skill source (api/config/skill-repos.json). */
+export interface SkillRepo {
+    id: string;
+    label: string;
+    owner: string;
+    repo: string;
+    branch?: string;
+    pathPrefix?: string;
+}
+
+/** One downloadable SKILL.md in a configured repo. */
+export interface RepoSkill {
+    id: string;
+    name: string;
+    description: string;
+    path: string;
+    html_url: string;
+}
+
+export const SkillRepoService = {
+    async listRepos(): Promise<SkillRepo[]> {
+        const response = await axios.get(`${API_BASE}/skills/repos`);
+        return response.data;
+    },
+
+    async listRepoSkills(repoId: string): Promise<RepoSkill[]> {
+        const response = await axios.get(`${API_BASE}/skills/repos/${encodeURIComponent(repoId)}/skills`);
+        return response.data;
+    },
+
+    async importSkill(repoId: string, path: string): Promise<{ skill: SkillSummary; issues?: { line: number; message: string; severity: string }[]; repaired?: boolean }> {
+        const response = await axios.post(`${API_BASE}/skills/repos/${encodeURIComponent(repoId)}/import`, { path });
+        return response.data;
+    },
+};
+
 export const ToolService = {
     async getCatalog(): Promise<{ name: string; description: string }[]> {
         const response = await axios.get(`${API_BASE}/tool-catalog`);

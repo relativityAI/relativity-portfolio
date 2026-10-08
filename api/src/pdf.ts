@@ -9,15 +9,12 @@
 import { Resvg } from "@resvg/resvg-js";
 import { createRequire } from "node:module";
 import type { ReportBlock } from "./agent.js";
+import type { LayoutTree, PlotSpec } from "./types/plots.js";
 import { log } from "./logger.js";
 import { agentChipPng, agentSeed } from "./agentIdentity.js";
 import { LOGO_PNG_DATA_URI } from "./reportLogo.js";
 import { NSE_LOGO_DATA_URI, SEC_LOGO_DATA_URI } from "./exchangeLogos.js";
 import { tickerLogoDataUri } from "./tickerLogos.js";
-
-// Attribution URL required by the Ticker Logos licence (their terms ask for a
-// visible dofollow link wherever a logo appears).
-const TICKER_LOGOS_ATTR = "https://www.allinvestview.com/tools/ticker-logos/";
 
 // pdfmake ships a CJS browser build that Vite's transformer breaks. Load it via
 // Node's native require (identical in tsc-runtime and vitest).
@@ -1201,6 +1198,20 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
     for (const block of blocks) {
       for (const n of await blockToPdfContent(block, evidenceLookupFor(run))) execNodes.push(n);
     }
+    const execPlots = (report as any).plots as any[] | undefined;
+    if (execPlots && execPlots.length) {
+      execNodes.push({ text: "Charts", style: "h2", margin: [0, 16, 0, 6] });
+      for (const p of execPlots) {
+        if (p.title || p.caption) execNodes.push({ text: p.title || p.caption, style: "h3" });
+        const data = Array.isArray(p.data) ? p.data : [];
+        if (data.length) {
+          const keys = Object.keys(data[0]).slice(0, 6);
+          const rows = [[...keys], ...data.slice(0, 8).map((r: any) => keys.map(k => r[k] ?? ""))];
+          execNodes.push({ table: { widths: keys.map(() => "*"), body: rows }, layout: "lightHorizontalLines" });
+          if (data.length > 8) execNodes.push({ text: `... (${data.length} points total)`, style: "body", fontSize: 8 });
+        }
+      }
+    }
   }
 
   // ── Section 02: skill reports, one chapter per page ──
@@ -1244,6 +1255,18 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
           [0, 2, 0, 2],
         ),
       );
+      const sp = (o as any).plots as any[] | undefined;
+      if (sp && sp.length) {
+        for (const p of sp.slice(0, 2)) {
+          if (p.title || p.caption) skillNodes.push({ text: p.title || p.caption, style: "tableTitle" });
+          const data = Array.isArray(p.data) ? p.data : [];
+          if (data.length) {
+            const keys = Object.keys(data[0]).slice(0, 6);
+            const rows = [[...keys], ...data.slice(0, 6).map((r: any) => keys.map(k => r[k] ?? ""))];
+            skillNodes.push({ table: { widths: keys.map(() => "*"), body: rows }, layout: "lightHorizontalLines" });
+          }
+        }
+      }
     });
     skillNodes.push({ text: "", style: "spacer" });
   }
@@ -1266,7 +1289,6 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
             { text: `page ${currentPage} of ${pageCount}` },
             // Attribution the Ticker Logos licence requires wherever its
             // logo is printed — linked, same footer size and colour.
-            ...(tickerLogo ? [{ text: " · Logos by AllInvestView", link: TICKER_LOGOS_ATTR }] : []),
           ],
           style: "footer",
           alignment: "right",

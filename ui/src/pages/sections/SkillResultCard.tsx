@@ -18,6 +18,7 @@ import { SOURCE_DEFS, SourceMark, sourceForTool, FaviconMark, type SourceKey } f
 import SkillAvatar from "@/components/shared/SkillAvatar"
 import { Button } from "@/components/ui/button"
 import { AnalysisService } from "@/db"
+import PlotRenderer from "@/components/charts/PlotRenderer"
 
 // SkillResultCard — one skill's report. Design contract:
 // 1. Evidence leads. Every claim shows the source it came from; a source with
@@ -897,6 +898,11 @@ export default function SkillResultCard({ output, analysisId }: { output: SkillO
                 {hasAnalysis && (
                     <Box mb={4}>
                         <SkillSummaryMarkdown>{output.analysis!}</SkillSummaryMarkdown>
+                    </Box>
+                )}
+                {(output as any)?.plots?.length > 0 && (
+                    <Box mt={3}>
+                        <PlotRenderer plots={(output as any).plots} />
                     </Box>
                 )}
 

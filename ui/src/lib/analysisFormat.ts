@@ -72,6 +72,28 @@ export function bandForScore(score: number | null | undefined): BandStyle {
 }
 
 /**
+ * Headline verdict — five hard-coded ranges on the 0–100 scale. The result
+ * page leads with this word, so its wording and colour live here beside the
+ * bands they're derived from: red below 40, amber through the middle,
+ * green once the score earns it.
+ */
+export interface Verdict {
+  label: string;
+  color: string;
+}
+
+export function verdictForScore(score: number | null | undefined): Verdict {
+  if (score == null || !Number.isFinite(score)) {
+    return { label: "Unscored", color: "var(--ink-tertiary)" };
+  }
+  if (score >= 90) return { label: "Outstanding", color: "var(--signal-positive)" };
+  if (score >= 70) return { label: "Strong", color: "var(--signal-positive)" };
+  if (score >= 55) return { label: "Fair", color: "var(--signal-caution)" };
+  if (score >= 40) return { label: "Underwhelming", color: "var(--signal-caution)" };
+  return { label: "Subpar", color: "var(--signal-negative)" };
+}
+
+/**
  * Map a score to the legacy 3-signal palette used by bars/indicators
  * (kept for visual continuity, now on one shared 0–100 scale).
  */

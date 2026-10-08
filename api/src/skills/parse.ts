@@ -39,7 +39,7 @@ export interface SkillParseResult {
   extraFrontmatter: [string, string][];
 }
 
-function humanizeName(name: string): string {
+export function humanizeName(name: string): string {
   return name.replace(/-/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 

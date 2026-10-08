@@ -19,18 +19,20 @@ import AgentAvatar from "@/components/shared/AgentAvatar";
 import SkillAvatar from "@/components/shared/SkillAvatar";
 import { resolveAgent } from "@/lib/agentIdentity";
 import AgentActivity from "../components/shared/AgentActivity";
-import { MdArrowBack, MdDownload } from "react-icons/md";
+import { MdArrowBack, MdDownload, MdInfo } from "react-icons/md";
 import { motion, useReducedMotion } from "motion/react";
-import { CountUp, dur, ease } from "@/lib/motion";
+import { dur, ease } from "@/lib/motion";
 import { ReportBlockRenderer } from "../components/builder/ReportBlockRenderer";
 import SkillResultCard from "./sections/SkillResultCard";
+import PlotRenderer from "@/components/charts/PlotRenderer";
 import { SourceMark, TickerLogo } from "@/lib/sourceLogos";
+import { ModelLogo } from "@/lib/modelLogos";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { runProgressPct } from "./shared/RunStatus";
 import {
-    bandForScore,
     coverageLabel,
     insufficientCoverage,
+    verdictForScore,
 } from "@/lib/analysisFormat";
 
 const TABS = ["report", "reasoning"] as const;
@@ -39,56 +41,6 @@ type Tab = (typeof TABS)[number];
 const OP_SYMBOL: Record<string, string> = {
     gt: ">", gte: "≥", lt: "<", lte: "≤", eq: "=", between: "between",
 };
-
-function isMacroSection(section: string): boolean {
-    return String(section || "").toLowerCase().includes("macro");
-}
-
-function generateVerdict(totalScore: number | null, quant: Record<string, any>, qual: Record<string, any>): string {
-    if (totalScore == null) return "Run completed. Review quantitative and qualitative sections for details.";
-    // E3 fix: everything here is on the 0–100 scale now (the old code compared
-    // 0–100 scores against 0.7/0.4, labelling almost anything "supportive").
-    const quantEntries = Object.values(quant);
-    const live = quantEntries.filter((m: any) => !m.price_unavailable);
-    const passed = live.filter((m: any) => (m.score ?? 0) >= 70).length;
-    const failed = live.filter((m: any) => (m.score ?? 0) < 40).length;
-    const unavailable = quantEntries.length - live.length;
-    const qualEntries = Object.values(qual);
-    const qualScored = qualEntries.filter((p) => !p.error);
-    const qualAvg = qualScored.length > 0
-        ? qualScored.reduce((s, p) => s + (p.score ?? 0), 0) / qualScored.length
-        : 0;
-    const macroScored = qualScored.filter((p) => isMacroSection(p.section));
-    const macroAvg = macroScored.length > 0
-        ? macroScored.reduce((s, p) => s + (p.score ?? 0), 0) / macroScored.length
-        : null;
-
-    let sentence = `Passes ${passed} of ${quantEntries.length} quantitative gates`;
-    if (failed > 0) {
-        const failedNames = live
-            .filter((m: any) => (m.score ?? 0) < 40)
-            .slice(0, 3)
-            .map((m: any) => m.metric_name)
-            .join(", ");
-        sentence += `; ${failed} underperforming${failedNames ? ` (${failedNames})` : ""}`;
-    }
-    sentence += ".";
-    if (unavailable > 0) {
-        sentence += ` ${unavailable} price-dependent ${unavailable === 1 ? "criterion" : "criteria"} not scored (live price unavailable).`;
-    }
-    if (qualScored.length > 0) {
-        const qualLabel = qualAvg >= 70 ? "supportive" : qualAvg >= 40 ? "moderately supportive" : "mixed";
-        sentence += ` Qualitative narrative is ${qualLabel}.`;
-    }
-    if (macroAvg != null) {
-        const macroLabel = macroAvg >= 70 ? "supportive" : macroAvg >= 40 ? "moderately supportive" : "mixed";
-        sentence += ` Macro (market) narrative is ${macroLabel}.`;
-    }
-    if (qualEntries.some((p) => p.error)) {
-        sentence += " Some qualitative parameters failed to score.";
-    }
-    return sentence;
-}
 
 export function tokensUsed(qualAnalysis: Record<string, any>): { input: number; output: number; total: number } | null {
     let input = 0;
@@ -117,10 +69,7 @@ export default function AnalysisResult() {
     const [error, setError] = useState<string | null>(null);
     const [pdfState, setPdfState] = useState<"idle" | "busy" | "error">("idle");
     const [activeTab, setActiveTab] = useState<Tab>("report");
-    const [activeSection, setActiveSection] = useState<string>("");
     const [elapsed, setElapsed] = useState(0);
-
-    const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
     const [agents, setAgents] = useState<any[]>([]);
 
@@ -226,31 +175,6 @@ export default function AnalysisResult() {
             }
         });
     }, []);
-
-    const registerSection = useCallback((key: string, el: HTMLElement | null) => {
-        sectionRefs.current[key] = el;
-    }, []);
-
-    useEffect(() => {
-        const observer = new IntersectionObserver(
-            (entries) => {
-                const visible = entries.filter((e) => e.isIntersecting);
-                if (visible.length > 0) {
-                    const top = visible.reduce((a, b) =>
-                        a.boundingClientRect.top < b.boundingClientRect.top ? a : b
-                    );
-                    setActiveSection(top.target.getAttribute("data-section") || "");
-                }
-            },
-            { rootMargin: "-120px 0px -60% 0px", threshold: 0 }
-        );
-
-        Object.values(sectionRefs.current).forEach((el) => {
-            if (el) observer.observe(el);
-        });
-
-        return () => observer.disconnect();
-    }, [analysis]);
 
     // Resolve reported citedKeys/sourceKeys to concrete data points for captions.
     const evidenceLookup = useMemo(() => {
@@ -369,7 +293,6 @@ export default function AnalysisResult() {
     const s = (analysis.status || "").toLowerCase();
     const isError = s === "error" || s === "failed";
 
-    const quantAnalysis: Record<string, any> = analysis.quantitative_analysis || {};
     const qualAnalysis: Record<string, any> = analysis.qualitative_analysis || {};
     // Per-skill reports — what the skill pipeline actually produced for this run.
     const skillOutputs: any[] = Array.isArray(analysis.skill_outputs) ? analysis.skill_outputs : [];
@@ -401,26 +324,28 @@ export default function AnalysisResult() {
     const totalScore: number | null = analysis.total_score;
     const coverage: number | null = analysis.coverage ?? null;
     // U2: low coverage must never show a big headline number AND a suppression
-    // message — the hero renders "—" and the caution callout explains why.
+    // message — the hero reports "Unscored" and the caution callout explains why.
     const lowCoverage = insufficientCoverage(coverage);
-
-    const verdictSentence = generateVerdict(totalScore, quantAnalysis, qualAnalysis);
+    const showScore = totalScore != null && !lowCoverage;
 
     const isSkillRun = analysis.run_mode === "skill";
     const runSubject = isSkillRun
         ? (skillOutputs[0]?.skill_name || "Skill")
         : agentName(analysis.agent_name);
 
-    const metaLine = [
-        analysis.model,
-        analysis.source,
-        isSkillRun
-            ? (skillOutputs[0]?.skill_name ? `${skillOutputs[0].skill_name} (skill run)` : "Skill run")
-            : analysis.agent_name ? agentName(analysis.agent_name) : null,
-        analysis.created_at ? new Date(analysis.created_at).toLocaleDateString() : null,
-    ]
-        .filter(Boolean)
-        .join("  ·  ");
+    // Hero data: the verdict leads, the identity block and score sentence hang off it.
+    const verdict = verdictForScore(showScore ? totalScore : null);
+    const company = analysis.share_name || analysis.symbol || "this company";
+    const verdictDate = analysis.created_at
+        ? new Date(analysis.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+        : "";
+    const identityLine = isSkillRun
+        ? skillOutputs[0]?.category || ""
+        : skillOutputs.map((o) => o.skill_name).filter(Boolean).join(" | ");
+    const skillScores = skillOutputs.map((o) => ({
+        name: o.skill_name as string | undefined,
+        score: typeof o.score_0_100 === "number" ? Math.round(o.score_0_100) : null,
+    }));
 
     return (
         <Box bg="var(--surface-canvas)" minH="100%">
@@ -442,48 +367,17 @@ export default function AnalysisResult() {
                 >
                     <Flex justify="space-between" align="center" gap={3} wrap="wrap" minH="44px">
                         <HStack gap={3} align="center" minW={0}>
+                            {/* Router Link doesn't take Chakra props — this is
+                                styled with utility classes so the icon, label
+                                and hover/focus states actually apply. */}
                             <Link
                                 to="/analysis-list"
                                 aria-label="Back to runs"
-                                fontSize="sm"
-                                color="var(--ink-secondary)"
-                                _hover={{ color: "var(--ink-primary)" }}
-                                display="inline-flex"
-                                alignItems="center"
-                                gap={1}
-                                flexShrink={0}
-                                px={1}
-                                py={1}
+                                className="inline-flex shrink-0 items-center gap-1 rounded-[4px] px-1.5 py-1 text-[13px] text-[var(--ink-secondary)] transition-colors hover:text-[var(--ink-primary)] focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)]"
                             >
                                 <MdArrowBack aria-hidden="true" />
-                                <Text as="span" display={{ base: "none", sm: "inline" }} fontSize="13px">
-                                    Analyses
-                                </Text>
+                                <span className="hidden sm:inline">Analyses</span>
                             </Link>
-                            <TickerLogo symbol={analysis.symbol} size={24} />
-                            <Text
-                                fontSize="17px"
-                                fontWeight={600}
-                                color="var(--ink-primary)"
-                                lineHeight="short"
-                                truncate
-                            >
-                                {analysis.share_name || analysis.symbol}
-                            </Text>
-                            <Text
-                                fontSize="13px"
-                                fontFamily="var(--font-mono)"
-                                color="var(--ink-tertiary)"
-                                fontWeight={400}
-                                display={{ base: "none", md: "inline" }}
-                            >
-                                {analysis.symbol}
-                            </Text>
-                            {/* Exchange mark for the market this stock was selected on */}
-                            <SourceMark
-                                source={(analysis.source || "").toUpperCase().includes("SEC") ? "sec" : "nse"}
-                                size={22}
-                            />
                         </HStack>
                         <HStack gap={3} align="center">
                             <HStack
@@ -541,19 +435,33 @@ export default function AnalysisResult() {
                     </Flex>
                 </Box>
 
-                {/* Meta line + token line: non-sticky sub-header, visible at all widths */}
+                {/* Company identity + token line: non-sticky sub-header, visible at all widths */}
                 <Box mb={5}>
-                    {metaLine && (
+                    <Flex align="center" gap={2.5} minW={0} mb={tokenUse && isComplete ? 1 : 0}>
+                        <TickerLogo symbol={analysis.symbol} size={22} />
+                        <Text
+                            fontSize="16px"
+                            fontWeight={600}
+                            color="var(--ink-primary)"
+                            lineHeight="short"
+                            truncate
+                        >
+                            {analysis.share_name || analysis.symbol}
+                        </Text>
                         <Text
                             fontSize="12px"
                             fontFamily="var(--font-mono)"
                             color="var(--ink-tertiary)"
-                            mb={tokenUse && isComplete ? 1 : 0}
-                            overflowWrap={{ base: "anywhere", md: "normal" }}
+                            flexShrink={0}
                         >
-                            {metaLine}
+                            {analysis.symbol}
                         </Text>
-                    )}
+                        <Box w="1px" h="14px" bg="var(--hairline)" flexShrink={0} />
+                        <SourceMark
+                            source={(analysis.source || "").toUpperCase().includes("SEC") ? "sec" : "nse"}
+                            size={16}
+                        />
+                    </Flex>
                     {tokenUse && isComplete && (
                         <Text
                             fontSize="12px"
@@ -592,101 +500,105 @@ export default function AnalysisResult() {
                     </Box>
                 )}
 
-                {/* U6: section nav — highlights the section currently in view
-                    via the existing IntersectionObserver scroll-spy. */}
+                {/* Hero: the verdict leads — its word is the headline, the
+                    identity block (avatar → actor → skills → model) and the
+                    score sentence are read from it. Skill runs get the same
+                    block; only the wording of the sentence changes. */}
                 {isComplete && (
-                    <SectionNav
-                        active={activeSection}
-                        runMode={analysis.run_mode || "agent"}
-                        onJump={(key) => {
-                            const el = sectionRefs.current[key];
-                            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-                        }}
-                    />
-                )}
-
-                {/* Hero: Total score (biggest) + Agent avatar (big, clearly visible).
-                    Skill runs have no executive summary, so no hero — just the skill report. */}
-                {isComplete && analysis.run_mode !== "skill" && (
                     <Box mb={6} as={motion.div} initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: dur.base, ease }}>
-                        <Flex direction="column" align="flex-start" gap={4}>
-                            <Box>
-                                {analysis.run_mode === "skill" ? (
-                                    <SkillAvatar skill={{ id: analysis.skill_id, name: skillOutputs[0]?.skill_name }} size={72} />
-                                ) : (
-                                    <AgentAvatar agent={resolveAgent(analysis.agent_name, agents)} size={72} />
-                                )}
-                            </Box>
-                            <Box>
-                                <Text fontSize="14px" fontWeight={600} color="var(--ink-tertiary)" mb={1}>
-                                    {analysis.report?.heroLabel ? "Stance" : "Total Score"}
+                        <Text fontSize="12px" color="var(--ink-tertiary)" mb={3} letterSpacing="0.03em">
+                            {verdictDate ? `Verdict as of ${verdictDate}` : "Verdict"}
+                        </Text>
+                        <Text
+                            fontSize={{ base: "52px", md: "88px" }}
+                            fontWeight={500}
+                            lineHeight="0.95"
+                            fontFamily="var(--font-display)"
+                            color={verdict.color}
+                            mb={4}
+                        >
+                            {verdict.label}
+                        </Text>
+                        <Flex align="flex-start" gap={3} mb={4}>
+                            {isSkillRun ? (
+                                <SkillAvatar skill={{ id: analysis.skill_id, name: skillOutputs[0]?.skill_name }} size={56} />
+                            ) : (
+                                <AgentAvatar agent={resolveAgent(analysis.agent_name, agents)} size={56} />
+                            )}
+                            <Box minW={0}>
+                                <Text fontSize="15px" fontWeight={600} color="var(--ink-primary)" lineHeight="1.35">
+                                    {runSubject || "Agent"}
                                 </Text>
-                                {analysis.report?.heroLabel ? (
-                                    <HStack gap={2} align="baseline">
-                                        <Text
-                                            fontSize={analysis.report.heroLabel.length > 14 ? "52px" : "88px"}
-                                            fontWeight={800}
-                                            lineHeight="0.85"
-                                            fontFamily="var(--font-tabular)"
-                                            fontVariantNumeric="tabular-nums"
-                                            letterSpacing="-0.05em"
-                                            color="var(--ink-primary)"
-                                        >
-                                            {analysis.report.heroLabel}
-                                        </Text>
-                                    </HStack>
-                                ) : totalScore != null && !lowCoverage ? (
-                                    <HStack gap={2} align="baseline">
-                                        <Text
-                                            fontSize="88px"
-                                            fontWeight={800}
-                                            lineHeight="0.85"
-                                            fontFamily="var(--font-tabular)"
-                                            fontVariantNumeric="tabular-nums"
-                                            letterSpacing="-0.05em"
-                                            color="var(--ink-primary)"
-                                        >
-                                            <CountUp value={analysis.report ? analysis.report.heroPct : totalScore} decimals={1} />
-                                        </Text>
-                                        <Text fontSize="24px" color="var(--ink-tertiary)" fontWeight={700}>
-                                            / 100
-                                        </Text>
-                                    </HStack>
-                                ) : (
-                                    <Text fontSize="88px" fontWeight={800} lineHeight="0.85" fontFamily="var(--font-tabular)" color="var(--ink-tertiary)">
-                                        —
+                                {identityLine && (
+                                    <Text
+                                        fontSize="12px"
+                                        fontFamily="var(--font-mono)"
+                                        color="var(--ink-tertiary)"
+                                        mt={1}
+                                        overflowWrap="anywhere"
+                                    >
+                                        {identityLine}
                                     </Text>
                                 )}
+                                <HStack gap={1.5} mt={1} align="center">
+                                    <ModelLogo model={analysis.model} size={13} />
+                                    <Text fontSize="12px" color="var(--ink-tertiary)" truncate>
+                                        {analysis.model || "Unknown model"}
+                                    </Text>
+                                </HStack>
                             </Box>
-                            <HStack gap={2} flexWrap="wrap">
-                                {totalScore != null && !lowCoverage && (
-                                    <Box px={3} py={1} borderRadius="full" border="1px solid var(--hairline)" bg="var(--surface-panel)">
-                                        <Text fontSize="12px" fontWeight={600} color={bandForScore(totalScore).color}>
-                                            {bandForScore(totalScore).label}
-                                        </Text>
-                                    </Box>
-                                )}
-                                {coverage != null && (
-                                    <Box px={3} py={1} borderRadius="full" border="1px solid var(--hairline)" bg="var(--surface-panel)">
-                                        <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
-                                            {coverageLabel(coverage)} of rubric scored
-                                        </Text>
-                                    </Box>
-                                )}
-                            </HStack>
-                            {!analysis.report && (
-                                <Text fontSize="14px" color="var(--ink-secondary)" lineHeight="relaxed" maxW="70ch">
-                                    {verdictSentence}
-                                </Text>
-                            )}
-                            {lowCoverage && (
-                                <Box maxW="70ch">
-                                    <Callout tone="caution" title="Not enough of the rubric could be scored to give a reliable headline score.">
-                                        Only {coverageLabel(coverage)} of the criteria had usable data. Review the breakdowns below — unscored criteria are excluded, not failed.
-                                    </Callout>
+                        </Flex>
+                        <Text fontSize="15px" color="var(--ink-secondary)" lineHeight="1.6" maxW="74ch" mb={2}>
+                            <ScoreSentence
+                                mode={isSkillRun ? "skill" : "agent"}
+                                actor={runSubject}
+                                company={company}
+                                score={showScore ? totalScore : null}
+                                color={verdict.color}
+                                skills={skillScores}
+                            />
+                        </Text>
+                        {/* Disclaimer: verdict provenance, kept quiet — grey, small, icon-led. */}
+                        <Text
+                            display="flex"
+                            alignItems="flex-start"
+                            gap={1.5}
+                            fontSize="11.5px"
+                            color="var(--ink-tertiary)"
+                            lineHeight="1.5"
+                            maxW="74ch"
+                            mb={4}
+                        >
+                            <MdInfo size={13} style={{ marginTop: 2, flexShrink: 0 }} aria-hidden="true" />
+                            <span>
+                                The verdict is not investment advice — it depends on the quality of the{" "}
+                                <Link
+                                    to="/console/skills"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[var(--ink-tertiary)] underline decoration-[var(--hairline)] underline-offset-2 transition-colors hover:text-[var(--ink-secondary)] focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)]"
+                                >
+                                    skills
+                                </Link>
+                                ; make sure their instructions are verified before running them.
+                            </span>
+                        </Text>
+                        <HStack gap={2} flexWrap="wrap">
+                            {coverage != null && (
+                                <Box px={3} py={1} borderRadius="full" border="1px solid var(--hairline)" bg="var(--surface-panel)">
+                                    <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-secondary)">
+                                        {coverageLabel(coverage)} of rubric scored
+                                    </Text>
                                 </Box>
                             )}
-                        </Flex>
+                        </HStack>
+                        {lowCoverage && (
+                            <Box maxW="70ch" mt={3}>
+                                <Callout tone="caution" title="Not enough of the rubric could be scored to give a reliable headline score.">
+                                    Only {coverageLabel(coverage)} of the criteria had usable data. Review the breakdowns below — unscored criteria are excluded, not failed.
+                                </Callout>
+                            </Box>
+                        )}
                     </Box>
                 )}
 
@@ -778,15 +690,15 @@ export default function AnalysisResult() {
 
                         {/* ── Report ── */}
                         <Tabs.Content value="report">
-                            <Box ref={(el) => registerSection("report", el)} data-section="report" css={{ scrollMarginTop: "72px" }}>
+                            <Box>
                                 {isComplete ? (
                                     <Box>
                                         {/* Decision-first order (E1): synthesis and verdict
                                             first, evidence-dense breakdowns after. */}
-                                        {/* Executive Summary Section (agent runs only) */}
-                                        {analysis.run_mode !== "skill" && (
-                                        <Box mb={8} data-section="summary" ref={(el: HTMLElement | null) => registerSection("summary", el)} css={{ scrollMarginTop: "72px" }}>
-                                            <SectionHeader label="Executive Summary" count={analysis.report ? analysis.report.blocks.length : 0} />
+                                        {/* Report Section (agent runs, or skill runs that got a synthesized report) */}
+                                        {(analysis.run_mode !== "skill" || !!analysis.report) && (
+                                        <Box mb={8}>
+                                            <SectionHeader label={analysis.run_mode === "skill" ? "Report" : "Executive Summary"} count={analysis.report ? analysis.report.blocks.length : 0} />
                                             {analysis.report ? (
                                                 <>
                                                     {analysis.report.partial && (coverage == null || coverage < 100) && (
@@ -804,6 +716,9 @@ export default function AnalysisResult() {
                                                         </Box>
                                                     )}
                                                     <ReportBlockRenderer blocks={analysis.report.blocks} lookup={evidenceLookup} />
+                                                    {analysis.report?.plots?.length > 0 && (
+                                                        <PlotRenderer plots={analysis.report.plots as any} />
+                                                    )}
                                                 </>
                                             ) : (
                                                 <Callout tone="caution">
@@ -814,7 +729,7 @@ export default function AnalysisResult() {
                                         )}
 
                                         {/* Skill Reports Section */}
-                                        <Box mb={10} data-section="skills" ref={(el: any) => registerSection("skills", el)} css={{ scrollMarginTop: "72px" }}>
+                                        <Box mb={10}>
                                             <SectionHeader label="Skill Reports" count={skillOutputs.length} />
                                             {skillOutputs.length > 0 ? (
                                                 <Flex direction="column" gap={6}>
@@ -869,18 +784,6 @@ export default function AnalysisResult() {
                     </Tabs.Root>
                     </Box>
 
-                    {/* Attribution the ticker-logo CDN licence requires; this
-                        page hides the app footer, so it lives here instead. */}
-                    <p className="mt-8 text-center text-[10px] text-[var(--ink-tertiary)]">
-                        <a
-                            href="https://www.allinvestview.com/tools/ticker-logos/"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="hover:text-[var(--ink-secondary)]"
-                        >
-                            Logos by AllInvestView
-                        </a>
-                    </p>
             </Container>
         </Box>
     );
@@ -928,46 +831,62 @@ function Callout({
     );
 }
 
-const SECTION_NAV_ITEMS: { key: string; label: string }[] = [
-    { key: "summary", label: "Executive Summary" },
-    { key: "skills", label: "Skill Reports" },
-];
-
-function SectionNav({ active, runMode, onJump }: { active: string; runMode: string; onJump: (key: string) => void }) {
-    return (
-        <Flex
-            gap={1}
-            mb={4}
-            wrap="wrap"
-            role="navigation"
-            aria-label="Report sections"
-            data-print-hide
+// Hard-coded score sentence, per run mode. Scores are set in the display face
+// at weight 500 and tinted with the verdict colour, so colour = band only.
+function ScoreSentence({
+    mode,
+    actor,
+    company,
+    score,
+    color,
+    skills,
+}: {
+    mode: "agent" | "skill";
+    actor: string;
+    company: string;
+    score: number | null;
+    color: string;
+    skills: { name?: string; score: number | null }[];
+}) {
+    const num = (v: number, key?: string) => (
+        <Text
+            as="span"
+            key={key}
+            fontFamily="var(--font-display)"
+            fontWeight={500}
+            color={color}
         >
-            {SECTION_NAV_ITEMS.filter((item) => runMode !== "skill" || item.key !== "summary").map((item) => {
-                const isActive = active === item.key;
-                return (
-                    <Box
-                        key={item.key}
-                        as="button"
-                        onClick={() => onJump(item.key)}
-                        px={3}
-                        py={1}
-                        borderRadius="full"
-                        fontSize="12px"
-                        fontWeight={isActive ? 600 : 400}
-                        color={isActive ? "var(--ink-primary)" : "var(--ink-secondary)"}
-                        bg={isActive ? "var(--surface-recessed)" : "transparent"}
-                        border="1px solid"
-                        borderColor={isActive ? "var(--hairline)" : "transparent"}
-                        cursor="pointer"
-                        _hover={{ color: "var(--ink-primary)" }}
-                        aria-current={isActive ? "true" : undefined}
-                    >
-                        {item.label}
-                    </Box>
-                );
-            })}
-        </Flex>
+            {v}
+        </Text>
+    );
+
+    if (score == null) {
+        return (
+            <span>
+                {mode === "agent" ? "The agent" : `The ${actor}`} evaluated {company} — no headline score for this run.
+            </span>
+        );
+    }
+
+    if (mode === "skill") {
+        return (
+            <span>
+                The {actor} skill scored {company} {num(score)}/100.
+            </span>
+        );
+    }
+
+    const perSkill = skills
+        .filter((s) => s.name && s.score != null)
+        .slice(0, 3)
+        .map((s) => `${s.name} ${s.score}`)
+        .join(" and ");
+
+    return (
+        <span>
+            The agent scored {company} {num(score)}/100
+            {perSkill ? `, with individual skill scores of ${perSkill}.` : "."}
+        </span>
     );
 }
 

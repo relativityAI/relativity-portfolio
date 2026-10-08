@@ -30,6 +30,7 @@ export type ModelFailureReason =
   | "server_error" // 5xx: provider outage
   | "no_output" // stream completed but produced nothing usable
   | "request_invalid" // request exceeded model limits (max tokens, context length)
+  | "insufficient_credits" // provider reports insufficient credits/quota (e.g. OpenRouter)
   | "unknown";
 
 export interface ModelFailure {
@@ -97,6 +98,12 @@ const REASONS: Record<ModelFailureReason, Omit<ModelFailure, "reason">> = {
     retryable: false,
     needsKey: false,
   },
+  insufficient_credits: {
+    // ponytail: maps provider billing errors to non-retryable, non-key failure; upgrade path — surface provider billing URL if known
+    message: "This provider reports insufficient credits for this model (billing/quota issue). Add credits or switch to a model that doesn't require paid quota.",
+    retryable: false,
+    needsKey: false,
+  },
   unknown: {
     message: "The model call failed for an unexpected reason.",
     retryable: true,
@@ -134,6 +141,9 @@ export function classifyReason(msg: string, status: number | undefined, errName?
   // Gemini reports exhausted quota as 400 RESOURCE_EXHAUSTED; real bad-request
   // 400s say "INVALID_ARGUMENT". RESOURCE_EXHAUSTED wins over the 400.
   if (/RESOURCE_EXHAUSTED/i.test(msg)) return "rate_limit";
+  // ponytail: catch provider billing failures explicitly (OpenRouter etc.) — avoids generic "unexpected reason"
+  if (/insufficient credits|never purchased credits|not enough credits|insufficient balance|payment required/i.test(msg)) return "insufficient_credits";
+  if (status === 402) return "insufficient_credits";
   // Then message text for errors that carry no usable status:
   if (/401|unauthorized|invalid.*api.*key|missing authentication|auth credentials|api key not valid/i.test(msg)) return "auth";
   if (/403|forbidden|not authorized to access/i.test(msg)) return "forbidden";

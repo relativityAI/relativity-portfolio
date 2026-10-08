@@ -1,5 +1,5 @@
-import { motion, useMotionValue, useSpring } from "motion/react"
-import { useEffect, useState } from "react"
+import { motion, useMotionValue, useSpring, animate, useReducedMotion } from "motion/react"
+import { useEffect, useState, type ElementType } from "react"
 
 export const ease: [number, number, number, number] = [0.22, 1, 0.36, 1]
 export const dur = { fast: 0.18, base: 0.24, slow: 0.32 }
@@ -41,6 +41,51 @@ export function CountUp({ value, decimals = 1 }: { value: number; decimals?: num
     return () => unsub()
   }, [spring])
   return <>{display.toFixed(decimals)}</>
+}
+
+/**
+ * Typewriter reveal driven by motion's `animate` (easing + delay), not a rAF loop.
+ * The full text stays in the DOM for layout/AT via sr-only; the typed span is aria-hidden.
+ */
+export function TypeText({
+  text, as: Tag = "span", className, delay = 0, cps = 40, caret = true,
+}: {
+  text: string
+  as?: ElementType
+  className?: string
+  delay?: number
+  cps?: number
+  caret?: boolean
+}) {
+  const reduced = useReducedMotion()
+  const [n, setN] = useState(0)
+  useEffect(() => {
+    if (reduced) return
+    const controls = animate(0, text.length, {
+      duration: text.length / cps,
+      delay,
+      ease: "linear",
+      onUpdate: (v) => setN(Math.round(v)),
+    })
+    return () => controls.stop()
+  }, [text, delay, cps, reduced])
+  const count = reduced ? text.length : n
+  const done = count >= text.length
+  return (
+    <Tag className={className}>
+      <span className="sr-only">{text}</span>
+      <span aria-hidden="true">
+        {text.slice(0, count)}
+        {caret && !done && (
+          <motion.span
+            className="inline-block w-px h-[0.9em] bg-current align-[-0.1em] ml-0.5"
+            animate={{ opacity: [1, 1, 0, 0] }}
+            transition={{ duration: 0.8, repeat: Infinity, times: [0, 0.5, 0.5, 1] }}
+          />
+        )}
+      </span>
+    </Tag>
+  )
 }
 
 export { motion }
