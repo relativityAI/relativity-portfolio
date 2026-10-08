@@ -48,9 +48,9 @@ interface ReportBlockRendererProps {
 
 export function ReportBlockRenderer({ blocks, lookup }: ReportBlockRendererProps) {
   return (
-    <Box className="report-container">
+    <Box className="report-container" style={{ fontFamily: "var(--font-body)" }}>
       {blocks.map((block, idx) => (
-        <Box key={idx} mb={5}>
+        <Box key={idx} mb={block.type === "paragraph" ? 3 : 5}>
           {renderBlock(block, lookup)}
         </Box>
       ))}
@@ -75,6 +75,7 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
         <Text
           as={block.level === 2 ? "h2" : "h3"}
           fontSize={block.level === 2 ? "20px" : "16px"}
+          fontFamily="var(--font-display)"
           fontWeight={600}
           color="var(--ink-primary)"
           mt={block.level === 2 ? 6 : 4}
@@ -91,12 +92,18 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
           lineHeight="1.6"
           color="var(--ink-secondary)"
           css={{
-            "& p": { margin: "0 0 0.8em" },
+            "& p": { margin: "0 0 0.6em" },
+            "& p:last-of-type": { marginBottom: 0 },
             "& ul, & ol": { margin: "0.5em 0 0.8em", paddingLeft: "1.6em" },
             "& ul": { listStyleType: "disc" },
             "& ol": { listStyleType: "decimal" },
             "& li": { paddingLeft: "0.2em", margin: "0.2em 0" },
-            "& h1, & h2, & h3, & h4": { color: "var(--ink-primary)", fontWeight: 600, margin: "1em 0 0.4em" },
+            // Markdown headings: Newsreader face, browser-default scale (# 2em, ## 1.5em, ### 1.17em, #### 1em).
+            "& h1, & h2, & h3, & h4": { color: "var(--ink-primary)", fontWeight: 600, fontFamily: "var(--font-display)", lineHeight: 1.25, margin: "1em 0 0.4em" },
+            "& h1": { fontSize: "2em" },
+            "& h2": { fontSize: "1.5em" },
+            "& h3": { fontSize: "1.17em" },
+            "& h4": { fontSize: "1em" },
             "& table": { borderCollapse: "collapse", display: "block", maxWidth: "100%", overflowX: "auto", margin: "0.8em 0" },
             "& th, & td": { border: "1px solid var(--hairline)", padding: "0.4em 0.65em", textAlign: "left" },
             "& th": { color: "var(--ink-primary)", fontWeight: 600 },

@@ -163,7 +163,7 @@ export default function NavBar() {
         >
             <Flex align="center" gap={{ base: 6, md: 8, lg: 12 }} minW={0} flexShrink={1}>
                 <Flex align="center" gap={2} minW={0}>
-                    <Link to="/" className="text-[var(--ink-primary)] select-none" style={{ fontFamily: "var(--font-display)", fontWeight: 400, fontSize: 24 }}>Relativity.</Link>
+                    <Link to="/" className="text-[var(--ink-primary)] select-none" style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: 24 }}>Relativity.</Link>
                 </Flex>
 
                 <Flex gap={{ md: 3, lg: 6 }} align="center" display={{ base: "none", md: "flex" }} minW={0}>
@@ -288,7 +288,7 @@ export default function NavBar() {
                             py={3}
                         >
                             <Flex align="center" gap={2} minW={0}>
-                                <Link to="/" className="text-[var(--ink-primary)] select-none" style={{ fontFamily: "var(--font-display)", fontWeight: 400, fontSize: 16 }}>Relativity.</Link>
+                                <Link to="/" className="text-[var(--ink-primary)] select-none" style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: 16 }}>Relativity.</Link>
                             </Flex>
                             <Drawer.CloseTrigger asChild>
                                 <IconButton

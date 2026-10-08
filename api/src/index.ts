@@ -10,7 +10,7 @@ import { getSources, searchStocks } from "./discovery.js";
 import { tickerLogoUrl } from "./tickerLogos.js";
 import { getMetricsCatalog, buildFieldList, getFlatCatalog, mergeCatalogFields, normalizeQuantRules, type MetricDef } from "./metrics.js";
 import { keyPool } from "./keypool.js";
-import { buildModel, draftParameters, type LlmKeys } from "./agent.js";
+import { buildModel, draftParameters, synthesizeSkillReport, buildSkillFallbackReport, buildSourcesBlocks, type AnalysisReport, type LlmKeys } from "./agent.js";
 import { generateText } from "ai";
 import { runAgentTurn } from "./harness.js";
 import { classifyModelError } from "./modelcheck.js";
@@ -27,7 +27,11 @@ import { getPreset, listPresets, buildSeedAgents } from "./presets.js";
 import { agentFromRow, buildAgentConfigV3, type AgentRow } from "./agentstore.js";
 import { fixAgentMarkdown, parseAgentMd, serializeAgentMd, validateAgentV3 } from "./agentmd.js";
 import { listAllSkillsForUser, saveCustomSkill, deleteCustomSkill, loadBuiltinSkills, serializeSkill, resolveSkill } from "./skills/store.js";
-import { fixSkillMarkdown, parseSkillMarkdown } from "./skills/parse.js";
+import { assembleSkillCharts, buildSkillScoreCharts } from "./skills/charts.js";
+import { derivePlotsFromBlocks, blocksToStructured } from "./report/plots.js";
+import { buildLayoutTree } from "./report/assembler.js";
+import { fixSkillMarkdown, parseSkillMarkdown, slugifySkillName } from "./skills/parse.js";
+import { fetchSkillMarkdown, listRepoSkills, listSkillRepos, resolveSkillPath } from "./skills/repos.js";
 import { skillDraftTurn, type SkillDraftRequest } from "./skills/draft.js";
 import { extractText } from "./upload.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
@@ -193,6 +197,7 @@ async function runSkillEvaluation(input: {
     analysis: report.analysis,
     findings: [],
     verdicts: [],
+    chart_requests: [],
     blocks: [],
     tools_used: toolsUsed,
     citations: [],
@@ -656,6 +661,53 @@ app.get("/skills", requireAuth, async (req, res) => {
   }
 });
 
+// ---- GitHub skill sources (config/skill-repos.json) ----
+// Registered before GET /skills/:id so "repos" is never read as a skill id.
+
+/** The configured GitHub repositories skills can be downloaded from. */
+app.get("/skills/repos", requireAuth, (_req, res) => {
+  res.json(listSkillRepos());
+});
+
+/** SKILL.md files a repo ships — name and description peeked from frontmatter. */
+app.get("/skills/repos/:id/skills", requireAuth, async (req, res) => {
+  try {
+    res.json(await listRepoSkills(String(req.params.id)));
+  } catch (e: any) {
+    res.status(e?.status || 503).json({ error: e.message });
+  }
+});
+
+/** Download one SKILL.md from a repo into the signed-in user's library. */
+app.post("/skills/repos/:id/import", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const path = String(req.body?.path || "");
+    const target = await resolveSkillPath(String(req.params.id), path);
+    if (!target) return res.status(404).json({ error: "That skill file was not found in the repository." });
+
+    const markdown = await fetchSkillMarkdown(target.repo, target.branch, target.path);
+    let { skill, issues } = await saveCustomSkill(userId, markdown);
+    let repaired = false;
+    if (!skill) {
+      // Foreign skills occasionally trip our spec (name case, long description)
+      // — repair with the directory name as fallback, same as validate does.
+      const dirName = slugifySkillName(target.path.split("/").at(-2) || "skill");
+      const fixed = fixSkillMarkdown(markdown, dirName);
+      if (fixed) {
+        ({ skill, issues } = await saveCustomSkill(userId, fixed));
+        repaired = !!skill;
+      }
+    }
+    if (!skill) {
+      return res.status(400).json({ error: "That skill file failed validation.", issues });
+    }
+    res.json({ skill, issues, repaired });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
 /** Full markdown of one skill (builtin or custom) for the editor. */
 app.get("/skills/:id", requireAuth, async (req, res) => {
   try {
@@ -864,23 +916,64 @@ app.post("/analysis", requireAuth, async (req, res) => {
         const scoredOutputs = outputs.filter((output) => Number.isFinite(output.score_0_100));
         const totalWeight = scoredOutputs.reduce((sum, output) => sum + output.weight, 0);
         const totalScore = totalWeight ? Math.round(scoredOutputs.reduce((sum, output) => sum + output.score_0_100 * output.weight, 0) / totalWeight * 100) / 100 : null;
-        const reportInputs = outputs.map((output) => `## ${output.skill_name} — score ${output.score_0_100 ?? "unavailable"}/100\n${output.analysis || output.error || "No report returned."}`).join("\n\n");
+        const coverage = outputs.length ? Math.round((scoredOutputs.length / outputs.length) * 100) : 0;
         trace.push("log", "skill", { text: `Writing ${runMode === "agent" ? "the agent executive summary" : "the skill report"}.` });
-        const executiveSummary = runMode === "agent" ? (await generateText({
-          model: buildModel(model, llmKeys as LlmKeys, apiKey),
-          system: "Write a concise Markdown executive summary using only the skill reports provided in the prompt. Do not add external facts or infer unsupported details. Use headings or lists when they improve readability.",
-          prompt: reportInputs,
-          temperature: 0.1,
-          maxOutputTokens: 2048,
-          abortSignal: AbortSignal.timeout(90_000),
-        })).text.trim() : undefined;
-        const report = runMode === "agent" ? {
-          heroPct: totalScore,
-          blocks: [{ type: "paragraph", text: executiveSummary || "No executive summary was returned." }],
-          partial: scoredOutputs.length !== outputs.length,
-          source: "llm",
-        } : null;
-        trace.push("log", "skill", { text: "Skill report saved." });
+        // Per-skill tool observations, parsed — feeds code-grounded chart specs
+        // (the LLM never types chart values).
+        const toolEvidence: Record<string, unknown>[] = [];
+        for (const o of outputs) {
+          for (const obs of o.raw_observations || []) {
+            let value: unknown = obs.result;
+            if (typeof value === "string") {
+              try { value = JSON.parse(value); } catch { continue; }
+            }
+            if (value && typeof value === "object") toolEvidence.push({ tool: obs.tool, result: value });
+          }
+        }
+        const errored = outputs.filter((o) => o.error);
+        const synthesisInput = {
+          modelId: model,
+          llmKeys: llmKeys as LlmKeys,
+          agentPersona: agentConfig?.persona?.philosophy || "",
+          agentDisplayName: agentName,
+          outputs,
+          totalScore,
+          coverage,
+          asOf: createdAt.slice(0, 10),
+          degraded: errored.length
+            ? `${errored.length} of ${outputs.length} skill(s) failed: ${errored.map((o) => `${o.skill_name} (${o.error})`).join(", ")}`
+            : undefined,
+        };
+        let report: AnalysisReport;
+        try {
+          report = await synthesizeSkillReport(synthesisInput);
+        } catch (e: any) {
+          log.warn("[skill-run]", "report synthesis threw, using fallback:", e?.message || e);
+          report = buildSkillFallbackReport(synthesisInput);
+        }
+        // Sources + code-grounded charts are appended by CODE, never the model.
+        try {
+          if (report.source !== "fallback") report.blocks.push(...buildSourcesBlocks(outputs));
+          report.blocks.push(...buildSkillScoreCharts(outputs, outputs, totalScore));
+          const voyage = new VoyagerClient(config.voyagerUrl, voyagerKey, config.voyagerRpm);
+          report.blocks.push(...await assembleSkillCharts(
+            outputs,
+            selectedSkills.map((s) => ({ skill: s.skill })),
+            symbol,
+            toolEvidence,
+            voyage,
+            toCountrySource(source).source,
+          ));
+        } catch (e: any) {
+          log.warn("[skill-run]", "chart assembly failed:", e?.message || e);
+        }
+        // Code chart blocks landed after synthesis — re-derive plots from the
+        // final block list so every chart gets its PlotRenderer spec.
+        report.plots = derivePlotsFromBlocks(report.blocks);
+        report.layoutTree = buildLayoutTree(report.blocks, report.plots);
+        report.structuredBlocks = blocksToStructured(report.blocks);
+        report.partial = !!report.partial || scoredOutputs.length !== outputs.length;
+        trace.push("log", "skill", { text: "Report saved." });
         await trace.flush();
         const { error: updateError } = await getDb().from("analysis_runs").update({
           status: "COMPLETED",

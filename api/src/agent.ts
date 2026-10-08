@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
+import type { LayoutTree, PlotSpec } from "./types/plots.js";
 import { createOpenAICompatible as _createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { sanitizeSSEFetch } from "./sse.js";
 
@@ -11,6 +12,8 @@ const sanitizeFetch = sanitizeSSEFetch();
 const createOpenAICompatible = (o: Parameters<typeof _createOpenAICompatible>[0]) =>
   _createOpenAICompatible({ fetch: sanitizeFetch, ...o });
 import { aggregateWeightedScores, scoreChecklist } from "./scoring.js";
+import { derivePlotsFromBlocks, blocksToStructured } from "./report/plots.js";
+import { buildLayoutTree } from "./report/assembler.js";
 import { config } from "./config.js";
 import { buildTools, getToolCatalog, ToolContext } from "./tools.js";
 import type { DataAdequacy } from "./quant.js";
@@ -596,7 +599,7 @@ export const AnalysisPlanSchema = z.object({
   ),
   report: z.object({
     charts: z.array(
-      z.object({ type: z.enum(["bar", "line", "radar", "area", "scatter", "pie"]), title: z.string(), subjects: z.array(z.string()) }),
+      z.object({ type: z.enum(["bar", "line", "radar", "area", "scatter", "pie", "candlestick"]), title: z.string(), subjects: z.array(z.string()) }),
     ),
     tables: z.array(z.object({ title: z.string(), subjects: z.array(z.string()) })),
     sections: z.array(z.string()),
@@ -810,6 +813,9 @@ export const AnalysisReportSchema = z.object({
   partial: z.boolean(),
   /** "llm" = narrative synthesized by the model, "fallback" = deterministic assembly from scored data. */
   source: z.enum(["llm", "fallback"]).default("llm"),
+  plots: z.array(z.any()).optional(),
+  layoutTree: z.any().optional(),
+  structuredBlocks: z.array(z.any()).optional(),
 });
 
 export type AnalysisReport = z.infer<typeof AnalysisReportSchema>;
@@ -1619,6 +1625,11 @@ export function buildSkillFallbackReport(input: SkillSynthesisInput): AnalysisRe
 
   for (const out of input.outputs) {
     blocks.push({ type: "heading", level: 3, text: out.skill_name });
+    // Current pipeline output is markdown prose, not structured findings —
+    // without this the fallback would show an empty section per skill.
+    if (out.analysis && !(out.findings || []).length && !(out.verdicts || []).length) {
+      blocks.push({ type: "paragraph", text: out.analysis });
+    }
     for (const f of (out.findings || []).slice(0, 4)) {
       blocks.push({
         type: "paragraph",
@@ -1645,6 +1656,10 @@ export function buildSkillFallbackReport(input: SkillSynthesisInput): AnalysisRe
 
   blocks.push(...buildSourcesBlocks(input.outputs));
 
+  const plots = derivePlotsFromBlocks(blocks as any);
+  const structuredBlocks = blocksToStructured(blocks as any);
+  const layoutTree = buildLayoutTree(blocks as any, plots as any);
+
   return {
     heroPct: input.totalScore != null ? Math.round(input.totalScore * 10) / 10 : 0,
     heroLabel: input.stance
@@ -1653,6 +1668,9 @@ export function buildSkillFallbackReport(input: SkillSynthesisInput): AnalysisRe
     blocks,
     partial: true,
     source: "fallback",
+    plots: plots as any,
+    layoutTree: layoutTree as any,
+    structuredBlocks: structuredBlocks as any,
   };
 }
 
@@ -1695,6 +1713,7 @@ export async function synthesizeSkillReport(input: SkillSynthesisInput): Promise
       return [
         `### ${out.skill_name} (${out.category})`,
         out.error ? `Status: ${out.error}` : "Status: ok",
+        out.analysis ? `Analysis:\n${out.analysis}` : "",
         findings ? `Findings:\n${findings}` : "",
         verdicts ? `Verdicts:\n${verdicts}` : "",
         citeLines.length ? `CITATION TABLE (attach these to the matching sentences via citedKeys — never print them in prose):\n${citeLines.slice(0, 80).join("\n")}` : "",
@@ -1709,8 +1728,8 @@ export async function synthesizeSkillReport(input: SkillSynthesisInput): Promise
     input.agentPersona ? `Investor persona:\n${input.agentPersona.slice(0, 2000)}` : "",
     "",
     input.totalScore != null
-      ? `AGGREGATE (computed in code — state these exactly): total score ${input.totalScore}, uncertainty band ${input.fitLow ?? "?"}–${input.fitHigh ?? "?"}, coverage ${input.coverage ?? 0}%.`
-      : `AGGREGATE (computed in code): the total score was SUPPRESSED — coverage ${input.coverage ?? 0}% is below the reliability floor. Say so plainly and do NOT state or invent any headline number; the uncertainty band is ${input.fitLow ?? "?"}–${input.fitHigh ?? "?"}.`,
+      ? `AGGREGATE (computed in code — state these exactly): total score ${input.totalScore},${input.fitLow != null && input.fitHigh != null ? ` uncertainty band ${input.fitLow}–${input.fitHigh},` : ""} coverage ${input.coverage ?? 0}% of assessed skills.`
+      : `AGGREGATE (computed in code): the total score was SUPPRESSED — coverage ${input.coverage ?? 0}% is below the reliability floor. Say so plainly and do NOT state or invent any headline number.${input.fitLow != null && input.fitHigh != null ? ` The uncertainty band is ${input.fitLow}–${input.fitHigh}.` : ""}`,
     input.degraded ? `Degraded run note: ${input.degraded}` : "",
     input.fixIssues?.length
       ? `A previous draft of this report was REJECTED by an automated consistency check against the figures above. Correct exactly these and do not repeat them:\n${input.fixIssues.map((i) => `- ${i}`).join("\n")}`
@@ -1788,6 +1807,9 @@ export async function synthesizeSkillReport(input: SkillSynthesisInput): Promise
   // that still emitted its own source/tools listing would render it
   // twice. Strip it here so only the authoritative section survives.
   report.blocks = stripSourceListingBlocks(report.blocks);
+  report.plots = derivePlotsFromBlocks(report.blocks as any) as any;
+  report.structuredBlocks = blocksToStructured(report.blocks as any) as any;
+  report.layoutTree = buildLayoutTree(report.blocks as any, report.plots as any) as any;
   return report;
 }
 

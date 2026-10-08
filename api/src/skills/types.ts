@@ -128,6 +128,8 @@ export interface SkillOutput {
   error?: string;
   /** "deterministic" for rule-screen skills scored in code. */
   scored_by: "llm" | "deterministic";
+  /** Skill's own markdown report (analyst prose), used by report synthesis. */
+  analysis?: string;
   /** Populated by the aggregator. */
   score_0_100?: number;
   coverage?: number;

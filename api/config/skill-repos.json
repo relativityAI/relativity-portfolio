@@ -1,0 +1,9 @@
+[
+  {
+    "id": "anthropic-financial-services",
+    "label": "Claude for Financial Services",
+    "owner": "anthropics",
+    "repo": "financial-services",
+    "pathPrefix": "plugins/"
+  }
+]

@@ -24,14 +24,7 @@ export default function Footer() {
           <p className="text-xs text-[var(--ink-tertiary)] mt-3">
             &copy; {new Date().getFullYear()} Relativity
           </p>
-          <a
-            href="https://www.allinvestview.com/tools/ticker-logos/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-[var(--ink-tertiary)] hover:text-[var(--ink-secondary)]"
-          >
-            Logos by AllInvestView
-          </a>
+
         </div>
       </div>
     </footer>

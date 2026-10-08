@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Helmet } from "react-helmet-async";
 import { Link, useNavigate } from "react-router-dom";
 import Footer from "@/components/Footer";
+import { TypeText } from "@/lib/motion";
 import resultScreenshot from "@/assets/hero-screenshot.png";
 import { SOURCE_DEFS, SourceMark, type SourceKey } from "@/lib/sourceLogos";
 
@@ -19,9 +20,9 @@ export default function Landing() {
         <meta property="og:description" content="Create research agents wired to live market data." />
       </Helmet>
 
-      <header className="sticky top-0 z-50 px-4 md:px-8 py-4">
+      <header className="relative z-50 px-4 md:px-8 py-4">
         <div className="max-w-[1500px] mx-auto flex items-center justify-between">
-          <Link to="/" aria-label="Relativity home" className="text-[var(--ink-primary)] select-none" style={{ fontFamily: "var(--font-display)", fontWeight: 400, fontSize: 28 }}>
+          <Link to="/" aria-label="Relativity home" className="text-[var(--ink-primary)] select-none" style={{ fontFamily: "var(--font-display)", fontWeight: 500, fontSize: 28 }}>
             Relativity.
           </Link>
           <Button size="sm" variant="outline" className="rounded-full px-4" onClick={() => navigate("/login")}>
@@ -46,7 +47,11 @@ export default function Landing() {
           {/* Short, plain-language pitch */}
           <div className="flex flex-col gap-5 lg:gap-6">
             <h1 className="font-[family-name:var(--font-display)] text-[clamp(1.6rem,2.6vw,2.4rem)] leading-[1.15] font-normal tracking-[-0.01em] text-[var(--ink-primary)]">
-              Relativity helps you create custom agents connected to real market data — so your research runs itself.
+              <TypeText
+                text="Relativity lets you build custom agents that connect to real market data, so your research can run on its own."
+                cps={70}
+                delay={0.3}
+              />
             </h1>
 
             <p className="text-base md:text-lg text-[var(--ink-secondary)] leading-relaxed max-w-[44ch]">
