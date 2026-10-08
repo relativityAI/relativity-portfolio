@@ -178,7 +178,7 @@ async function runSkillEvaluation(input: {
       log.warn("[skill-run]", `${skill.name} score retry failed:`, e?.message || e);
     }
   }
-  const { buildArtifacts = () => [] } = await import("./skills/artifacts/index.js").catch(() => ({}));
+  const { buildArtifacts = () => [] } = (await import("./skills/artifacts/index.js").catch(() => ({}))) as typeof import("./skills/artifacts/index.js");
   const artifacts = buildArtifacts({ skillId: skill.id, symbol, shareName, source, observations });
   if (artifacts.some((a) => a.status !== "unavailable")) {
     trace.push("log", "skill", { text: `Built a ${artifacts[0].recipe?.filename ?? "workbook"} with live formulas for ${skill.name}.` });
