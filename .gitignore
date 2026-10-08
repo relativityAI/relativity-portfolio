@@ -3,7 +3,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
-api/node_modules/
+node_modules/
 api/.env
 ui/.env
 
@@ -90,6 +90,8 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+# test leftovers: mkdtemp dirs for the ticker-logos cache (live in os.tmpdir now)
+ticker-logos-*
 nosetests.xml
 coverage.xml
 *.cover
