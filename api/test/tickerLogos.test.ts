@@ -34,7 +34,9 @@ async function loadModule() {
 beforeEach(() => {
   // Hermetic per-test state: fresh persist file, near-zero request spacing,
   // mocked network. The module reads these envs at import time.
-  process.env.TICKER_LOGOS_CACHE_FILE = path.join(mkdtempSync("ticker-logos-"), "cache.json");
+  // Temp dir under os.tmpdir() — a bare prefix would create ticker-logos-*
+  // folders in the repo cwd (they got committed once already).
+  process.env.TICKER_LOGOS_CACHE_FILE = path.join(mkdtempSync(path.join(tmpdir(), "ticker-logos-")), "cache.json");
   process.env.TICKER_LOGOS_SLOT_GAP_MS = "1";
 
   fetchMock = vi.fn(async (raw: RequestInfo | URL) => {
