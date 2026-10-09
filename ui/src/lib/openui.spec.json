@@ -14,6 +14,12 @@
     "BarChart": {
       "$ref": "#/$defs/BarChart"
     },
+    "StackedBarChart": {
+      "$ref": "#/$defs/StackedBarChart"
+    },
+    "Divider": {
+      "$ref": "#/$defs/Divider"
+    },
     "PieChart": {
       "$ref": "#/$defs/PieChart"
     },
@@ -25,6 +31,9 @@
     },
     "DataTable": {
       "$ref": "#/$defs/DataTable"
+    },
+    "MetricGrid": {
+      "$ref": "#/$defs/MetricGrid"
     },
     "SkillScoreCard": {
       "$ref": "#/$defs/SkillScoreCard"
@@ -41,10 +50,13 @@
     "PriceChart",
     "MultiLineChart",
     "BarChart",
+    "StackedBarChart",
+    "Divider",
     "PieChart",
     "BoxPlotChart",
     "HeatmapChart",
     "DataTable",
+    "MetricGrid",
     "SkillScoreCard",
     "MarkdownBlock",
     "AnalysisPage"
@@ -122,6 +134,28 @@
       "additionalProperties": false,
       "description": "Categorical bar chart. data is an @ds ref, x is the category column, y is the numeric column, title is a display string."
     },
+    "StackedBarChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "x": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Horizontal stacked bar chart. data is an @ds ref; x is the category column; every other numeric column becomes a stacked segment."
+    },
+    "Divider": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false,
+      "description": "A horizontal rule separating major sections of the report. Takes no arguments."
+    },
     "PieChart": {
       "type": "object",
       "properties": {
@@ -175,10 +209,29 @@
         },
         "maxRows": {
           "type": "number"
+        },
+        "columns": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
-      "description": "Renders any table dataset (@ds ref) as a plain table. maxRows caps rows (default 12)."
+      "description": "Renders a table dataset (@ds ref) as a plain table. maxRows caps rows (default 12); columns is an optional comma-separated list selecting which columns to show, in that order."
+    },
+    "MetricGrid": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "keys": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "A compact embedded grid of measured numbers (small label above, large value below). data is an @mt ref; keys is an optional comma-separated subset of field keys to show, in order; title is an optional heading."
     },
     "SkillScoreCard": {
       "type": "object",
@@ -201,7 +254,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "One skill's analyst prose. The single positional arg is a skill id from the manifest's skills list."
+      "description": "One block of analyst prose. The single positional arg is either a skill id (whole skill) or a section ref \"@md:<section-id>\" (one section of a skill's prose)."
     },
     "AnalysisPage": {
       "type": "object",
@@ -226,6 +279,12 @@
                 "$ref": "#/$defs/BarChart"
               },
               {
+                "$ref": "#/$defs/StackedBarChart"
+              },
+              {
+                "$ref": "#/$defs/Divider"
+              },
+              {
                 "$ref": "#/$defs/PieChart"
               },
               {
@@ -236,6 +295,9 @@
               },
               {
                 "$ref": "#/$defs/DataTable"
+              },
+              {
+                "$ref": "#/$defs/MetricGrid"
               },
               {
                 "$ref": "#/$defs/SkillScoreCard"

@@ -41,6 +41,7 @@ const ctx = (
   overrides: Partial<ArtifactInput> = {},
 ): ArtifactInput => ({
   skillId: "dcf-valuation",
+  skillCategory: "valuation",
   symbol: "TCS",
   shareName: "Tata Consultancy Services",
   source: "NSE",

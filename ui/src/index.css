@@ -156,6 +156,30 @@ body {
   letter-spacing: -0.02em;
 }
 
+/* ── Report typography ────────────────────────────────────────────────────────
+   Shared by both the deterministic ReportBlockRenderer and the OpenUI report
+   (.report-container). Prose reads at a paper-like 15px/1.72 with serif
+   headings; the console `.skill-md` viewer is untouched.                        */
+.report-container {
+  font-family: var(--font-body);
+}
+.report-container .skill-md {
+  font-size: 15px;
+  line-height: 1.72;
+  color: var(--ink-secondary);
+}
+.report-container .skill-md h1,
+.report-container .skill-md h2,
+.report-container .skill-md h3,
+.report-container .skill-md h4 {
+  font-family: var(--font-display, "Newsreader", Georgia, serif);
+  letter-spacing: -0.01em;
+}
+.report-container .skill-md h1 { font-size: 1.5em; }
+.report-container .skill-md h2 { font-size: 1.28em; }
+.report-container .skill-md h3 { font-size: 1.12em; }
+.report-container .skill-md p { margin: 0.7em 0; }
+
 /* ── Print stylesheet ─────────────────────────────────────────────────────────
    Used by the "Download as PDF" button (window.print()). Hides all chrome and
    navigation, leaving only the hero score band and the ReportBlockRenderer

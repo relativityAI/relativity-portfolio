@@ -18,6 +18,7 @@ describe("buildReportPdf", () => {
           { type: "callout", tone: "positive", text: "Fit score 72/100" },
         ],
       },
+      trace: [{ type: "thought", text: "Inspected coverage before synthesis." }],
     };
     const buf = await buildReportPdf(run);
     expect(buf.length).toBeGreaterThan(10_000);
