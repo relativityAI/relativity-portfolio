@@ -2,8 +2,8 @@
  * Skill types — the runtime shape of a loaded skill.
  *
  * A skill is a self-contained markdown document that individually defines
- * what data to fetch, how to analyze it, what to score (verdict anchors),
- * and what to plot (chart specs). See ./parse.ts for the grammar.
+ * what data to fetch, how to analyze it, and what to score (verdict anchors).
+ * See ./parse.ts for the grammar.
  */
 import type { SkillArtifact } from "./artifacts/types.js";
 
@@ -22,20 +22,6 @@ export interface VerdictAnchor {
   weight: number;
 }
 
-export type ChartType = "line" | "bar" | "candlestick" | "table";
-
-/**
- * Declarative chart spec from a skill's Charts section. Data is resolved in
- * code from tool results — the LLM never types chart values.
- */
-export interface ChartSpec {
-  type: ChartType;
-  title: string;
-  /** Series key from tool results (e.g. "revenue", "close") or a tool name. */
-  data: string;
-  note?: string;
-}
-
 export interface SkillDefinition {
   id: string;
   name: string;
@@ -50,8 +36,6 @@ export interface SkillDefinition {
   method: string[];
   /** Optional weighted YES/PARTIAL/NO checklist. */
   anchors?: VerdictAnchor[];
-  /** Optional declarative chart specs. */
-  charts?: ChartSpec[];
   /** Optional extra output instructions appended to the analyst prompt. */
   outputTemplate?: string;
   source: "builtin" | "custom";
@@ -87,12 +71,6 @@ export interface SkillFinding {
 }
 
 
-export interface SkillChartRequest {
-  spec_index: number;
-  /** Optional LLM-suggested title override; code assembles the data. */
-  title?: string;
-}
-
 export interface SkillRawObservation {
   /** Tool name that produced the observation. */
   tool: string;
@@ -113,7 +91,6 @@ export interface SkillOutput {
   weight: number;
   findings: SkillFinding[];
   verdicts: SkillVerdict[];
-  chart_requests: SkillChartRequest[];
   tools_used: string[];
   /** Citations: source tool + external url for every figure the skill cites. */
   citations: SkillCitation[];
@@ -157,12 +134,6 @@ export function skillToPromptSection(skill: SkillDefinition): string {
     );
   } else {
     parts.push("This skill has no verdict anchors — produce findings only, no verdicts.");
-  }
-  if (skill.charts?.length) {
-    parts.push(
-      "Charts the final report should include (data is assembled automatically — only reference the specs):\n" +
-        skill.charts.map((c, i) => `${i + 1}. [${c.type}] ${c.title} — data: ${c.data}`).join("\n"),
-    );
   }
   if (skill.outputTemplate) parts.push(`Output notes: ${skill.outputTemplate}`);
   // Hard anti-hallucination constraint, injected into EVERY skill prompt.

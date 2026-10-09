@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { Box, Flex, Text } from "@chakra-ui/react";
 import {
   createChart,
+  AreaSeries,
   CandlestickSeries,
   LineSeries,
   HistogramSeries,
@@ -274,10 +275,14 @@ export function MarketChart({ data, variant, height = 380, title }: MarketChartP
         vol.setData(model.volume.map((v) => ({ time: v.time, value: v.value, color: (v.up ? up : down) + "66" })));
       }
     } else if (model.kind === "line") {
+      // AreaSeries = line + gradient fill: 40% under the line fading to
+      // 8% at the axis — visible taper, never a full fade to nothing.
       for (const s of model.series) {
-        const line = chart.addSeries(LineSeries, {
-          color: s.color,
+        const line = chart.addSeries(AreaSeries, {
+          lineColor: s.color,
           lineWidth: 2,
+          topColor: s.color + "66",
+          bottomColor: s.color + "14",
           title: s.label,
           priceLineVisible: model.series.length === 1,
           crosshairMarkerRadius: 3,

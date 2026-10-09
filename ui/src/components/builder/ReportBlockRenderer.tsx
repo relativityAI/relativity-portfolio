@@ -1,12 +1,12 @@
 import React from "react";
-import { Box, Text, Table, Flex } from "@chakra-ui/react";
+import { Box, Text, Flex } from "@chakra-ui/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import {
   BarChart,
   Bar,
-  LineChart,
-  Line,
   RadarChart,
   Radar,
   PolarGrid,
@@ -50,7 +50,7 @@ export function ReportBlockRenderer({ blocks, lookup }: ReportBlockRendererProps
   return (
     <Box className="report-container" style={{ fontFamily: "var(--font-body)" }}>
       {blocks.map((block, idx) => (
-        <Box key={idx} mb={block.type === "paragraph" ? 3 : 5}>
+        <Box key={idx} mb={block.type === "paragraph" ? 3 : block.type === "heading" ? 2 : 5}>
           {renderBlock(block, lookup)}
         </Box>
       ))}
@@ -78,8 +78,8 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
           fontFamily="var(--font-display)"
           fontWeight={600}
           color="var(--ink-primary)"
-          mt={block.level === 2 ? 6 : 4}
-          mb={2}
+          mt={block.level === 2 ? 4 : 3}
+          mb={1.5}
         >
           {block.text}
         </Text>
@@ -108,8 +108,10 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
             "& th, & td": { border: "1px solid var(--hairline)", padding: "0.4em 0.65em", textAlign: "left" },
             "& th": { color: "var(--ink-primary)", fontWeight: 600 },
             "& blockquote": { borderLeft: "3px solid var(--hairline)", margin: "0.8em 0", paddingLeft: "1em" },
+            // NOTE: no white-space:pre-wrap here — react-markdown emits "\n"
+            // text nodes between block elements; pre-wrap renders each one as
+            // a visible blank line. Soft line breaks are handled by markdown.
             "& a": { color: "var(--accent-primary)" },
-            whiteSpace: "pre-wrap",
             "& strong": { fontWeight: 600, color: "var(--ink-primary)" },
             "& em": { fontStyle: "italic" },
             "& code": { fontFamily: "var(--font-mono)", fontSize: "0.9em", background: "var(--surface-recessed)", borderRadius: "2px", px: "3px" },
@@ -172,7 +174,10 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
           )}
         </Box>
       );
-    case "table":
+    case "table": {
+      // Column is "numeric" when every cell is a number → right-aligned,
+      // tabular figures (mirrors the reference table demo).
+      const numericCol = (c: number) => block.rows.length > 0 && block.rows.every((r) => typeof r[c] === "number");
       return (
         <Box my={6}>
           {block.title && (
@@ -180,50 +185,38 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
               {block.title}
             </Text>
           )}
-          <Box border="1px solid var(--hairline)" borderRadius="2px" overflowX="auto">
-            <Table.Root size="sm" variant="line">
-              <Table.Header bg="var(--surface-recessed)">
-                <Table.Row>
+          <div className="overflow-x-auto rounded-md border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
                   {block.columns.map((col, i) => (
-                    <Table.ColumnHeader
-                      key={i}
-                      fontSize="11px"
-                      fontWeight={500}
-                      letterSpacing="0.06em"
-                      textTransform="uppercase"
-                      color="var(--ink-tertiary)"
-                      py={3}
-                      px={4}
-                    >
-                      {col}
-                    </Table.ColumnHeader>
+                    <TableHead key={i} className={numericCol(i) ? "text-right" : ""}>{col}</TableHead>
                   ))}
-                </Table.Row>
-              </Table.Header>
-              <Table.Body>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {block.rows.map((row, rIdx) => (
-                  <Table.Row key={rIdx} _hover={{ bg: "var(--surface-recessed)" }}>
+                  <TableRow key={rIdx}>
                     {row.map((cell, cIdx) => (
-                      <Table.Cell
+                      <TableCell
                         key={cIdx}
-                        fontSize="13px"
-                        color="var(--ink-primary)"
-                        px={4}
-                        py={2.5}
-                        fontFamily={typeof cell === "number" ? "var(--font-tabular)" : "inherit"}
-                        fontVariantNumeric={typeof cell === "number" ? "tabular-nums" : "normal"}
+                        className={cn(
+                          cIdx === 0 && "font-medium",
+                          numericCol(cIdx) && "text-right tabular-nums"
+                        )}
                       >
                         {cell}
-                      </Table.Cell>
+                      </TableCell>
                     ))}
-                  </Table.Row>
+                  </TableRow>
                 ))}
-              </Table.Body>
-            </Table.Root>
-          </Box>
+              </TableBody>
+            </Table>
+          </div>
           <EvidenceNote keys={block.sourceKeys} lookup={lookup} />
         </Box>
       );
+    }
     case "chart": {
       // Date-keyed rows are market series (OHLCV, price+SMA, RSI,
       // volume-over-time) — those get the TradingView treatment.
@@ -233,9 +226,10 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
       const isMarketSeries = firstRow != null && "date" in firstRow;
       const marketVariant: MarketChartVariant =
         block.chartType === "candlestick" ? "candle" : block.chartType === "bar" ? "volume" : "line";
-      // Same surface as the Run summary card on the new-analysis page.
-      return (
-        <Box my={6} p={4} border="1px solid var(--hairline)" borderRadius="2px" bg="var(--card)">
+      // Line/area charts plot straight onto the page — no card chrome.
+      const flat = block.chartType === "line" || block.chartType === "area" || (isMarketSeries && marketVariant === "line");
+      const inner = (
+        <>
           {block.title && (
             <Text fontSize="13px" fontWeight={600} color="var(--ink-primary)" mb={4}>
               {block.title}
@@ -251,6 +245,11 @@ function renderBlock(block: ReportBlock, lookup?: Record<string, string>) {
             </Box>
           )}
           <EvidenceNote keys={block.sourceKeys} lookup={lookup} />
+        </>
+      );
+      return (
+        <Box my={6} {...(flat ? {} : { p: 4, border: "1px solid var(--hairline)", borderRadius: "2px", bg: "var(--card)" })}>
+          {inner}
         </Box>
       );
     }
@@ -283,29 +282,34 @@ function renderRecharts(block: Extract<ReportBlock, { type: "chart" }>) {
         </BarChart>
       );
     case "line":
-      return (
-        <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--hairline)" />
-          <XAxis dataKey={xAxisKey} tick={{ fontSize: 11, fill: "var(--ink-tertiary)" }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: "var(--ink-tertiary)" }} axisLine={false} tickLine={false} />
-          <RechartsTooltip contentStyle={{ backgroundColor: "var(--surface-floating)", border: "1px solid var(--hairline)", fontSize: "12px", borderRadius: "2px" }} />
-          <Legend wrapperStyle={{ fontSize: "11px", color: "var(--ink-tertiary)" }} />
-          {keys.map((k, i) => (
-            <Line key={k} type="monotone" dataKey={k} stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-          ))}
-        </LineChart>
-      );
     case "area":
+      // Fill under the line: 35% at the line → 8% at the axis (fades,
+      // never to zero). Gradient id derives from the color, so duplicate
+      // ids across charts always carry identical stops.
       return (
         <AreaChart data={data}>
+          <defs>
+            {keys.map((k, i) => {
+              const c = colors[i % colors.length];
+              return (
+                <linearGradient key={k} id={`area-${c.slice(1)}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={c} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={c} stopOpacity={0.08} />
+                </linearGradient>
+              );
+            })}
+          </defs>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--hairline)" />
           <XAxis dataKey={xAxisKey} tick={{ fontSize: 11, fill: "var(--ink-tertiary)" }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fontSize: 11, fill: "var(--ink-tertiary)" }} axisLine={false} tickLine={false} />
           <RechartsTooltip contentStyle={{ backgroundColor: "var(--surface-floating)", border: "1px solid var(--hairline)", fontSize: "12px", borderRadius: "2px" }} />
           <Legend wrapperStyle={{ fontSize: "11px", color: "var(--ink-tertiary)" }} />
-          {keys.map((k, i) => (
-            <Area key={k} type="monotone" dataKey={k} fill={colors[i % colors.length]} stroke={colors[i % colors.length]} fillOpacity={0.3} />
-          ))}
+          {keys.map((k, i) => {
+            const c = colors[i % colors.length];
+            return (
+              <Area key={k} type="monotone" dataKey={k} stroke={c} strokeWidth={2} fill={`url(#area-${c.slice(1)})`} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+            );
+          })}
         </AreaChart>
       );
     case "radar":

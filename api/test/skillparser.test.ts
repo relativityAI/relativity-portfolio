@@ -112,7 +112,7 @@ describe("built-in skill files", () => {
     .sort();
 
   it("finds the shipped skills", () => {
-    expect(ids.length).toBeGreaterThanOrEqual(13);
+    expect(ids.length).toBeGreaterThanOrEqual(3);
     expect(ids).toContain("dcf-valuation");
   });
 

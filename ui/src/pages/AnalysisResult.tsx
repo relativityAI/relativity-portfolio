@@ -23,8 +23,8 @@ import { MdArrowBack, MdDownload, MdInfo } from "react-icons/md";
 import { motion, useReducedMotion } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 import { ReportBlockRenderer } from "../components/builder/ReportBlockRenderer";
+import { OpenUiReport } from "@/lib/openui";
 import SkillResultCard from "./sections/SkillResultCard";
-import PlotRenderer from "@/components/charts/PlotRenderer";
 import { SourceMark, TickerLogo } from "@/lib/sourceLogos";
 import { ModelLogo } from "@/lib/modelLogos";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
@@ -701,23 +701,16 @@ export default function AnalysisResult() {
                                             <SectionHeader label={analysis.run_mode === "skill" ? "Report" : "Executive Summary"} count={analysis.report ? analysis.report.blocks.length : 0} />
                                             {analysis.report ? (
                                                 <>
-                                                    {analysis.report.partial && (coverage == null || coverage < 100) && (
-                                                        <Box mb={4}>
-                                                            <Callout tone="caution" title="Partial Result">
-                                                                Some skills could not assess every anchor — this report leans on partial evidence{coverage != null ? ` (${coverageLabel(coverage)} of rubric scored)` : ""}.
-                                                            </Callout>
-                                                        </Box>
-                                                    )}
-                                                    {analysis.report.source === "fallback" && (
-                                                        <Box mb={4}>
-                                                            <Callout tone="caution">
-                                                                AI narrative was unavailable for this run; this synthesis was assembled deterministically from the scored breakdowns below.
-                                                            </Callout>
-                                                        </Box>
-                                                    )}
-                                                    <ReportBlockRenderer blocks={analysis.report.blocks} lookup={evidenceLookup} />
-                                                    {analysis.report?.plots?.length > 0 && (
-                                                        <PlotRenderer plots={analysis.report.plots as any} />
+                                                    {analysis.artifacts?.openui_lang && analysis.artifacts?.openui_manifest ? (
+                                                        <OpenUiReport
+                                                            lang={analysis.artifacts.openui_lang}
+                                                            manifest={analysis.artifacts.openui_manifest}
+                                                            fallback={
+                                                                <ReportBlockRenderer blocks={analysis.report.blocks} lookup={evidenceLookup} />
+                                                            }
+                                                        />
+                                                    ) : (
+                                                        <ReportBlockRenderer blocks={analysis.report.blocks} lookup={evidenceLookup} />
                                                     )}
                                                 </>
                                             ) : (
@@ -728,7 +721,6 @@ export default function AnalysisResult() {
                                         </Box>
                                         )}
 
-                                        {/* Skill Reports Section */}
                                         <Box mb={10}>
                                             <SectionHeader label="Skill Reports" count={skillOutputs.length} />
                                             {skillOutputs.length > 0 ? (

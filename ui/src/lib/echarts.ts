@@ -16,7 +16,9 @@
 import * as echarts from "echarts/core";
 import {
     BarChart,
+    BoxplotChart,
     CustomChart,
+    HeatmapChart,
     LineChart,
     PieChart,
     RadarChart,
@@ -29,6 +31,7 @@ import {
     MarkLineComponent,
     PolarComponent,
     TooltipComponent,
+    VisualMapComponent,
 } from "echarts/components";
 import { CanvasRenderer, SVGRenderer } from "echarts/renderers";
 import type { EChartsType } from "echarts/core";
@@ -40,7 +43,9 @@ export { echarts };
 
 echarts.use([
     BarChart,
+    BoxplotChart,
     CustomChart,
+    HeatmapChart,
     LineChart,
     PieChart,
     RadarChart,
@@ -51,6 +56,7 @@ echarts.use([
     MarkLineComponent,
     PolarComponent,
     TooltipComponent,
+    VisualMapComponent,
     CanvasRenderer,
     SVGRenderer,
 ]);

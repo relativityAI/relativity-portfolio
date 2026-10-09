@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Box } from "@chakra-ui/react";
-import { createChart, CandlestickSeries, LineSeries, HistogramSeries, type Time } from "lightweight-charts";
+import { createChart, AreaSeries, CandlestickSeries, HistogramSeries, type Time } from "lightweight-charts";
 
 interface Props {
   spec: any;
@@ -38,7 +38,14 @@ export default function LightweightWrapper({ spec, data, height = 360 }: Props) 
       const bars = data.filter((r: any) => (r.value != null || r.volume != null)).map((r: any) => ({ time: r.date as Time, value: r.value ?? r.volume }));
       if (bars.length) vol.setData(bars as any);
     } else {
-      const series = chart.addSeries(LineSeries, {} as any);
+      // line → area with the same 40%→8% gradient taper as MarketChart.
+      const accent = "#5B7FDE";
+      const series = chart.addSeries(AreaSeries, {
+        lineColor: accent,
+        lineWidth: 2,
+        topColor: accent + "66",
+        bottomColor: accent + "14",
+      } as any);
       const keys = data[0] ? Object.keys(data[0]).filter((k) => k !== "date") : [];
       // plot first numeric key
       const k = keys[0];

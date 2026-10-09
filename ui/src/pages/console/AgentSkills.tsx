@@ -339,7 +339,7 @@ export default function AgentSkills() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={startDownload}
-                                className="bg-transparent font-normal text-console-ink-3 hover:bg-transparent hover:text-console-ink!"
+                                className="bg-transparent font-normal text-console-accent hover:bg-transparent hover:text-console-ink!"
                             >
                                 <Globe /> Download skills
                             </Button>

@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "StatHero": {
+      "$ref": "#/$defs/StatHero"
+    },
+    "PriceChart": {
+      "$ref": "#/$defs/PriceChart"
+    },
+    "MultiLineChart": {
+      "$ref": "#/$defs/MultiLineChart"
+    },
+    "BarChart": {
+      "$ref": "#/$defs/BarChart"
+    },
+    "PieChart": {
+      "$ref": "#/$defs/PieChart"
+    },
+    "BoxPlotChart": {
+      "$ref": "#/$defs/BoxPlotChart"
+    },
+    "HeatmapChart": {
+      "$ref": "#/$defs/HeatmapChart"
+    },
+    "DataTable": {
+      "$ref": "#/$defs/DataTable"
+    },
+    "SkillScoreCard": {
+      "$ref": "#/$defs/SkillScoreCard"
+    },
+    "MarkdownBlock": {
+      "$ref": "#/$defs/MarkdownBlock"
+    },
+    "AnalysisPage": {
+      "$ref": "#/$defs/AnalysisPage"
+    }
+  },
+  "required": [
+    "StatHero",
+    "PriceChart",
+    "MultiLineChart",
+    "BarChart",
+    "PieChart",
+    "BoxPlotChart",
+    "HeatmapChart",
+    "DataTable",
+    "SkillScoreCard",
+    "MarkdownBlock",
+    "AnalysisPage"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "StatHero": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "sublabel": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "additionalProperties": false,
+      "description": "One hero metric in the top stat strip: label, formatted value, optional sublabel."
+    },
+    "PriceChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "ma20": {
+          "type": "string"
+        },
+        "ma50": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Interactive price line for the company, plus optional moving-average overlay lines. All data props are @ds refs to series datasets."
+    },
+    "MultiLineChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Up to 3 time series over dates. data is an @ds ref; every numeric column except the date column becomes a line."
+    },
+    "BarChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "x": {
+          "type": "string"
+        },
+        "y": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Categorical bar chart. data is an @ds ref, x is the category column, y is the numeric column, title is a display string."
+    },
+    "PieChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Share breakdown. data is an @ds ref, name is the label column, value is the numeric column, title is a display string."
+    },
+    "BoxPlotChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Distribution of one or more numeric columns of a table (@ds ref). A five-number box per numeric column."
+    },
+    "HeatmapChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Numeric columns of a table (@ds ref) as a colored heatmap grid. For broad comparisons at a glance."
+    },
+    "DataTable": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "maxRows": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Renders any table dataset (@ds ref) as a plain table. maxRows caps rows (default 12)."
+    },
+    "SkillScoreCard": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "The scored skill breakdown, one bar per skill. data defaults to @ds:score_skills."
+    },
+    "MarkdownBlock": {
+      "type": "object",
+      "properties": {
+        "skill": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "One skill's analyst prose. The single positional arg is a skill id from the manifest's skills list."
+    },
+    "AnalysisPage": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/StatHero"
+              },
+              {
+                "$ref": "#/$defs/PriceChart"
+              },
+              {
+                "$ref": "#/$defs/MultiLineChart"
+              },
+              {
+                "$ref": "#/$defs/BarChart"
+              },
+              {
+                "$ref": "#/$defs/PieChart"
+              },
+              {
+                "$ref": "#/$defs/BoxPlotChart"
+              },
+              {
+                "$ref": "#/$defs/HeatmapChart"
+              },
+              {
+                "$ref": "#/$defs/DataTable"
+              },
+              {
+                "$ref": "#/$defs/SkillScoreCard"
+              },
+              {
+                "$ref": "#/$defs/MarkdownBlock"
+              }
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "description": "The single root wrapper for the whole report. Exactly one per page. Positional: symbol then children."
+    }
+  }
+}
