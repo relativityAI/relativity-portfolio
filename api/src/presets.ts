@@ -30,11 +30,8 @@ export const PRESETS: Record<string, PresetTemplateV3> = {
     description: "Great businesses at a fair price — durable economic moats, honest management, margin of safety, held for the long term.",
     philosophy: BUFFETT_PHILOSOPHY,
     skills: [
-      { skill_id: "moat-analysis", weight: 9 },
       { skill_id: "dcf-valuation", weight: 9 },
-      { skill_id: "profitability-quality", weight: 8 },
-      { skill_id: "management-quality", weight: 8 },
-      { skill_id: "balance-sheet-strength", weight: 6 },
+      { skill_id: "growth-analysis", weight: 7 },
     ],
   },
   oneil: {
@@ -44,9 +41,6 @@ export const PRESETS: Record<string, PresetTemplateV3> = {
     skills: [
       { skill_id: "technical-analysis", weight: 9 },
       { skill_id: "growth-analysis", weight: 9 },
-      { skill_id: "market-news-sentiment", weight: 7 },
-      { skill_id: "competitor-analysis", weight: 6 },
-      { skill_id: "macro-environment", weight: 6 },
     ],
   },
   growth: {
@@ -55,10 +49,7 @@ export const PRESETS: Record<string, PresetTemplateV3> = {
     philosophy: GROWTH_PHILOSOPHY,
     skills: [
       { skill_id: "growth-analysis", weight: 9 },
-      { skill_id: "industry-research", weight: 8 },
-      { skill_id: "competitor-analysis", weight: 7 },
-      { skill_id: "profitability-quality", weight: 7 },
-      { skill_id: "valuation-checks", weight: 5 },
+      { skill_id: "dcf-valuation", weight: 7 },
     ],
   },
   lynch: {
@@ -66,11 +57,9 @@ export const PRESETS: Record<string, PresetTemplateV3> = {
     description: "Growth at a reasonable price — understandable businesses, PEG discipline, insider buying, stories with room left to run.",
     philosophy: LYNCH_PHILOSOPHY,
     skills: [
-      { skill_id: "valuation-checks", weight: 8 },
       { skill_id: "growth-analysis", weight: 8 },
-      { skill_id: "industry-research", weight: 7 },
-      { skill_id: "balance-sheet-strength", weight: 7 },
-      { skill_id: "insider-ownership", weight: 6 },
+      { skill_id: "dcf-valuation", weight: 8 },
+      { skill_id: "technical-analysis", weight: 5 },
     ],
   },
 };

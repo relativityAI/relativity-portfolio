@@ -93,15 +93,6 @@ Rules for good skills:
 - 3-6 anchors per skill. Weights reflect relative importance within the skill. Phrase each anchor so YES / PARTIAL / NO / INSUFFICIENT are all reachable outcomes.
 - INSUFFICIENT is an honest outcome: the Output Template should say what to do when data is missing rather than guessing.
 
-Charts and tables (the skill's Charts section):
-- Declare 1-3 chart specs that directly support the skill's conclusions. Never chart a single scalar; every chart must compare values, show a trend, or split a whole.
-- Data keys the pipeline can ground in REAL data (use these exact keys when they fit):
-  • price_daily — ~120 downsampled daily candles (date, open, high, low, close, volume) → best as candlestick or line
-  • rsi_series — daily RSI(14) (date, rsi) → line
-  • volume_series — last quarter of daily volume (date, volume) → bar
-  These are auto-assembled in code from real market data; declare them and the plot appears.
-- For series the pipeline cannot ground automatically (e.g. revenue_by_quarter, margin_series, peer_comparison, shareholding_split), the analyst's tool results are the source: name the series key to match what a tool returns (e.g. get_income_statements gives quarterly revenue), and the synthesis pass converts grounded tool observations into table/chart blocks. Un-groundable specs are silently dropped — never invented.
-- Prefer a precise table over a decorative chart when the reader needs exact figures.
 - Respond with conversational text FIRST (what you built and why, questions if requirements are unclear), then the full skill markdown in a fenced \`\`\`markdown code block. If the user is still clarifying requirements and no draft is possible yet, just reply conversationally with 2-4 focused questions.`;
 
 export async function skillDraftTurn(req: SkillDraftRequest): Promise<SkillDraftResponse> {

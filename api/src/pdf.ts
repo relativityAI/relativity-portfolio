@@ -9,7 +9,6 @@
 import { Resvg } from "@resvg/resvg-js";
 import { createRequire } from "node:module";
 import type { ReportBlock } from "./agent.js";
-import type { LayoutTree, PlotSpec } from "./types/plots.js";
 import { log } from "./logger.js";
 import { agentChipPng, agentSeed } from "./agentIdentity.js";
 import { LOGO_PNG_DATA_URI } from "./reportLogo.js";

@@ -27,9 +27,7 @@ import { getPreset, listPresets, buildSeedAgents } from "./presets.js";
 import { agentFromRow, buildAgentConfigV3, type AgentRow } from "./agentstore.js";
 import { fixAgentMarkdown, parseAgentMd, serializeAgentMd, validateAgentV3 } from "./agentmd.js";
 import { listAllSkillsForUser, saveCustomSkill, deleteCustomSkill, loadBuiltinSkills, serializeSkill, resolveSkill } from "./skills/store.js";
-import { assembleSkillCharts, buildSkillScoreCharts } from "./skills/charts.js";
-import { derivePlotsFromBlocks, blocksToStructured } from "./report/plots.js";
-import { buildLayoutTree } from "./report/assembler.js";
+import { buildDataManifest, groundLang, runLayoutAgent, validateLangStructure } from "./layout.js";
 import { fixSkillMarkdown, parseSkillMarkdown, slugifySkillName } from "./skills/parse.js";
 import { fetchSkillMarkdown, listRepoSkills, listSkillRepos, resolveSkillPath } from "./skills/repos.js";
 import { skillDraftTurn, type SkillDraftRequest } from "./skills/draft.js";
@@ -39,7 +37,8 @@ import multer from "multer";
 import { isDataFresh, FRESHNESS_FUNDAMENTAL_MS } from "./freshness.js";
 import { requireAuth, type AuthedRequest } from "./auth.js";
 import { log, paint } from "./logger.js";
-import { buildReportPdf, isUuid } from "./pdf.js";
+import { buildReportPdf } from "./latex.js";
+import { isUuid } from "./pdf.js";
 import { initTelemetry } from "./telemetry.js";
 import { serve } from "inngest/express";
 import { inngest, kbIngestFn } from "./inngest.js";
@@ -197,7 +196,6 @@ async function runSkillEvaluation(input: {
     analysis: report.analysis,
     findings: [],
     verdicts: [],
-    chart_requests: [],
     blocks: [],
     tools_used: toolsUsed,
     citations: [],
@@ -823,6 +821,7 @@ app.post("/skills/draft", requireAuth, async (req, res) => {
 });
 
 // ---- analysis runs (authenticated, scoped to the signed-in user) ----
+let missingColumnsWarned = false;
 app.post("/analysis", requireAuth, async (req, res) => {
   try {
     const body = req.body || {};
@@ -918,18 +917,6 @@ app.post("/analysis", requireAuth, async (req, res) => {
         const totalScore = totalWeight ? Math.round(scoredOutputs.reduce((sum, output) => sum + output.score_0_100 * output.weight, 0) / totalWeight * 100) / 100 : null;
         const coverage = outputs.length ? Math.round((scoredOutputs.length / outputs.length) * 100) : 0;
         trace.push("log", "skill", { text: `Writing ${runMode === "agent" ? "the agent executive summary" : "the skill report"}.` });
-        // Per-skill tool observations, parsed — feeds code-grounded chart specs
-        // (the LLM never types chart values).
-        const toolEvidence: Record<string, unknown>[] = [];
-        for (const o of outputs) {
-          for (const obs of o.raw_observations || []) {
-            let value: unknown = obs.result;
-            if (typeof value === "string") {
-              try { value = JSON.parse(value); } catch { continue; }
-            }
-            if (value && typeof value === "object") toolEvidence.push({ tool: obs.tool, result: value });
-          }
-        }
         const errored = outputs.filter((o) => o.error);
         const synthesisInput = {
           modelId: model,
@@ -951,31 +938,81 @@ app.post("/analysis", requireAuth, async (req, res) => {
           log.warn("[skill-run]", "report synthesis threw, using fallback:", e?.message || e);
           report = buildSkillFallbackReport(synthesisInput);
         }
-        // Sources + code-grounded charts are appended by CODE, never the model.
+        // Sources are appended by CODE, never the model. The per-skill score rows
+        // are still surfaced to the layout manifest as the deterministically-built
+        // `score_skills` dataset.
         try {
           if (report.source !== "fallback") report.blocks.push(...buildSourcesBlocks(outputs));
-          report.blocks.push(...buildSkillScoreCharts(outputs, outputs, totalScore));
-          const voyage = new VoyagerClient(config.voyagerUrl, voyagerKey, config.voyagerRpm);
-          report.blocks.push(...await assembleSkillCharts(
-            outputs,
-            selectedSkills.map((s) => ({ skill: s.skill })),
-            symbol,
-            toolEvidence,
-            voyage,
-            toCountrySource(source).source,
-          ));
         } catch (e: any) {
-          log.warn("[skill-run]", "chart assembly failed:", e?.message || e);
+          log.warn("[skill-run]", "sources assembly failed:", e?.message || e);
         }
-        // Code chart blocks landed after synthesis — re-derive plots from the
-        // final block list so every chart gets its PlotRenderer spec.
-        report.plots = derivePlotsFromBlocks(report.blocks);
-        report.layoutTree = buildLayoutTree(report.blocks, report.plots);
-        report.structuredBlocks = blocksToStructured(report.blocks);
         report.partial = !!report.partial || scoredOutputs.length !== outputs.length;
+        // OpenUI layout: code builds a deterministic data manifest from the
+        // captured observations, one layout-agent turn emits OpenUI Lang over it
+        // (never inline data), and a text-level ground pass validates every
+        // @ds:/@lit: reference against the same manifest. Any failure is
+        // non-blocking — the run completes with the plain block report.
+        let artifacts: Record<string, unknown> | null = null;
+        try {
+          const manifest = buildDataManifest({
+            symbol,
+            shareName: String(body.share_name || symbol),
+            source: "market",
+            agentName,
+            runMode,
+            asOf: createdAt.slice(0, 10),
+            outputs,
+            totalScore,
+            coverage,
+            degraded: errored.length
+              ? `${errored.length} of ${outputs.length} skill(s) failed: ${errored.map((o) => `${o.skill_name} (${o.error})`).join(", ")}`
+              : undefined,
+          });
+          let lang: string | null = null;
+          let verification: Record<string, unknown> | null = null;
+          try {
+            lang = await runLayoutAgent({ model, llmKeys: llmKeys as LlmKeys, apiKey, manifest });
+            if (lang) {
+              const structure = validateLangStructure(lang);
+              const { pass, unresolved } = groundLang(lang, manifest);
+              verification = {
+                pass,
+                unresolved,
+                structure,
+                note: structure.ok
+                  ? pass
+                    ? "layout passed reference grounding"
+                    : "layout had unresolved data references (rendered best-effort)"
+                  : `layout structurally invalid (${structure.error}) — block report kept`,
+              };
+              if (!structure.ok) {
+                trace.push("log", "skill", { text: `OpenUI layout discarded: ${structure.error}.` });
+                lang = null;
+              } else if (!pass) {
+                trace.push("log", "skill", { text: `OpenUI layout: ${unresolved.length} unresolved data reference(s) — rendering best-effort.` });
+              }
+            }
+          } catch (e: any) {
+            const msg = e?.message || String(e);
+            trace.push("log", "skill", { text: `OpenUI layout agent failed: ${msg} — block report kept.` });
+            log.warn("[skill-run]", "layout agent failed, continuing with block report:", msg);
+          }
+          artifacts = {
+            pipeline_version: "openui-v1",
+            openui_manifest: manifest,
+            openui_lang: lang,
+            verification,
+          };
+        } catch (e: any) {
+          log.warn("[skill-run]", "layout manifest failed (block report kept):", e?.message || e);
+        }
         trace.push("log", "skill", { text: "Report saved." });
         await trace.flush();
-        const { error: updateError } = await getDb().from("analysis_runs").update({
+        const updateRun = async (patch: Record<string, unknown>) => {
+          const { error } = await getDb().from("analysis_runs").update(patch).eq("id", id).eq("user_id", userId);
+          return error;
+        };
+        const updateError = await updateRun({
           status: "COMPLETED",
           updated_at: new Date().toISOString(),
           duration: (Date.now() - startedAt) / 1000,
@@ -983,8 +1020,19 @@ app.post("/analysis", requireAuth, async (req, res) => {
           coverage: null,
           report,
           skill_outputs: outputs,
-        }).eq("id", id).eq("user_id", userId);
-        if (updateError) throw updateError;
+          artifacts,
+        });
+        if (updateError && /PGRST204|\bcolumn\b.*schema cache/i.test(String(updateError.message))) {
+          // Migration 018 (analysis_runs.artifacts) not applied yet — drop the
+          // new columns and retry once so the run still COMPLETES. Log once.
+          if (!missingColumnsWarned) {
+            missingColumnsWarned = true;
+            console.warn("[skill-run] analysis_runs missing new columns (artifacts/coverage); apply api/supabase/migrations/018_pipeline_artifacts.sql");
+          }
+          const stripped = { status: "COMPLETED", updated_at: new Date().toISOString(), duration: (Date.now() - startedAt) / 1000, total_score: runMode === "agent" ? totalScore : outputs[0]?.score_0_100 ?? null, report, skill_outputs: outputs };
+          const retryError = await updateRun(stripped);
+          if (retryError) throw retryError;
+        } else if (updateError) throw updateError;
       } catch (e: any) {
         console.error("Skill run failed:", e);
         trace.push("log", "skill", { text: `Skill run failed: ${e?.message || "unknown error"}` });

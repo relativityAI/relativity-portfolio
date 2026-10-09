@@ -1,7 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSkillScoreCharts } from "../src/skills/charts.js";
 import { buildSkillFallbackReport } from "../src/agent.js";
-import { derivePlotsFromBlocks } from "../src/report/plots.js";
 import type { SkillOutput } from "../src/skills/types.js";
 
 function output(over: Partial<SkillOutput> & { skill_id: string }): SkillOutput {
@@ -11,7 +9,6 @@ function output(over: Partial<SkillOutput> & { skill_id: string }): SkillOutput 
     weight: 5,
     findings: [],
     verdicts: [],
-    chart_requests: [],
     tools_used: [],
     citations: [],
     raw_observations: [],
@@ -20,25 +17,7 @@ function output(over: Partial<SkillOutput> & { skill_id: string }): SkillOutput 
   };
 }
 
-const scored = [
-  output({ skill_id: "growth", skill_name: "Growth", score_0_100: 71 }),
-  output({ skill_id: "valuation", skill_name: "Valuation", score_0_100: 54 }),
-  output({ skill_id: "quality", skill_name: "Quality", score_0_100: 63 }),
-];
-
-describe("report wiring (charts + fallback)", () => {
-  it("score charts yield plottable blocks for the UI's PlotRenderer", () => {
-    const blocks = buildSkillScoreCharts(scored, scored, 62);
-    expect(blocks.some((b: any) => b.chartType === "radar")).toBe(true);
-    expect(blocks.some((b: any) => b.chartType === "bar")).toBe(true);
-    expect(derivePlotsFromBlocks(blocks).length).toBeGreaterThan(0);
-  });
-
-  it("returns nothing when no skill produced a score", () => {
-    const unscored = [output({ skill_id: "growth", skill_name: "Growth", score_0_100: undefined, error: "boom" })];
-    expect(buildSkillScoreCharts(unscored, unscored, null)).toEqual([]);
-  });
-
+describe("report wiring (fallback)", () => {
   it("fallback report carries the skill's markdown analysis, not an empty section", () => {
     const report = buildSkillFallbackReport({
       modelId: "test",
