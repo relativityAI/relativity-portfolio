@@ -523,22 +523,47 @@ export default function AnalysisResult() {
                             {isSkillRun ? (
                                 <SkillAvatar skill={{ id: analysis.skill_id, name: skillOutputs[0]?.skill_name }} size={56} />
                             ) : (
-                                <AgentAvatar agent={resolveAgent(analysis.agent_name, agents)} size={56} />
+                                <Box
+                                    as="span"
+                                    display="inline-block"
+                                    w="56px"
+                                    alignSelf="stretch"
+                                    borderRadius="2px"
+                                    overflow="hidden"
+                                    aria-hidden="true"
+                                >
+                                    <AgentAvatar agent={resolveAgent(analysis.agent_name, agents)} size={56} />
+                                </Box>
                             )}
                             <Box minW={0}>
                                 <Text fontSize="15px" fontWeight={600} color="var(--ink-primary)" lineHeight="1.35">
                                     {runSubject || "Agent"}
                                 </Text>
-                                {identityLine && (
-                                    <Text
-                                        fontSize="12px"
-                                        fontFamily="var(--font-mono)"
-                                        color="var(--ink-tertiary)"
-                                        mt={1}
-                                        overflowWrap="anywhere"
-                                    >
-                                        {identityLine}
-                                    </Text>
+                                {isSkillRun ? (
+                                    identityLine && (
+                                        <Text
+                                            fontSize="12px"
+                                            fontFamily="var(--font-mono)"
+                                            color="var(--ink-tertiary)"
+                                            mt={1}
+                                            overflowWrap="anywhere"
+                                        >
+                                            {identityLine}
+                                        </Text>
+                                    )
+                                ) : (
+                                    skillOutputs.length > 0 && (
+                                        <HStack gap={2} mt={1} align="center" flexWrap="wrap">
+                                            {skillOutputs.map((o, i) => (
+                                                <HStack key={o.skill_id || o.skill_name || i} gap={1} align="center">
+                                                    <SkillAvatar skill={{ id: o.skill_id, name: o.skill_name }} size={18} />
+                                                    <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
+                                                        {o.skill_name}
+                                                    </Text>
+                                                </HStack>
+                                            ))}
+                                        </HStack>
+                                    )
                                 )}
                                 <HStack gap={1.5} mt={1} align="center">
                                     <ModelLogo model={analysis.model} size={13} />
@@ -698,7 +723,6 @@ export default function AnalysisResult() {
                                         {/* Report Section (agent runs, or skill runs that got a synthesized report) */}
                                         {(analysis.run_mode !== "skill" || !!analysis.report) && (
                                         <Box mb={8}>
-                                            <SectionHeader label={analysis.run_mode === "skill" ? "Report" : "Executive Summary"} count={analysis.report ? analysis.report.blocks.length : 0} />
                                             {analysis.report ? (
                                                 <>
                                                     {analysis.artifacts?.openui_lang && analysis.artifacts?.openui_manifest ? (
@@ -722,7 +746,6 @@ export default function AnalysisResult() {
                                         )}
 
                                         <Box mb={10}>
-                                            <SectionHeader label="Skill Reports" count={skillOutputs.length} />
                                             {skillOutputs.length > 0 ? (
                                                 <Flex direction="column" gap={6}>
                                                     {skillOutputs.map((out: any, i: number) => (
@@ -848,7 +871,7 @@ function ScoreSentence({
             fontWeight={500}
             color={color}
         >
-            {v}
+            {v}/100
         </Text>
     );
 
@@ -863,7 +886,7 @@ function ScoreSentence({
     if (mode === "skill") {
         return (
             <span>
-                The {actor} skill scored {company} {num(score)}/100.
+                The {actor} skill scored {company} {num(score)}.
             </span>
         );
     }
@@ -876,7 +899,7 @@ function ScoreSentence({
 
     return (
         <span>
-            The agent scored {company} {num(score)}/100
+            The agent scored {company} {num(score)}
             {perSkill ? `, with individual skill scores of ${perSkill}.` : "."}
         </span>
     );

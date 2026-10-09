@@ -32,6 +32,7 @@ import {
     PolarComponent,
     TooltipComponent,
     VisualMapComponent,
+    MarkPointComponent,
 } from "echarts/components";
 import { CanvasRenderer, SVGRenderer } from "echarts/renderers";
 import type { EChartsType } from "echarts/core";
@@ -54,6 +55,7 @@ echarts.use([
     GridComponent,
     LegendComponent,
     MarkLineComponent,
+    MarkPointComponent,
     PolarComponent,
     TooltipComponent,
     VisualMapComponent,

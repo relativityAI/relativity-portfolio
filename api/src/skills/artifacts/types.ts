@@ -77,6 +77,7 @@ export interface ToolObservation {
 
 export interface ArtifactInput {
   skillId: string;
+  skillCategory: string;
   symbol: string;
   shareName: string;
   source: string;

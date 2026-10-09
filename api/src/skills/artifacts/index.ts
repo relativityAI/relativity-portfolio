@@ -30,5 +30,10 @@ function toArtifact(input: ArtifactInput, draft: ArtifactDraft): SkillArtifact {
  * reports as a 409.
  */
 export function buildArtifacts(input: ArtifactInput): SkillArtifact[] {
+  // ponytail: DCF is only meaningful for valuation skills; gating here avoids
+  // building workbooks for skills like growth-analysis that never asked for one.
+  // Add when a second artifact category exists — replace this check with a
+  // per-category builder map.
+  if (input.skillCategory !== "valuation") return [];
   return buildDcfRecipe(input).map((draft) => toArtifact(input, draft));
 }

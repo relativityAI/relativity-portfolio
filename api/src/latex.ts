@@ -118,7 +118,7 @@ function buildLatexBody(run: any): string {
     lines.push(`\\softbox{ambersoft}{red}{Run error — ${escLatex(String(run.error).slice(0, 300))}}\\vspace{4pt}`);
   }
   if (covPct != null && covPct < 40) {
-    lines.push(`\\softbox{ambersoft}{amber}{Only ${covPct}% of rubric scored. Review breakdowns below.}\\vspace{4pt}`);
+    lines.push(`\\softbox{ambersoft}{amber}{Only ${covPct}\\% of rubric scored. Review breakdowns below.}\\vspace{4pt}`);
   }
 
   if (!isSkillRun) {
@@ -147,6 +147,71 @@ function buildLatexBody(run: any): string {
             lines.push(vals.join(" & ") + "\\\\");
           }
           lines.push("\\bottomrule\\end{tabularx}\\vspace{6pt}");
+        }
+      }
+    }
+  } else {
+    // Skill runs: render skill sections + reasoning trace
+    const outputs: any[] = Array.isArray(run.skill_outputs) ? run.skill_outputs : [];
+    const usable = outputs.filter((o) => o && (o.skill_id || o.skill_name));
+    lines.push("\\section*{Skill reports}");
+    usable.forEach((o, i) => {
+      const score = o.score_0_100;
+      const name = o.skill_name || o.skill_id || "Skill";
+      lines.push(`\\clearpage\\subsection*{Skill ${String(i + 1).padStart(2, "0")} — ${escLatex(name)}}`);
+      lines.push(`\\textcolor{faint}{Score: ${score != null ? score : "—"}${o.coverage != null ? ` · ${Math.round(o.coverage * 100)}\\% coverage` : ""}}\\\\`);
+      if (o.error) {
+        lines.push(`\\softbox{ambersoft}{red}{No real data — ${escLatex(String(o.error).slice(0, 300))}}\\vspace{4pt}`);
+      }
+      if (o.analysis) {
+        for (const ln of String(o.analysis).split("\n")) {
+          const t = ln.trim();
+          if (t) lines.push(`${escLatex(t)}\\par\\vspace{2pt}`);
+        }
+      }
+      for (const v of o.verdicts || []) {
+        const detail = v.evidence || v.rationale;
+        const label = v.verdict || "—";
+        const col = label === "PASS" ? "green" : label === "FAIL" ? "red" : "muted";
+        lines.push(`\\textcolor{${col}}{${escLatex(label)}} ${escLatex((v.anchor || v.checklist_id || "") + (detail ? " — " + String(detail).slice(0, 200) : ""))}\\\\`);
+      }
+      for (const f of o.findings || []) {
+        const title = typeof f === "string" ? "" : f.title || "";
+        const detail = typeof f === "string" ? f : f.detail || f.text || f.finding || "";
+        if (title) lines.push(`\\textbf{${escLatex(title)}}\\\\`);
+        if (detail) lines.push(`${escLatex(detail)}\\\\`);
+      }
+      for (const b of o.blocks || []) {
+        if (b.kind === "table") {
+          const ds = (o.datasets || []).find((d: any) => d.id === b.dataset_id);
+          const cols: string[] = b.columns || (ds?.columns || []).map((c: any) => c.name) || [];
+          const rows: any[] = (ds?.data || []).slice(-(b.last_n || 30));
+          if (cols.length && rows.length) {
+            if (b.title) lines.push(`\\textbf{${escLatex(b.title)}}\\\\`);
+            const align = cols.map(() => "l").join("");
+            lines.push(`\\begin{tabularx}{\\linewidth}{${align}}\\toprule`);
+            lines.push(cols.map((c) => `\\textbf{${escLatex(c)}}`).join(" & ") + "\\\\\\midrule");
+            for (const r of rows.slice(0, 10)) {
+              lines.push(cols.map((c) => escLatex(String(r?.[c] ?? ""))).join(" & ") + "\\\\");
+            }
+            lines.push("\\bottomrule\\end{tabularx}\\vspace{6pt}");
+          }
+        }
+      }
+    });
+    // Reasoning trace
+    lines.push("\\clearpage\\section*{Reasoning trace}");
+    const trace: any[] = Array.isArray(run.trace) ? run.trace : [];
+    if (!trace.length) {
+      lines.push("No reasoning trace was stored.\\par");
+    } else {
+      for (const ev of trace.slice(0, 80)) {
+        if (ev.type === "thought" && ev.text) {
+          lines.push(`\\textit{${escLatex(String(ev.text).slice(0, 500))}}\\par\\vspace{2pt}`);
+        } else if (ev.type === "tool_call") {
+          lines.push(`\\textcolor{teal}{${escLatex(ev.tool || "tool")}}\\\\`);
+        } else if (ev.type === "tool_result") {
+          lines.push(`\\textcolor{muted}{→ ${escLatex(ev.status || "OK")}}\\\\`);
         }
       }
     }

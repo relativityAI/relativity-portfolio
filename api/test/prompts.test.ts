@@ -20,6 +20,9 @@ for (const line of LAYOUT_AGENT_SYSTEM_PROMPT.split("\n")) {
 describe("layout agent prompt", () => {
   it("documents exactly the components in the ui library spec", () => {
     const library = new Set(Object.keys(spec.$defs ?? {}));
+    // SkillScoreCard still exists in the ui so old persisted reports render,
+    // but newly generated layouts never carry scores — so the prompt omits it.
+    library.delete("SkillScoreCard");
     expect([...catalogued].sort()).toEqual([...library].sort());
   });
 });
