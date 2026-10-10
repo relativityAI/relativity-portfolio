@@ -27,7 +27,7 @@ import { getPreset, listPresets, buildSeedAgents } from "./presets.js";
 import { agentFromRow, buildAgentConfigV3, type AgentRow } from "./agentstore.js";
 import { fixAgentMarkdown, parseAgentMd, serializeAgentMd, validateAgentV3 } from "./agentmd.js";
 import { listAllSkillsForUser, saveCustomSkill, deleteCustomSkill, loadBuiltinSkills, serializeSkill, resolveSkill } from "./skills/store.js";
-import { applyVisualFloor, buildDataManifest, countVisuals, groundLang, runLayoutAgent, validateLangStructure } from "./layout.js";
+import { applyVisualFloor, buildDataManifest, countVisuals, groundLang, layoutStats, runLayoutAgent, validateLangStructure, type LayoutVerification } from "./layout.js";
 import { fixSkillMarkdown, parseSkillMarkdown, slugifySkillName } from "./skills/parse.js";
 import { SKILL_RUN_SYSTEM_PROMPT } from "./prompts.js";
 import { fetchSkillMarkdown, listRepoSkills, listSkillRepos, resolveSkillPath } from "./skills/repos.js";
@@ -311,7 +311,8 @@ app.get("/health", async (_req, res) => {
   } catch {
     dbOk = false;
   }
-  res.json({ ok: 1, db: dbOk });
+  // Aggregate layout counters only — no user data, safe to expose publicly.
+  res.json({ ok: 1, db: dbOk, layout: layoutStats });
 });
 
 app.get("/health/voyager", requireAuth, async (req, res) => {
@@ -929,7 +930,7 @@ app.post("/analysis", requireAuth, async (req, res) => {
           coverage,
           asOf: createdAt.slice(0, 10),
           degraded: errored.length
-            ? `${errored.length} of ${outputs.length} skill(s) failed: ${errored.map((o) => `${o.skill_name} (${o.error})`).join(", ")}`
+            ? `${errored.length} of ${outputs.length} skill(s) failed: ${errored.map((o) => o.skill_name).join(", ")}`
             : undefined,
         };
         let report: AnalysisReport;
@@ -965,11 +966,11 @@ app.post("/analysis", requireAuth, async (req, res) => {
             totalScore,
             coverage,
             degraded: errored.length
-              ? `${errored.length} of ${outputs.length} skill(s) failed: ${errored.map((o) => `${o.skill_name} (${o.error})`).join(", ")}`
+              ? `${errored.length} of ${outputs.length} skill(s) failed: ${errored.map((o) => o.skill_name).join(", ")}`
               : undefined,
           });
           let lang: string | null = null;
-          let verification: Record<string, unknown> | null = null;
+          let verification: LayoutVerification | null = null;
           try {
             lang = await runLayoutAgent({ model, llmKeys: llmKeys as LlmKeys, apiKey, manifest });
             if (lang) {

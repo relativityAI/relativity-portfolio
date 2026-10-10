@@ -283,13 +283,12 @@ export class VoyagerClient {
    */
   async getTechnicals(
     symbol: string,
-    opts: { source?: string; timeframes?: string[]; sections?: string[] } = {},
+    opts: { source?: string; timeframes?: string[] } = {},
   ): Promise<any> {
     return this.get("/technicals", {
       symbol,
       source: opts.source,
       timeframes: opts.timeframes?.join(","),
-      sections: opts.sections?.join(","),
     });
   }
 

@@ -2,6 +2,28 @@ import { generateText } from "ai";
 import { buildModel, type LlmKeys } from "./agent.js";
 import { LAYOUT_AGENT_SYSTEM_PROMPT } from "./prompts.js";
 import type { SkillOutput } from "./skills/types.js";
+import { extractRefs, hasScoreLeak } from "./layout.refs.js";
+import { log } from "./logger.js";
+import type {
+  LayoutManifest,
+  ManifestDataset,
+  ManifestMetric,
+  ManifestSection,
+  MetricUnit,
+} from "./types/layout.js";
+
+// The manifest contract lives in ./types/layout.ts (pure types, shared with
+// the UI). Re-exported here so layout consumers keep a single import site.
+export type {
+  LayoutManifest,
+  LayoutVerification,
+  ManifestDataset,
+  ManifestMetric,
+  ManifestMetricField,
+  ManifestSection,
+  ManifestSkill,
+  MetricUnit,
+} from "./types/layout.js";
 
 /**
  * Layout agent + OpenUI Lang integration.
@@ -30,102 +52,16 @@ export interface LayoutManifestInput {
   degraded?: string;
 }
 
-export interface ManifestDataset {
-  id: string;
-  label: string;
-  kind: "series" | "table";
-  cols: string[];
-  /** Deterministic rows, keyed by col. Values are number | string | null. */
-  rows: Record<string, number | string | null>[];
-  /** skill_id that captured this dataset; unset for global data (price). */
-  ownerSkill?: string;
-  /** section id (one of that skill's sections) this figure sits beside. */
-  ownerSection?: string;
-  /** Prompt-view only: cols whose non-null values are all numbers. */
-  numericCols?: string[];
-  /** Prompt-view only: cols that are not numeric (labels/dates/text). */
-  labelCols?: string[];
-  /** Prompt-view only: has a numeric column and at least 2 rows to plot. */
-  chartable?: boolean;
-}
-
-/** Display unit for a captured scalar metric. */
-export type MetricUnit = "pct" | "x" | "cur" | "num";
-
-export interface ManifestMetricField {
-  key: string;
-  /** Humanized key; the renderer uppercases it. */
-  label: string;
-  value: number | string;
-  unit: MetricUnit;
-}
-
-/** A group of measured scalar numbers pulled from one tool result (e.g.
- *  get_financial_metrics), so prose figures can render as an embedded grid
- *  instead of being retyped. Values live only in the persisted manifest. */
-export interface ManifestMetric {
-  id: string;
-  label: string;
-  ownerSkill?: string;
-  /** section id (one of that skill's sections) this grid sits beside. */
-  ownerSection?: string;
-  fields: ManifestMetricField[];
-  /** Prompt-view only: field keys (labels/values stripped from the prompt). */
-  keys?: string[];
-}
-
-/** A contiguous block of one skill's prose, split at markdown headings. */
-export interface ManifestSection {
-  id: string;
-  heading: string;
-  /** Section prose. Empty ("") in the prompt view; kept when persisted. */
-  markdown: string;
-}
-
-export interface LayoutManifest {
-  api: 1;
-  identity: {
-    symbol: string;
-    shareName: string;
-    source: string;
-    agentName: string;
-    runMode: string;
-    asOf: string;
-  };
-  score: {
-    totalScore: number | null;
-    coverage: number | null;
-    degraded?: string;
-  };
-  skills: {
-    id: string;
-    name: string;
-    category: string;
-    weight: number;
-    score: number | null;
-    /** Analyst prose per skill. Empty ("") in the prompt view; kept when persisted. */
-    markdown?: string;
-    /** Prose split at headings so figures interleave. Prompt view: headings only. */
-    sections?: ManifestSection[];
-  }[];
-  price: {
-    lastPrice: number | null;
-    week52Low: number | null;
-    week52High: number | null;
-    asOf: string | null;
-    rsi14: number | null;
-    sma20: number | null;
-    sma50: number | null;
-    sma200: number | null;
-    returns: Record<string, number | null>;
-  } | null;
-  datasets: ManifestDataset[];
-  /** Scalar metric groups (no chartable table shape) tagged per skill. */
-  metrics?: ManifestMetric[];
-}
-
 const MAX_TABLE_ROWS = 300;
 const MAX_CELL_CHARS = 160;
+
+/**
+ * In-process layout outcome counters since boot, surfaced at `/health` so ops
+ * can see how often the deterministic floor / repair pass fires.
+ * ponytail: process-local, no history — point at a metrics backend if trends
+ * across restarts ever matter.
+ */
+export const layoutStats = { model: 0, deterministic: 0, none: 0, repair_ok: 0, repair_fail: 0 };
 
 function toNum(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -656,7 +592,7 @@ export function validateLangStructure(lang: string): { ok: boolean; error?: stri
   const unknown = [...new Set(names.filter((n) => !LAYOUT_COMPONENTS.has(n)))];
   if (unknown.length) return { ok: false, error: `unknown component(s): ${unknown.join(", ")}` };
 
-  if (/@ds:score_skills\b|@lit:score\./.test(lang)) return { ok: false, error: "scores may not appear in the layout — figures must show stock data" };
+  if (hasScoreLeak(lang)) return { ok: false, error: "scores may not appear in the layout — figures must show stock data" };
 
   return { ok: true };
 }
@@ -684,22 +620,28 @@ export async function runLayoutAgent(args: {
   let lang: string | null = null;
   try {
     lang = normalizeLang((await attempt()).text) || null;
-  } catch {
+  } catch (e: unknown) {
     // a transient provider hiccup shouldn't drop the layout — fall through to repair
+    log.info("[layout]", "initial attempt failed:", e instanceof Error ? e.message : String(e));
   }
   if (lang && validateLangStructure(lang).ok) return lang;
 
   // One repair pass with the SAME model, telling it exactly what broke.
   const reason = lang ? validateLangStructure(lang).error : "empty output";
+  log.info("[layout]", `invalid model output (${reason}) — running repair pass`);
   try {
     const fixed = normalizeLang((await attempt(reason)).text);
     if (fixed) lang = fixed;
   } catch (e: unknown) {
     if (!lang) {
       const msg = e instanceof Error ? e.message : String(e);
+      log.warn("[layout]", "repair attempt failed:", msg);
       return Promise.reject(new Error(`layout agent failed: ${msg}`));
     }
   }
+  const repaired = !!lang && validateLangStructure(lang).ok;
+  layoutStats[repaired ? "repair_ok" : "repair_fail"]++;
+  log.info("[layout]", repaired ? "repair pass produced a valid layout" : "repair pass still invalid — caller will floor/discard");
   return lang;
 }
 
@@ -726,12 +668,9 @@ export function groundLang(lang: string, manifest: LayoutManifest): { pass: bool
   const validMetrics = new Set((manifest.metrics ?? []).map((m) => m.id));
   const validLits = literalKeys(manifest);
   const unresolved = new Set<string>();
-  for (const m of lang.matchAll(/@(ds|lit|mt):([\w.-]+)/g)) {
-    const [, kind, id] = m;
-    const ref = `${kind}:${id}`;
-    const valid = kind === "ds" ? validDatasets.has(id) : kind === "mt" ? validMetrics.has(id) : validLits.has(id);
-    if (!valid) unresolved.add(ref);
-  }
+  for (const r of extractRefs(lang, "ds")) if (!validDatasets.has(r)) unresolved.add("ds:" + r);
+  for (const r of extractRefs(lang, "lit")) if (!validLits.has(r)) unresolved.add("lit:" + r);
+  for (const r of extractRefs(lang, "mt")) if (!validMetrics.has(r)) unresolved.add("mt:" + r);
   return { pass: unresolved.size <= MAX_UNRESOLVED_REFS, unresolved: [...unresolved] };
 }
 
@@ -907,9 +846,14 @@ export function applyVisualFloor(
     /MarkdownBlock\s*\(\s*"@md:/.test(lang) &&
     !tablesForChartableData(lang, manifest)
   ) {
+    layoutStats.model++;
     return { lang, source: "model" };
   }
   const fallback = buildFallbackLayout(manifest);
-  if (fallback) return { lang: fallback, source: "deterministic" };
+  if (fallback) {
+    layoutStats.deterministic++;
+    return { lang: fallback, source: "deterministic" };
+  }
+  layoutStats[lang ? "model" : "none"]++;
   return lang ? { lang, source: "model" } : { lang: null, source: "none" };
 }

@@ -15,7 +15,6 @@ import {
     MdOutlineCalendarToday,
 } from "react-icons/md"
 import { SOURCE_DEFS, SourceMark, sourceForTool, FaviconMark, type SourceKey } from "@/lib/sourceLogos"
-import SkillAvatar from "@/components/shared/SkillAvatar"
 import { Button } from "@/components/ui/button"
 import { AnalysisService } from "@/db"
 
@@ -829,31 +828,6 @@ export default function SkillResultCard({ output, analysisId }: { output: SkillO
 
     return (
         <Box as="section">
-            {/* Chapter header: pure typography — the score's size and signal
-                color carry the hierarchy, no rules or accent bars. */}
-            <Flex
-                justify="space-between"
-                align="baseline"
-                gap={3}
-                wrap="wrap"
-                mb={1}
-            >
-                <Flex gap={3} align="baseline" minW={0} flexWrap="wrap">
-                    <SkillAvatar skill={{ id: output.skill_id, name: output.skill_name }} size={26} />
-                    <Text fontSize="15px" fontWeight={600} color="var(--ink-primary)">
-                        {output.skill_name}
-                    </Text>
-                    <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
-                        {output.category}
-                    </Text>
-                </Flex>
-                {total > 0 && (
-                    <Text fontSize="11.5px" color="var(--ink-tertiary)" flexShrink={0}>
-                        {met} of {total} criteria met
-                    </Text>
-                )}
-            </Flex>
-
             <Box px={0} py={0}>
                 {hasError && (
                     <Box mb={hasVerdicts || hasFindings ? 4 : 0}>

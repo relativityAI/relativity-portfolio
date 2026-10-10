@@ -25,6 +25,22 @@ function truncate(text: string, max = MAX_PDF_CHARS): string {
   return text.length > max ? text.slice(0, max) + "\n...[truncated]" : text;
 }
 
+/**
+ * Keep only the requested `sections.<name>` entries from a technicals report.
+ * The API has no server-side section filter (verified live), so narrowing is
+ * done here. No names requested, or no sections in the payload → unchanged.
+ */
+export function projectSections<T extends { sections?: Record<string, unknown> }>(
+  data: T,
+  sections?: string,
+): T {
+  const want = sections?.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!want?.length || !data?.sections) return data;
+  const picked: Record<string, unknown> = {};
+  for (const name of want) if (name in data.sections) picked[name] = data.sections[name];
+  return { ...data, sections: picked };
+}
+
 // ── SSRF guard (plan 0.5 / C1) ──────────────────────────────────────────
 // read_pdf fetches arbitrary URLs server-side with model-chosen inputs. Block
 // private/link-local/metadata IPs and require an allowlisted host.
@@ -178,9 +194,6 @@ export function renderToolResults<T extends Record<string, any>>(tools: T): T {
   return tools;
 }
 
-// Cap raw fetched text before returning it to the model (context blow-up, B5).
-const MAX_FETCH_TEXT_CHARS = 60000;
-
 // Voyager data tools: turn a "no data yet" 400/404 into a clean message the
 // model can act on (e.g. trigger a pull), but let real failures (5xx after
 // retries, 401/403/429) throw so the tool loop records them and the model may
@@ -284,6 +297,69 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
   const periodWords =
     "Inclusive filters on the reporting period (YYYY-MM-DD). Start with report_period_gte to get one metrics row per period instead of the latest snapshot (desc order); add report_period_lte to bound the range.";
 
+  // The four statement tools differ only by path (get_financials additionally
+  // exposes filing_type).
+  const statementTool = (
+    path: string,
+    description: string,
+    opts: { withFilingType?: boolean } = {},
+  ) =>
+    tool({
+      description,
+      inputSchema: z.object({
+        symbol: z.string().optional().describe("Defaults to the analyzed company."),
+        source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
+        consolidated: z.boolean().optional(),
+        ...(opts.withFilingType ? { filing_type: z.enum(["annual", "quarterly"]).optional() } : {}),
+        all_fields: z.boolean().optional(),
+        report_period_gte: z.string().optional().describe("Inclusive lower bound on the reporting period (YYYY-MM-DD)."),
+        report_period_lte: z.string().optional().describe("Inclusive upper bound on the reporting period (YYYY-MM-DD)."),
+      }),
+      execute: async (args: any) =>
+        guard(() =>
+          voyager.get(path, {
+            symbol,
+            source,
+            consolidated: args.consolidated ?? true,
+            ...(opts.withFilingType ? { filing_type: args.filing_type || "annual" } : {}),
+            all_fields: args.all_fields ?? false,
+            report_period_gte: args.report_period_gte,
+            report_period_lte: args.report_period_lte,
+          }),
+        ),
+    });
+
+  // One /announcements fetch, reused by the announcement/document/transcript tools.
+  const listAnnouncements = async (market?: string): Promise<any[]> => {
+    const data = await guard(() => voyager.get("/announcements", { symbol, source, market }));
+    return ((data as any)?.announcements || []) as any[];
+  };
+
+  // Transcript and presentation tools differ only by keyword list + return key.
+  const readLatestDoc = (kind: "transcript" | "presentation", keywords: string[]) =>
+    tool({
+      description:
+        kind === "transcript"
+          ? "Find and read the text of the company's most recent earnings call transcript / investors meet PDF."
+          : "Find and read the text of the company's most recent investor presentation / results presentation PDF.",
+      inputSchema: z.object({
+        symbol: z.string().optional(),
+        source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
+      }),
+      execute: async () => {
+        const matched = announcementFilter(await listAnnouncements(), keywords, 5);
+        if (matched.length === 0) return { message: `No ${kind} found in recent announcements.` };
+        const pdfs = matched.filter((a) => a.attachment);
+        if (pdfs.length === 0) return { matched: matched.map((a) => ({ date: a.date, heading: a.heading })) };
+        try {
+          const text = await fetchPdfText(pdfs[0].attachment!);
+          return { [`${kind}_of`]: pdfs[0].heading, date: pdfs[0].date, url: pdfs[0].attachment!, text };
+        } catch (e: any) {
+          return { message: `Could not parse ${kind} PDF.`, url: pdfs[0].attachment!, error: e.message };
+        }
+      },
+    });
+
   const tools = {
     get_financial_metrics: tool({
       description:
@@ -380,104 +456,26 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       },
     }),
 
-    get_financials: tool({
-      description:
-        "Fetch a company's financial statements (income statement, balance sheet, cash flow). Returns rows keyed by XBRL-style field names for each reporting period. If the response is a message saying no data is available, call trigger_data_pull first.",
-      inputSchema: z.object({
-        symbol: z.string().optional().describe("Defaults to the analyzed company."),
-        source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
-        consolidated: z.boolean().optional(),
-        filing_type: z.enum(["annual", "quarterly"]).optional(),
-        all_fields: z.boolean().optional(),
-        report_period_gte: z.string().optional().describe("Inclusive lower bound on the reporting period (YYYY-MM-DD); filters the returned history to the range."),
-        report_period_lte: z.string().optional().describe("Inclusive upper bound on the reporting period (YYYY-MM-DD); filters the returned history to the range."),
-      }),
-      execute: async (args) => {
-        return guard(() =>
-          voyager.get("/financials", {
-            symbol,
-            source,
-            consolidated: args.consolidated ?? true,
-            filing_type: args.filing_type || "annual",
-            all_fields: args.all_fields ?? false,
-            report_period_gte: args.report_period_gte,
-            report_period_lte: args.report_period_lte,
-          }),
-        );
-      },
-    }),
+    get_financials: statementTool(
+      "/financials",
+      "Fetch a company's financial statements (income statement, balance sheet, cash flow). Returns rows keyed by XBRL-style field names for each reporting period. If the response is a message saying no data is available, call trigger_data_pull first.",
+      { withFilingType: true },
+    ),
 
-    get_income_statements: tool({
-      description: "Fetch income statement rows for a company across reporting periods.",
-      inputSchema: z.object({
-        symbol: z.string().optional(),
-        source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
-        consolidated: z.boolean().optional(),
-        all_fields: z.boolean().optional(),
-        report_period_gte: z.string().optional().describe("Inclusive lower bound on the reporting period (YYYY-MM-DD)."),
-        report_period_lte: z.string().optional().describe("Inclusive upper bound on the reporting period (YYYY-MM-DD)."),
-      }),
-      execute: async (args) => {
-        return guard(() =>
-          voyager.get("/financials/income-statements", {
-            symbol,
-            source,
-            consolidated: args.consolidated ?? true,
-            all_fields: args.all_fields ?? false,
-            report_period_gte: args.report_period_gte,
-            report_period_lte: args.report_period_lte,
-          }),
-        );
-      },
-    }),
+    get_income_statements: statementTool(
+      "/financials/income-statements",
+      "Fetch income statement rows for a company across reporting periods.",
+    ),
 
-    get_balance_sheets: tool({
-      description: "Fetch balance sheet rows for a company across reporting periods.",
-      inputSchema: z.object({
-        symbol: z.string().optional(),
-        source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
-        consolidated: z.boolean().optional(),
-        all_fields: z.boolean().optional(),
-        report_period_gte: z.string().optional().describe("Inclusive lower bound on the reporting period (YYYY-MM-DD)."),
-        report_period_lte: z.string().optional().describe("Inclusive upper bound on the reporting period (YYYY-MM-DD)."),
-      }),
-      execute: async (args) => {
-        return guard(() =>
-          voyager.get("/financials/balance-sheets", {
-            symbol,
-            source,
-            consolidated: args.consolidated ?? true,
-            all_fields: args.all_fields ?? false,
-            report_period_gte: args.report_period_gte,
-            report_period_lte: args.report_period_lte,
-          }),
-        );
-      },
-    }),
+    get_balance_sheets: statementTool(
+      "/financials/balance-sheets",
+      "Fetch balance sheet rows for a company across reporting periods.",
+    ),
 
-    get_cash_flows: tool({
-      description: "Fetch cash flow statement rows for a company across reporting periods.",
-      inputSchema: z.object({
-        symbol: z.string().optional(),
-        source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
-        consolidated: z.boolean().optional(),
-        all_fields: z.boolean().optional(),
-        report_period_gte: z.string().optional().describe("Inclusive lower bound on the reporting period (YYYY-MM-DD)."),
-        report_period_lte: z.string().optional().describe("Inclusive upper bound on the reporting period (YYYY-MM-DD)."),
-      }),
-      execute: async (args) => {
-        return guard(() =>
-          voyager.get("/financials/cash-flows", {
-            symbol,
-            source,
-            consolidated: args.consolidated ?? true,
-            all_fields: args.all_fields ?? false,
-            report_period_gte: args.report_period_gte,
-            report_period_lte: args.report_period_lte,
-          }),
-        );
-      },
-    }),
+    get_cash_flows: statementTool(
+      "/financials/cash-flows",
+      "Fetch cash flow statement rows for a company across reporting periods.",
+    ),
 
     get_announcements: tool({
       description:
@@ -488,16 +486,9 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
         market: z.string().optional(),
       }),
       execute: async (args) => {
-        const data = await guard(() =>
-          voyager.get("/announcements", {
-            symbol,
-            source,
-            market: args.market,
-          }),
-        );
-        const announcements = (data as any)?.announcements || [];
+        const announcements = await listAnnouncements(args.market);
         return {
-          symbol: (data as any)?.symbol || symbol,
+          symbol,
           count: announcements.length,
           announcements: announcements.slice(0, MAX_ANNOUNCEMENTS).map((a: any) => ({
             date: a.date,
@@ -553,14 +544,7 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
         source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
       }),
       execute: async (args) => {
-        const data = await guard(() =>
-          voyager.get("/announcements", {
-            symbol,
-            source,
-          }),
-        );
-        const announcements = ((data as any)?.announcements || []) as any[];
-        const matched = announcementFilter(announcements, [args.keyword]);
+        const matched = announcementFilter(await listAnnouncements(), [args.keyword]);
         return {
           keyword: args.keyword,
           count: matched.length,
@@ -574,95 +558,9 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       },
     }),
 
-    read_latest_transcript: tool({
-      description:
-        "Find and read the text of the company's most recent earnings call transcript / investors meet PDF.",
-      inputSchema: z.object({
-        symbol: z.string().optional(),
-        source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
-      }),
-      execute: async (args) => {
-        const data = await guard(() =>
-          voyager.get("/announcements", {
-            symbol,
-            source,
-          }),
-        );
-        const announcements = ((data as any)?.announcements || []) as any[];
-        const matched = announcementFilter(
-          announcements,
-          ["transcript", "conference call", "analysts meet"],
-          5,
-        );
-        if (matched.length === 0) {
-          return { message: "No transcript found in recent announcements." };
-        }
-        const pdfs = matched.filter((a) => a.attachment);
-        if (pdfs.length === 0) {
-          return { matched: matched.map((a) => ({ date: a.date, heading: a.heading })) };
-        }
-        try {
-          const text = await fetchPdfText(pdfs[0].attachment!);
-          return {
-            transcript_of: pdfs[0].heading,
-            date: pdfs[0].date,
-            url: pdfs[0].attachment!,
-            text,
-          };
-        } catch (e: any) {
-          return {
-            message: "Could not parse transcript PDF.",
-            url: pdfs[0].attachment!,
-            error: e.message,
-          };
-        }
-      },
-    }),
+    read_latest_transcript: readLatestDoc("transcript", ["transcript", "conference call", "analysts meet"]),
 
-    read_latest_presentation: tool({
-      description:
-        "Find and read the text of the company's most recent investor presentation / results presentation PDF.",
-      inputSchema: z.object({
-        symbol: z.string().optional(),
-        source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
-      }),
-      execute: async (args) => {
-        const data = await guard(() =>
-          voyager.get("/announcements", {
-            symbol,
-            source,
-          }),
-        );
-        const announcements = ((data as any)?.announcements || []) as any[];
-        const matched = announcementFilter(
-          announcements,
-          ["presentation", "investor presentation", "earnings presentation"],
-          5,
-        );
-        if (matched.length === 0) {
-          return { message: "No investor presentation found in recent announcements." };
-        }
-        const pdfs = matched.filter((a) => a.attachment);
-        if (pdfs.length === 0) {
-          return { matched: matched.map((a) => ({ date: a.date, heading: a.heading })) };
-        }
-        try {
-          const text = await fetchPdfText(pdfs[0].attachment!);
-          return {
-            presentation_of: pdfs[0].heading,
-            date: pdfs[0].date,
-            url: pdfs[0].attachment!,
-            text,
-          };
-        } catch (e: any) {
-          return {
-            message: "Could not parse presentation PDF.",
-            url: pdfs[0].attachment!,
-            error: e.message,
-          };
-        }
-      },
-    }),
+    read_latest_presentation: readLatestDoc("presentation", ["presentation", "investor presentation", "earnings presentation"]),
 
     read_pdf: tool({
       description:
@@ -806,6 +704,15 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       },
     }),
 
+    get_pull_job_status: tool({
+      description:
+        "Poll the status of an async document-parse job started by parse_pdf_document. Pass the job_id; when status is 'completed'/'success', read result.document_id and call get_document_index with it. Returns status, timestamps, and any error.",
+      inputSchema: z.object({
+        job_id: z.string().describe("Job ID returned by parse_pdf_document."),
+      }),
+      execute: async (args) => guard(() => voyager.getPullJobStatus(args.job_id)),
+    }),
+
     // ── Market data (D5): price history from the server-side market-data
     // client. Symbol is closure-bound like every other analyst tool.
     get_current_price: tool({
@@ -815,7 +722,7 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
         symbol: z.string().optional().describe("Ignored — the analyzed company's symbol is used."),
       }),
       execute: async () => {
-        const history = await getPriceHistory(symbol, "2y", ctx.source);
+        const history = await getPriceHistory(symbol, "1y", ctx.source);
         if (!history) {
           return {
             unavailable: true,
@@ -830,12 +737,14 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
 
     get_price_history: tool({
       description:
-        "Fetch ~1 year of daily OHLCV price history with computed SMA 20/50/200, RSI(14), 52-week range, and trailing returns. Use for trend, momentum, volume, and range analysis. Returns a compact summary plus downsampled series for plotting.",
+        "Fetch daily OHLCV price history with computed SMA 20/50/200, RSI(14), 52-week range, and trailing returns. Use for trend, momentum, volume, and range analysis. Returns a compact digest by default; pass include_series=true to also get the downsampled daily series (for plotting).",
       inputSchema: z.object({
         symbol: z.string().optional().describe("Ignored — the analyzed company's symbol is used."),
+        period: z.enum(["3mo", "6mo", "1y", "2y", "5y", "max"]).optional().describe("Look-back range (default 1y)."),
+        include_series: z.boolean().optional().describe("Also return the downsampled daily series (candles + SMA/RSI arrays). Default false."),
       }),
-      execute: async () => {
-        const history = await getPriceHistory(symbol, "2y", ctx.source);
+      execute: async (args) => {
+        const history = await getPriceHistory(symbol, args.period || "1y", ctx.source);
         if (!history) {
           return {
             unavailable: true,
@@ -843,15 +752,18 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
             message: "Price history is unavailable for this symbol right now. Rely on snapshot indicators (RSI, SMA levels from get_financial_metrics) instead.",
           };
         }
-        return {
+        const out: Record<string, unknown> = {
           digest: priceHistoryDigest(history),
-          candles_recent: history.candles.slice(-130).map((c) => ({ date: c.date, c: c.close, v: c.volume })),
-          sma20: history.sma20.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value })),
-          sma50: history.sma50.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value })),
-          sma200: history.sma200.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value })),
-          rsi14: history.rsi14.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value })),
           fifty_two_week: history.fifty_two_week,
         };
+        if (args.include_series) {
+          out.candles_recent = history.candles.slice(-130).map((c) => ({ date: c.date, c: c.close, v: c.volume }));
+          out.sma20 = history.sma20.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value }));
+          out.sma50 = history.sma50.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value }));
+          out.sma200 = history.sma200.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value }));
+          out.rsi14 = history.rsi14.slice(-130).filter((s) => s.value != null).map((s) => ({ date: s.date, v: s.value }));
+        }
+        return out;
       },
     }),
 
@@ -873,18 +785,14 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
           .string()
           .optional()
           .describe(
-            "Comma-separated section names to fetch a subset, e.g. 'trend_analysis,momentum_analysis,support_resistance'. Omit for the full report.",
+            "Comma-separated section names to keep a subset, e.g. 'trend_analysis,momentum_analysis,support_resistance'. Filtered locally (the API has no section param). Omit for the full ~80KB report.",
           ),
       }),
       execute: async (args) => {
-        return guard(() =>
-          voyager.getTechnicals(symbol, {
-            source: ctx.source.toLowerCase(),
-            sections: args.sections
-              ? args.sections.split(",").map((s) => s.trim()).filter(Boolean)
-              : undefined,
-          }),
+        const data = await guard(() =>
+          voyager.getTechnicals(symbol, { source: ctx.source.toLowerCase() }),
         );
+        return projectSections(data, args.sections);
       },
     }),
 
