@@ -37,4 +37,27 @@ describe("report wiring (fallback)", () => {
     expect(texts.some((t: string) => t.includes("Revenue compounding."))).toBe(true);
     expect(report.blocks.some((b: any) => b.type === "heading" && b.text === "Sources")).toBe(true);
   });
+
+  it("failed skill is not echoed in the report (its card owns the error)", () => {
+    const err = "Request too large for model openai/gpt-oss-20b";
+    const report = buildSkillFallbackReport({
+      modelId: "test",
+      llmKeys: {},
+      agentPersona: "",
+      agentDisplayName: "Growth",
+      outputs: [output({
+        skill_id: "returns",
+        skill_name: "Returns Analysis",
+        analysis: `Skill run failed: ${err}`,
+        error: err,
+      })],
+      totalScore: null,
+      coverage: 0,
+      degraded: "1 of 1 skill(s) failed: Returns Analysis",
+    });
+    const text = report.blocks.map((b: any) => b.text ?? "").join("\n");
+    expect(text).not.toContain(err);
+    expect(report.blocks.some((b: any) => b.type === "heading" && b.text === "Returns Analysis")).toBe(false);
+    expect(text).toContain("1 of 1 skill(s) failed: Returns Analysis");
+  });
 });

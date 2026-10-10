@@ -34,83 +34,31 @@ import { resolvedTheme, tooltipStyle, type ResolvedTheme, type ECOption } from "
 import { scoreSignal } from "@/lib/analysisFormat";
 
 // ---------------------------------------------------------------------------
-// Manifest types (mirror api/src/layout.ts shapes)
+// Manifest types — CANONICAL definitions live in api/src/types/layout.ts (the
+// wire contract persisted to analysis_runs.artifacts). Type-only import: the
+// alias never reaches vite because esbuild erases it, so the UI must never
+// import runtime values from @api/.
 // ---------------------------------------------------------------------------
 
-export interface OpenUiDataset {
-    id: string;
-    label: string;
-    kind: "series" | "table";
-    cols: string[];
-    rows: Record<string, number | string | null>[];
-    /** skill_id that captured this dataset; unset for global (price) data. */
-    ownerSkill?: string;
-    /** section id (one of that skill's sections) this figure sits beside. */
-    ownerSection?: string;
-}
+import type {
+    LayoutManifest as OpenUiManifest,
+    ManifestDataset as OpenUiDataset,
+    ManifestMetric as OpenUiMetric,
+    ManifestMetricField as OpenUiMetricField,
+    MetricUnit as OpenUiMetricUnit,
+} from "@api/types/layout";
 
-export interface OpenUiSection {
-    id: string;
-    heading: string;
-    markdown: string;
-}
+/** Re-exported because test fixtures type themselves against it. */
+export type { OpenUiManifest };
 
-export type OpenUiMetricUnit = "pct" | "x" | "cur" | "num";
-
-export interface OpenUiMetricField {
-    key: string;
-    label: string;
-    value: number | string;
-    unit: OpenUiMetricUnit;
-}
-
-/** A group of measured scalar numbers (see api/src/layout.ts ManifestMetric). */
-export interface OpenUiMetric {
-    id: string;
-    label: string;
-    ownerSkill?: string;
-    ownerSection?: string;
-    fields: OpenUiMetricField[];
-}
-
-export interface OpenUiSkill {
-    id: string;
-    name: string;
-    category: string;
-    weight: number;
-    score: number | null;
-    /** Skill analyst prose — stripped from the prompt view, kept for rendering. */
-    markdown?: string;
-    /** Prose split at headings, so a `@md:<id>` MarkdownBlock can render one part. */
-    sections?: OpenUiSection[];
-}
-
-export interface OpenUiManifest {
-    api?: number;
-    identity?: {
-        symbol?: string;
-        shareName?: string;
-        source?: string;
-        agentName?: string;
-        runMode?: string;
-        asOf?: string;
-    };
-    score?: {
-        totalScore?: number | null;
-        coverage?: number | null;
-        degraded?: string;
-    };
-    skills?: OpenUiSkill[];
-    price?: Record<string, unknown> | null;
-    datasets?: OpenUiDataset[];
-    metrics?: OpenUiMetric[];
-}
 
 // ---------------------------------------------------------------------------
 // Manifest context + id resolution
 // ---------------------------------------------------------------------------
 
-const ManifestContext = createContext<OpenUiManifest>({});
+// Default is never read — every render happens under ManifestProvider — but the
+// context demands one, so cast rather than fabricate a fake manifest.
+const ManifestContext = createContext<OpenUiManifest>({} as OpenUiManifest);
 
 export function ManifestProvider({ manifest, children }: { manifest: OpenUiManifest; children: ReactNode }) {
     return <ManifestContext.Provider value={manifest}>{children}</ManifestContext.Provider>;
@@ -194,16 +142,20 @@ function lineOption(
     x: string[],
     series: { name: string; data: (number | null)[] }[],
     markPoint?: Record<string, unknown>,
+    xName?: string,
+    yName?: string,
 ): ECOption {
     const multi = series.length > 1;
+    const axisName = { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5 };
     return {
-        tooltip: { trigger: "axis", ...tooltipStyle(t) },
+        tooltip: { trigger: "axis", valueFormatter: (v) => compactNumber(v), ...tooltipStyle(t) },
         ...(multi ? { legend: { top: 0, textStyle: { color: t.ink.secondary, fontFamily: t.fonts.tabular, fontSize: 11 }, data: series.map((s) => s.name) } } : {}),
         dataZoom: { type: "inside" },
-        grid: { left: 8, right: 8, top: multi ? 30 : 8, bottom: 8, containLabel: true },
+        grid: { left: 8, right: 8, top: multi && yName ? 44 : multi ? 30 : yName ? 34 : 8, bottom: xName ? 26 : 8, containLabel: true },
         xAxis: {
             type: "category",
             data: x,
+            ...(xName ? { name: clip(xName, 22), nameLocation: "middle", nameGap: 22, nameTextStyle: axisName } : {}),
             axisTick: { show: false },
             axisLine: { lineStyle: { color: t.hairline } },
             axisLabel: { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5 },
@@ -211,8 +163,9 @@ function lineOption(
         yAxis: {
             type: "value",
             scale: true,
+            ...(yName ? { name: clip(yName, 22), nameLocation: "end", nameRotate: 0, nameGap: 10, nameTextStyle: { ...axisName, align: "left" } } : {}),
             splitLine: { lineStyle: { color: t.gridLine } },
-            axisLabel: { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5 },
+            axisLabel: { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5, formatter: (v) => compactNumber(v) },
         },
         series: series.map((s, i) => ({
             name: s.name,
@@ -227,51 +180,77 @@ function lineOption(
     };
 }
 
-function barOption(t: ResolvedTheme, cats: string[], name: string, data: (number | null)[]): ECOption {
+function barOption(t: ResolvedTheme, cats: string[], xName: string, yName: string, data: (number | null)[]): ECOption {
+    const axisName = {
+        color: t.ink.tertiary,
+        fontFamily: t.fonts.tabular,
+        fontSize: 10.5,
+    };
+    const rotate = cats.length > 8 ? 24 : 0;
     return {
-        tooltip: { trigger: "axis", ...tooltipStyle(t) },
-        grid: { left: 8, right: 8, top: 24, bottom: 8, containLabel: true },
+        tooltip: { trigger: "axis", valueFormatter: (v) => compactNumber(v), ...tooltipStyle(t) },
+        grid: { left: 8, right: 8, top: 34, bottom: rotate ? 56 : 34, containLabel: true },
         xAxis: {
             type: "category",
             data: cats,
+            name: clip(xName, 22),
+            nameLocation: "middle",
+            nameGap: rotate ? 44 : 22,
+            nameTextStyle: axisName,
             axisLabel: {
                 color: t.ink.tertiary,
                 fontFamily: t.fonts.tabular,
                 fontSize: 10.5,
                 interval: Math.max(0, Math.ceil(cats.length / 12) - 1),
-                rotate: cats.length > 8 ? 24 : 0,
+                rotate,
+                formatter: (v) => clip(String(v), 16),
             },
             axisLine: { lineStyle: { color: t.hairline } },
             axisTick: { show: false },
         },
         yAxis: {
             type: "value",
+            name: clip(yName, 22),
+            nameLocation: "end",
+            nameRotate: 0,
+            nameGap: 10,
+            nameTextStyle: { ...axisName, align: "left" },
             splitLine: { lineStyle: { color: t.gridLine } },
-            axisLabel: { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5 },
+            axisLabel: { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5, formatter: (v) => compactNumber(v) },
         },
-        series: [{ name, type: "bar", data, itemStyle: { color: t.accent, borderRadius: [3, 3, 0, 0] }, barMaxWidth: 26 }],
+        series: [{ name: yName, type: "bar", data, itemStyle: { color: t.accent, borderRadius: [3, 3, 0, 0] }, barMaxWidth: 26 }],
     };
 }
 
-function stackedBarOption(t: ResolvedTheme, cats: string[], segments: { name: string; data: (number | null)[] }[]): ECOption {
+function stackedBarOption(t: ResolvedTheme, cats: string[], catName: string, segments: { name: string; data: (number | null)[] }[]): ECOption {
     const multi = segments.length > 1;
+    const axisName = {
+        color: t.ink.tertiary,
+        fontFamily: t.fonts.tabular,
+        fontSize: 10.5,
+    };
     return {
-        tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...tooltipStyle(t) },
+        tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: (v) => compactNumber(v), ...tooltipStyle(t) },
         ...(multi ? { legend: { top: 0, textStyle: { color: t.ink.secondary, fontFamily: t.fonts.tabular, fontSize: 11 }, data: segments.map((s) => s.name) } } : {}),
-        grid: { left: 8, right: 8, top: multi ? 30 : 8, bottom: 8, containLabel: true },
+        grid: { left: 8, right: 8, top: multi ? 44 : 34, bottom: 8, containLabel: true },
         xAxis: {
             type: "value",
             splitLine: { lineStyle: { color: t.gridLine } },
-            axisLabel: { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5 },
+            axisLabel: { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5, formatter: (v) => compactNumber(v) },
             axisLine: { lineStyle: { color: t.hairline } },
         },
         yAxis: {
             type: "category",
             inverse: true,
             data: cats,
+            name: clip(catName, 22),
+            nameLocation: "end",
+            nameRotate: 0,
+            nameGap: 10,
+            nameTextStyle: { ...axisName, align: "left" },
             axisTick: { show: false },
             axisLine: { lineStyle: { color: t.hairline } },
-            axisLabel: { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5 },
+            axisLabel: { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5, formatter: (v) => clip(String(v), 16) },
         },
         series: segments.map((s, i) => ({
             name: s.name,
@@ -286,7 +265,7 @@ function stackedBarOption(t: ResolvedTheme, cats: string[], segments: { name: st
 
 function pieOption(t: ResolvedTheme, items: { name: string; value: number }[]): ECOption {
     return {
-        tooltip: { trigger: "item", ...tooltipStyle(t) },
+        tooltip: { trigger: "item", valueFormatter: (v) => compactNumber(v), ...tooltipStyle(t) },
         legend: { bottom: 0, type: "scroll", textStyle: { color: t.ink.secondary, fontFamily: t.fonts.tabular, fontSize: 11 } },
         series: [
             {
@@ -294,8 +273,14 @@ function pieOption(t: ResolvedTheme, items: { name: string; value: number }[]): 
                 radius: ["42%", "68%"],
                 center: ["50%", "44%"],
                 itemStyle: { borderColor: t.surface.canvas, borderWidth: 2, borderRadius: 4 },
-                label: { color: t.ink.primary, fontFamily: t.fonts.tabular, fontSize: 11 },
-                data: items.map((d, i) => ({ name: d.name, value: d.value, itemStyle: { color: t.chart[i % t.chart.length] } })),
+                label: {
+                    color: t.ink.primary,
+                    fontFamily: t.fonts.tabular,
+                    fontSize: 11,
+                    formatter: (p: { name: string; value: number }) => `${p.name} ${compactNumber(p.value)}`,
+                },
+                labelLayout: { hideOverlap: true },
+                data: items.map((d, i) => ({ name: clip(d.name, 24), value: d.value, itemStyle: { color: t.chart[i % t.chart.length] } })),
             },
         ],
     };
@@ -385,6 +370,17 @@ function heatOption(t: ResolvedTheme, x: string[], y: string[], cells: [number, 
 function fmt(v: unknown): string {
     if (v == null) return "—";
     return typeof v === "number" ? new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(v) : String(v);
+}
+
+/** Compact axis/tooltip numbers: 1.2K, 3.4M, 5.6B, 7.8T. Values under 1000 render as-is. */
+const compactFmt = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+export function compactNumber(v: unknown): string {
+    return typeof v === "number" && Number.isFinite(v) ? compactFmt.format(v) : "—";
+}
+
+/** Truncate long display strings with an ellipsis so axis labels never clip. */
+function clip(s: string, max: number): string {
+    return s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
 }
 
 /** Display label style: sentence case (first letter up, rest down). Never bold. */
@@ -610,9 +606,14 @@ const PriceChart = defineComponent({
         const markPoint = closeIdx >= 0
             ? { data: [point(extremeIndex(series[0].data, 1), "High", t.chart[4]), point(extremeIndex(series[0].data, -1), "Low", t.chart[3])].filter(Boolean) }
             : undefined;
+        const dateCol = main.cols.find((c) => /date|ds|timestamp/i.test(c));
         return (
             <Figure title={props.title}>
-                <Echart option={lineOption(t, axis, series, markPoint)} height={260} ariaLabel={props.title ?? "Price chart"} />
+                <Echart
+                    option={lineOption(t, axis, series, markPoint, dateCol ? columnLabel(dateCol) : undefined, series[0]?.name)}
+                    height={260}
+                    ariaLabel={props.title ?? "Price chart"}
+                />
             </Figure>
         );
     },
@@ -632,10 +633,11 @@ const MultiLineChart = defineComponent({
         if (!d || d.rows.length === 0) return null;
         const cols = numericCols(d).slice(0, 3);
         if (!cols.length) return null;
+        const dateCol = d.cols.find((c) => /date|ds|timestamp/i.test(c));
         return (
             <Figure title={props.title}>
                 <Echart
-                    option={lineOption(t, dateAxis(d.rows), cols.map((c) => ({ name: c.col, data: vals(d.rows, c.col) })))}
+                    option={lineOption(t, dateAxis(d.rows), cols.map((c) => ({ name: c.col, data: vals(d.rows, c.col) })), undefined, dateCol ? columnLabel(dateCol) : undefined, columnLabel(cols[0].col))}
                     height={240}
                     ariaLabel={props.title ?? "Multi-line chart"}
                 />
@@ -664,7 +666,7 @@ const BarChart = defineComponent({
         if (!xCol || !yCol) return null;
         return (
             <Figure title={props.title}>
-                <Echart option={barOption(t, d.rows.map((r) => fmt(r[xCol])), yCol, vals(d.rows, yCol))} height={240} ariaLabel={props.title ?? `${yCol} bar chart`} />
+                <Echart option={barOption(t, d.rows.map((r) => fmt(r[xCol])), columnLabel(xCol), columnLabel(yCol), vals(d.rows, yCol))} height={240} ariaLabel={props.title ?? `${yCol} bar chart`} />
             </Figure>
         );
     },
@@ -952,7 +954,7 @@ const StackedBarChart = defineComponent({
         return (
             <Figure title={props.title}>
                 <Echart
-                    option={stackedBarOption(t, cats, segments)}
+                    option={stackedBarOption(t, cats, columnLabel(xCol), segments)}
                     height={Math.max(180, 60 + cats.length * 22)}
                     ariaLabel={props.title ?? "Stacked bar chart"}
                 />

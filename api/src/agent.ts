@@ -409,6 +409,10 @@ export function buildSkillFallbackReport(input: SkillSynthesisInput): AnalysisRe
   if (input.degraded) blocks.push({ type: "callout", tone: "caution", text: `Degraded: ${input.degraded}` });
 
   for (const out of input.outputs) {
+    // A failed skill is rendered by its own SkillResultCard below (error +
+    // empty-state). Narrating it again here echoed the same message up to three
+    // times per report; the run-level degraded callout already names it.
+    if (out.error) continue;
     blocks.push({ type: "heading", level: 3, text: out.skill_name });
     // Current pipeline output is markdown prose, not structured findings —
     // without this the fallback would show an empty section per skill.
@@ -436,7 +440,6 @@ export function buildSkillFallbackReport(input: SkillSynthesisInput): AnalysisRe
         sourceKeys: ["skill_outputs"],
       });
     }
-    if (out.error) blocks.push({ type: "callout", tone: "caution", text: `${out.skill_name}: ${out.error}` });
   }
 
   blocks.push(...buildSourcesBlocks(input.outputs));

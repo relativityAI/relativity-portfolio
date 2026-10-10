@@ -5,14 +5,15 @@ import { renderToString } from "react-dom/server";
 import { ChakraProvider, createSystem, defaultConfig } from "@chakra-ui/react";
 import { ThemeProvider } from "next-themes";
 import { createParser } from "@openuidev/react-lang";
-import { openUiLibrary, OpenUiReport, type OpenUiManifest } from "@/lib/openui";
+import { openUiLibrary, compactNumber, OpenUiReport, type OpenUiManifest } from "@/lib/openui";
 
 const specFile = resolve(__dirname, "../lib/openui.spec.json");
 
 // Deterministic manifest fixture shaped exactly like api buildDataManifest.
 const manifest: OpenUiManifest = {
-    identity: { symbol: "RELIANCE", shareName: "Reliance Industries Ltd", asOf: "2026-04-03" },
-    price: { lastPrice: "₹4,502", asOf: "Apr 3" },
+    api: 1,
+    identity: { symbol: "RELIANCE", shareName: "Reliance Industries Ltd", source: "market", agentName: "test-agent", runMode: "agent", asOf: "2026-04-03" },
+    price: { lastPrice: 4502, week52Low: null, week52High: null, asOf: "2026-04-03", rsi14: null, sma20: null, sma50: null, sma200: null, returns: {} },
     score: { totalScore: 71, coverage: 100 },
     skills: [
         { id: "sku-moat", name: "Moat", category: "qualitative", weight: 5, score: 84, markdown: "## Moat\n\nStrong brand." },
@@ -36,6 +37,13 @@ const manifest: OpenUiManifest = {
 const lang = `root = AnalysisPage("RELIANCE", [StatHero("Last Price", "@lit:price.lastPrice", "as of @lit:price.asOf"), PriceChart("@ds:price_candles", "@ds:price_sma20", "@ds:price_sma50"), SkillScoreCard("@ds:score_skills"), MarkdownBlock("sku-moat")])`;
 
 describe("openui library", () => {
+    it("compactNumber renders large magnitudes as K/M/B/T", () => {
+        expect(compactNumber(842)).toBe("842");
+        expect(compactNumber(2_500_000)).toBe("2.5M");
+        expect(compactNumber(1_234_000_000)).toBe("1.2B");
+        expect(compactNumber(null)).toBe("—");
+    });
+
     it("spec json is committed and in sync with the live library (UPDATE_OPENUI_SPEC=1 regenerates)", () => {
         const spec = openUiLibrary.toJSONSchema() as Record<string, unknown>;
         if (process.env.UPDATE_OPENUI_SPEC === "1") {
@@ -64,7 +72,9 @@ describe("openui library", () => {
         );
         const html = renderToString(wrap(<OpenUiReport lang={lang} manifest={manifest} fallback={<div id="fb" />} />));
         expect(html).toContain("RELIANCE");
-        expect(html).toContain("₹4,502");
+        // lastPrice is a number on the wire (api/src/types/layout.ts) — StatHero
+        // renders it via String(), so no ₹ grouping comes along for free.
+        expect(html).toContain("4502");
         expect(html).toContain("Strong brand");
         expect(html).toContain("Moat");
     });

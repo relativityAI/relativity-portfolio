@@ -5,5 +5,19 @@
     "owner": "anthropics",
     "repo": "financial-services",
     "pathPrefix": "plugins/"
+  },
+  {
+    "id": "himself65-finance-skills",
+    "label": "Finance Skills (Market Analysis)",
+    "owner": "himself65",
+    "repo": "finance-skills",
+    "pathPrefix": "plugins/market-analysis/skills/"
+  },
+  {
+    "id": "tradermonty-trading-skills",
+    "label": "Claude Trading Skills",
+    "owner": "tradermonty",
+    "repo": "claude-trading-skills",
+    "pathPrefix": "skills/"
   }
 ]
