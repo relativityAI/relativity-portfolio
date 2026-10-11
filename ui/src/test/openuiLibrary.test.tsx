@@ -79,6 +79,17 @@ describe("openui library", () => {
         expect(html).toContain("Moat");
     });
 
+    it("parses the line/bar/pie variants without errors", () => {
+        const variants = `root = AnalysisPage("RELIANCE", [AreaChart("@ds:price_candles"), StepLineChart("@ds:price_sma20"), SmoothLineChart("@ds:price_sma50"), GroupedBarChart("@ds:obs_income", "report_date", "net_profit,totalRevenue"), HorizontalBarChart("@ds:obs_income", "report_date", "net_profit"), DonutChart("@ds:score_skills", "name", "score"), RoseChart("@ds:score_skills", "name", "score")])`;
+        const parser = createParser(openUiLibrary.toJSONSchema(), "AnalysisPage");
+        const result = parser.parse(variants);
+        expect(result.meta?.errors ?? []).toHaveLength(0);
+        const root = result.root as unknown as { props: { children?: { typeName: string }[] } };
+        expect((root.props.children ?? []).map((c) => c.typeName)).toEqual([
+            "AreaChart", "StepLineChart", "SmoothLineChart", "GroupedBarChart", "HorizontalBarChart", "DonutChart", "RoseChart",
+        ]);
+    });
+
     it("resolves @lit:score.* literals", () => {
         const scoreLang = `root = AnalysisPage("RELIANCE", [StatHero("Composite Score", "@lit:score.totalScore", "weighted")])`;
         const html = renderToString(

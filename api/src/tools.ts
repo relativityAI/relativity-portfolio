@@ -225,21 +225,24 @@ function guard<T>(run: () => Promise<T>): Promise<T | { message: string } | { me
   })();
 }
 
-async function fetchPdfText(url: string): Promise<string> {
-  assertSafePdfUrl(url); // SSRF guard: allowlist + private-IP block (C1)
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(60_000),
-    headers: { "user-agent": "RelativityBot/1.0 (+https://relativity.example)" },
-  });
-  if (!res.ok) throw new Error(`read_pdf status ${res.status}: ${url}`);
-  // Size cap BEFORE buffering the whole body (C1).
-  const len = Number(res.headers.get("content-length") || 0);
-  if (len > config.maxPdfBytes) throw new Error(`read_pdf rejected: ${len} bytes exceeds limit`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length > config.maxPdfBytes) throw new Error(`read_pdf rejected: body exceeds ${config.maxPdfBytes} bytes`);
-  const pdfParse = (await import("pdf-parse")).default;
-  const data = await pdfParse(buf);
-  return truncate(data.text || "");
+async function fetchPdfText(
+  voyager: VoyagerClient,
+  url: string,
+  symbol?: string,
+  source?: string,
+): Promise<string> {
+  assertSafePdfUrl(url); // keep model-supplied URL reads on exchange/filing hosts
+  // Voyager parses the PDF server-side and caches the PageIndex — avoids the
+  // local 60s download timeout on big exchange PDFs.
+  const doc = await voyager.get("/documents/index", { url, symbol, source: source?.toLowerCase() });
+  const pages = Array.isArray(doc?.text) ? doc.text : [];
+  const text = pages.length
+    ? pages.map((p: any) => p?.text || "").join("\n\n")
+    : typeof doc?.text === "string"
+      ? doc.text
+      : "";
+  if (!text.trim()) throw new Error(`No text extracted from ${url}`);
+  return truncate(text);
 }
 
 function announcementFilter(
@@ -307,7 +310,6 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
     tool({
       description,
       inputSchema: z.object({
-        symbol: z.string().optional().describe("Defaults to the analyzed company."),
         source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
         consolidated: z.boolean().optional(),
         ...(opts.withFilingType ? { filing_type: z.enum(["annual", "quarterly"]).optional() } : {}),
@@ -340,22 +342,34 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
     tool({
       description:
         kind === "transcript"
-          ? "Find and read the text of the company's most recent earnings call transcript / investors meet PDF."
-          : "Find and read the text of the company's most recent investor presentation / results presentation PDF.",
+          ? "Find the company's earnings-call transcripts / investor-meet PDFs and read the most recent one. Always returns the attachment URLs of the last `count` (default 5) transcripts so you can call read_pdf on any older one."
+          : "Find the company's investor/results presentation PDFs and read the most recent one. Always returns the attachment URLs of the last `count` (default 5) presentations so you can call read_pdf on any older one.",
       inputSchema: z.object({
-        symbol: z.string().optional(),
         source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
+        count: z.number().int().min(1).max(10).optional().describe("How many of the latest documents to list (default 5). Each entry carries its attachment URL for read_pdf."),
       }),
-      execute: async () => {
-        const matched = announcementFilter(await listAnnouncements(), keywords, 5);
+      execute: async (args) => {
+        const count = args.count ?? 5;
+        const matched = announcementFilter(await listAnnouncements(), keywords, 20).filter((a) => a.attachment);
         if (matched.length === 0) return { message: `No ${kind} found in recent announcements.` };
-        const pdfs = matched.filter((a) => a.attachment);
-        if (pdfs.length === 0) return { matched: matched.map((a) => ({ date: a.date, heading: a.heading })) };
+        const documents = matched
+          .slice(0, count)
+          .map((a) => ({ date: a.date, heading: a.heading, url: a.attachment! }));
+        const first = matched[0];
         try {
-          const text = await fetchPdfText(pdfs[0].attachment!);
-          return { [`${kind}_of`]: pdfs[0].heading, date: pdfs[0].date, url: pdfs[0].attachment!, text };
+          const text = await fetchPdfText(voyager, first.attachment!, symbol, source);
+          return { [`${kind}_of`]: first.heading, date: first.date, url: first.attachment!, documents, text };
         } catch (e: any) {
-          return { message: `Could not parse ${kind} PDF.`, url: pdfs[0].attachment!, error: e.message };
+          // Do NOT echo the success-shaped fields (transcript_of/date/url) —
+          // a failure that looks like a hit is what lets the model cite a
+          // document it never read. Only the retry URLs survive.
+          return {
+            unavailable: true,
+            reason: `${kind}_unreadable`,
+            error: String(e?.message || e),
+            message: `Could not read the latest ${kind} PDF. You have NOT seen its contents — do not quote or paraphrase it. Retry read_pdf on one of the URLs in "documents", or use an older document.`,
+            documents,
+          };
         }
       },
     });
@@ -365,7 +379,6 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       description:
         "Fetch financial metrics (ratios, margins, growth, valuation, per-share figures) for a company. Use filing_type=ttm for trailing-twelve-months figures, quarterly/annual for point-in-time statements. Returns a single snapshot dict by default; pass either period filter to get one metrics dict per period in range (desc order). Pass fields (comma-separated metric names) to receive only what you need — the full unfiltered snapshot is ~59 keys. The response carries data_available=false for a symbol with no pulled data (check it before reading values; null means not computable — never default it to 0). Percent fields are already percent values (revenue_growth 14.74 = 14.74%).",
       inputSchema: z.object({
-        symbol: z.string().describe("Stock symbol, e.g. RELIANCE or NVDA. Ignored — the analyzed company's symbol is used."),
         source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()).describe("Defaults to the analyzed company's source."),
         consolidated: z.boolean().optional(),
         filing_type: z.enum(["ttm", "annual", "quarterly"]).optional(),
@@ -481,9 +494,11 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       description:
         "Fetch recent exchange announcements for a company (earnings calls, board meetings, dividends, investor meets).",
       inputSchema: z.object({
-        symbol: z.string().optional(),
         source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
-        market: z.string().optional(),
+        market: z
+          .enum(["equities", "sme"])
+          .optional()
+          .describe("Exchange market segment: 'equities' (default) or 'sme'. NOT a country — omit unless you need the SME board."),
       }),
       execute: async (args) => {
         const announcements = await listAnnouncements(args.market);
@@ -505,7 +520,6 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       description:
         "Fetch the latest shareholding pattern for a company (promoter, institutional, foreign institutional, and public ownership percentages).",
       inputSchema: z.object({
-        symbol: z.string().optional(),
         source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
       }),
       execute: async (args) => {
@@ -540,7 +554,6 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
         "Search a company's filings and announcements by keyword (e.g. 'dividend', 'buyback', 'transcript', 'audit'). Returns matching announcements with dates, categories, and attachment URLs.",
       inputSchema: z.object({
         keyword: z.string(),
-        symbol: z.string().optional(),
         source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()),
       }),
       execute: async (args) => {
@@ -570,7 +583,7 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       }),
       execute: async (args) => {
         try {
-          const text = await fetchPdfText(args.url);
+          const text = await fetchPdfText(ctx.voyager, args.url, symbol, source);
           return { url: args.url, text: wrapUntrusted("pdf", text) };
         } catch (e: any) {
           return { url: args.url, error: e.message, message: "Could not read PDF." };
@@ -621,7 +634,6 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       description:
         "Fetch news stories that explicitly mention a stock symbol. Use to understand recent company-specific news flow, catalysts, and coverage. Can return zero stories if the ticker has no recent coverage.",
       inputSchema: z.object({
-        symbol: z.string().describe("Stock symbol, e.g. RELIANCE or AMZN."),
         country: z.enum(["in", "us"]).optional().describe("Market: us or in. Defaults to the analyzed company's country."),
         days: z.number().int().min(1).max(30).describe("Look-back window in days (default 7).").optional(),
       }),
@@ -683,7 +695,6 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
         "Submit a PDF URL (announcement attachment, filing, transcript, or presentation) to be parsed into a structured page-by-page index. Async: returns a job_id. Poll get_pull_job_status with that job_id until it finishes, then call get_document_index with the document_id to retrieve the page tree.",
       inputSchema: z.object({
         url: z.string().describe("PDF URL or path to structure."),
-        symbol: z.string().optional().describe("Stock symbol, defaults to the analyzed company."),
         source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()).describe("Defaults to the analyzed company's source."),
       }),
       execute: async (args) => {
@@ -719,7 +730,6 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       description:
         "Fetch the CURRENT MARKET PRICE of the analyzed company: last close, as-of date, 52-week range, and trailing 1/3/6-month returns. Use this whenever a valuation ratio needs a live price (P/E, earnings yield, price-to-book, margin-of-safety) and the metrics snapshot does not carry one, or reports price_data=unavailable. Grounds price-dependent analysis in a real market quote instead of marking it INSUFFICIENT.",
       inputSchema: z.object({
-        symbol: z.string().optional().describe("Ignored — the analyzed company's symbol is used."),
       }),
       execute: async () => {
         const history = await getPriceHistory(symbol, "1y", ctx.source);
@@ -739,7 +749,6 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       description:
         "Fetch daily OHLCV price history with computed SMA 20/50/200, RSI(14), 52-week range, and trailing returns. Use for trend, momentum, volume, and range analysis. Returns a compact digest by default; pass include_series=true to also get the downsampled daily series (for plotting).",
       inputSchema: z.object({
-        symbol: z.string().optional().describe("Ignored — the analyzed company's symbol is used."),
         period: z.enum(["3mo", "6mo", "1y", "2y", "5y", "max"]).optional().describe("Look-back range (default 1y)."),
         include_series: z.boolean().optional().describe("Also return the downsampled daily series (candles + SMA/RSI arrays). Default false."),
       }),
@@ -780,7 +789,6 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       description:
         "Fetch the Advanced Data Suite Technicals report: ~60 sections of computed technical indicators — trend/market structure, SMA/EMA alignment, RSI, MACD, stochastic, ADX/CCI/Williams %R, OBV, ATR, Bollinger Bands, Ichimoku, Fibonacci levels, support/resistance, volume profile, divergences, entry/exit/stop/target levels, and bullish/bearish scenario triggers — across daily, weekly, and monthly timeframes. Use for technical analysis, trend classification, momentum, and key-level mapping. Returns point-in-time values (no intraday history); cite section names for every figure.",
       inputSchema: z.object({
-        symbol: z.string().optional().describe("Ignored — the analyzed company's symbol is used."),
         sections: z
           .string()
           .optional()
