@@ -144,14 +144,15 @@ function lineOption(
     markPoint?: Record<string, unknown>,
     xName?: string,
     yName?: string,
+    style: { step?: boolean; area?: boolean } = {},
 ): ECOption {
     const multi = series.length > 1;
     const axisName = { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5 };
     return {
         tooltip: { trigger: "axis", valueFormatter: (v) => compactNumber(v), ...tooltipStyle(t) },
-        ...(multi ? { legend: { top: 0, textStyle: { color: t.ink.secondary, fontFamily: t.fonts.tabular, fontSize: 11 }, data: series.map((s) => s.name) } } : {}),
+        legend: { top: 0, textStyle: { color: t.ink.secondary, fontFamily: t.fonts.tabular, fontSize: 11 }, data: series.map((s) => s.name) },
         dataZoom: { type: "inside" },
-        grid: { left: 8, right: 8, top: multi && yName ? 44 : multi ? 30 : yName ? 34 : 8, bottom: xName ? 26 : 8, containLabel: true },
+        grid: { left: 8, right: 8, top: yName || multi ? 44 : 30, bottom: xName ? 26 : 8, containLabel: true },
         xAxis: {
             type: "category",
             data: x,
@@ -171,54 +172,83 @@ function lineOption(
             name: s.name,
             type: "line",
             showSymbol: false,
-            smooth: true,
+            smooth: !style.step,
+            ...(style.step ? { step: "middle" as const } : {}),
             data: s.data,
             lineStyle: { width: i === 0 ? 2 : 1.25, color: i === 0 ? t.accent : t.chart[i % t.chart.length] },
             itemStyle: { color: i === 0 ? t.accent : t.chart[i % t.chart.length] },
+            ...(style.area ? { areaStyle: { opacity: 0.12, color: i === 0 ? t.accent : t.chart[i % t.chart.length] } } : {}),
+            // Label the last plotted point (first series) — the reader's "current" value.
+            ...(i === 0 ? { endLabel: { show: true, formatter: (p: { value: number }) => compactNumber(p.value), color: t.ink.primary, fontFamily: t.fonts.tabular, fontSize: 10.5 } } : {}),
             ...(i === 0 && markPoint ? { markPoint } : {}),
         })),
     };
 }
 
-function barOption(t: ResolvedTheme, cats: string[], xName: string, yName: string, data: (number | null)[]): ECOption {
-    const axisName = {
-        color: t.ink.tertiary,
-        fontFamily: t.fonts.tabular,
-        fontSize: 10.5,
+function barOption(
+    t: ResolvedTheme,
+    cats: string[],
+    xName: string,
+    yName: string,
+    series: { name: string; data: (number | null)[] }[],
+    opts: { horizontal?: boolean } = {},
+): ECOption {
+    const horizontal = !!opts.horizontal;
+    const multi = series.length > 1;
+    const axisName = { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5 };
+    const rotate = horizontal || cats.length <= 8 ? 0 : 24;
+    const catAxis = {
+        type: "category" as const,
+        data: cats,
+        name: clip(xName, 22),
+        nameLocation: "middle" as const,
+        nameGap: horizontal ? 22 : rotate ? 44 : 22,
+        nameTextStyle: axisName,
+        axisTick: { show: false },
+        axisLine: { lineStyle: { color: t.hairline } },
+        axisLabel: {
+            color: t.ink.tertiary,
+            fontFamily: t.fonts.tabular,
+            fontSize: 10.5,
+            interval: horizontal ? 0 : Math.max(0, Math.ceil(cats.length / 12) - 1),
+            rotate,
+            formatter: (v: string) => clip(String(v), 16),
+        },
     };
-    const rotate = cats.length > 8 ? 24 : 0;
+    const valAxis = {
+        type: "value" as const,
+        name: clip(yName, 22),
+        nameLocation: "end" as const,
+        nameRotate: 0,
+        nameGap: 10,
+        nameTextStyle: { ...axisName, align: "left" as const },
+        splitLine: { lineStyle: { color: t.gridLine } },
+        axisLine: { lineStyle: { color: t.hairline } },
+        axisLabel: { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5, formatter: (v: number) => compactNumber(v) },
+    };
     return {
-        tooltip: { trigger: "axis", valueFormatter: (v) => compactNumber(v), ...tooltipStyle(t) },
-        grid: { left: 8, right: 8, top: 34, bottom: rotate ? 56 : 34, containLabel: true },
-        xAxis: {
-            type: "category",
-            data: cats,
-            name: clip(xName, 22),
-            nameLocation: "middle",
-            nameGap: rotate ? 44 : 22,
-            nameTextStyle: axisName,
-            axisLabel: {
-                color: t.ink.tertiary,
+        tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: (v) => compactNumber(v), ...tooltipStyle(t) },
+        legend: { top: 0, textStyle: { color: t.ink.secondary, fontFamily: t.fonts.tabular, fontSize: 11 }, data: series.map((s) => s.name) },
+        grid: { left: 8, right: 8, top: 30, bottom: horizontal ? 30 : rotate ? 56 : 34, containLabel: true },
+        xAxis: horizontal ? valAxis : catAxis,
+        yAxis: horizontal ? { ...catAxis, inverse: true } : valAxis,
+        series: series.map((s, i) => ({
+            name: s.name,
+            type: "bar",
+            data: s.data,
+            barMaxWidth: horizontal ? 22 : 26,
+            barGap: "10%",
+            itemStyle: { color: multi ? t.chart[i % t.chart.length] : t.accent, borderRadius: horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0] },
+            label: {
+                show: true,
+                position: horizontal ? "right" : "top",
+                // Only the last bar carries its value — a labelled end point, not a wall of numbers.
+                formatter: (p: { value: number; dataIndex: number }) => (p.dataIndex === s.data.length - 1 ? compactNumber(p.value) : ""),
+                color: t.ink.primary,
                 fontFamily: t.fonts.tabular,
                 fontSize: 10.5,
-                interval: Math.max(0, Math.ceil(cats.length / 12) - 1),
-                rotate,
-                formatter: (v) => clip(String(v), 16),
             },
-            axisLine: { lineStyle: { color: t.hairline } },
-            axisTick: { show: false },
-        },
-        yAxis: {
-            type: "value",
-            name: clip(yName, 22),
-            nameLocation: "end",
-            nameRotate: 0,
-            nameGap: 10,
-            nameTextStyle: { ...axisName, align: "left" },
-            splitLine: { lineStyle: { color: t.gridLine } },
-            axisLabel: { color: t.ink.tertiary, fontFamily: t.fonts.tabular, fontSize: 10.5, formatter: (v) => compactNumber(v) },
-        },
-        series: [{ name: yName, type: "bar", data, itemStyle: { color: t.accent, borderRadius: [3, 3, 0, 0] }, barMaxWidth: 26 }],
+        })),
     };
 }
 
@@ -263,14 +293,15 @@ function stackedBarOption(t: ResolvedTheme, cats: string[], catName: string, seg
     };
 }
 
-function pieOption(t: ResolvedTheme, items: { name: string; value: number }[]): ECOption {
+function pieOption(t: ResolvedTheme, items: { name: string; value: number }[], variant: "pie" | "donut" | "rose" = "pie"): ECOption {
     return {
         tooltip: { trigger: "item", valueFormatter: (v) => compactNumber(v), ...tooltipStyle(t) },
         legend: { bottom: 0, type: "scroll", textStyle: { color: t.ink.secondary, fontFamily: t.fonts.tabular, fontSize: 11 } },
         series: [
             {
                 type: "pie",
-                radius: ["42%", "68%"],
+                radius: variant === "donut" ? ["42%", "68%"] : variant === "rose" ? ["12%", "68%"] : ["0%", "66%"],
+                ...(variant === "rose" ? { roseType: "area" as const } : {}),
                 center: ["50%", "44%"],
                 itemStyle: { borderColor: t.surface.canvas, borderWidth: 2, borderRadius: 4 },
                 label: {
@@ -646,61 +677,157 @@ const MultiLineChart = defineComponent({
     },
 });
 
-const BarChart = defineComponent({
-    name: "BarChart",
-    description: "Categorical bar chart. data is an @ds ref, x is the category column, y is the numeric column, title is a display string.",
-    props: z.object({
+// Fresh instance per component — the library names each $defs entry by schema
+// identity, so a shared object would collapse Area/Step/Smooth under one def.
+const timeSeriesSchema = () =>
+    z.object({
+        data: z.string().optional(),
+        value: z.string().optional(),
+        title: z.string().optional(),
+    });
+
+/** Shared body for the single-series line variants (Area / Step / Smooth). */
+function TimeSeries({ props, style }: { props: { data?: string; value?: string; title?: string }; style: { step?: boolean; area?: boolean } }) {
+    const m = useManifest();
+    const t = useLayoutTheme();
+    const d = datasetOf(m, props.data);
+    if (!d || d.rows.length === 0) return null;
+    const yCol = (props.value && d.cols.includes(props.value) ? props.value : undefined) ?? numericCols(d)[0]?.col;
+    if (!yCol) return null;
+    const dateCol = d.cols.find((c) => /date|ds|timestamp/i.test(c));
+    return (
+        <Figure title={props.title}>
+            <Echart
+                option={lineOption(t, dateAxis(d.rows), [{ name: columnLabel(yCol), data: vals(d.rows, yCol) }], undefined, dateCol ? columnLabel(dateCol) : undefined, columnLabel(yCol), style)}
+                height={240}
+                ariaLabel={props.title ?? "Line chart"}
+            />
+        </Figure>
+    );
+}
+
+const AreaChart = defineComponent({
+    name: "AreaChart",
+    description: "Filled single-series line over dates (a trend where magnitude matters). data is an @ds ref, value is the optional numeric column (defaults to the first numeric column), title is a display string.",
+    props: timeSeriesSchema(),
+    component: ({ props }) => <TimeSeries props={props} style={{ area: true }} />,
+});
+
+const StepLineChart = defineComponent({
+    name: "StepLineChart",
+    description: "Single-series step line over dates — for values that hold then jump (rates, tiers, thresholds). data is an @ds ref, value is the optional numeric column, title is a display string.",
+    props: timeSeriesSchema(),
+    component: ({ props }) => <TimeSeries props={props} style={{ step: true }} />,
+});
+
+const SmoothLineChart = defineComponent({
+    name: "SmoothLineChart",
+    description: "Single smoothed series line over dates. data is an @ds ref, value is the optional numeric column, title is a display string.",
+    props: timeSeriesSchema(),
+    component: ({ props }) => <TimeSeries props={props} style={{}} />,
+});
+
+const barSchema = () =>
+    z.object({
         data: z.string().optional(),
         x: z.string().optional(),
         y: z.string().optional(),
         title: z.string().optional(),
-    }),
-    component: ({ props }) => {
-        const m = useManifest();
-        const t = useLayoutTheme();
-        const d = datasetOf(m, props.data);
-        if (!d || d.rows.length === 0) return null;
-        const yCandidates = numericCols(d);
-        const xCol = props.x && d.cols.includes(props.x) ? props.x : labelCol(d, yCandidates.map((n) => n.col)) ?? d.cols[0];
-        const yCol = props.y && d.cols.includes(props.y) ? props.y : yCandidates[0]?.col;
-        if (!xCol || !yCol) return null;
-        return (
-            <Figure title={props.title}>
-                <Echart option={barOption(t, d.rows.map((r) => fmt(r[xCol])), columnLabel(xCol), columnLabel(yCol), vals(d.rows, yCol))} height={240} ariaLabel={props.title ?? `${yCol} bar chart`} />
-            </Figure>
-        );
-    },
+    });
+
+/** Shared body for the bar variants (Bar / Grouped / Horizontal). y may be a
+ *  comma-separated list of numeric columns → one clustered series per column. */
+function Bar({ props, horizontal }: { props: { data?: string; x?: string; y?: string; title?: string }; horizontal?: boolean }) {
+    const m = useManifest();
+    const t = useLayoutTheme();
+    const d = datasetOf(m, props.data);
+    if (!d || d.rows.length === 0) return null;
+    const yCandidates = numericCols(d);
+    const xCol = props.x && d.cols.includes(props.x) ? props.x : labelCol(d, yCandidates.map((n) => n.col)) ?? d.cols[0];
+    const requested = (props.y ?? "").split(",").map((s) => s.trim()).filter((c) => c && d.cols.includes(c));
+    const yCols = (requested.length ? requested : [yCandidates[0]?.col]).filter((c): c is string => !!c).slice(0, 4);
+    if (!xCol || !yCols.length) return null;
+    return (
+        <Figure title={props.title}>
+            <Echart
+                option={barOption(t, d.rows.map((r) => fmt(r[xCol])), columnLabel(xCol), yCols.length === 1 ? columnLabel(yCols[0]) : "Value", yCols.map((c) => ({ name: columnLabel(c), data: vals(d.rows, c) })), { horizontal })}
+                height={240}
+                ariaLabel={props.title ?? `${yCols.join(", ")} bar chart`}
+            />
+        </Figure>
+    );
+}
+
+const BarChart = defineComponent({
+    name: "BarChart",
+    description: "Categorical bar chart. data is an @ds ref, x is the category column, y is the numeric column — or several comma-separated numeric columns for grouped bars — title is a display string.",
+    props: barSchema(),
+    component: ({ props }) => <Bar props={props} />,
 });
 
-const PieChart = defineComponent({
-    name: "PieChart",
-    description: "Share breakdown. data is an @ds ref, name is the label column, value is the numeric column, title is a display string.",
-    props: z.object({
+const GroupedBarChart = defineComponent({
+    name: "GroupedBarChart",
+    description: "Clustered bar chart comparing 2+ numeric columns across categories. data is an @ds ref, x is the category column, y is a comma-separated list of 2+ numeric columns, title is a display string.",
+    props: barSchema(),
+    component: ({ props }) => <Bar props={props} />,
+});
+
+const HorizontalBarChart = defineComponent({
+    name: "HorizontalBarChart",
+    description: "Horizontal categorical bars, best when category labels are long or there are many categories. data is an @ds ref, x is the category column, y is the numeric column — or a comma-separated list for grouped bars — title is a display string.",
+    props: barSchema(),
+    component: ({ props }) => <Bar props={props} horizontal />,
+});
+
+const pieSchema = () =>
+    z.object({
         data: z.string().optional(),
         name: z.string().optional(),
         value: z.string().optional(),
         title: z.string().optional(),
-    }),
-    component: ({ props }) => {
-        const m = useManifest();
-        const t = useLayoutTheme();
-        const d = datasetOf(m, props.data);
-        if (!d) return null;
-        const yCandidates = numericCols(d);
-        const nameCol = props.name && d.cols.includes(props.name) ? props.name : labelCol(d, yCandidates.map((n) => n.col)) ?? d.cols[0];
-        const valueCol = props.value && d.cols.includes(props.value) ? props.value : yCandidates[0]?.col;
-        if (!nameCol || !valueCol) return null;
-        const items = d.rows
-            .map((r) => ({ name: fmt(r[nameCol]), value: numeric(valueCol, r[valueCol]) }))
-            .filter((i): i is { name: string; value: number } => i.value != null)
-            .slice(0, 12);
-        if (!items.length) return null;
-        return (
-            <Figure title={props.title}>
-                <Echart option={pieOption(t, items)} height={240} ariaLabel={props.title ?? "Share breakdown"} />
-            </Figure>
-        );
-    },
+    });
+
+/** Shared body for the pie variants (Pie / Donut / Rose). */
+function Pie({ props, variant }: { props: { data?: string; name?: string; value?: string; title?: string }; variant: "pie" | "donut" | "rose" }) {
+    const m = useManifest();
+    const t = useLayoutTheme();
+    const d = datasetOf(m, props.data);
+    if (!d) return null;
+    const yCandidates = numericCols(d);
+    const nameCol = props.name && d.cols.includes(props.name) ? props.name : labelCol(d, yCandidates.map((n) => n.col)) ?? d.cols[0];
+    const valueCol = props.value && d.cols.includes(props.value) ? props.value : yCandidates[0]?.col;
+    if (!nameCol || !valueCol) return null;
+    const items = d.rows
+        .map((r) => ({ name: fmt(r[nameCol]), value: numeric(valueCol, r[valueCol]) }))
+        .filter((i): i is { name: string; value: number } => i.value != null)
+        .slice(0, 12);
+    if (!items.length) return null;
+    return (
+        <Figure title={props.title}>
+            <Echart option={pieOption(t, items, variant)} height={240} ariaLabel={props.title ?? "Share breakdown"} />
+        </Figure>
+    );
+}
+
+const PieChart = defineComponent({
+    name: "PieChart",
+    description: "Share breakdown as a full pie. data is an @ds ref, name is the label column, value is the numeric column, title is a display string.",
+    props: pieSchema(),
+    component: ({ props }) => <Pie props={props} variant="pie" />,
+});
+
+const DonutChart = defineComponent({
+    name: "DonutChart",
+    description: "Share breakdown as a ring (donut). data is an @ds ref, name is the label column, value is the numeric column, title is a display string.",
+    props: pieSchema(),
+    component: ({ props }) => <Pie props={props} variant="donut" />,
+});
+
+const RoseChart = defineComponent({
+    name: "RoseChart",
+    description: "Share breakdown as a rose (equal-angle, radius by value) — for comparing many similar-sized slices. data is an @ds ref, name is the label column, value is the numeric column, title is a display string.",
+    props: pieSchema(),
+    component: ({ props }) => <Pie props={props} variant="rose" />,
 });
 
 const BoxPlotChart = defineComponent({
@@ -968,10 +1095,17 @@ const LEAF_REFS = z.array(
         StatHero.ref,
         PriceChart.ref,
         MultiLineChart.ref,
+        AreaChart.ref,
+        StepLineChart.ref,
+        SmoothLineChart.ref,
         BarChart.ref,
+        GroupedBarChart.ref,
+        HorizontalBarChart.ref,
         StackedBarChart.ref,
         Divider.ref,
         PieChart.ref,
+        DonutChart.ref,
+        RoseChart.ref,
         BoxPlotChart.ref,
         HeatmapChart.ref,
         DataTable.ref,
@@ -1052,7 +1186,7 @@ const AnalysisPage = defineComponent({
 });
 
 export const openUiLibrary = createLibrary({
-    components: [StatHero, PriceChart, MultiLineChart, BarChart, StackedBarChart, Divider, PieChart, BoxPlotChart, HeatmapChart, DataTable, MetricGrid, SkillScoreCard, MarkdownBlock, AnalysisPage],
+    components: [StatHero, PriceChart, MultiLineChart, AreaChart, StepLineChart, SmoothLineChart, BarChart, GroupedBarChart, HorizontalBarChart, StackedBarChart, Divider, PieChart, DonutChart, RoseChart, BoxPlotChart, HeatmapChart, DataTable, MetricGrid, SkillScoreCard, MarkdownBlock, AnalysisPage],
     root: "AnalysisPage",
 });
 

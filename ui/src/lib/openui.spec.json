@@ -11,8 +11,23 @@
     "MultiLineChart": {
       "$ref": "#/$defs/MultiLineChart"
     },
+    "AreaChart": {
+      "$ref": "#/$defs/AreaChart"
+    },
+    "StepLineChart": {
+      "$ref": "#/$defs/StepLineChart"
+    },
+    "SmoothLineChart": {
+      "$ref": "#/$defs/SmoothLineChart"
+    },
     "BarChart": {
       "$ref": "#/$defs/BarChart"
+    },
+    "GroupedBarChart": {
+      "$ref": "#/$defs/GroupedBarChart"
+    },
+    "HorizontalBarChart": {
+      "$ref": "#/$defs/HorizontalBarChart"
     },
     "StackedBarChart": {
       "$ref": "#/$defs/StackedBarChart"
@@ -22,6 +37,12 @@
     },
     "PieChart": {
       "$ref": "#/$defs/PieChart"
+    },
+    "DonutChart": {
+      "$ref": "#/$defs/DonutChart"
+    },
+    "RoseChart": {
+      "$ref": "#/$defs/RoseChart"
     },
     "BoxPlotChart": {
       "$ref": "#/$defs/BoxPlotChart"
@@ -49,10 +70,17 @@
     "StatHero",
     "PriceChart",
     "MultiLineChart",
+    "AreaChart",
+    "StepLineChart",
+    "SmoothLineChart",
     "BarChart",
+    "GroupedBarChart",
+    "HorizontalBarChart",
     "StackedBarChart",
     "Divider",
     "PieChart",
+    "DonutChart",
+    "RoseChart",
     "BoxPlotChart",
     "HeatmapChart",
     "DataTable",
@@ -115,6 +143,54 @@
       "additionalProperties": false,
       "description": "Up to 3 time series over dates. data is an @ds ref; every numeric column except the date column becomes a line."
     },
+    "AreaChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Filled single-series line over dates (a trend where magnitude matters). data is an @ds ref, value is the optional numeric column (defaults to the first numeric column), title is a display string."
+    },
+    "StepLineChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Single-series step line over dates — for values that hold then jump (rates, tiers, thresholds). data is an @ds ref, value is the optional numeric column, title is a display string."
+    },
+    "SmoothLineChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Single smoothed series line over dates. data is an @ds ref, value is the optional numeric column, title is a display string."
+    },
     "BarChart": {
       "type": "object",
       "properties": {
@@ -132,7 +208,45 @@
         }
       },
       "additionalProperties": false,
-      "description": "Categorical bar chart. data is an @ds ref, x is the category column, y is the numeric column, title is a display string."
+      "description": "Categorical bar chart. data is an @ds ref, x is the category column, y is the numeric column — or several comma-separated numeric columns for grouped bars — title is a display string."
+    },
+    "GroupedBarChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "x": {
+          "type": "string"
+        },
+        "y": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Clustered bar chart comparing 2+ numeric columns across categories. data is an @ds ref, x is the category column, y is a comma-separated list of 2+ numeric columns, title is a display string."
+    },
+    "HorizontalBarChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "x": {
+          "type": "string"
+        },
+        "y": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Horizontal categorical bars, best when category labels are long or there are many categories. data is an @ds ref, x is the category column, y is the numeric column — or a comma-separated list for grouped bars — title is a display string."
     },
     "StackedBarChart": {
       "type": "object",
@@ -173,7 +287,45 @@
         }
       },
       "additionalProperties": false,
-      "description": "Share breakdown. data is an @ds ref, name is the label column, value is the numeric column, title is a display string."
+      "description": "Share breakdown as a full pie. data is an @ds ref, name is the label column, value is the numeric column, title is a display string."
+    },
+    "DonutChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Share breakdown as a ring (donut). data is an @ds ref, name is the label column, value is the numeric column, title is a display string."
+    },
+    "RoseChart": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Share breakdown as a rose (equal-angle, radius by value) — for comparing many similar-sized slices. data is an @ds ref, name is the label column, value is the numeric column, title is a display string."
     },
     "BoxPlotChart": {
       "type": "object",
@@ -276,7 +428,22 @@
                 "$ref": "#/$defs/MultiLineChart"
               },
               {
+                "$ref": "#/$defs/AreaChart"
+              },
+              {
+                "$ref": "#/$defs/StepLineChart"
+              },
+              {
+                "$ref": "#/$defs/SmoothLineChart"
+              },
+              {
                 "$ref": "#/$defs/BarChart"
+              },
+              {
+                "$ref": "#/$defs/GroupedBarChart"
+              },
+              {
+                "$ref": "#/$defs/HorizontalBarChart"
               },
               {
                 "$ref": "#/$defs/StackedBarChart"
@@ -286,6 +453,12 @@
               },
               {
                 "$ref": "#/$defs/PieChart"
+              },
+              {
+                "$ref": "#/$defs/DonutChart"
+              },
+              {
+                "$ref": "#/$defs/RoseChart"
               },
               {
                 "$ref": "#/$defs/BoxPlotChart"

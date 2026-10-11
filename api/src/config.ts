@@ -115,8 +115,6 @@ export const config = {
         "bseindia.com",
         "bsmedia.business-standard.com",
       ],
-  // Max bytes downloaded by read_pdf (plan C1: size cap).
-  maxPdfBytes: Number(process.env.MAX_PDF_BYTES || 20 * 1024 * 1024),
   // Supabase
   supabaseProjectUrl: process.env.SUPABASE_PROJECT_URL || "",
   supabaseUrl: process.env.SUPABASE_URL || "",
@@ -126,6 +124,9 @@ export const config = {
   // Voyager
   voyagerUrl: process.env.VOYAGER_URL || "https://voyager-api-0csb.onrender.com",
   voyagerAdminKey: process.env.VOYAGER_ADMIN_KEY || "",
+  // data:read key for Voyager data routes (X-API-Key). The admin key above only
+  // works on /admin/* and 401s every data route.
+  voyagerApiKey: process.env.VOYAGER_API_KEY || "",
   voyagerRpm: Number(process.env.VOYAGER_RPM || 60),
   // Server-side LLM key pools + model lists + daily caps (multiple keys per provider)
   serverKeys: parseServerKeys(),
@@ -134,6 +135,8 @@ export const config = {
   // Paths
   assetsDir: path.resolve(__dirname, "..", "assets"),
   modelsFile: path.resolve(__dirname, "..", "config", "models.yaml"),
+  // Output-format specs (one .md per format) for the iterative agent's final step.
+  formatsDir: path.resolve(__dirname, "..", "config", "formats"),
   // Limits
   maxToolSteps: 10,
   rateLimitPerMin: 10,
