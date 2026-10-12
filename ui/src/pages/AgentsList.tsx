@@ -80,7 +80,7 @@ export default function AgentsList() {
 
     return (
         <Box bg="var(--surface-canvas)" minH="100%">
-            <Flex direction="column" gap={6} maxW="1200px" mx="auto" px={6} py={6}>
+            <Flex direction="column" gap={6} w="full" px={6} py={6}>
                 {/* Page header */}
                 <PageHero>
                     <Flex justify="space-between" align="center">

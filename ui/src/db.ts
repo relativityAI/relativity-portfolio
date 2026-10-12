@@ -110,7 +110,7 @@ export const AnalysisService = {
         documents?: string[];
         web_search?: boolean;
         web_sources?: string[];
-        run_mode?: "agent" | "skill";
+        run_mode?: "agent" | "skill" | "iterative";
         skill_id?: string;
     }) {
         const response = await axios.post(`${API_BASE}/analysis`, config);

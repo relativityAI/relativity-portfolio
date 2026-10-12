@@ -309,7 +309,7 @@ useEffect(() => {
     )
 
     return (
-        <div className="mx-auto w-full max-w-5xl px-5 pb-12 sm:px-8">
+        <div className="w-full px-5 pb-12 sm:px-8">
             {/* Sticky header — title, save state, actions */}
             <div className="sticky top-0 z-10 -mx-5 bg-console-canvas/90 px-5 py-3 backdrop-blur-md sm:-mx-8 sm:px-8">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">

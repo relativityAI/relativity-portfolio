@@ -60,14 +60,16 @@ describe("read_latest_transcript", () => {
       voyager: {
         get: async (path: string) =>
           path === "/documents/index"
-            ? { text: [{ page: 1, text: "hello" }, { page: 2, text: "world" }], cached: true }
-            : {
-                announcements: [
-                  { date: "2026-03-01", heading: "Transcript of earnings call Q4", category: "Analyst meet", attachment: `${host}/newest.pdf` },
-                  { date: "2026-01-01", heading: "Transcript of earnings call Q3", category: "Analyst meet", attachment: `${host}/older.pdf` },
-                  { date: "2025-11-01", heading: "Investor presentation", category: "Presentation", attachment: `${host}/pres.pdf` },
-                ],
-              },
+            ? { id: 12, url: `${host}/newest.pdf`, doc_title: "Q2 FY26", num_pages: 2, page_index: { structure: [{ title: "Results", start_index: 1, end_index: 2, nodes: [] }] }, cached: true }
+            : path === "/documents/pages"
+              ? { pages: [1, 2], text: [{ page: 1, text: "hello" }, { page: 2, text: "world" }] }
+              : {
+                  announcements: [
+                    { date: "2026-03-01", heading: "Transcript of earnings call Q4", category: "Analyst meet", attachment: `${host}/newest.pdf` },
+                    { date: "2026-01-01", heading: "Transcript of earnings call Q3", category: "Analyst meet", attachment: `${host}/older.pdf` },
+                    { date: "2025-11-01", heading: "Investor presentation", category: "Presentation", attachment: `${host}/pres.pdf` },
+                  ],
+                },
       },
       symbol: "RELIANCE",
       country: "in",
@@ -100,5 +102,18 @@ describe("read_latest_transcript", () => {
     const out: any = await mkTools("https://nsearchives.nseindia.com").read_latest_presentation.execute({ count: 1 } as any, {} as any);
     expect(out.url).toBe("https://nsearchives.nseindia.com/pres.pdf");
     expect(out.text).toContain("hello");
+  });
+
+  it("get_document_index returns the PageIndex tree with node page ranges", async () => {
+    const out: any = await mkTools("https://nsearchives.nseindia.com").get_document_index.execute({ url: "https://nsearchives.nseindia.com/newest.pdf" } as any, {} as any);
+    expect(out.doc_title).toBe("Q2 FY26");
+    expect(out.num_pages).toBe(2);
+    expect(out.page_index.structure[0]).toMatchObject({ title: "Results", start_index: 1, end_index: 2 });
+  });
+
+  it("read_document_pages reads only the requested pages", async () => {
+    const out: any = await mkTools("https://nsearchives.nseindia.com").read_document_pages.execute({ url: "https://nsearchives.nseindia.com/newest.pdf", pages: "1-2" } as any, {} as any);
+    expect(out.pages).toEqual([1, 2]);
+    expect(out.text.map((t: any) => t.text)).toEqual(["hello", "world"]);
   });
 });

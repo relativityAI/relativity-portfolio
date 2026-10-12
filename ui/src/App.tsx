@@ -68,8 +68,8 @@ function Home() {
           </Center>
         </motion.div>
       ) : (
-        <motion.div key={user ? "analysis" : "landing"} style={{ height: "100%" }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
-          {user ? <Analysis /> : <Landing />}
+        <motion.div key={user ? "home" : "landing"} style={{ height: "100%" }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
+          {user ? <Navigate to="/new-analysis" replace /> : <Landing />}
         </motion.div>
       )}
     </AnimatePresence>
@@ -106,8 +106,9 @@ function AppRoutes() {
   useEffect(() => {
     const getTitle = (path: string) => {
       if (path === "/login") return "Sign in";
-      if (path === "/") return user ? "New Run" : "Welcome";
-      if (path === "/analysis") return "New Run";
+      if (path === "/") return user ? "New Analysis" : "Welcome";
+      if (path === "/new-analysis") return "New Analysis";
+      if (path === "/analysis") return "New Analysis";
       if (path === "/agents") return "Agents";
       if (path === "/agent/builder" || path.startsWith("/agent/builder/")) return "Agent Detail";
       if (path.startsWith("/agent/")) return "Agent Detail";
@@ -128,6 +129,7 @@ function AppRoutes() {
   // The new analysis page owns the whole viewport — no footer under it.
   const isAnalysisPage =
     locationPath.startsWith("/analysis") ||
+    locationPath === "/new-analysis" ||
     (locationPath === "/" && !!user);
   const showNav = !isLogin && !isLanding;
   // Remove footer from analysis result page (and analysis-related pages as requested)
@@ -138,7 +140,7 @@ function AppRoutes() {
       {user && locationPath !== "/settings" && <ApiKeySetupDialog key={user.id} user={user} />}
       {showNav && <NavBar />}
 
-        <Box w="100%" flex={1} overflowY="auto" overflowX={isConsole ? undefined : "hidden"} paddingX={isLanding || isConsole ? 0 : { base: 4, md: 16 }}>
+        <Box w="100%" flex={1} overflowY="auto" overflowX={isConsole ? undefined : "hidden"} paddingX={0}>
             <AnimatePresence mode="wait">
               <motion.div key={isConsole ? "console" : location.pathname} variants={page} style={{ height: "100%" }} initial="initial" animate="animate" exit="exit">
                 <Suspense fallback={<PageFallback />}>
@@ -168,6 +170,14 @@ function AppRoutes() {
                       element={
                         <Protected>
                           <AnalysisList />
+                        </Protected>
+                      }
+                    />
+                    <Route
+                      path="/new-analysis"
+                      element={
+                        <Protected>
+                          <Analysis />
                         </Protected>
                       }
                     />

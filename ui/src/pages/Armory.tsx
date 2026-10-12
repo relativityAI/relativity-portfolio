@@ -547,7 +547,7 @@ export default function Armory({
 
     return (
         <Box className="console-world" minH="100%" h="100%" display="flex" flexDirection="column" position="relative">
-            <Flex direction="column" flex={1} minH={0} maxW="1240px" w="full" mx="auto" px={{ base: 4, md: 6 }} py={{ base: 4, md: 6 }}>
+            <Flex direction="column" flex={1} minH={0} w="full" px={{ base: 4, md: 6 }} py={{ base: 4, md: 6 }}>
                 <Flex align="flex-end" justify="space-between" gap={3} wrap="wrap" mb={4} flexShrink={0}>
                     <Box>
                         <Text fontSize="10.5px" fontWeight={500} letterSpacing="0.14em" textTransform="uppercase" color="var(--skill-accent)" mb={1.5}>

@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { Flex, Text, IconButton, Drawer, Separator, Menu, Badge, Box } from "@chakra-ui/react"
 import { Link, useLocation } from "react-router-dom";
-import { runHealthCheck, hasRequiredKeys } from "../utils"
+import { runHealthCheck, hasRequiredKeys } from "../utils";
 import { SettingsService, AnalysisService, AgentService } from "@/db";
 import { MdCheckCircle, MdError, MdAddCircleOutline, MdOutlinePeople, MdOutlineAssessment, MdOutlineSettings, MdOutlineLogout, MdWarning } from "react-icons/md";
-import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX, LuSun, LuMoon } from "react-icons/lu";
-import { useColorMode } from "@/components/ui/color-mode";
+import { LuWebhook, LuDatabase, LuSatellite, LuMenu, LuX, LuChevronDown, LuSparkles } from "react-icons/lu";
 import { useAuth } from "@/auth/useAuth";
 import { motion } from "motion/react";
 import UserAvatar from "@/components/shared/UserAvatar";
@@ -16,7 +15,6 @@ export default function NavBar() {
 
     const location = useLocation();
     const { user, signOut } = useAuth();
-    const { toggleColorMode, colorMode } = useColorMode();
 
     const email = user?.email ?? "";
     const displayName =
@@ -119,10 +117,13 @@ export default function NavBar() {
 
     // Single source for both desktop links and the mobile drawer.
     const navLinks = [
-        { to: "/", icon: MdAddCircleOutline, label: "New Run" },
         { to: "/console", icon: MdOutlinePeople, label: "Agent Console" },
         { to: "/analysis-list", icon: MdOutlineAssessment, label: "Runs" },
-        { to: "/settings", icon: MdOutlineSettings, label: "Settings" },
+    ]
+
+    // Tools groups the "start something" surfaces behind one dropdown.
+    const toolLinks = [
+        { to: "/new-analysis", icon: MdAddCircleOutline, label: "New Analysis" },
     ]
 
     const navCount = (to: string) => {
@@ -167,6 +168,37 @@ export default function NavBar() {
                 </Flex>
 
                 <Flex gap={{ md: 3, lg: 6 }} align="center" display={{ base: "none", md: "flex" }} minW={0}>
+                    <Menu.Root positioning={{ placement: "bottom-start" }}>
+                        <Menu.Trigger asChild>
+                            <Flex
+                                as="button"
+                                type="button"
+                                gap={1}
+                                align="center"
+                                py={1}
+                                cursor="pointer"
+                                color={toolLinks.some((t) => isNavActive(t.to)) ? "fg" : "fg.muted"}
+                                _hover={{ color: "fg" }}
+                            >
+                                <Text fontSize={{ md: "xs", lg: "sm" }} whiteSpace="nowrap" flexShrink={0} fontWeight="medium">
+                                    Tools
+                                </Text>
+                                <LuChevronDown size={14} />
+                            </Flex>
+                        </Menu.Trigger>
+                        <Menu.Positioner>
+                            <Menu.Content minWidth="200px">
+                                {toolLinks.map((item) => (
+                                    <Menu.Item key={item.to} value={item.to} asChild>
+                                        <Link to={item.to}>
+                                            <item.icon size={15} />
+                                            <Text fontSize="sm">{item.label}</Text>
+                                        </Link>
+                                    </Menu.Item>
+                                ))}
+                            </Menu.Content>
+                        </Menu.Positioner>
+                    </Menu.Root>
                     {navLinks.map((item) => {
                         const active = isNavActive(item.to);
                         const count = navCount(item.to);
@@ -176,9 +208,6 @@ export default function NavBar() {
                                     <Text fontSize={{ md: "xs", lg: "sm" }} whiteSpace="nowrap" flexShrink={0} fontWeight={active ? "semibold" : "medium"} color={active ? "fg" : "fg.muted"} _hover={{ color: "fg" }}>{item.label}</Text>
                                     {count !== null && count > 0 && (
                                         <Badge size="xs" variant="subtle" colorPalette="gray" borderRadius="full">{count}</Badge>
-                                    )}
-                                    {item.to === "/settings" && missingKeys && (
-                                        <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
                                     )}
                                     {active && <Box as={motion.div} layoutId="nav-underline" position="absolute" bottom="-6px" left={0} right={0} h="2px" bg="var(--accent-primary)" borderRadius="1px" />}
                                 </Flex>
@@ -200,6 +229,32 @@ export default function NavBar() {
                 >
                     <LuMenu size={15} />
                 </IconButton>
+                {/* Upgrade — not live yet; styled but inert. */}
+                <Box
+                    as="button"
+                    type="button"
+                    disabled
+                    cursor="not-allowed"
+                    display={{ base: "none", md: "inline-flex" }}
+                    alignItems="center"
+                    gap={1.5}
+                    px={3}
+                    h="28px"
+                    borderRadius="full"
+                    border="1px solid color-mix(in srgb, var(--signal-warning) 45%, transparent)"
+                    bg="color-mix(in srgb, var(--signal-warning) 12%, transparent)"
+                    color="var(--signal-warning)"
+                    fontSize="12px"
+                    fontWeight={600}
+                    whiteSpace="nowrap"
+                    title="Upgrade — coming soon"
+                    aria-label="Upgrade — coming soon"
+                    aria-disabled="true"
+                >
+                    <LuSparkles size={13} />
+                    Upgrade
+                    <Text as="span" fontWeight={500} opacity={0.7}>(coming soon)</Text>
+                </Box>
                 <Menu.Root>
                     <Menu.Trigger asChild>
                         <Box
@@ -250,15 +305,16 @@ export default function NavBar() {
                                 </Menu.Item>
                             </Menu.ItemGroup>
                             <Menu.Separator />
-                            <Menu.Item
-                                value="theme"
-                                closeOnSelect={false}
-                                onClick={() => toggleColorMode()}
-                            >
-                                <Box as="span" display="inline-flex" alignItems="center" gap={2}>
-                                    {colorMode === "dark" ? <LuMoon size={15} /> : <LuSun size={15} />}
-                                    <Text fontSize="sm">Toggle theme</Text>
-                                </Box>
+                            <Menu.Item value="settings" asChild>
+                                <Link to="/settings">
+                                    <MdOutlineSettings size={15} />
+                                    <Text fontSize="sm">Settings</Text>
+                                    {missingKeys && (
+                                        <Box as="span" ml="auto" display="inline-flex" alignItems="center">
+                                            <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
+                                        </Box>
+                                    )}
+                                </Link>
                             </Menu.Item>
                             <Menu.Separator />
                             <Menu.Item value="signout" onClick={() => signOut()}>
@@ -305,7 +361,7 @@ export default function NavBar() {
                             </Drawer.CloseTrigger>
                         </Drawer.Header>
                         <Drawer.Body p={0}>
-                            {navLinks.map((item) => {
+                            {[...toolLinks, ...navLinks].map((item) => {
                                 const active = isNavActive(item.to);
                                 const count = navCount(item.to);
                                 return (
@@ -326,9 +382,6 @@ export default function NavBar() {
                                             </Text>
                                             {count !== null && count > 0 && (
                                                 <Badge size="xs" variant="subtle" colorPalette="gray" borderRadius="full">{count}</Badge>
-                                            )}
-                                            {item.to === "/settings" && missingKeys && (
-                                                <MdWarning size={14} color="var(--signal-warning)" aria-label="API keys missing" />
                                             )}
                                         </Flex>
                                     </Link>

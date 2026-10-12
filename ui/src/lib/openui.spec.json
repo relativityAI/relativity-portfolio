@@ -62,6 +62,9 @@
     "MarkdownBlock": {
       "$ref": "#/$defs/MarkdownBlock"
     },
+    "Markdown": {
+      "$ref": "#/$defs/Markdown"
+    },
     "AnalysisPage": {
       "$ref": "#/$defs/AnalysisPage"
     }
@@ -87,6 +90,7 @@
     "MetricGrid",
     "SkillScoreCard",
     "MarkdownBlock",
+    "Markdown",
     "AnalysisPage"
   ],
   "additionalProperties": false,
@@ -408,6 +412,16 @@
       "additionalProperties": false,
       "description": "One block of analyst prose. The single positional arg is either a skill id (whole skill) or a section ref \"@md:<section-id>\" (one section of a skill's prose)."
     },
+    "Markdown": {
+      "type": "object",
+      "properties": {
+        "markdown": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "description": "One block of report prose written inline as a literal markdown string."
+    },
     "AnalysisPage": {
       "type": "object",
       "properties": {
@@ -477,6 +491,9 @@
               },
               {
                 "$ref": "#/$defs/MarkdownBlock"
+              },
+              {
+                "$ref": "#/$defs/Markdown"
               }
             ]
           }

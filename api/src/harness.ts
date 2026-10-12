@@ -330,7 +330,7 @@ export async function runAgentTurn(opts: HarnessOptions): Promise<HarnessResult>
       if (opts.providerOptions) streamOpts.providerOptions = opts.providerOptions;
       const result = await streamText(streamOpts);
 
-      const observedToolCalls: { name: string; input: unknown }[] = [];
+      const observedToolCalls: { name: string; input: unknown; result?: unknown }[] = [];
       let sawOutputPart = false;
       let streamHadError = false;
       for await (const part of result.fullStream) {
@@ -361,7 +361,9 @@ export async function runAgentTurn(opts: HarnessOptions): Promise<HarnessResult>
             sawOutputPart = true;
             onEvent?.({ type: "tool_call", tool: part.toolName, toolCallId: part.toolCallId, args: part.input ?? {} });
             break;
-          case "tool-result":
+          case "tool-result": {
+            const last = observedToolCalls[observedToolCalls.length - 1];
+            if (last) last.result = part.output;
             onEvent?.({
               type: "tool_result",
               tool: part.toolName,
@@ -371,6 +373,7 @@ export async function runAgentTurn(opts: HarnessOptions): Promise<HarnessResult>
               duration_ms: typeof (part as any).duration === "number" ? (part as any).duration : undefined,
             });
             break;
+          }
           case "tool-error":
             streamHadError = true;
             onEvent?.({

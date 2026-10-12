@@ -188,7 +188,11 @@ export function renderToolResults<T extends Record<string, any>>(tools: T): T {
     t.execute = async (args: any, opts: any) => {
       const out = await ex(args, opts);
       keepRaw(opts?.toolCallId, out);
-      return formatToolData(out);
+      // ponytail: return JSON so parseObservationResult's JSON.parse branch
+      // succeeds and collectTables/normalizeDatasets can build real datasets.
+      // ceiling: the model reads JSON instead of human-friendly text; digits are
+      // fine, prose tools (read_pdf) still pass strings through untouched.
+      return typeof out === "string" ? out : JSON.stringify(out);
     };
   }
   return tools;
@@ -234,7 +238,22 @@ async function fetchPdfText(
   assertSafePdfUrl(url); // keep model-supplied URL reads on exchange/filing hosts
   // Voyager parses the PDF server-side and caches the PageIndex — avoids the
   // local 60s download timeout on big exchange PDFs.
-  const doc = await voyager.get("/documents/index", { url, symbol, source: source?.toLowerCase() });
+  // ponytail: retry with backoff; NSE India uses Cloudflare bot protection
+  // which drops the first 1-2 attempts with HTML challenge pages.
+  let doc: any;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      // /documents/pages auto-indexes on first use and drops out-of-range
+      // pages, so one call with a wide range returns the whole document.
+      // ponytail: pages=1-10000 assumes docs ≤ 10k pages (filings never
+      // approach that); switch to index-then-pages if one ever does.
+      doc = await voyager.get("/documents/pages", { url, pages: "1-10000", symbol, source: source?.toLowerCase() });
+      break;
+    } catch (e: any) {
+      if (attempt === 2) throw e;
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
   const pages = Array.isArray(doc?.text) ? doc.text : [];
   const text = pages.length
     ? pages.map((p: any) => p?.text || "").join("\n\n")
@@ -577,7 +596,7 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
 
     read_pdf: tool({
       description:
-        "Download and extract the text from an announcement/filing attachment URL (exchange attachment domains only — other hosts are rejected).",
+        "Read the FULL text of an announcement/filing attachment URL (exchange attachment domains only — other hosts are rejected). Voyager indexes the PDF server-side — first call parses and caches by URL + content hash, later calls are instant — and returns the page text, so large exchange PDFs never hit a local download timeout. Prefer get_document_index + read_document_pages when you only need a section of a large document.",
       inputSchema: z.object({
         url: z.string(),
       }),
@@ -588,6 +607,33 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
         } catch (e: any) {
           return { url: args.url, error: e.message, message: "Could not read PDF." };
         }
+      },
+    }),
+
+    get_document_index: tool({
+      description:
+        "STEP 1 — call this FIRST before read_document_pages. Index a document (announcement/filing attachment URL — exchange attachment domains only) and return its PageIndex tree WITHOUT page text. Each node in page_index.structure carries start_index/end_index (1-based page range) and a title — pass one as the `pages` spec to read_document_pages (STEP 2) to pull just that section. NOTE: structure can be EMPTY for PDFs with no detectable section headings (doc_title then falls back to the filename) — when empty, skip node mapping and call read_document_pages with an explicit range like \"1-10\", or use read_pdf for the full text. First call parses and caches by URL + content hash; later calls for the same URL return cached:true instantly. Use this to map a large document before reading only the parts you need.",
+      inputSchema: z.object({
+        url: z.string(),
+        source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()).describe("Defaults to the analyzed company's source."),
+      }),
+      execute: async (args) => {
+        assertSafePdfUrl(args.url);
+        return guard(() => voyager.get("/documents/index", { url: args.url, symbol, source: source?.toLowerCase() }));
+      },
+    }),
+
+    read_document_pages: tool({
+      description:
+        "STEP 2 — call this AFTER get_document_index (STEP 1). Read the text of specific pages of a document (announcement/filing attachment URL — exchange attachment domains only) without pulling the whole file. `pages` is a 1-based spec: single pages, ranges, or comma lists — e.g. \"3\", \"5-9\", \"1-3,7\". Get the page range from a get_document_index structure node's start_index/end_index; if structure was empty, use an explicit range like \"1-10\" instead. Out-of-range pages are dropped and the response echoes the expanded page list. Auto-indexes the URL if not cached yet, so it works standalone. Typical flow: call get_document_index, pick a structure node, then read pages start_index-end_index to get just that section — never dump a 400-page report when you need one section.",
+      inputSchema: z.object({
+        url: z.string(),
+        pages: z.string().describe("1-based page spec: \"3\", \"5-9\", \"1-3,7\"."),
+        source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()).describe("Defaults to the analyzed company's source."),
+      }),
+      execute: async (args) => {
+        assertSafePdfUrl(args.url);
+        return guard(() => voyager.get("/documents/pages", { url: args.url, pages: args.pages, symbol, source: source?.toLowerCase() }));
       },
     }),
 
@@ -690,40 +736,6 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
       },
     }),
 
-    parse_pdf_document: tool({
-      description:
-        "Submit a PDF URL (announcement attachment, filing, transcript, or presentation) to be parsed into a structured page-by-page index. Async: returns a job_id. Poll get_pull_job_status with that job_id until it finishes, then call get_document_index with the document_id to retrieve the page tree.",
-      inputSchema: z.object({
-        url: z.string().describe("PDF URL or path to structure."),
-        source: z.enum(["nse", "sec"]).optional().transform(v => v?.toLowerCase()).describe("Defaults to the analyzed company's source."),
-      }),
-      execute: async (args) => {
-        return guard(() =>
-          voyager.parseDocument(args.url, symbol, source),
-        );
-      },
-    }),
-
-    get_document_index: tool({
-      description:
-        "Fetch the cached page-index tree for a document that was parsed via parse_pdf_document. Navigate the document structurally — pages, sections, and their text spans.",
-      inputSchema: z.object({
-        document_id: z.number().int().describe("Document ID returned by parse_pdf_document or get_pull_job_status."),
-      }),
-      execute: async (args) => {
-        return guard(() => voyager.getDocumentIndex(args.document_id));
-      },
-    }),
-
-    get_pull_job_status: tool({
-      description:
-        "Poll the status of an async document-parse job started by parse_pdf_document. Pass the job_id; when status is 'completed'/'success', read result.document_id and call get_document_index with it. Returns status, timestamps, and any error.",
-      inputSchema: z.object({
-        job_id: z.string().describe("Job ID returned by parse_pdf_document."),
-      }),
-      execute: async (args) => guard(() => voyager.getPullJobStatus(args.job_id)),
-    }),
-
     // ── Market data (D5): price history from the server-side market-data
     // client. Symbol is closure-bound like every other analyst tool.
     get_current_price: tool({
@@ -817,9 +829,10 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
 
   // Analyst toolset (D6 audit): read-only + bound to the analyzed symbol.
   // Pull orchestration (get_pull_status / trigger_data_pull / list_pull_jobs)
-  // is pipeline-owned — analysts never trigger or poll pulls. get_pull_job_status
-  // stays ONLY for the async document jobs analysts can start
-  // (parse_pdf_document); symbol-bound here.
+  // is pipeline-owned — analysts never trigger or poll pulls.
+  // read_pdf covers full-document reads; get_document_index +
+  // read_document_pages cover section-level reads (cached /documents/index,
+  // then /documents/pages for just the needed pages).
   const ANALYST_TOOLS = new Set([
     "get_financial_metrics",
     "compare_financial_metrics",
@@ -835,15 +848,14 @@ export function buildTools(ctx: ToolContext, opts: { analyst?: boolean } = {}) {
     "read_latest_transcript",
     "read_latest_presentation",
     "read_pdf",
+    "get_document_index",
+    "read_document_pages",
     "get_market_news",
     "get_ticker_news",
     "search_news",
     "search_reddit",
     "search_youtube",
     "get_youtube_transcript",
-    "parse_pdf_document",
-    "get_document_index",
-    "get_pull_job_status",
     "get_price_history",
     "get_current_price",
     "get_technicals",

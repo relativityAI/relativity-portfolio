@@ -82,7 +82,53 @@ function parseObservationResult(result: string | undefined): unknown {
   try {
     return JSON.parse(result);
   } catch {
-    return undefined;
+    // The AI SDK renders tool output as "Label: Value" lines for the model
+    // transcript, so structured results arrive as text. Parse those lines
+    // generically — normalizeMetrics/normalizeDatasets then pick scalars and
+    // tables from the flat record. ponytail: one colon-split per line; a value
+    // with an embedded colon (URL, ratio) keeps everything after the first.
+    // The AI SDK also wraps string tool results as "Digest: <content>" — strip
+    // that prefix so the underlying key=value lines become parseable.
+    const cleaned = result.replace(/^Digest:\s*/, "");
+    const out: Record<string, unknown> = {};
+    let matched = false;
+    for (const line of cleaned.split("\n")) {
+      const m = /^([A-Za-z][\w ]*?):\s*(.+)$/.exec(line.trim());
+      if (m) {
+        out[m[1].trim()] = m[2].trim();
+        matched = true;
+        continue;
+      }
+      // Single-line digest format: key=value key=value (price history digest)
+      for (const pair of line.trim().split(/\s+/)) {
+        const eq = pair.indexOf("=");
+        if (eq > 0) {
+          out[pair.slice(0, eq)] = pair.slice(eq + 1);
+          matched = true;
+        }
+      }
+    }
+    // ponytail: pipe-delimited tables from AI SDK tool results ("Rows: N | col1 | col2 | ...").
+    // ceiling: only flat pipe tables; nested/markdown tables still lost.
+    // upgrade: full markdown table parser if Voyager adds nested formats.
+    const tableMatch = /^Rows:\s*\d+\s*\|(.+)$/i.exec(cleaned);
+    if (tableMatch) {
+      const cols = tableMatch[1].split("|").map((s: string) => s.trim());
+      const rows: Record<string, unknown>[] = [];
+      for (const line of cleaned.split("\n")) {
+        const vals = line.trim().split("|").map((s: string) => s.trim());
+        if (vals.length === cols.length && vals.some((v: string) => v && !/^[\d.]+$/.test(v))) {
+          const row: Record<string, unknown> = {};
+          cols.forEach((col, i) => (row[col] = vals[i] ?? null));
+          rows.push(row);
+        }
+      }
+      if (rows.length) {
+        out["rows"] = rows;
+        matched = true;
+      }
+    }
+    return matched ? out : undefined;
   }
 }
 
@@ -161,11 +207,19 @@ export function buildPriceProfile(observations: SkillOutput["raw_observations"])
       }
       if (row.fetched_at) lit.asOf = String(row.fetched_at).slice(0, 10);
     } else if (obs.tool === "get_current_price") {
+      // quoteDigest arrives JSON-parsed (object) or as a flat "Label: Value"
+      // string from the AI SDK transcript (parseObservationResult fallback).
       const row = data as Record<string, unknown>;
-      lit.lastPrice = toNum(row.price) ?? lit.lastPrice;
-      lit.week52High = toNum(row.week52High) ?? toNum(row.week52_high) ?? lit.week52High;
-      lit.week52Low = toNum(row.week52Low) ?? toNum(row.week52_low) ?? lit.week52Low;
-      lit.asOf = String(row.asOf ?? row.fetched_at ?? "").slice(0, 10) || lit.asOf;
+      const num = (keys: readonly string[]) => keys.map((k) => toNum(row[k])).find((v) => v != null) ?? null;
+      lit.lastPrice = num(["price", "Price"]) ?? lit.lastPrice;
+      lit.week52High = num(["High", "week52High", "week52_high"]) ?? lit.week52High;
+      lit.week52Low = num(["Low", "week52Low", "week52_low"]) ?? lit.week52Low;
+      const asOf = row.as_of ?? row.asOf ?? row["As Of"] ?? row.fetched_at;
+      lit.asOf = String(asOf ?? "").slice(0, 10) || lit.asOf;
+      for (const [k, keys] of [["1m", ["return_1m_pct", "Return 1m Pct"]], ["3m", ["return_3m_pct", "Return 3m Pct"]], ["6m", ["return_6m_pct", "Return 6m Pct"]]] as const) {
+        const v = num(keys);
+        if (v != null) lit.returns[k] = v;
+      }
       const returns = (row.returns ?? row.performance) as Record<string, unknown> | undefined;
       if (returns && typeof returns === "object") {
         for (const [k, v] of Object.entries(returns)) lit.returns[k] = toNum(v);
@@ -546,6 +600,7 @@ export const LAYOUT_COMPONENTS = new Set([
   "DataTable",
   "MetricGrid",
   "MarkdownBlock",
+  "Markdown",
 ]);
 
 /**

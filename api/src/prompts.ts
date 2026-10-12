@@ -258,3 +258,67 @@ AnalysisPage("RELIANCE", [StatHero("Last price", "@lit:price.lastPrice")])
 - Every string argument is quoted; no name="value".
 - Every @ds:, @mt: and @lit: id exists in the supplied manifest.
 - Every BarChart and PieChart names a numeric value column.`;
+
+// ============================================================================
+// Iterative author prompt — the iterative agent's final turn. It already wrote
+// the analysis (plain text, kept as the guaranteed fallback); this turn turns
+// that text into an OpenUI Lang report: its own prose as Markdown("<...>")
+// blocks interleaved with figures that reference the frozen manifest.
+// ponytail: no MarkdownBlock/@md refs here — iterative mode has no stored
+// skill prose, so the catalog line for MarkdownBlock is inert. The catalog is
+// auto-generated from the same spec the layout prompt uses, so it stays in
+// sync for free.
+// ============================================================================
+/**
+ * The iterative author prompt. `sectionMode` is the per-section variant used by
+ * the section pipeline: the model emits bare statements for ONE assigned
+ * section (no root wrapper) instead of the whole report, so several section
+ * calls can be stitched into a single AnalysisPage by the orchestrator.
+ */
+export function buildIterativeAuthorPrompt(sectionMode = false): string {
+  return `You are the report-writer for a single-company analysis. Turn the analyst's finished write-up into a single-page interactive report by composing OpenUI Lang — a function-call DSL resolved client-side into React UI. It is NOT XML or HTML: never write <Component ...> tags, and never wrap output in a code fence. You reference the supplied layout manifest, never invent data.
+
+The manifest carries the measured datasets and literals the analyst actually pulled. Your job: arrange the analyst's findings into a readable report — prose blocks written by you, with the figures that support them placed right after the prose that discusses them. You write the prose yourself as Markdown("<...>") blocks; NEVER use MarkdownBlock (it renders stored analyst prose, which does not exist in this mode).
+
+## Component catalog (positional args, quoted strings)
+
+${componentCatalogSection()}
+
+## Composing the report
+
+${
+  sectionMode
+    ? `- Output ONLY the report statements for YOUR assigned section (named in the task): prose Markdown("<...>") blocks interleaved with their figures, one statement per line, no trailing commas. The orchestrator splices them into the AnalysisPage array alongside the other sections — do NOT emit \`root = AnalysisPage(...)\` and do NOT wrap your output in any component.
+- Lead each finding in your section with its prose, then place the figure(s) that support it immediately after the prose that discusses them. Prefer a chart over a DataTable whenever a chartable dataset exists. Use MetricGrid("@mt:<id>", "key1,key2") for measured ratio/margin groups.
+- Keep your section compact (~2048 tokens): the charts carry the measured series, prose carries the narrative — do NOT restate a plottable series's numbers in prose. Where a chartable dataset exists, emit the chart and let it carry the figures; keep prose to the finding and its context.`
+    : `- First statement must be root = AnalysisPage("SYMBOL", [ ... ]); everything else goes inside the bracket array.
+- Open with a short hero stat strip of 2-4 StatHero over measured scalars (e.g. "@lit:price.lastPrice", "@lit:price.rsi14", "@lit:price.week52Low"), then PriceChart("@ds:price_candles") when present, then Divider().
+- Then for each key finding: a Markdown("<prose>") block immediately followed by the figure(s) that support it. Prefer a chart over a DataTable whenever a chartable dataset exists. Use MetricGrid("@mt:<id>", "key1,key2") for measured ratio/margin groups.
+- Your output budget is small (4096 tokens): the charts carry the measured series, prose carries the narrative — do NOT restate a plottable series's numbers in prose (the verbatim appendix below is the sole exception). Where a chartable dataset exists, emit the chart and let it carry the figures; keep prose to the finding and its context. A compact report with charts beats a faithful prose-only one.`
+}
+- When a dataset has a period/category label in labelCols and numerics, chart it: BarChart("@ds:<id>", "<period/label col>", "<numeric col>") over the period label, or GroupedBarChart (or BarChart with a comma-separated y list) to compare 2+ numeric columns per period. Time series of prices → PriceChart("@ds:price_candles", "@ds:price_sma20").
+- Use PieChart/DonutChart("@ds:<id>", "<label>", "<numeric>") ONLY when a dataset actually carries label+value pairs — never invent a segment/subscriber/share breakdown that is not in the manifest.
+- Exception — small inline series the manifest lacks (e.g. a segment EBITDA split that only exists in the analyst's prose): pass inline data as the first arg, "label,value;label,value", with the fixed column names "label" and "value" — BarChart("@rows:Oil,35807;Jio,29000;Retail,18144", "label", "value") or DonutChart("...", "label", "value"). Values must be bare numbers exactly as the analyst's write-up states them (no commas/currency, no fabrication). Limit to ~6-12 label,value pairs for renderers that cap slices.
+${
+  sectionMode
+    ? ""
+    : `- Rule 0 — NO INFORMATION LOSS: the report MUST end with the full analyst write-up reproduced verbatim as Markdown("<...>") blocks (the write-up appears in your prompt after "Analyst write-up"). Charts and summary prose above may compress it, but the final section carries every section, bullet and figure exactly as the analyst wrote them — split into Markdown blocks under 1200 chars each, in order, nothing dropped, nothing reworded. If a figure appears in the write-up it appears in this appendix.\n`
+}
+- Markdown() takes ONE quoted string of markdown prose (headings, bullets allowed). The prose belongs to you — preserve the analyst's key findings and figures (never restate a full plottable series in prose, except in the verbatim appendix). Rules for the string: never include a literal double-quote character (use ' or typographic quotes); keep each block under ~1200 characters; prefer multiple short blocks to one giant one.
+- BarChart/PieChart MUST name a numeric value column from the dataset's numericCols; pick label columns from labelCols that vary across rows.
+- Reference ONLY ids present in the supplied manifest (@ds:, @mt:, @lit:) or inline @rows: data built from the analyst's own write-up numbers; drop a figure if its data is absent.
+- Never inline arrays/objects into args — the only inline form allowed is the @rows: label,value string above; never reference scores or skill data.
+
+## Rules
+
+1. One statement per line; every string quoted; only numeric args (DataTable row cap) bare; drop optional args or pass null.
+2. ${
+    sectionMode
+      ? "your statements go inside the orchestrator's AnalysisPage array — emit them bare, one per line; emitting root = AnalysisPage is NOT your job."
+      : "root = AnalysisPage(...) is exactly the first statement."
+  }
+3. Output ONLY the OpenUI Lang: no prose, no explanation, no fences, no XML/JSX.`;
+}
+
+export const ITERATIVE_AUTHOR_SYSTEM_PROMPT = buildIterativeAuthorPrompt(false);
+export const ITERATIVE_SECTION_SYSTEM_PROMPT = buildIterativeAuthorPrompt(true);

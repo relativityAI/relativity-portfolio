@@ -9,7 +9,7 @@ import SkillAvatar from "@/components/shared/SkillAvatar";
 import { useSkillLibrary } from "@/components/skills/SkillBrowser";
 import { resolveAgent } from "@/lib/agentIdentity";
 import { ModelLogo } from "@/lib/modelLogos";
-import { AlertCircleIcon, Bot, ChevronDown, Target } from "lucide-react";
+import { ChevronDown, AlertCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -317,7 +317,7 @@ function AnalysisSummaryRail(props: {
     shareName: string;
     agentName: string | null;
     agentObj: any;
-    runMode: "agent" | "skill";
+    runMode: "agent" | "skill" | "iterative";
     skillName: string | null;
     skillObj: any;
     model: string;
@@ -474,9 +474,9 @@ function AnalysisSummaryRail(props: {
         </Flex>
     ) : null;
 
-    const targetBlock = props.runMode === "skill"
-        ? (skillBlock ?? skillChip)
-        : (agentBlock ?? agentChip);
+    const targetBlock = props.runMode === "agent"
+        ? (agentBlock ?? agentChip)
+        : (skillBlock ?? skillChip);
 
     const selectionBody = (
         <Flex direction="column" gap={3}>
@@ -654,7 +654,7 @@ function AnalysisSummaryRail(props: {
                 ) : null}
                 <Flex align="center" gap={2} minW={0} flex={1} overflow="hidden">
                     {companyChip}
-                    {props.runMode === "skill" ? skillChip : agentChip}
+                    {props.runMode === "agent" ? agentChip : skillChip}
                     {modelChip}
                 </Flex>
                 {status === "PENDING" && props.elapsedTime > 0 && (
@@ -749,7 +749,7 @@ export default function Analysis() {
     });
 
     // Skill-evaluation mode: run a single skill standalone instead of the agent.
-    const [runMode, setRunMode] = useState<"agent" | "skill">("agent");
+    const runMode = "iterative";
     const [skillId, setSkillId] = useState("");
     const { library: skillLibrary } = useSkillLibrary();
     const selectedSkill = useMemo(
@@ -922,7 +922,7 @@ export default function Analysis() {
         // rendered enabled — without this, a second click starts a duplicate run.
         if (starting || status !== "EMPTY") return;
         if (!config.source || !config.share) return;
-        if (runMode === "skill" ? !skillId : !config.agent) return;
+        if (!skillId) return;
 
         setStarting(true);
         setRunError(null);
@@ -934,12 +934,11 @@ export default function Analysis() {
             const result = await AnalysisService.runAnalysis({
                 share_name: config.shareName || config.share,
                 symbol: config.share,
-                agent_name: config.agent,
                 model: selectedModel || undefined,
                 source: config.source,
                 web_search: webSearch,
                 run_mode: runMode,
-                skill_id: runMode === "skill" ? skillId : undefined,
+                skill_id: skillId,
             });
 
             if (result && (result.corr_id || result.analysis_id)) {
@@ -972,7 +971,6 @@ export default function Analysis() {
                     ...prev,
                     share: data.symbol || data.share || prev.share,
                     shareName: data.share_name || prev.shareName,
-                    agent: data.agent_name || data.agent || prev.agent,
                     source: exchangeSrc,
                 }));
 
@@ -1056,9 +1054,7 @@ export default function Analysis() {
     const stepSummary = (step: string) => {
         if (step === "company") return config.share ? `${config.source} · ${config.share.toUpperCase()}` : undefined;
         if (step === "agent") {
-            const target = runMode === "skill"
-                ? selectedSkill?.name
-                : (config.agent ? agentDisplayName(config.agent, availableAgents) || config.agent : undefined);
+            const target = selectedSkill?.name;
             const model = selectedModel ? modelName(selectedModel) : undefined;
             return [target, model].filter(Boolean).join(" · ") || undefined;
         }
@@ -1080,7 +1076,7 @@ export default function Analysis() {
         (id: string) => availableModels.filter((m) => modelPrefix(m) === modelPrefix(id)).length - 1,
         [availableModels]
     );
-    const isConfigComplete = config.share !== "" && (runMode === "skill" ? !!skillId : !!config.agent);
+    const isConfigComplete = config.share !== "" && !!skillId;
     const canRunAnalysis = isConfigComplete;
     const modelSiblings = selectedModel ? siblingModelCount(selectedModel) : 0;
 
@@ -1104,10 +1100,9 @@ export default function Analysis() {
             minH="100%"
             display="flex"
             flexDirection="column"
-            mx={{ base: -4, md: -16 }}
         >
             <Box flex={1} w="full" minW={0}>
-                <Flex direction="column" maxW="1240px" mx="auto" px={{ base: 4, md: 8 }} py={{ base: 4, md: 6 }}>
+                <Flex direction="column" w="full" px={{ base: 4, md: 8 }} py={{ base: 4, md: 6 }}>
                     {/* Opening line — the only untriggered motion on the page. */}
                     <Box w="full" mb={{ base: 5, md: 7 }}>
                         <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={4} wrap="wrap">
@@ -1247,94 +1242,14 @@ export default function Analysis() {
 
                         {/* Agent / Skill + Model — the "who runs the analysis" row */}
                         <StepSection
-                            done={runMode === "skill" ? !!skillId : !!config.agent}
+                            done={!!skillId}
                             collapsed={!!collapsedSteps["agent"]}
                             onToggle={status === "EMPTY" ? () => setCollapsedSteps(p => ({ ...p, agent: !p["agent"] })) : undefined}
                             summary={stepSummary("agent")}
                         >
                             <Flex direction="column" gap={5}>
-                                {/* Mode toggle: each option explains itself, no jargon needed. */}
-                                <ToggleGroup
-                                    type="single"
-                                    value={runMode}
-                                    onValueChange={(v) => { if (v) setRunMode(v as "agent" | "skill"); }}
-                                    aria-label="Evaluation mode"
-                                    className="w-full h-auto md:w-fit"
-                                >
-                                    <ToggleGroupItem
-                                        value="agent"
-                                        aria-label="Agent — runs the full agent with all its skills"
-                                        className="group h-auto flex-col items-center justify-center gap-1 px-4 py-2 data-[state=on]:bg-[var(--accent-primary)] data-[state=on]:text-white"
-                                    >
-                                        <span className="flex items-center justify-center gap-1.5 text-[13px] font-semibold leading-none group-data-[state=on]:text-white">
-                                            <Bot size={13} aria-hidden />
-                                            Agent
-                                        </span>
-                                        <span className="text-[10px] leading-tight font-normal text-[var(--ink-tertiary)] group-data-[state=on]:text-white/80">
-                                            Runs the full agent with many skills
-                                        </span>
-                                    </ToggleGroupItem>
-                                    <ToggleGroupItem
-                                        value="skill"
-                                        aria-label="Skill — analyzes a single skill on its own"
-                                        className="group h-auto flex-col items-center justify-center gap-1 px-4 py-2 data-[state=on]:bg-[var(--signal-positive)] data-[state=on]:text-white"
-                                    >
-                                        <span className="flex items-center justify-center gap-1.5 text-[13px] font-semibold leading-none group-data-[state=on]:text-white">
-                                            <Target size={13} aria-hidden />
-                                            Skill
-                                        </span>
-                                        <span className="text-[10px] leading-tight font-normal text-[var(--ink-tertiary)] group-data-[state=on]:text-white/80">
-                                            Analyzes one skill on its own
-                                        </span>
-                                    </ToggleGroupItem>
-                                </ToggleGroup>
-
-                                <Flex direction={{ base: "column", md: "row" }} gap={{ base: 4, md: 6 }} align={{ md: "flex-start" }}>
-                                    {runMode === "agent" ? (
-                                        <Box flex={1} minW={0}>
-                                            <FieldLabel>Agent</FieldLabel>
-                                            <Combobox
-                                                items={availableAgents}
-                                                value={config.agent}
-                                                itemToValue={(a: any) => a._id || a.id || a.name}
-                                                itemToString={(a: any) => a.name}
-                                                onValueChange={(v) => setConfig(prev => ({ ...prev, agent: v }))}
-                                            >
-                                                <ComboboxInput placeholder="Select an agent" showClear />
-                                                <ComboboxContent>
-                                                    <ComboboxEmpty>No agents found.</ComboboxEmpty>
-                                                    <ComboboxList>
-                                                        {(agent: any) => {
-                                                            const value = agent._id || agent.id || agent.name;
-                                                            const skillCount = (agent.skills || []).length;
-                                                            return (
-                                                                <ComboboxItem key={value} value={value} searchText={agent.name}>
-                                                                    <AgentAvatar agent={agent} size={22} />
-                                                                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                                                                        {agent.name}
-                                                                    </span>
-                                                                    <span className="shrink-0 text-[11px] text-muted-foreground/60">
-                                                                        {skillCount} skill{skillCount === 1 ? "" : "s"}
-                                                                    </span>
-                                                                </ComboboxItem>
-                                                            );
-                                                        }}
-                                                    </ComboboxList>
-                                                </ComboboxContent>
-                                            </Combobox>
-                                            <Flex align="center" gap={1.5} mt={1.5}>
-                                                <MdInfoOutline size={12} color="var(--ink-tertiary)" />
-                                                <Text fontSize="11px" color="var(--ink-tertiary)">
-                                                    Create or edit agents in the{" "}
-                                                    <Link to="/agent/new" style={{ color: "var(--accent-primary)" }}>
-                                                        Agent Builder
-                                                    </Link>
-                                                </Text>
-                                            </Flex>
-                                        </Box>
-                                    ) : (
-                                        <Box flex={1} minW={0}>
-                                            <FieldLabel>Skill</FieldLabel>
+                                    <Box flex={1} minW={0}>
+                                        <FieldLabel>Skill</FieldLabel>
                                             <Combobox
                                                 items={skillLibrary}
                                                 value={skillId}
@@ -1367,7 +1282,6 @@ export default function Analysis() {
                                                 </Text>
                                             </Flex>
                                         </Box>
-                                    )}
                                     <Box flex={1} minW={0}>
                                         <FieldLabel>Model</FieldLabel>
                                         <DropdownMenu>
@@ -1490,8 +1404,8 @@ export default function Analysis() {
                         source={config.source}
                         share={config.share}
                         shareName={config.shareName}
-                        agentName={config.agent ? agentDisplayName(config.agent, availableAgents) || config.agent : null}
-                        agentObj={resolveAgent(config.agent, availableAgents)}
+                        agentName={null}
+                        agentObj={null}
                         runMode={runMode}
                         skillName={selectedSkill?.name || null}
                         skillObj={selectedSkill}
@@ -1563,9 +1477,8 @@ export default function Analysis() {
                                     </Progress>
                                 </Box>
                                 <AgentActivity
-                                    title={`Analyzing ${config.shareName || config.share} with ${agentDisplayName(config.agent, availableAgents) || config.agent}`}
+                                    title={`Analyzing ${config.shareName || config.share}`}
                                     subtitle={`${selectedModel || "default model"} · gathering data, searching, scoring`}
-                                    agent={resolveAgent(config.agent, availableAgents)}
                                     streamUrl={`/analysis/${correlationId}/stream`}
                                     steps={steps}
                                     startedAt={startedAt}
@@ -1597,8 +1510,8 @@ export default function Analysis() {
                     source={config.source}
                     share={config.share}
                     shareName={config.shareName}
-                    agentName={config.agent ? agentDisplayName(config.agent, availableAgents) || config.agent : null}
-                    agentObj={resolveAgent(config.agent, availableAgents)}
+                    agentName={null}
+                    agentObj={null}
                     runMode={runMode}
                     skillName={selectedSkill?.name || null}
                     skillObj={selectedSkill}

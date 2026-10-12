@@ -165,7 +165,7 @@ export default function AgentLibrary() {
     }, [agents, query, skillNames]);
 
     return (
-        <div className="mx-auto w-full max-w-6xl px-8 py-8">
+        <div className="w-full px-8 py-8">
             {/* Header */}
             <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>

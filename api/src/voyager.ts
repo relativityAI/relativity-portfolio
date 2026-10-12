@@ -346,17 +346,6 @@ export class VoyagerClient {
   async getYouTubeTranscript(videoId: string): Promise<any> {
     return this.get("/social/youtube/transcript", { video_id: videoId });
   }
-
-  // ── Documents ───────────────────────────────────────────────────────
-
-  /** POST /documents/parse — async; returns { job_id, status, status_url }. */
-  async parseDocument(url: string, symbol?: string, source?: string): Promise<any> {
-    return this.post("/documents/parse", { url, symbol, source });
-  }
-
-  async getDocumentIndex(documentId: number): Promise<any> {
-    return this.get(`/documents/${documentId}/index`);
-  }
 }
 
 export function toCountrySource(source: string): { country: string; source: string } {

@@ -779,7 +779,7 @@ export default function AnalysisList() {
 
     return (
         <div className="min-h-full bg-[var(--surface-canvas)]">
-            <div className="mx-auto flex max-w-[1600px] flex-col gap-6 py-6">
+            <div className="flex w-full flex-col gap-6 px-6 py-6">
                 {/*
                  * Masthead. No panel around it: the title carries the weight and
                  * the stat line carries the data, separated by tracking, weight
@@ -1132,7 +1132,14 @@ export default function AnalysisList() {
 
                                                             {/* Agent / Skill */}
                                                             <td className="max-w-[140px] overflow-hidden px-4 py-3">
-                                                                {item.run_mode === "skill" ? (
+                                                                {item.run_mode === "agent" ? (
+                                                                    <div className="flex min-w-0 items-center gap-2">
+                                                                        <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={24} />
+                                                                        <span className="truncate text-[13px] text-[var(--ink-secondary)]">
+                                                                            {agentName(item.agent_name || item.agent)}
+                                                                        </span>
+                                                                    </div>
+                                                                ) : (
                                                                     <div className="flex min-w-0 items-center gap-2">
                                                                         <SkillAvatar skill={{ id: item.skill_id, name: skillName(item.skill_id) }} size={24} />
                                                                         <span className="min-w-0">
@@ -1142,13 +1149,6 @@ export default function AnalysisList() {
                                                                             <span className="block text-[10px] font-medium uppercase tracking-wide text-[var(--accent-primary)]">
                                                                                 Skill run
                                                                             </span>
-                                                                        </span>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="flex min-w-0 items-center gap-2">
-                                                                        <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={24} />
-                                                                        <span className="truncate text-[13px] text-[var(--ink-secondary)]">
-                                                                            {agentName(item.agent_name || item.agent)}
                                                                         </span>
                                                                     </div>
                                                                 )}

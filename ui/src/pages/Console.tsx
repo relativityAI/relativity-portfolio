@@ -268,7 +268,7 @@ export default function Console() {
                 bg="radial-gradient(ellipse, color-mix(in srgb, var(--skill-accent) 9%, transparent) 0%, transparent 65%)"
             />
 
-            <Flex direction="column" gap={7} maxW="1100px" mx="auto" px={{ base: 4, md: 6 }} py={{ base: 6, md: 9 }} position="relative">
+            <Flex direction="column" gap={7} w="full" px={{ base: 4, md: 6 }} py={{ base: 6, md: 9 }} position="relative">
                 {/* Header — editorial, left-aligned */}
                 <Flex align="flex-end" justify="space-between" gap={4} wrap="wrap">
                     <Box>

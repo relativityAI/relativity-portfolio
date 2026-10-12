@@ -68,11 +68,32 @@ export function useManifest(): OpenUiManifest {
     return useContext(ManifestContext);
 }
 
-/** Resolve a `@ds:` / `@lit:` / `@mt:` ref against the manifest. */
+/** Parse inline chart data `label,value;label,value` into a synthetic dataset.
+ *  Column names are fixed (`label`/`value`) so every bar/pie component's column
+ *  fallbacks resolve it without component changes. Returns undefined when
+ *  nothing parses — the chart quietly renders nothing rather than crashing.
+ *  ponytail: values must be bare numbers (no separators); upgrade to a header
+ *  row / CSV parser when labels ever need commas. */
+function inlineRows(raw: string): OpenUiDataset | undefined {
+    const cols = ["label", "value"] as const;
+    const rows: Record<string, number | string | null>[] = [];
+    for (const pair of raw.split(";")) {
+        const [label, value] = pair.split(",").map((s) => s.trim());
+        if (!label || value === undefined) continue;
+        const n = Number(value);
+        if (!Number.isFinite(n)) continue;
+        rows.push({ label, value: n });
+    }
+    if (!rows.length) return undefined;
+    return { id: "inline", label: "inline", kind: "table", cols: [...cols], rows, numericCols: ["value"], labelCols: ["label"], chartable: true };
+}
+
+/** Resolve a `@ds:` / `@lit:` / `@mt:` / `@rows:` ref against the manifest. */
 function resolveRef(manifest: OpenUiManifest, ref: string | null | undefined): unknown {
     if (!ref) return undefined;
     if (ref.startsWith("@ds:")) return manifest.datasets?.find((d) => d.id === ref.slice(4));
     if (ref.startsWith("@mt:")) return manifest.metrics?.find((m) => m.id === ref.slice(4));
+    if (ref.startsWith("@rows:")) return inlineRows(ref.slice(6));
     if (ref.startsWith("@lit:")) {
         const key = ref.slice(5);
         if (key.startsWith("skill.")) {
@@ -1046,6 +1067,28 @@ const MarkdownBlock = defineComponent({
     },
 });
 
+// ponytail: the api cannot import the React parser, so this component is a
+// thin shell — any string prop with a bare " inside it fails validation at
+// parse time (that quote terminates the arg). The api prompt forbids quotes
+// inside prose for exactly this reason. Subtree-demote individual prose blocks
+// if a model ever breaks that rule; for now the whole-lang check catches it.
+const Markdown = defineComponent({
+    name: "Markdown",
+    description: "One block of report prose written inline as a literal markdown string.",
+    props: z.object({
+        markdown: z.string().optional(),
+    }),
+    component: ({ props }) => {
+        const md = props.markdown ?? "";
+        if (!md.trim()) return null;
+        return (
+            <Box className="skill-md" sx={{ "& h1,& h2,& h3": { mt: 2, mb: 1 } }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{md}</ReactMarkdown>
+            </Box>
+        );
+    },
+});
+
 const Divider = defineComponent({
     name: "Divider",
     description: "A horizontal rule separating major sections of the report. Takes no arguments.",
@@ -1112,6 +1155,7 @@ const LEAF_REFS = z.array(
         MetricGrid.ref,
         SkillScoreCard.ref,
         MarkdownBlock.ref,
+        Markdown.ref,
     ]),
 );
 
@@ -1186,7 +1230,7 @@ const AnalysisPage = defineComponent({
 });
 
 export const openUiLibrary = createLibrary({
-    components: [StatHero, PriceChart, MultiLineChart, AreaChart, StepLineChart, SmoothLineChart, BarChart, GroupedBarChart, HorizontalBarChart, StackedBarChart, Divider, PieChart, DonutChart, RoseChart, BoxPlotChart, HeatmapChart, DataTable, MetricGrid, SkillScoreCard, MarkdownBlock, AnalysisPage],
+    components: [StatHero, PriceChart, MultiLineChart, AreaChart, StepLineChart, SmoothLineChart, BarChart, GroupedBarChart, HorizontalBarChart, StackedBarChart, Divider, PieChart, DonutChart, RoseChart, BoxPlotChart, HeatmapChart, DataTable, MetricGrid, SkillScoreCard, MarkdownBlock, Markdown, AnalysisPage],
     root: "AnalysisPage",
 });
 
