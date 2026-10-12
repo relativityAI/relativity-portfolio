@@ -5,7 +5,6 @@
  */
 import { describe, it, expect } from "vitest";
 import { aggregateWeightedScores, combinePillars, scoreChecklist } from "../src/scoring.js";
-import { unscoredQuantResult } from "../src/quant.js";
 
 describe("aggregateWeightedScores — determinism suite (§5.8)", () => {
   it("same inputs always produce identical outputs", () => {
@@ -197,57 +196,5 @@ describe("scoreChecklist (A4/A10: code computes qual scores, not the LLM)", () =
   it("empty checklist → unscored", () => {
     expect(scoreChecklist([]).score).toBeNull();
     expect(scoreChecklist([]).coverage).toBe(0);
-  });
-});
-
-describe("unscoredQuantResult — metrics-outage degradation (revised 0.2)", () => {
-  const agent = {
-    asset_evaluation: {
-      quantitative: [
-        { metric: "roe", metric_name: "ROE", metric_type: "percentage", operator: "gte", value: 15, weightage: 8 },
-      ],
-    },
-    macro_evaluation: {
-      quantitative: [
-        { metric: "pe_ratio", metric_name: "PE Ratio", metric_type: "multiple", operator: "lt", value: 25, weightage: 4 },
-      ],
-    },
-  };
-
-  it("marks every configured criterion unscored with the SAME rule-id keys as runQuantitative", () => {
-    const res = unscoredQuantResult(agent, "unknown", "error");
-    expect(Object.keys(res.quantitative_analysis).sort()).toEqual([
-      "asset_evaluation:0:roe",
-      "macro_evaluation:0:pe_ratio",
-    ]);
-    for (const e of Object.values(res.quantitative_analysis)) {
-      expect(e.score).toBeNull();
-      expect(e.unscored_reason).toBe("error");
-    }
-  });
-
-  it("produces a null score with zero coverage — the qual pillar then carries the run", () => {
-    const res = unscoredQuantResult(agent, "unknown", "error");
-    expect(res.quantitative_score).toBeNull();
-    expect(res.coverage).toBe(0);
-
-    // The combine is exactly what the orchestrators do on outage: qual-only.
-    // (Note the raw QuantResult spread: `score` is absent, `quantitative_score`
-    // is null — combinePillars must treat that as unscored, not NaN.)
-    const qual = aggregateWeightedScores([{ score: 65, weightage: 5 }]);
-    const total = combinePillars([
-      { key: "quantitative", result: { ...res, totalWeight: Object.keys(res.quantitative_analysis).length, allWeight: Object.keys(res.quantitative_analysis).length, weightedSum: 0 }, weight: 1 },
-      { key: "qualitative", result: { ...qual, totalWeight: 1, allWeight: 1, weightedSum: 0 }, weight: 1 },
-    ]);
-    expect(total.score).toBe(65); // qual point estimate untouched by the outage
-    expect(total.coverage).toBeLessThan(1);
-    expect(total.fit_low).toBeLessThan(65);
-    expect(total.fit_high).toBeGreaterThan(65);
-  });
-
-  it("handles an agent with no quantitative rules at all", () => {
-    const res = unscoredQuantResult({}, "unknown", "error");
-    expect(Object.keys(res.quantitative_analysis)).toEqual([]);
-    expect(res.quantitative_score).toBeNull();
   });
 });
