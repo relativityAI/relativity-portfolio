@@ -302,7 +302,7 @@ export default function AgentSkills() {
     })();
 
     return (
-        <div className="mx-auto w-full max-w-6xl px-8 py-8">
+        <div className="w-full px-8 py-8">
             {/* One toolbar row in every view: nav/title left, contextual
                 actions right on the title's baseline, subtitle underneath. */}
             {isDetail && !editing && (

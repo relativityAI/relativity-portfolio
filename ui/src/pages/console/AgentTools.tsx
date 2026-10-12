@@ -61,7 +61,7 @@ export default function AgentTools() {
     }, [filtered]);
 
     return (
-        <div className="mx-auto max-w-3xl px-8 pt-7 pb-10">
+        <div className="w-full px-8 pt-7 pb-10">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                     <h1 className="flex items-center gap-2 text-[22px] font-bold tracking-tight text-console-ink">

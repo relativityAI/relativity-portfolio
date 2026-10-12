@@ -112,6 +112,34 @@ describe("openui library", () => {
         expect(html).not.toContain("RELIANCE");
     });
 
+    it("accepts @rows: inline data for bar/donut and renders the report", () => {
+        const rowsLang = `root = AnalysisPage("RELIANCE", [BarChart("@rows:Oil,35807;Jio,29000;Retail,18144", "label", "value", "Segment EBITDA"), DonutChart("@rows:Jio,52.4;Retail,19.9", "label", "value", "Share")])`;
+        const parser = createParser(openUiLibrary.toJSONSchema(), "AnalysisPage");
+        expect(parser.parse(rowsLang).meta?.errors ?? []).toHaveLength(0);
+        const html = renderToString(
+            <ChakraProvider value={createSystem(defaultConfig)}>
+                <ThemeProvider attribute="class" defaultTheme="light">
+                    <OpenUiReport lang={rowsLang} manifest={manifest} fallback={<div id="fb">fallback</div>} />
+                </ThemeProvider>
+            </ChakraProvider>
+        );
+        expect(html).toContain("Segment EBITDA");
+        expect(html).toContain("RELIANCE");
+        expect(html).not.toContain("fallback");
+    });
+
+    it("turns unparsable @rows: into an empty chart rather than a crash or fallback", () => {
+        const html = renderToString(
+            <ChakraProvider value={createSystem(defaultConfig)}>
+                <ThemeProvider attribute="class" defaultTheme="light">
+                    <OpenUiReport lang={`root = AnalysisPage("RELIANCE", [BarChart("@rows:Oil,x;Jio,y", "label", "value"), BarChart("garbage")])`} manifest={manifest} fallback={<div id="fb">fallback</div>} />
+                </ThemeProvider>
+            </ChakraProvider>
+        );
+        expect(html).toContain("RELIANCE");
+        expect(html).not.toContain("fallback");
+    });
+
     it("groups consecutive StatHero into one row but leaves a lone hero full-width", () => {
         const render = (l: string) =>
             renderToString(

@@ -12,12 +12,10 @@ import {
     VStack,
     Tabs,
 } from "@chakra-ui/react";
-import { AnalysisService, AgentService, API_BASE } from "@/db";
+import { AnalysisService, API_BASE } from "@/db";
 import axios from "axios";
-import { formatSeconds, agentDisplayName } from "@/utils";
-import AgentAvatar from "@/components/shared/AgentAvatar";
+import { formatSeconds } from "@/utils";
 import SkillAvatar from "@/components/shared/SkillAvatar";
-import { resolveAgent } from "@/lib/agentIdentity";
 import AgentActivity from "../components/shared/AgentActivity";
 import { MdArrowBack, MdDownload, MdInfo } from "react-icons/md";
 import { motion, useReducedMotion } from "motion/react";
@@ -72,17 +70,7 @@ export default function AnalysisResult() {
     const [activeTab, setActiveTab] = useState<Tab>("report");
     const [elapsed, setElapsed] = useState(0);
 
-    const [agents, setAgents] = useState<any[]>([]);
-
-    useEffect(() => {
-        AgentService.listAgents()
-            .then((data) => {
-                if (Array.isArray(data)) setAgents(data);
-            })
-            .catch(() => {});
-    }, []);
-
-    const agentName = (raw: string | undefined) => agentDisplayName(raw, agents) || raw;
+    
 
     const statusKey = (analysis?.status || "").toLowerCase();
     const terminalStatuses = ["complete", "completed", "success", "error", "failed"];
@@ -202,7 +190,7 @@ export default function AnalysisResult() {
         // 5e: skeleton of the real layout instead of a bare spinner — no layout shift.
         return (
             <Box bg="var(--surface-canvas)" minH="100%">
-                <Container maxW="1120px" mx="auto" px={{ base: 4, md: 6 }} py={6}>
+                <Container maxW="full" px={{ base: 4, md: 6 }} py={6}>
                     <VStack gap={4} align="stretch">
                         <HStack justify="space-between" align="center">
                             <HStack gap={3}>
@@ -329,10 +317,7 @@ export default function AnalysisResult() {
     const lowCoverage = insufficientCoverage(coverage);
     const showScore = totalScore != null && !lowCoverage;
 
-    const isSkillRun = analysis.run_mode === "skill";
-    const runSubject = isSkillRun
-        ? (skillOutputs[0]?.skill_name || "Skill")
-        : agentName(analysis.agent_name);
+    const runSubject = skillOutputs[0]?.skill_name || "Skill";
 
     // Hero data: the verdict leads, the identity block and score sentence hang off it.
     const verdict = verdictForScore(showScore ? totalScore : null);
@@ -340,9 +325,7 @@ export default function AnalysisResult() {
     const verdictDate = analysis.created_at
         ? new Date(analysis.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
         : "";
-    const identityLine = isSkillRun
-        ? skillOutputs[0]?.category || ""
-        : skillOutputs.map((o) => o.skill_name).filter(Boolean).join(" | ");
+    const identityLine = skillOutputs[0]?.category || "";
     const skillScores = skillOutputs.map((o) => ({
         name: o.skill_name as string | undefined,
         score: typeof o.score_0_100 === "number" ? Math.round(o.score_0_100) : null,
@@ -350,7 +333,7 @@ export default function AnalysisResult() {
 
     return (
         <Box bg="var(--surface-canvas)" minH="100%">
-            <Container maxW="1120px" mx="auto" px={{ base: 4, md: 6 }} py={6}>
+            <Container maxW="full" px={{ base: 4, md: 6 }} py={6}>
                 {/* Sticky identity + utility bar */}                    <Box
                     as={motion.div}
                     initial={reducedMotion ? false : { opacity: 0, y: -8 }}
@@ -521,50 +504,21 @@ export default function AnalysisResult() {
                             {verdict.label}
                         </Text>
                         <Flex align="flex-start" gap={3} mb={4}>
-                            {isSkillRun ? (
-                                <SkillAvatar skill={{ id: analysis.skill_id, name: skillOutputs[0]?.skill_name }} size={56} />
-                            ) : (
-                                <Box
-                                    as="span"
-                                    display="inline-block"
-                                    w="56px"
-                                    alignSelf="stretch"
-                                    borderRadius="2px"
-                                    overflow="hidden"
-                                    aria-hidden="true"
-                                >
-                                    <AgentAvatar agent={resolveAgent(analysis.agent_name, agents)} size={56} />
-                                </Box>
-                            )}
+                            <SkillAvatar skill={{ id: analysis.skill_id, name: skillOutputs[0]?.skill_name }} size={56} />
                             <Box minW={0}>
                                 <Text fontSize="15px" fontWeight={600} color="var(--ink-primary)" lineHeight="1.35">
                                     {runSubject || "Agent"}
                                 </Text>
-                                {isSkillRun ? (
-                                    identityLine && (
-                                        <Text
-                                            fontSize="12px"
-                                            fontFamily="var(--font-mono)"
-                                            color="var(--ink-tertiary)"
-                                            mt={1}
-                                            overflowWrap="anywhere"
-                                        >
-                                            {identityLine}
-                                        </Text>
-                                    )
-                                ) : (
-                                    skillOutputs.length > 0 && (
-                                        <HStack gap={2} mt={1} align="center" flexWrap="wrap">
-                                            {skillOutputs.map((o, i) => (
-                                                <HStack key={o.skill_id || o.skill_name || i} gap={1} align="center">
-                                                    <SkillAvatar skill={{ id: o.skill_id, name: o.skill_name }} size={18} />
-                                                    <Text fontSize="12px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
-                                                        {o.skill_name}
-                                                    </Text>
-                                                </HStack>
-                                            ))}
-                                        </HStack>
-                                    )
+                                {identityLine && (
+                                    <Text
+                                        fontSize="12px"
+                                        fontFamily="var(--font-mono)"
+                                        color="var(--ink-tertiary)"
+                                        mt={1}
+                                        overflowWrap="anywhere"
+                                    >
+                                        {identityLine}
+                                    </Text>
                                 )}
                                 <HStack gap={1.5} mt={1} align="center">
                                     <ModelLogo model={analysis.model} size={13} />
@@ -576,7 +530,7 @@ export default function AnalysisResult() {
                         </Flex>
                         <Text fontSize="15px" color="var(--ink-secondary)" lineHeight="1.6" maxW="74ch" mb={2}>
                             <ScoreSentence
-                                mode={isSkillRun ? "skill" : "agent"}
+                                mode="skill"
                                 actor={runSubject}
                                 company={company}
                                 score={showScore ? totalScore : null}
@@ -722,7 +676,7 @@ export default function AnalysisResult() {
                                         {/* Decision-first order (E1): synthesis and verdict
                                             first, evidence-dense breakdowns after. */}
                                         {/* Report Section (agent runs, or skill runs that got a synthesized report) */}
-                                        {(analysis.run_mode !== "skill" || !!analysis.report) && (
+                                        {(!!analysis.report) && (
                                         <Box mb={8}>
                                             {analysis.report ? (
                                                 <>
@@ -774,29 +728,27 @@ export default function AnalysisResult() {
                         {/* ── Reasoning (full agent trace, live while running) ── */}
                         <Tabs.Content value="reasoning">
                             <Box>
-                                <SectionHeader label={isSkillRun ? "Skill Reasoning" : "Agent Reasoning"} count={traceCount} />
+                                <SectionHeader label="Skill Reasoning" count={traceCount} />
                                 {isRunning ? (
                                     <AgentActivity
                                         title={`Analyzing ${analysis.share_name || analysis.symbol || "…"} with ${runSubject}`}
                                         subtitle="gathering data, searching, scoring"
-                                        agent={resolveAgent(analysis.agent_name, agents)}
                                         streamUrl={`/analysis/${id}/stream`}
-                                        steps={isSkillRun ? [] : analysis.steps || []}
+                                        steps={[]}
                                         startedAt={analysis.created_at ? +new Date(analysis.created_at) : undefined}
                                         active
                                         maxHeight={480}
-                                        separateToolResults={isSkillRun}
+                                        separateToolResults
                                     />
                                 ) : (
                                     <AgentActivity
                                         title={`Reasoning history — ${analysis.share_name || analysis.symbol || "…"} with ${runSubject}`}
                                         subtitle="full tool and thought trace"
-                                        agent={resolveAgent(analysis.agent_name, agents)}
                                         events={analysis.trace || []}
-                                        steps={isSkillRun ? [] : analysis.steps || []}
+                                        steps={[]}
                                         active={false}
                                         maxHeight={480}
-                                        separateToolResults={isSkillRun}
+                                        separateToolResults
                                     />
                                 )}
                             </Box>
