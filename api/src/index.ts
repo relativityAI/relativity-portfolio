@@ -10,11 +10,11 @@ import { getSources, searchStocks } from "./discovery.js";
 import { tickerLogoUrl } from "./tickerLogos.js";
 import { getMetricsCatalog, buildFieldList, getFlatCatalog, mergeCatalogFields, normalizeQuantRules, type MetricDef } from "./metrics.js";
 import { keyPool } from "./keypool.js";
-import { buildModel, draftParameters, type AnalysisReport, type LlmKeys } from "./agent.js";
+import { buildModel, draftParameters, type LlmKeys } from "./agent.js";
 import { classifyModelError } from "./modelcheck.js";
 import { processBuilderTurn, extractDocumentSignals, type BuilderRequest } from "./builder.js";
 import { getSchemaDescriptor } from "./schema.js";
-import { cleanToolData, getToolCatalog } from "./tools.js";
+import { getToolCatalog } from "./tools.js";
 // Artifact files (src/skills/artifacts/{index,xlsx}.ts) are mid-write by a
 // sibling session; import them lazily so a missing builder can't take the
 // whole server down. Restore static imports when they land.
@@ -27,7 +27,7 @@ import { fixAgentMarkdown, parseAgentMd, serializeAgentMd, validateAgentV3 } fro
 import { listAllSkillsForUser, saveCustomSkill, deleteCustomSkill, loadBuiltinSkills, serializeSkill, resolveSkill } from "./skills/store.js";
 import { layoutStats } from "./layout.js";
 import { fixSkillMarkdown, parseSkillMarkdown, slugifySkillName } from "./skills/parse.js";
-import { runIterativeAgent } from "./iterative-agent.js";
+import { runAnalysis, type RunStore } from "./pipeline.js";
 import { fetchSkillMarkdown, listRepoSkills, listSkillRepos, resolveSkillPath } from "./skills/repos.js";
 import { skillDraftTurn, type SkillDraftRequest } from "./skills/draft.js";
 import { extractText } from "./upload.js";
@@ -36,12 +36,11 @@ import multer from "multer";
 import { isDataFresh, FRESHNESS_FUNDAMENTAL_MS } from "./freshness.js";
 import { requireAuth, type AuthedRequest } from "./auth.js";
 import { log, paint } from "./logger.js";
-import { buildReportPdf } from "./latex.js";
-import { isUuid } from "./pdf.js";
+import { buildReportPdf, isUuid } from "./pdf.js";
 import { initTelemetry } from "./telemetry.js";
 import { serve } from "inngest/express";
 import { inngest, kbIngestFn } from "./inngest.js";
-import { traceHub, nextSeq, TraceCollector, type TraceEvent } from "./trace.js";
+import { traceHub, nextSeq, type TraceEvent } from "./trace.js";
 // Initialize Langfuse telemetry before any AI SDK calls.
 await initTelemetry();
 
@@ -66,18 +65,6 @@ function statusColor(code: number): string {
   if (code >= 400) return "1;33";
   if (code >= 300) return "36";
   return "1;32";
-}
-
-function toolResultOverview(value: any): string {
-  const data = cleanToolData(value);
-  if (Array.isArray(data)) {
-    const fields = data.find((item) => item && typeof item === "object" && !Array.isArray(item));
-    return `Parsed ${data.length} rows${fields ? ` and ${Object.keys(fields).length} fields per row` : ""}. Full parsed values are in Source data.`;
-  }
-  if (data && typeof data === "object") {
-    return `Parsed ${Object.keys(data).length} fields. Full parsed values are in Source data.`;
-  }
-  return data == null ? "No data returned." : `Parsed value: ${String(data)}`;
 }
 
 const app = express();
@@ -698,11 +685,16 @@ app.post("/skills/draft", requireAuth, async (req, res) => {
 });
 
 // ---- analysis runs (authenticated, scoped to the signed-in user) ----
-let missingColumnsWarned = false;
+function supabaseRunStore(userId: string): RunStore {
+  return {
+    insert: (row) => getDb().from("analysis_runs").insert(row),
+    update: (id, patch) => getDb().from("analysis_runs").update(patch).eq("id", id).eq("user_id", userId),
+  };
+}
+
 app.post("/analysis", requireAuth, async (req, res) => {
   try {
     const body = req.body || {};
-    const runMode = "iterative";
     const symbol = String(body.symbol || "").trim();
     const skillId = String(body.skill_id || "").trim();
     const source = String(body.source || "NSE").toUpperCase();
@@ -712,103 +704,22 @@ app.post("/analysis", requireAuth, async (req, res) => {
     const userId = (req as AuthedRequest).user.id;
     const skill = await resolveSkill(userId, skillId);
     if (!skill) return res.status(404).json({ error: "Skill not found" });
-    const agentName = skill.name;
-    const { llmKeys, voyagerKey } = await fetchUserKeys(userId);
-    const model = String(body.model || keyPool.getDefaultModel(llmKeys));
-    const { apiKey } = keyPool.pickKey(model, llmKeys);
-    const startedAt = Date.now();
-    const createdAt = new Date(startedAt).toISOString();
-    const id = randomUUID();
-    const { error } = await getDb().from("analysis_runs").insert({
-      id,
-      user_id: userId,
-      status: "PENDING",
+    const { llmKeys } = await fetchUserKeys(userId);
+    const modelId = String(body.model || keyPool.getDefaultModel(llmKeys));
+    const { apiKey } = keyPool.pickKey(modelId, llmKeys);
+    await runAnalysis({
+      userId,
       symbol,
-      share_name: String(body.share_name || symbol),
-      agent_name: agentName,
-      model,
+      skillId,
       source,
-      run_mode: runMode,
-      skill_id: skillId,
-      created_at: createdAt,
-      started_at: createdAt,
-      updated_at: new Date().toISOString(),
-      duration: null,
-      skill_outputs: [],
-      trace: [],
+      shareName: String(body.share_name || symbol),
+      agentName: skill.name,
+      skillMarkdown: skill.markdown || serializeSkill(skill),
+      modelId,
+      model: buildModel(modelId, llmKeys as LlmKeys, apiKey),
+      store: supabaseRunStore(userId),
+      onStarted: (id) => res.status(202).json({ analysis_id: id }),
     });
-    if (error) throw error;
-    traceHub.reset(id);
-    const trace = new TraceCollector(id, async (events) => {
-      const { error: traceError } = await getDb().from("analysis_runs").update({ trace: events }).eq("id", id).eq("user_id", userId);
-      if (traceError) log.error("[skill-run] trace persistence failed:", traceError.message);
-    });
-    res.status(202).json({ analysis_id: id });
-    void (async () => {
-      try {
-        const instruction = [skill.markdown || serializeSkill(skill), "", "Run the full analysis this skill prescribes for the bound company. Capture data with the tools before writing conclusions, and for charts call get_price_history with include_series=true."].join("\n");
-        const result = await runIterativeAgent({
-          instruction,
-          symbol,
-          source,
-          model: buildModel(model, llmKeys as LlmKeys, apiKey),
-          onEvent: (event) => {
-            if (event.type === "thought") trace.push("thought", "iterative", { text: event.text });
-            else if (event.type === "tool_call") trace.push("tool_call", "iterative", { tool: event.tool, tool_call_id: event.toolCallId, args: event.args });
-            else if (event.type === "tool_result") trace.push("tool_result", "iterative", { tool: event.tool, tool_call_id: event.toolCallId, status: event.status, result: toolResultOverview(event.result), duration_ms: event.duration_ms });
-            else if (event.type === "decision") trace.push("decision", "iterative", { score: event.score, text: event.text });
-          },
-        });
-        const done = result.status === "DONE";
-        const report: AnalysisReport = {
-          heroPct: 0,
-          heroLabel: "",
-          blocks: [
-            { type: "heading", level: 2, text: "Iterative analysis" },
-            { type: "paragraph", text: (result.text || result.error || "The run produced no output.").slice(0, 30000) },
-          ],
-          partial: !done,
-          source: "fallback",
-        };
-        trace.push("log", "iterative", { text: done ? `Completed after ${result.iterations} iteration(s) — saving report.` : `Run ${result.status.toLowerCase()} — saving what was produced.` });
-        await trace.flush();
-        const updateRun = async (patch: Record<string, unknown>) => {
-          const { error } = await getDb().from("analysis_runs").update(patch).eq("id", id).eq("user_id", userId);
-          return error;
-        };
-        const artifacts = done && result.lang && result.manifest ? { pipeline_version: "openui-v1", openui_manifest: result.manifest, openui_lang: result.lang, verification: null } : null;
-        const updateError = await updateRun({
-          status: done ? "COMPLETED" : "FAILED",
-          error: done ? null : (result.error || "Iterative run did not complete"),
-          updated_at: new Date().toISOString(),
-          duration: (Date.now() - startedAt) / 1000,
-          total_score: null,
-          coverage: null,
-          report,
-          skill_outputs: [],
-          artifacts,
-        });
-        if (updateError && /PGRST204|\bcolumn\b.*schema cache/i.test(String(updateError.message))) {
-          if (!missingColumnsWarned) {
-            missingColumnsWarned = true;
-            console.warn("[iterative] analysis_runs missing new columns (artifacts/coverage); apply api/supabase/migrations/018_pipeline_artifacts.sql");
-          }
-          const retryError = await updateRun({ status: done ? "COMPLETED" : "FAILED", error: done ? null : (result.error || "Iterative run did not complete"), updated_at: new Date().toISOString(), duration: (Date.now() - startedAt) / 1000, total_score: null, report, skill_outputs: [] });
-          if (retryError) throw retryError;
-        } else if (updateError) throw updateError;
-        return;
-      } catch (e: any) {
-        console.error("Skill run failed:", e);
-        trace.push("log", "skill", { text: `Skill run failed: ${e?.message || "unknown error"}` });
-        await trace.flush();
-        await getDb().from("analysis_runs").update({
-          status: "FAILED",
-          error: e?.message || "Skill run failed",
-          updated_at: new Date().toISOString(),
-          duration: (Date.now() - startedAt) / 1000,
-        }).eq("id", id).eq("user_id", userId);
-      }
-    })();
   } catch (e: any) {
     console.error("POST /analysis ERROR:", e);
     res.status(503).json({ error: e?.message || "Skill summary failed" });

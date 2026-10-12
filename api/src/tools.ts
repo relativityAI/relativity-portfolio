@@ -116,56 +116,8 @@ export function cleanToolData(value: any): any {
   return value;
 }
 
-export function readableToolKey(key: string): string {
-  return key.replace(/[_-]+/g, " ").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-// ponytail: 2-dp scaling above 1e6 (≈4 significant digits). Widen with more
-// branches if a large figure ever needs exact precision — raw JSON is still
-// reachable through rawToolResult().
-function fmtNumber(v: any): string {
-  if (typeof v !== "number" || !Number.isFinite(v)) return String(v);
-  const a = Math.abs(v);
-  if (a >= 1e12) return `${(v / 1e12).toFixed(2)}T`;
-  if (a >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
-  if (a >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
-  return String(v);
-}
-
-function fmtCell(v: any): string {
-  const s = v && typeof v === "object" ? JSON.stringify(v) : fmtNumber(v);
-  return s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
-}
-
-/** Compact, complete tool data: table headers are shared across rows; no rows or fields are truncated. */
-export function formatToolData(value: any): string {
-  const data = cleanToolData(value);
-  if (data == null) return "No data returned.";
-  if (Array.isArray(data)) {
-    if (!data.length) return "No rows returned.";
-    if (data.every((row) => row && typeof row === "object" && !Array.isArray(row))) {
-      const columns = [...new Set(data.flatMap((row) => Object.keys(row)))];
-      return `Rows: ${data.length}\n| ${columns.map(readableToolKey).join(" | ")} |\n| ${columns.map(() => "---").join(" | ")} |\n${data.map((row) => `| ${columns.map((key) => fmtCell(row[key])).join(" | ")} |`).join("\n")}`;
-    }
-    return data.map((item, i) => `${i + 1}. ${formatToolData(item)}`).join("\n");
-  }
-  if (typeof data === "object") {
-    const out = Object.entries(data).map(([key, item]) =>
-      item && typeof item === "object"
-        ? `\n${readableToolKey(key)}:\n${formatToolData(item)}`
-        : `${readableToolKey(key)}: ${fmtNumber(item)}`,
-    ).join("\n");
-    return out.replace(/^\n+/, "");
-  }
-  return String(data);
-}
-
-// Raw tool outputs for code consumers (DCF artifacts, observations, audits).
-// Rendered text goes to the model; this keeps the exact JSON the renderer saw.
-// ponytail: one FIFO map for all runs, capped at 2000 entries — far beyond any
-// single run's tool calls. Ceiling: a consumer reading >2000 tool calls after
-// the run ended misses evicted ids; upgrade to delete-on-read or per-run scope
-// if runs ever get that chatty.
+// Raw tool outputs kept per-call for downstream code consumers (score pills,
+// report builders) that want the structured data, not the model's rendering.
 const RAW_TOOL_RESULTS = new Map<string, unknown>();
 const RAW_CAP = 2000;
 
