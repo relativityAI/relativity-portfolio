@@ -1,11 +1,11 @@
 /**
- * OpenUI manifest contract — the SINGLE source of truth for the wire format of
+ * Layout manifest contract — the SINGLE source of truth for the wire format of
  * `analysis_runs.artifacts` (producer: `api/src/layout.ts`; consumers: the API
  * layout agent and the React UI report renderer).
  *
  * Contract:
- *   - Persisted under `artifacts.openui_manifest` (this type) alongside
- *     `artifacts.openui_lang` (OpenUI Lang source text) and
+ *   - Persisted under `artifacts.manifest` (this type) alongside
+ *     `artifacts.lang` (report source text) and
  *     `artifacts.verification` (`LayoutVerification`). `artifacts.api: 1`
  *     versions the shape; additive-only changes bump nothing, breaking changes
  *     must bump it.

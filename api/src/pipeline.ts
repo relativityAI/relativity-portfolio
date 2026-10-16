@@ -100,7 +100,7 @@ export async function runAnalysis(req: AnalysisRequest): Promise<void> {
       trace.push("log", "iterative", { text: done ? `Completed after ${result.iterations} iteration(s) — saving report.` : `Run ${result.status.toLowerCase()} — saving what was produced.` });
       await trace.flush();
       const updateRun = async (patch: Record<string, unknown>) => (await store.update(id, patch)).error;
-      const artifacts = done && result.lang && result.manifest ? { pipeline_version: "openui-v1", openui_manifest: result.manifest, openui_lang: result.lang, verification: null } : null;
+      const artifacts = null;
       const updateError = await updateRun({
         status: done ? "COMPLETED" : "FAILED",
         error: done ? null : (result.error || "Iterative run did not complete"),

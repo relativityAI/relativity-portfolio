@@ -21,8 +21,7 @@ import { MdArrowBack, MdDownload, MdInfo } from "react-icons/md";
 import { motion, useReducedMotion } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 import { ReportBlockRenderer } from "../components/builder/ReportBlockRenderer";
-import { OpenUiReport } from "@/lib/openui";
-import type { LayoutVerification } from "@api/types/layout";
+
 import SkillResultCard from "./sections/SkillResultCard";
 import { SourceMark, TickerLogo } from "@/lib/sourceLogos";
 import { ModelLogo } from "@/lib/modelLogos";
@@ -680,22 +679,7 @@ export default function AnalysisResult() {
                                         <Box mb={8}>
                                             {analysis.report ? (
                                                 <>
-                                                    {analysis.artifacts?.openui_lang && analysis.artifacts?.openui_manifest ? (
-                                                        <>
-                                                            <OpenUiReport
-                                                                lang={analysis.artifacts.openui_lang}
-                                                                manifest={analysis.artifacts.openui_manifest}
-                                                                fallback={
-                                                                    <ReportBlockRenderer blocks={analysis.report.blocks} lookup={evidenceLookup} />
-                                                                }
-                                                            />
-                                                            {analysis.artifacts?.verification && (
-                                                                <LayoutNote v={analysis.artifacts.verification} />
-                                                            )}
-                                                        </>
-                                                    ) : (
-                                                        <ReportBlockRenderer blocks={analysis.report.blocks} lookup={evidenceLookup} />
-                                                    )}
+                                                    <ReportBlockRenderer blocks={analysis.report.blocks} lookup={evidenceLookup} />
                                                 </>
                                             ) : (
                                                 <Callout tone="caution">
@@ -772,17 +756,6 @@ export default function AnalysisResult() {
  * fallback sources and unresolved refs otherwise say so, so a best-effort
  * render is never mistaken for a full one.
  */
-function LayoutNote({ v }: { v: LayoutVerification }) {
-    if (v.pass && v.layout_source === "model") return null;
-    return (
-        <Callout tone={v.pass ? "info" : "caution"} title="Report layout">
-            {v.note}
-            {v.unresolved.length > 0 &&
-                ` — ${v.unresolved.length} unresolved reference${v.unresolved.length === 1 ? "" : "s"}`}
-        </Callout>
-    );
-}
-
 function Callout({
     tone,
     title,

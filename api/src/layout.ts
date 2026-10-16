@@ -26,7 +26,7 @@ export type {
 } from "./types/layout.js";
 
 /**
- * Layout agent + OpenUI Lang integration.
+ * Layout agent.
  *
  * Two deterministic halves around one model call:
  *   buildDataManifest  — code-only: serializes captured tool observations into
@@ -670,7 +670,7 @@ export async function runLayoutAgent(args: {
     generateText({
       model: buildModel(args.model, args.llmKeys, args.apiKey),
       system: LAYOUT_AGENT_SYSTEM_PROMPT,
-      prompt: repair ? `${prompt}\n\nYour previous output was invalid: ${repair}. Return corrected OpenUI Lang only.` : prompt,
+      prompt: repair ? `${prompt}\n\nYour previous output was invalid: ${repair}. Return corrected output only.` : prompt,
       temperature: 0.2,
       // ponytail: free-tier models cap output (command-r7b = 4096); a higher
       // value makes the whole call 400 with TOO_MANY_TOKENS. Layout Lang is
