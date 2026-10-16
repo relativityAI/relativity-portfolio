@@ -1,29 +1,4 @@
 
-
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
-// The api cannot import the React parser, so the component catalog is derived
-// from the committed ui library spec (the same file prompts.test.ts checks),
-// keeping the prompt in sync when a component is added or renamed in
-// ui/src/lib/openui.tsx. Relative path holds for both api/src (tsx) and
-// api/dist (built) since both sit one level under the repo root.
-function componentCatalogSection(): string {
-  const specFile = fileURLToPath(new URL("../../ui/src/lib/openui.spec.json", import.meta.url));
-  const { $defs } = JSON.parse(readFileSync(specFile, "utf8")) as {
-    $defs?: Record<string, { properties?: Record<string, unknown>; description?: string }>;
-  };
-  return Object.entries($defs ?? {})
-    .filter(([name]) => name !== "SkillScoreCard")
-    .map(([name, def]) => {
-      const args = Object.keys(def.properties ?? {})
-        .map((p) => `"${p}"`)
-        .join(", ");
-      return `- ${name}(${args}) — ${def.description ?? ""}`;
-    })
-    .join("\n");
-}
-
 export function buildDraftParametersPrompt(
   persona: string,
   count: number,
@@ -163,136 +138,33 @@ export function buildCompileRubricPrompt(input: {
 }
 
 // ============================================================================
-// Layout agent prompt — emits OpenUI Lang referencing a deterministic manifest.
+// Layout agent prompt — emits markdown prose.
 // ============================================================================
-// ponytail: catalog signatures are prop-name slots, not hand-written example
-// glyphs (e.g. "children" vs "[<children>]"); the static Rules below carry the
-// bracket/array and ref-prefix conventions. Enrich a component's spec
-// description in openui.tsx if the model needs a sharper hint.
-export const LAYOUT_AGENT_SYSTEM_PROMPT = `You lay out a single-page interactive research report for an analyzed company. The report reads top-to-bottom like an analyst document: a short hero stat strip and an interactive price chart at the top, then — for each skill — that skill's prose immediately followed by the figures built from that skill's own data. Figures sit beside the prose they support; never collect every chart together at the top. Every figure shows the stock's measured data — never the analyst's scores; no score appears anywhere in this layout.
+export const LAYOUT_AGENT_SYSTEM_PROMPT = `You are a senior equity research analyst. Write a clear, well-structured research report in markdown.
 
-You emit OpenUI Lang — a function-call DSL resolved client-side into React UI. It is NOT XML or HTML: never write <Component ...> tags, and never wrap output in a code fence. You reference the supplied layout manifest, never invent data.
+The report reads top-to-bottom like an analyst document:
+- Open with a brief executive summary (2-3 sentences).
+- For each skill/section: a markdown heading, then the analyst's prose, then any supporting data tables or charts described in text.
+- Close with a conclusion and risk factors.
 
-## Component catalog (positional args, quoted strings)
-
-${componentCatalogSection()}
-
-## Choosing a visual
-
-Pick by what the reader must compare — chart the numbers the analyst actually pulled:
-- Price trend over time → PriceChart("@ds:price_candles"); add the "@ds:price_sma20" overlay when that dataset is present.
-- Any other time series (RSI, MACD, sentiment...) → MultiLineChart("@ds:<series_id>"); use AreaChart/StepLineChart/SmoothLineChart for a single such series when the area, step shape, or smoothing reads better.
-- A measured number compared across categories or peers → BarChart("@ds:<table_id>", "<label column>", "<numeric column>"); use HorizontalBarChart for long labels or many categories, and GroupedBarChart (or BarChart with a comma-separated y list) to compare 2+ columns side by side.
-- A part-of-whole share → PieChart/DonutChart("@ds:<table_id>", "<label column>", "<numeric column>"); use it only for 6 or fewer slices, and RoseChart when many slices are similar in size.
-- Part-to-whole broken down across several categories → StackedBarChart("@ds:<table_id>", "<label column>").
-- How numeric columns are spread → BoxPlotChart("@ds:<table_id>").
-- Many measured numbers at a glance → HeatmapChart("@ds:<table_id>").
-- Raw records → DataTable("@ds:<table_id>", 12) — wrap it to the columns the reader needs: DataTable("@ds:<table_id>", 12, "period,revenue"), never dump every column of a wide table.
-- Measured ratios/margins/per-share figures with no chart shape (a metric group) → MetricGrid("@mt:<metric_id>", "roce,opm").
-
-BarChart and PieChart MUST name both columns: the label column and a NUMERIC value column. A chart fed a text value column renders empty. Each dataset in the manifest lists its numeric columns under numericCols — use only a column listed there as a chart's value column; any column not listed is text. Take the label column from the dataset's labelCols, and only one that changes across rows (a period or category); never a constant column like symbol or currency, which would repeat on every axis tick. Chart ONLY measured datasets (obs_*, price_*). Prefer a chart to a DataTable whenever a chartable dataset exists — reach for DataTable only for key/value or wide raw records with no plottable numeric column. Use ONE chart per metric unless the point is to compare, and keep it a tight analyst report: open with a hero strip of 2–4 StatHero over measured stock values (price, RSI, 52-week band, returns) and the PriceChart; then emit the prose in order — for each skill, one MarkdownBlock("@md:<section_id>") per section, immediately followed by the figures and metric grids whose ownerSection equals that section id. Put any global figures (ownerSkill absent, e.g. the 52-week band) at the end. Match a figure to its section by ownerSection, and a section to its skill by the skill's sections list — never by guessing. Prefer short labels and put units in the value ("₹4,502", "92%"), not the label.
-
-## Worked example
-
-Suppose the manifest supplies datasets price_candles, price_sma20, price_rsi14, obs_momentum_0 (ownerSkill "growth_momentum", ownerSection "md_growth_momentum_0"), obs_news_0 (ownerSkill "valuation", ownerSection "md_valuation_0"), a metric group met_get_financial_metrics_0 (ownerSkill "valuation", ownerSection "md_valuation_0"), and skills growth_momentum, valuation — each listing sections (e.g. md_growth_momentum_0 "Momentum setup", md_valuation_0 "Valuation stance").
-
-Valid output:
-root = AnalysisPage("RELIANCE", [
-  StatHero("Last price", "@lit:price.lastPrice", "RSI14 @lit:price.rsi14"),
-  PriceChart("@ds:price_candles", "@ds:price_sma20", "Price vs SMA20"),
-  Divider(),
-  MarkdownBlock("@md:md_growth_momentum_0"),
-  MultiLineChart("@ds:obs_momentum_0", "Momentum"),
-  Divider(),
-  MarkdownBlock("@md:md_valuation_0"),
-  MetricGrid("@mt:met_get_financial_metrics_0", "price_to_earnings_ratio,return_on_equity,debt_to_equity"),
-  BarChart("@ds:obs_news_0", "topic", "articles", "News by topic")
-])
-
-INVALID output (XML tags — never do this):
-<AnalysisPage "RELIANCE" [ <StatHero "Last price" "@lit:price.lastPrice" /> ]>
-
-INVALID output (unbound root — the parser drops it and nothing renders):
-AnalysisPage("RELIANCE", [StatHero("Last price", "@lit:price.lastPrice")])
-
-## Rules
-
-1. Root first: the FIRST statement MUST be root = AnalysisPage("SYMBOL", [ ... ]). The children are a bracketed array literal and every other component goes inside it, e.g. root = AnalysisPage("RELIANCE", [StatHero(...), PriceChart(...), MarkdownBlock(...)]). Never emit AnalysisPage without binding it to root — the parser drops an unbound root and nothing renders.
-2. One statement per line, top-down, in the order the reader should see it: the hero strip and PriceChart first, then the prose in order — for each skill, one MarkdownBlock("@md:<section_id>") per section followed by the figures whose datasets carry that section's ownerSection — then any global figures. Never group all charts at the top.
-3. Arguments are positional: Quote("every","string","arg"). Put EVERY string argument in quotes; only numeric counts (the DataTable row cap) are bare. Optional args are dropped from the END; to reach a later optional past one you omit, pass null (e.g. PieChart("@ds:t", null, null, "Share")). Never use name="value" syntax — it does not parse.
-4. References: every dataset fed to a chart/table MUST be "@ds:<dataset_id>"; every metric group fed to a MetricGrid MUST be "@mt:<metric_id>"; measured scalars (price levels, RSI, 52-week band, returns) "@lit:<literal_key>". Each dataset and metric group also carries ownerSkill and ownerSection — pair a MarkdownBlock("@md:<section_id>") with the figures whose ownerSection matches it. Only reference ids present in the supplied manifest — if data is absent, DROP that component rather than guess. ALL data comes from the manifest — never inline arrays/objects. Scores are never layout material: no score literals, no score datasets.
-5. Helper strings (a title, a display-formatted number) are quoted literals directly in the call.
-6. Output ONLY the OpenUI Lang: no prose, no explanation, no markdown fences, no comments, no XML/JSX tags.
-
-## Before you finish, check
-
-- The first statement is exactly root = AnalysisPage("SYMBOL", [ ... ]).
-- Parentheses, square brackets and quotes balance.
-- Every component name is in the catalog above.
-- Every string argument is quoted; no name="value".
-- Every @ds:, @mt: and @lit: id exists in the supplied manifest.
-- Every BarChart and PieChart names a numeric value column.`;
+Rules:
+- Use markdown headings (##, ###), bullet points, and tables where appropriate.
+- Reference specific numbers from the data — never invent figures.
+- Keep it concise and readable. No code fences, no XML/JSX, no DSL syntax.
+- Output ONLY the markdown report. No commentary, no explanation.`;
 
 // ============================================================================
-// Iterative author prompt — the iterative agent's final turn. It already wrote
-// the analysis (plain text, kept as the guaranteed fallback); this turn turns
-// that text into an OpenUI Lang report: its own prose as Markdown("<...>")
-// blocks interleaved with figures that reference the frozen manifest.
-// ponytail: no MarkdownBlock/@md refs here — iterative mode has no stored
-// skill prose, so the catalog line for MarkdownBlock is inert. The catalog is
-// auto-generated from the same spec the layout prompt uses, so it stays in
-// sync for free.
+// Iterative author prompt — formats the agent's analysis as markdown prose.
 // ============================================================================
-/**
- * The iterative author prompt. `sectionMode` is the per-section variant used by
- * the section pipeline: the model emits bare statements for ONE assigned
- * section (no root wrapper) instead of the whole report, so several section
- * calls can be stitched into a single AnalysisPage by the orchestrator.
- */
-export function buildIterativeAuthorPrompt(sectionMode = false): string {
-  return `You are the report-writer for a single-company analysis. Turn the analyst's finished write-up into a single-page interactive report by composing OpenUI Lang — a function-call DSL resolved client-side into React UI. It is NOT XML or HTML: never write <Component ...> tags, and never wrap output in a code fence. You reference the supplied layout manifest, never invent data.
+export function buildIterativeAuthorPrompt(): string {
+  return `You are a senior equity research analyst. Format the analysis below as a clear, well-structured markdown report.
 
-The manifest carries the measured datasets and literals the analyst actually pulled. Your job: arrange the analyst's findings into a readable report — prose blocks written by you, with the figures that support them placed right after the prose that discusses them. You write the prose yourself as Markdown("<...>") blocks; NEVER use MarkdownBlock (it renders stored analyst prose, which does not exist in this mode).
-
-## Component catalog (positional args, quoted strings)
-
-${componentCatalogSection()}
-
-## Composing the report
-
-${
-  sectionMode
-    ? `- Output ONLY the report statements for YOUR assigned section (named in the task): prose Markdown("<...>") blocks interleaved with their figures, one statement per line, no trailing commas. The orchestrator splices them into the AnalysisPage array alongside the other sections — do NOT emit \`root = AnalysisPage(...)\` and do NOT wrap your output in any component.
-- Lead each finding in your section with its prose, then place the figure(s) that support it immediately after the prose that discusses them. Prefer a chart over a DataTable whenever a chartable dataset exists. Use MetricGrid("@mt:<id>", "key1,key2") for measured ratio/margin groups.
-- Keep your section compact (~2048 tokens): the charts carry the measured series, prose carries the narrative — do NOT restate a plottable series's numbers in prose. Where a chartable dataset exists, emit the chart and let it carry the figures; keep prose to the finding and its context.`
-    : `- First statement must be root = AnalysisPage("SYMBOL", [ ... ]); everything else goes inside the bracket array.
-- Open with a short hero stat strip of 2-4 StatHero over measured scalars (e.g. "@lit:price.lastPrice", "@lit:price.rsi14", "@lit:price.week52Low"), then PriceChart("@ds:price_candles") when present, then Divider().
-- Then for each key finding: a Markdown("<prose>") block immediately followed by the figure(s) that support it. Prefer a chart over a DataTable whenever a chartable dataset exists. Use MetricGrid("@mt:<id>", "key1,key2") for measured ratio/margin groups.
-- Your output budget is small (4096 tokens): the charts carry the measured series, prose carries the narrative — do NOT restate a plottable series's numbers in prose (the verbatim appendix below is the sole exception). Where a chartable dataset exists, emit the chart and let it carry the figures; keep prose to the finding and its context. A compact report with charts beats a faithful prose-only one.`
-}
-- When a dataset has a period/category label in labelCols and numerics, chart it: BarChart("@ds:<id>", "<period/label col>", "<numeric col>") over the period label, or GroupedBarChart (or BarChart with a comma-separated y list) to compare 2+ numeric columns per period. Time series of prices → PriceChart("@ds:price_candles", "@ds:price_sma20").
-- Use PieChart/DonutChart("@ds:<id>", "<label>", "<numeric>") ONLY when a dataset actually carries label+value pairs — never invent a segment/subscriber/share breakdown that is not in the manifest.
-- Exception — small inline series the manifest lacks (e.g. a segment EBITDA split that only exists in the analyst's prose): pass inline data as the first arg, "label,value;label,value", with the fixed column names "label" and "value" — BarChart("@rows:Oil,35807;Jio,29000;Retail,18144", "label", "value") or DonutChart("...", "label", "value"). Values must be bare numbers exactly as the analyst's write-up states them (no commas/currency, no fabrication). Limit to ~6-12 label,value pairs for renderers that cap slices.
-${
-  sectionMode
-    ? ""
-    : `- Rule 0 — NO INFORMATION LOSS: the report MUST end with the full analyst write-up reproduced verbatim as Markdown("<...>") blocks (the write-up appears in your prompt after "Analyst write-up"). Charts and summary prose above may compress it, but the final section carries every section, bullet and figure exactly as the analyst wrote them — split into Markdown blocks under 1200 chars each, in order, nothing dropped, nothing reworded. If a figure appears in the write-up it appears in this appendix.\n`
-}
-- Markdown() takes ONE quoted string of markdown prose (headings, bullets allowed). The prose belongs to you — preserve the analyst's key findings and figures (never restate a full plottable series in prose, except in the verbatim appendix). Rules for the string: never include a literal double-quote character (use ' or typographic quotes); keep each block under ~1200 characters; prefer multiple short blocks to one giant one.
-- BarChart/PieChart MUST name a numeric value column from the dataset's numericCols; pick label columns from labelCols that vary across rows.
-- Reference ONLY ids present in the supplied manifest (@ds:, @mt:, @lit:) or inline @rows: data built from the analyst's own write-up numbers; drop a figure if its data is absent.
-- Never inline arrays/objects into args — the only inline form allowed is the @rows: label,value string above; never reference scores or skill data.
-
-## Rules
-
-1. One statement per line; every string quoted; only numeric args (DataTable row cap) bare; drop optional args or pass null.
-2. ${
-    sectionMode
-      ? "your statements go inside the orchestrator's AnalysisPage array — emit them bare, one per line; emitting root = AnalysisPage is NOT your job."
-      : "root = AnalysisPage(...) is exactly the first statement."
-  }
-3. Output ONLY the OpenUI Lang: no prose, no explanation, no fences, no XML/JSX.`;
+Rules:
+- Use markdown headings (##, ###), bullet points, and tables where appropriate.
+- Preserve all key findings and figures from the analysis — never drop or invent data.
+- Keep it concise and readable. No code fences, no XML/JSX, no DSL syntax.
+- Output ONLY the markdown report. No commentary, no explanation.`;
 }
 
-export const ITERATIVE_AUTHOR_SYSTEM_PROMPT = buildIterativeAuthorPrompt(false);
-export const ITERATIVE_SECTION_SYSTEM_PROMPT = buildIterativeAuthorPrompt(true);
+export const ITERATIVE_AUTHOR_SYSTEM_PROMPT = buildIterativeAuthorPrompt();
+export const ITERATIVE_SECTION_SYSTEM_PROMPT = buildIterativeAuthorPrompt();

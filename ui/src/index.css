@@ -157,7 +157,7 @@ body {
 }
 
 /* ── Report typography ────────────────────────────────────────────────────────
-   Shared by both the deterministic ReportBlockRenderer and the OpenUI report
+   Shared by both the deterministic ReportBlockRenderer and the report
    (.report-container). Prose reads at a paper-like 15px/1.72 with serif
    headings; the console `.skill-md` viewer is untouched.                        */
 .report-container {
