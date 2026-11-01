@@ -24,9 +24,25 @@ const SeriesSchema = z.object({
   points: z.array(SeriesPointSchema),
 });
 
-/** A single chart. Time-series kinds use `series`; categorical use `categories`+`values`. */
+/** A single chart. Time-series kinds use `series`; categorical use `categories`+`values`;
+ *  `table` uses `columns`+`rows`. */
 export const ChartSpecSchema = z.object({
-  kind: z.enum(["line", "candle", "bar", "pie", "area", "scatter", "radar", "stat", "movers"]),
+  kind: z.enum([
+    "line",
+    "multiline",
+    "candle",
+    "bar",
+    "vbar",
+    "hbar",
+    "pie",
+    "donut",
+    "area",
+    "scatter",
+    "radar",
+    "stat",
+    "movers",
+    "table",
+  ]),
   /**
    * Domain token(s) the harness resolves and expands into `series`
    * (e.g. "price" or "price, sma200"). Lets the model request a real chart
@@ -42,6 +58,10 @@ export const ChartSpecSchema = z.object({
    * Absent → theme story ink (figure-kit's var(--c) fallback).
    */
   color: z.string().regex(/^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/).optional(),
+  /** kind:"table" — column headers (replaces the markdown table block). */
+  columns: z.array(z.string()).optional(),
+  /** kind:"table" — one array per row, cells are strings or numbers. */
+  rows: z.array(z.array(z.union([z.string(), z.number()]))).optional(),
 });
 
 /** Mermaid diagram — the harness renders it to SVG (never raw HTML). */

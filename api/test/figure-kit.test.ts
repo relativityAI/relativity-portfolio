@@ -64,6 +64,62 @@ describe("renderFigure", () => {
     expect(renderFigure({ kind: "candle", series: [{ label: "close", points: pts(1, 2) }] })).toBeNull();
   });
 
+  it("hbar → horizontal bars; vbar → vertical columns (the bar split)", () => {
+    const h = renderFigure({ kind: "hbar", categories: ["Base", "Bull"], values: [218, 354] })!;
+    const v = renderFigure({ kind: "vbar", categories: ["2023", "2024"], values: [391, 416] })!;
+    expect(h).toContain("218"); // hbar prints values at bar ends
+    expect(h).toContain("<rect");
+    expect(v).toContain("<rect");
+    expect(v).toContain("2023"); // vbar prints category labels along the bottom
+    expect(h.indexOf("Base")).toBeLessThan(h.indexOf("<rect")); // names left of the zero line
+    expect(v.indexOf("2023")).toBeGreaterThan(v.indexOf("<rect")); // labels under the columns
+    expect(renderFigure({ kind: "vbar", series: [{ label: "vol", points: pts(3, 5, 2) }] })).toContain("<rect");
+  });
+
+  it("multiline → multi-series svg (kind separate from single line)", () => {
+    const svg = renderFigure({
+      kind: "multiline",
+      series: [
+        { label: "price", points: pts(10, 11, 12) },
+        { label: "sma200", points: pts(9, 10, 11) },
+      ],
+    })!;
+    expect(svg).toContain("var(--c,#3A5BD0)");
+    expect(svg).toContain("var(--ink,#16181B)");
+  });
+
+  it("donut → ring with center total + legend (distinct from pie's share strip)", () => {
+    const svg = renderFigure({ kind: "donut", categories: ["A", "B"], values: [60, 40] }, { unit: "%" })!;
+    expect(svg).toContain("<path"); // ring segments
+    expect(svg).toContain("Total");
+    expect(svg).toContain("100"); // center total
+    expect(svg).toContain("60%");
+    const strip = renderFigure({ kind: "pie", categories: ["A", "B"], values: [60, 40] })!;
+    expect(strip).toContain("<rect"); // strip is rects, donut is paths
+  });
+
+  it("table → header + hairline rows, numbers right-aligned, tabular", () => {
+    const svg = renderFigure(
+      {
+        kind: "table",
+        columns: ["Year", "Revenue", "FCF"],
+        rows: [
+          [2024, 391.0, 111.5],
+          [2023, 383.3, 99.6],
+        ],
+      },
+      { unit: "USD" },
+    )!;
+    expect(svg).toContain("Year");
+    expect(svg).toContain("Revenue");
+    expect(svg).toContain("391"); // fmtNum grouping
+    expect(svg).toContain("font-variant-numeric:tabular-nums"); // set numbers
+    expect((svg.match(/<line /g) ?? []).length).toBe(2); // one hairline per data row
+    expect(svg).not.toContain("NaN");
+    expect(renderFigure({ kind: "table" })).toBeNull(); // no columns/rows → no placeholder
+    expect(SectionSchema.safeParse({ type: "chart", spec: { kind: "table", columns: ["a"], rows: [[1]] } }).success).toBe(true);
+  });
+
   it("stat → Anek label, huge Newsreader numeral, sign ink, spark", () => {
     const svg = renderFigure(
       {

@@ -17,12 +17,11 @@ export const PRIMITIVES: PrimitiveSpec[] = [
   { id: "heading", name: "heading", when: "Section boundary. level 1–3.", json: `{ "type": "heading", "level": 2, "text": "Trend" }` },
   { id: "paragraph", name: "paragraph", when: "Prose. Every number gets a highlight.", json: `{ "type": "paragraph", "text": "…", "highlights": [{ "text": "4.2%", "kind": "positive", "sourceId": "s1" }] }` },
   { id: "callout", name: "callout", when: "One judgement the reader must not miss.", json: `{ "type": "callout", "variant": "key", "title": "Thesis", "text": "…" }` },
-  { id: "table", name: "table", when: "Comparable figures (3+ rows or columns).", json: `{ "type": "table", "columns": ["Year", "FCF"], "rows": [["2023", 111.5]] }` },
   {
     id: "chart",
     name: "chart",
     when:
-      "Plotted data — everything nests under `spec` (kind inside spec): categorical kinds take `spec.categories`+`spec.values`; time-series take `spec.data` tokens or `spec.series`. Carry `measure` (axis unit) and `sourceId`; optional `color` (hex) when the skill's structure prescribes a palette.",
+      "Any plotted or tabulated figure — everything nests under `spec` (kind inside spec). Lines: `line` (ONE series) / `multiline` (2–4 series) / `area` / `scatter`. Bars: `hbar` (horizontal, rankings) / `vbar` (columns). Parts of a whole: `pie` (share strip) / `donut` (ring + center total). Ledger rows: `table` (columns+rows). Also `candle`, `stat`, `movers`. Categorical kinds take `spec.categories`+`spec.values` (table: `spec.columns`+`spec.rows`); time-series take `spec.data` tokens or `spec.series`. Carry `measure` (axis unit) and `sourceId`; optional `color` (hex) when the skill's structure prescribes a palette.",
     json: `{ "type": "chart", "title": "…", "measure": "USD", "sourceId": "s1", "spec": { "kind": "candle", "data": "price, sma200" } }`,
   },
   { id: "badges", name: "badges", when: "A row of status chips (BUY, Risk: High).", json: `{ "type": "badges", "items": [{ "label": "Momentum: bullish", "tone": "positive" }] }` },

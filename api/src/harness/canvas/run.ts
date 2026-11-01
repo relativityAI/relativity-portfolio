@@ -41,8 +41,9 @@ import { gradeReport, type Verdict } from "../report/verdict.js";
 
 // Data tools that only return text — nothing for the harness to plot.
 // ponytail: any other data tool is assumed series-capable (mcp data tools);
-// add it here if a text-only data tool ships.
-const TEXT_TOOLS = new Set(["web_search", "search_news", "web_fetch"]);
+// add it here if a text-only data tool ships. get_price_history stays OUT —
+// it is the series tool whose absence locks the plot reference.
+export const TEXT_TOOLS = new Set(["web_search", "search_news", "web_fetch", "get_quote", "get_fundamentals", "search_symbol", "get_insights"]);
 
 export interface RunCanvasOptions {
   model: LanguageModel;

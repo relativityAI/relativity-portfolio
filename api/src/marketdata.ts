@@ -40,6 +40,14 @@ export interface PriceHistory {
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const MAX_CANDLES = 400; // ~1.5 years of trading days
 
+/** Yahoo exchange suffix by source: NSE→.NS, BSE→.BO, else bare. Symbols
+ *  already carrying a suffix ("RELIANCE.NS", "^NSEI") are returned as-is. */
+export function toYahooSymbol(symbol: string, source?: string): string {
+  if (symbol.includes(".") || symbol.startsWith("^")) return symbol;
+  const ex = (source || "").toLowerCase();
+  return ex === "nse" ? `${symbol}.NS` : ex === "bse" ? `${symbol}.BO` : symbol;
+}
+
 const cache = new Map<string, { at: number; data: PriceHistory | null }>();
 
 function sma(closes: number[], period: number): (number | null)[] {
@@ -205,8 +213,7 @@ async function fetchYahoo(symbol: string, range: string, source?: string): Promi
   // Yahoo distinguishes listings by exchange suffix — an NSE ticker
   // queried bare ("GLAND") 404s with "No data found, symbol may be
   // delisted", which grounded every price chart on nothing.
-  const ex = (source || "").toLowerCase();
-  const q = ex === "nse" ? `${symbol}.NS` : ex === "bse" ? `${symbol}.BO` : symbol;
+  const q = toYahooSymbol(symbol, source);
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(q)}?range=${encodeURIComponent(range)}&interval=1d&includePrePost=false`;
   try {
     const res = await fetch(url, {

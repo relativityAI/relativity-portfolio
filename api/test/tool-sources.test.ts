@@ -25,10 +25,11 @@ function fakeMcpFetch(tools = TOOLS, methods: string[] = []): typeof fetch {
 const ENV = { MCP_VOYAGER_URL: "http://voyager.test/mcp" };
 
 describe("buildToolRegistry", () => {
-  it("defaults to websearch + voyager-from-env (today's behavior) when config is empty", async () => {
+  it("defaults to websearch + yahoo + voyager-from-env (today's behavior) when config is empty", async () => {
     const { registry } = await buildToolRegistry({}, ENV, { fetchImpl: fakeMcpFetch() });
     const names = registry.list().map((t) => t.name);
     expect(names).toContain("web_search");
+    expect(names).toContain("get_quote");
     expect(names).toContain("get_price_history");
   });
 
@@ -45,7 +46,7 @@ describe("buildToolRegistry", () => {
 
   it("optional unreachable source warns and the run continues", async () => {
     const { registry } = await buildToolRegistry(
-      { mcp: [{ name: "flaky", urlEnv: "MCP_FLAKY_URL", required: false }] },
+      { yahoo: false, mcp: [{ name: "flaky", urlEnv: "MCP_FLAKY_URL", required: false }] },
       { MCP_FLAKY_URL: "http://flaky.test/mcp" },
       { fetchImpl: (async () => { throw new Error("ECONNREFUSED"); }) as typeof fetch },
     );
@@ -54,7 +55,7 @@ describe("buildToolRegistry", () => {
 
   it("allow filters server tools; CLI mcpAllow override wins over the entry", async () => {
     const { registry: byEntry } = await buildToolRegistry(
-      { mcp: [{ name: "v", urlEnv: "MCP_VOYAGER_URL", allow: ["get_price_history"] }] },
+      { yahoo: false, mcp: [{ name: "v", urlEnv: "MCP_VOYAGER_URL", allow: ["get_price_history"] }] },
       ENV,
       { fetchImpl: fakeMcpFetch() },
     );
@@ -62,7 +63,7 @@ describe("buildToolRegistry", () => {
     expect(byEntry.list().map((t) => t.name)).not.toContain("get_fundamentals");
 
     const { registry: byFlag } = await buildToolRegistry(
-      { mcp: [{ name: "v", urlEnv: "MCP_VOYAGER_URL", allow: ["get_price_history"] }] },
+      { yahoo: false, mcp: [{ name: "v", urlEnv: "MCP_VOYAGER_URL", allow: ["get_price_history"] }] },
       ENV,
       { fetchImpl: fakeMcpFetch(), mcpAllow: ["get_fundamentals"] },
     );

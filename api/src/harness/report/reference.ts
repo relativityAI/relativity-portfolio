@@ -22,15 +22,20 @@ export const DATA_TOKENS = ["price", "volume", "sma20", "sma50", "sma200", "rsi1
  * together (a new kind needs a renderer anyway).
  */
 const PLOT_NOTES: Record<string, string> = {
-  line: "time-series — `series` or a `data` token list; ships as a static SVG",
-  area: "time-series — `series` or a `data` token list; drawn as a plain line (no fill wash)",
-  scatter: "time-series — `series`; ships as dots",
-  bar: "categorical (`categories`+`values` → horizontal bars) or time-series (`series` → columns)",
-  pie: "categorical (`categories`+`values`); ships as a share strip",
-  radar: "categorical (`categories`+`values`); honestly drawn as bars",
-  candle: "OHLC — `series` with o/h/l per point; renders as the interactive chart in the UI (needs a market-data tool)",
-  stat: "big-number KPI card — `categories[0]` = label, `categories[1]` = optional sub-line, `values[0]` = the headline number, `series` or a `data` token = sparkline; for the one number that matters (index level, headline delta)",
-  movers: "gainers/losers board — `categories` = names, `values` = signed numbers (two columns past five rows, +/− coloured); set `measure` to `%`; for biggest moves, top/bottom N",
+  line: "single time-series — ONE `series` (or one `data` token); the story line, big serif end label. Not for comparisons — use `multiline`.",
+  multiline: "2–4 time-series on one axis — `series` or comma `data` tokens (e.g. \"price, sma200\"); lead = story ink, rival = ink, rest grey. Never more than 4 lines.",
+  area: "time-series with weight — same data as `line`, filled under the curve; use when magnitude under the line is the point.",
+  scatter: "time-series as dots — `series`; correlation/cluster reads, not trends (use `line` for trends).",
+  hbar: "horizontal bars — `categories`+`values`; rankings, top/bottom lists, long category labels. Bars grow left→right from zero, value printed at the bar end.",
+  vbar: "vertical columns — `categories`+`values` (discrete comparison) or `series` (over time); heights from zero. Use for period-over-period columns, not rankings.",
+  pie: "parts of a whole — `categories`+`values` summing to a meaningful total; ships as a share strip with % legend (house style: no wedges). ≤6 slices.",
+  donut: "parts of a whole with a center total — `categories`+`values`; ring + big-number legend beneath. Use when the whole's size matters as much as the split.",
+  candle: "OHLC — `series` with o/h/l per point; renders as the interactive chart in the UI (needs a market-data tool).",
+  stat: "big-number KPI card — `categories[0]` = label, `categories[1]` = optional sub-line, `values[0]` = the headline number, `series` or a `data` token = sparkline; for the one number that matters (index level, headline delta).",
+  movers: "gainers/losers board — `categories` = names, `values` = signed numbers (two columns past five rows, +/− coloured); set `measure` to `%`; for biggest moves, top/bottom N.",
+  table: "ledger table — `columns` (headers) + `rows` (array of arrays; strings and numbers). Hairline rows, numbers right-aligned. USE THIS instead of any markdown/`table` section block for 3+ column figures (financials, comparisons, factor scores). Numbers as JSON numbers, not strings.",
+  radar: "categorical (`categories`+`values`); honestly drawn as bars — prefer `hbar` unless the radar shape is the point",
+  bar: "LEGACY — prefer `hbar` (categorical) or `vbar` (columns); accepted only so old documents still render",
 };
 
 /** The report_write contract: every primitive with a copyable JSON example. */
@@ -50,9 +55,10 @@ export function plotReferenceMarkdown(hasSeriesTool: boolean): string {
     "",
     ...kinds.map((k) => `- \`${k}\` — ${PLOT_NOTES[k] ?? "see the renderer"}`),
     "",
-    "Two data shapes:",
-    `- categorical: \`{ "type": "chart", "measure": "USD per share", "sourceId": "s1", "spec": { "kind": "bar", "categories": ["Base", "Bull"], "values": [218, 354] } }\``,
-    `- time-series: \`{ "type": "chart", "measure": "USD", "sourceId": "s1", "spec": { "kind": "line", "data": "price, sma200" } }\` — the harness expands tokens into real series at assembly`,
+    "Data shapes:",
+    `- categorical: \`{ "type": "chart", "measure": "USD per share", "sourceId": "s1", "spec": { "kind": "hbar", "categories": ["Base", "Bull"], "values": [218, 354] } }\``,
+    `- time-series: \`{ "type": "chart", "measure": "USD", "sourceId": "s1", "spec": { "kind": "multiline", "data": "price, sma200" } }\` — the harness expands tokens into real series at assembly`,
+    `- table: \`{ "type": "chart", "measure": "USD bn", "sourceId": "s1", "spec": { "kind": "table", "columns": ["Year", "Revenue", "FCF"], "rows": [[2024, 391.0, 111.5]] } }\` — numbers as JSON numbers`,
     "",
     hasSeriesTool
       ? `Data tokens available this run: ${DATA_TOKENS.join(", ")}.`

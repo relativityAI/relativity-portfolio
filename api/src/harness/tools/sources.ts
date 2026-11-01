@@ -13,6 +13,7 @@ import { log } from "../log.js";
 import { McpClient } from "./mcp-client.js";
 import { mcpTools } from "./mcp-adapter.js";
 import { websearchTools } from "./builtins/websearch.js";
+import { yahooTools } from "./builtins/yahoo.js";
 import { ToolRegistry, type ToolDefinition } from "./registry.js";
 
 export const McpSourceSchema = z
@@ -35,6 +36,8 @@ export const McpSourceSchema = z
 export const ToolSourcesSchema = z.object({
   /** `false` disables websearch; `{}` (or absent) = local SearXNG, free/keyless. */
   websearch: z.union([z.object({}), z.literal(false)]).optional(),
+  /** `false` disables the yahoo-finance2 builtins; `{}` (or absent) = on, keyless. */
+  yahoo: z.union([z.object({}), z.literal(false)]).optional(),
   mcp: z.array(McpSourceSchema).optional(),
 });
 
@@ -76,6 +79,9 @@ export async function buildToolRegistry(
 
   if (cfg.websearch !== false) {
     registry.registerAll(websearchTools());
+  }
+  if (cfg.yahoo !== false) {
+    registry.registerAll(yahooTools());
   }
 
   for (const [i, entry] of mcp.entries()) {

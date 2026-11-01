@@ -23,7 +23,7 @@ Include ticker, company, analysis date, verdict, and investment horizon.
 - **Less text, more visuals.**
 - Focus on making important information standout and catch attention like - imporant figures, headlines, imp findings.
 - Use compact tables and KPI cards.
-- Do not use paragraphs at all. Prefer listed points and visual summaries.
+- Do not use paragraphs at all. Prefer markdown unordered listed points (not bullet points) and visual summaries.
 - Remove generic commentary and repetition.
 - Clearly distinguish facts, estimates, and analytical opinions.
 - Omit irrelevant sections rather than filling space.
@@ -37,25 +37,7 @@ Include ticker, company, analysis date, verdict, and investment horizon.
 
 Choose visualizations based on the information:
 
-| Information | Preferred visualization |
-|---|---|
-| Stock price, moving averages or any long series data | Single or Multi-line chart |
-| Revenue / EPS / margins over time | Single or Multi-line chart |
-| Quarterly financial comparisons | Grouped or stacked bar chart |
-| Segment contribution | Donut / pie chart |
-| Segment growth | Horizontal bar chart |
-| Actual vs consensus | Grouped bar chart |
-| Relative strength vs benchmark | Normalized line chart |
-| Peer valuation | Horizontal bar chart |
-| Historical valuation range | Range / band chart |
-| Bull / base / bear scenarios | Scenario comparison chart |
-| Financial health | KPI cards / metric grid |
-| Quarterly performance | Heatmap |
-| Catalysts and events | Timeline |
-| Risk assessment | Risk matrix |
-| Support and resistance | Annotated price chart |
-
-Additional rules:
+Rules:
 - IMPORTANT: Use a variety of plot types when the data supports them.
 - Prefer visualizations over explanatory paragraphs.
 - Different plots should have different colors. Choose from these: Terracotta (#C66B4E), Coral (#E58B70), Amber (#D9A441), Ochre (#B88A45), Sage (#82977A), Olive (#A3A66A), Dusty Rose (#C58B91), Warm Plum (#96758F), Slate (#788A91), Cream (#E8DCC5).

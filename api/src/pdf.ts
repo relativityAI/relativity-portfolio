@@ -1169,13 +1169,23 @@ function chartRows(spec: ChartSpec): { data: Record<string, string | number>[]; 
 }
 
 type LegacyChartType = Extract<ReportBlock, { type: "chart" }>["chartType"];
+/** New kinds → the legacy PNG chart families. `table` never reaches here (pushChart handles it). */
 const CHART_TYPE = (kind: ChartSpec["kind"]): LegacyChartType =>
-  kind === "candle" ? "candlestick" : kind === "stat" ? "line" : kind === "movers" ? "bar" : kind;
+  kind === "candle" ? "candlestick"
+  : kind === "stat" || kind === "multiline" ? "line"
+  : kind === "donut" ? "pie"
+  : kind === "vbar" || kind === "hbar" || kind === "bar" || kind === "movers" || kind === "table" ? "bar"
+  : kind;
 
 /** Typed ReportDocument → legacy blocks, reusing the existing block renderers. */
 export function documentToBlocks(doc: ReportDocument): ReportBlock[] {
   const out: ReportBlock[] = [];
   const pushChart = (spec: ChartSpec, title?: string) => {
+    // The table figure IS a legacy table — ship it as one, no PNG round-trip.
+    if (spec.kind === "table" && spec.columns?.length && spec.rows?.length) {
+      out.push({ type: "table", title, columns: spec.columns, rows: spec.rows, sourceKeys: [] });
+      return;
+    }
     const { data, sourceKeys } = chartRows(spec);
     if (data.length > 1) out.push({ type: "chart", chartType: CHART_TYPE(spec.kind), title, data, sourceKeys });
   };
