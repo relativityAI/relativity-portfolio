@@ -17,7 +17,17 @@ import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { cn } from "@/lib/utils";
+import { verdictForScore } from "@/lib/analysisFormat";
 import { CirclePlus, Search } from "lucide-react";
+
+/** Harness quality verdicts (CLI's five-band grade) → the table's signal dot. */
+const QUALITY_SIGNAL: Record<string, "positive" | "caution" | "negative"> = {
+    "Very Poor": "negative",
+    "Poor": "negative",
+    "Fair": "caution",
+    "Good": "positive",
+    "Excellent": "positive",
+};
 
 type SortKey = "share" | "created_at" | "score" | "status" | "agent" | "model" | "duration";
 
@@ -255,7 +265,7 @@ function GroupHeaderRow({
                     </span>
                     {avg != null && (
                         <span className="ml-auto shrink-0 font-app-tabular text-[11.5px] tabular-nums text-[var(--ink-secondary)]">
-                            avg match {avg.toFixed(0)}%
+                            avg score {avg.toFixed(0)}%
                         </span>
                     )}
                 </div>
@@ -651,7 +661,7 @@ export default function AnalysisList() {
                     <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} className="shrink-0">
                         <Button
                             variant="ghost"
-                            onClick={() => navigate("/")}
+                            onClick={() => navigate("/new-analysis")}
                             className="h-12 gap-2.5 rounded-[3px] bg-transparent px-6 font-normal text-[15.5px] text-[var(--ink-primary)] hover:bg-transparent"
                         >
                             <CirclePlus className="size-6" strokeWidth={1.5} />
@@ -807,7 +817,7 @@ export default function AnalysisList() {
                                                     ["share", "Share"],
                                                     ["agent", "Agent"],
                                                     ["model", "Model"],
-                                                    ["score", "Match"],
+                                                    ["score", "Verdict"],
                                                     ["duration", "Duration"],
                                                     ["created_at", "Created"],
                                                     ["status", "Status"],
@@ -905,6 +915,32 @@ export default function AnalysisList() {
                                                     itemStatus === "complete" ||
                                                     itemStatus === "completed" ||
                                                     itemStatus === "success";
+                                                // Verdict: harness runs carry the CLI's quality
+                                                // grade inside report.verdict (list selects it as
+                                                // the flat `verdict` key via report->verdict);
+                                                // skill-era rows fall back to the score-band label.
+                                                const harnessVerdict: string | undefined =
+                                                    item.verdict;
+                                                const verdictLabel =
+                                                    harnessVerdict ??
+                                                    (itemScore != null
+                                                        ? verdictForScore(itemScore).label
+                                                        : null);
+                                                const verdictSig = harnessVerdict
+                                                    ? QUALITY_SIGNAL[harnessVerdict] ?? null
+                                                    : sig;
+                                                // duration is written by harness runs; older rows
+                                                // fall back to created→updated wall time.
+                                                const durSec =
+                                                    item.duration != null
+                                                        ? item.duration
+                                                        : isItemComplete &&
+                                                            item.created_at &&
+                                                            item.updated_at
+                                                          ? (+new Date(item.updated_at) -
+                                                                +new Date(item.created_at)) /
+                                                            1000
+                                                          : null;
 
                                                 return (
                                                     <motion.tr
@@ -912,7 +948,23 @@ export default function AnalysisList() {
                                                         exit={{ opacity: 0 }}
                                                         layout={false}
                                                         key={id}
-                                                        onClick={() => onRowClick(id)}
+                                                        onClick={(e) => {
+                                                            // Modified click = open in a new tab
+                                                            // (browser-style); plain click navigates.
+                                                            if (
+                                                                e.ctrlKey ||
+                                                                e.metaKey ||
+                                                                e.shiftKey ||
+                                                                e.altKey
+                                                            ) {
+                                                                window.open(
+                                                                    "/analysis-result/" + id,
+                                                                    "_blank"
+                                                                );
+                                                                return;
+                                                            }
+                                                            onRowClick(id);
+                                                        }}
                                                         className="cursor-pointer transition-colors duration-[160ms] hover:bg-[var(--surface-recessed)]"
                                                     >
                                                         {/* Share — plain text, not badge */}
@@ -972,16 +1024,18 @@ export default function AnalysisList() {
                                                             </div>
                                                         </td>
 
-                                                        {/* Match — tabular-nums + signal dot */}
+                                                        {/* Verdict — word + signal dot */}
                                                         <td className="px-4 py-3">
-                                                            {itemScore != null ? (
+                                                            {verdictLabel != null ? (
                                                                 <span className="inline-flex items-center gap-1.5">
-                                                                    <span
-                                                                        className="h-[5px] w-[5px] shrink-0 rounded-full"
-                                                                        style={{ background: signalColor(sig!) }}
-                                                                    />
-                                                                    <span className="font-app-tabular text-[13.5px] font-medium tabular-nums text-[var(--ink-primary)]">
-                                                                        {itemScore.toFixed(1)}
+                                                                    {verdictSig && (
+                                                                        <span
+                                                                            className="h-[5px] w-[5px] shrink-0 rounded-full"
+                                                                            style={{ background: signalColor(verdictSig) }}
+                                                                        />
+                                                                    )}
+                                                                    <span className="text-[13.5px] font-medium text-[var(--ink-primary)]">
+                                                                        {verdictLabel}
                                                                     </span>
                                                                 </span>
                                                             ) : (
@@ -991,8 +1045,8 @@ export default function AnalysisList() {
 
                                                         {/* Duration — tabular */}
                                                         <td className="px-4 py-3 font-app-tabular text-[13px] tabular-nums text-[var(--ink-secondary)]">
-                                                            {item.duration != null
-                                                                ? formatDuration(item.duration)
+                                                            {durSec != null && durSec >= 0
+                                                                ? formatDuration(durSec)
                                                                 : "—"}
                                                         </td>
 

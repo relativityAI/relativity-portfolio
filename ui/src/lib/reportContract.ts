@@ -20,12 +20,16 @@ export interface Series {
 }
 
 export interface ChartSpec {
-  kind: "line" | "candle" | "bar" | "pie" | "area" | "scatter" | "radar" | "stat" | "movers";
+  kind: "line" | "multiline" | "candle" | "bar" | "vbar" | "hbar" | "pie" | "donut" | "area" | "scatter" | "radar" | "stat" | "movers" | "table";
   /** Domain token(s) resolved server-side into `series` (e.g. "price" or "price, sma200"). */
   data?: string;
   series?: Series[];
   categories?: string[];
   values?: number[];
+  /** kind:"table" — column headers. */
+  columns?: string[];
+  /** kind:"table" — one array per row. */
+  rows?: (string | number)[][];
 }
 
 /** Mermaid diagram — rendered to SVG client-side, never raw HTML. */

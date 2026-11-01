@@ -193,31 +193,11 @@ export default function AnalysisResult() {
     const [error, setError] = useState<string | null>(null);
     const [pdfState, setPdfState] = useState<"idle" | "busy" | "error">("idle");
     const [activeTab, setActiveTab] = useState<Tab>("report");
-    const [elapsed, setElapsed] = useState(0);
-
-    
 
     const statusKey = (analysis?.status || "").toLowerCase();
     const terminalStatuses = ["complete", "completed", "success", "error", "failed", "budget_exhausted"];
     const isRunning = !!analysis && !terminalStatuses.includes(statusKey);
     const isComplete = !!analysis && terminalStatuses.includes(statusKey);
-    const isErrorEarly = statusKey === "error" || statusKey === "failed";
-
-    useEffect(() => {
-        if (!isRunning) {
-            setElapsed(0);
-            return;
-        }
-        // Anchor to the run's persisted start, not page-load time, so a
-        // refresh mid-run resumes the clock instead of restarting at 0.
-        const anchor = analysis?.started_at || analysis?.created_at;
-        const parsed = anchor ? +new Date(anchor) : NaN;
-        const start = Number.isFinite(parsed) ? parsed : Date.now();
-        const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - start) / 1000)));
-        tick();
-        const interval = setInterval(tick, 1000);
-        return () => clearInterval(interval);
-    }, [isRunning, analysis?.started_at, analysis?.created_at]);
 
     const fetchCancelled = useRef(false);
     const fetchTimer = useRef<number | null>(null);
@@ -252,26 +232,6 @@ export default function AnalysisResult() {
             if (fetchTimer.current != null) window.clearTimeout(fetchTimer.current);
         };
     }, [id]);
-
-    // While a run is ongoing, the only populated tab is the live reasoning view.
-    useEffect(() => {
-        if (isRunning) {
-            setActiveTab("reasoning");
-            return;
-        }
-    }, [isRunning]);
-
-    // U3: when a run finishes (running → complete without error), land the user
-    // on the report. A user who deliberately switched tabs after completion is
-    // not yanked — this only fires on the completion transition.
-    const prevIsRunning = useRef(false);
-    useEffect(() => {
-        const wasRunning = prevIsRunning.current;
-        prevIsRunning.current = isRunning;
-        if (wasRunning && !isRunning && !isErrorEarly) {
-            setActiveTab("report");
-        }
-    }, [isRunning, isErrorEarly]);
 
     // U4: the Report tab is not populated while a run is in progress.
     const reportAvailable = isComplete;
@@ -404,9 +364,11 @@ export default function AnalysisResult() {
 
     if (!analysis) return null;
 
-    // Harness runs carry a typed ReportDocument — render it deterministically
-    // and skip the legacy skill-pipeline layout entirely.
-    if (analysis.report_document) {
+    // Harness runs (and any live run, even before the first canvas snapshot)
+    // render the workspace-first view: agent workspace only while running,
+    // report only once the run is terminal. The legacy layout below is for
+    // completed skill-era rows.
+    if (isRunning || analysis.report_document) {
         return <HarnessRunView run={analysis} />;
     }
 
@@ -670,7 +632,7 @@ export default function AnalysisResult() {
                             <span>
                                 The verdict is not investment advice — it depends on the quality of the{" "}
                                 <Link
-                                    to="/console/skills"
+                                    to="/my-workspace/skills"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-[var(--ink-tertiary)] underline decoration-[var(--hairline)] underline-offset-2 transition-colors hover:text-[var(--ink-secondary)] focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-primary)]"
@@ -699,32 +661,7 @@ export default function AnalysisResult() {
                     </Box>
                 )}
 
-                {/* Live run: a status line and the agent's reasoning feed — no tabs. */}
-                {isRunning && (
-                    <Box key="running" mb={8}>
-                        <HStack gap={2.5} mb={6} color="var(--ink-secondary)">
-                            <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />
-                            <Text fontSize="13px" fontWeight={500}>Running</Text>
-                            {elapsed > 0 && (
-                                <Text fontSize="13px" fontFamily="var(--font-tabular)" fontVariantNumeric="tabular-nums" color="var(--ink-tertiary)">
-                                    {formatSeconds(elapsed)}
-                                </Text>
-                            )}
-                        </HStack>
-                        <AgentActivity
-                            title="Agent Reasoning"
-                            variant="plain"
-                            agent={analysis.agent_name || analysis.model}
-                            streamUrl={`/analysis/${id}/stream`}
-                            steps={[]}
-                            active
-                        />
-                    </Box>
-                )}
-
                 {/* Completed runs: report tabs (legacy skill pipeline). */}
-                {!isRunning && (
-                <>
                 <Box key="report" id="tab-panels" css={{ scrollMarginTop: "64px" }}>
                     <Tabs.Root
                         value={activeTab}
@@ -857,8 +794,6 @@ export default function AnalysisResult() {
 
                 {/* Everything this run recorded: tokens, tool calls, tools, timings. */}
                 <RunMetadata run={analysis} />
-                </>
-                )}
 
             </Container>
         </Box>
@@ -1025,10 +960,15 @@ function HarnessRunView({ run }: { run: any }) {
     const doc = run.report_document as ReportDocument;
     const status = String(run.status || "").toLowerCase();
     const failed = status === "failed" || status === "budget_exhausted" || status === "error";
-    // Mid-run the canvas pipeline flushes a partial document — render it live
-    // with a drafting banner instead of the bare "reasoning" view.
+    // Mid-run the canvas pipeline flushes a partial document — but the report
+    // tab stays hidden until the run is terminal; live viewing happens in the
+    // agent workspace (reasoning timeline + knowledge base) behind a spinner.
     const drafting = status === "running" || status === "pending" || status === "processing";
-    const [harnessTab, setHarnessTab] = useState<HarnessTab>("report");
+    // Derived tab — no effect: while drafting the workspace is the ONLY view;
+    // the moment the run finishes the report is selected (unless the user
+    // picks a tab afterwards, which is what the null default preserves).
+    const [postRunTab, setPostRunTab] = useState<HarnessTab | null>(null);
+    const harnessTab: HarnessTab = drafting ? "agent workspace" : postRunTab ?? "report";
     const workspace = (run.workspace ?? null) as Record<string, string> | null;
     const hasTrace = Array.isArray(run.trace) && run.trace.length > 0;
     return (
@@ -1043,7 +983,9 @@ function HarnessRunView({ run }: { run: any }) {
                 </Link>
                 <Tabs.Root
                     value={harnessTab}
-                    onValueChange={(details) => setHarnessTab(details.value as HarnessTab)}
+                    onValueChange={(details) => {
+                        if (!drafting) setPostRunTab(details.value as HarnessTab);
+                    }}
                     variant="line"
                     size="sm"
                     mt={2}
@@ -1055,7 +997,11 @@ function HarnessRunView({ run }: { run: any }) {
                         overflowX="auto"
                         data-print-hide
                     >
-                        {HARNESS_TABS.map((tab) => (
+                        {HARNESS_TABS.map((tab) => {
+                            // No report trigger until the run completes — the
+                            // report must not be reachable mid-run at all.
+                            if (drafting && tab !== "agent workspace") return null;
+                            return (
                             <Tabs.Trigger
                                 key={tab}
                                 value={tab}
@@ -1077,7 +1023,8 @@ function HarnessRunView({ run }: { run: any }) {
                                     <Box as={motion.div} layoutId="harness-tab-underline" position="absolute" bottom={0} left={0} right={0} h="2px" bg="var(--accent-primary)" />
                                 )}
                             </Tabs.Trigger>
-                        ))}
+                            );
+                        })}
                     </Tabs.List>
 
                     {/* ── Report ── */}
@@ -1103,6 +1050,14 @@ function HarnessRunView({ run }: { run: any }) {
 
                     {/* ── Agent Workspace ── */}
                     <Tabs.Content value="agent workspace">
+                        {drafting && (
+                            <Flex align="center" gap={2.5} mt={4} mb={2}>
+                                <Spinner size="sm" borderWidth="2px" color="var(--accent-primary)" />
+                                <Text fontSize="13px" color="var(--ink-secondary)">
+                                    Run in progress — reasoning and knowledge base stream in here live.
+                                </Text>
+                            </Flex>
+                        )}
                         {hasTrace && (
                             <Box mt={4} mb={2}>
                                 <Text fontSize="13px" fontWeight={600} mb={3}>Agent Reasoning</Text>
@@ -1118,7 +1073,7 @@ function HarnessRunView({ run }: { run: any }) {
                                 <WorkspaceExplorer workspace={workspace} live={drafting} />
                             </Box>
                         )}
-                        {!hasTrace && !workspace && (
+                        {!drafting && !hasTrace && !workspace && (
                             <Text mt={4} fontSize="13px" color="var(--ink-tertiary)">
                                 No workspace data recorded for this run.
                             </Text>
