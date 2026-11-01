@@ -10,15 +10,15 @@
  */
 
 import {
+  allBlocks,
   countCharts,
-  supGlyph,
+  type Block,
   type ChartSpec,
   type ReportDocument,
-  type Section,
   type Series,
 } from "./document.js";
 import type { TraceEvent } from "../types.js";
-import { validateAgainstTemplate, type OutputTemplate } from "../system-prompts/catalog.js";
+import { type OutputTemplate } from "../system-prompts/catalog.js";
 import { renderFigure } from "./figure-kit.js";
 import { jsonrepair } from "jsonrepair";
 
@@ -251,15 +251,15 @@ export function attachChartData(
     .reverse(); // newest first, matching dataResults
   const results = archived.length ? archived : dataResults(trace);
   if (!results.length) return doc;
-  for (const section of doc.sections) {
-    if (section.type === "chart") {
-      section.spec = resolveSpec(section.spec, results);
-      if (section.panels?.length) section.panels = section.panels.map((p) => resolveSpec(p, results));
+  for (const block of allBlocks(doc)) {
+    if (block.type === "chart") {
+      block.spec = resolveSpec(block.spec, results);
+      if (block.panels?.length) block.panels = block.panels.map((p) => resolveSpec(p, results));
     }
-    if (section.type === "compare") {
+    if (block.type === "compare") {
       // Compare sides are ChartSpecs or diagrams; only charts can carry tokens.
-      if ("kind" in section.before) section.before = resolveSpec(section.before, results);
-      if ("kind" in section.after) section.after = resolveSpec(section.after, results);
+      if ("kind" in block.before) block.before = resolveSpec(block.before, results);
+      if ("kind" in block.after) block.after = resolveSpec(block.after, results);
     }
   }
   return doc;
@@ -287,153 +287,31 @@ export function enforceTemplate(
     .filter((r): r is any => r != null && typeof r === "object")
     .reverse();
   const results = archived.length ? archived : dataResults(trace);
-  const injected: ReportDocument["sections"] = [];
+  const injected: Block[] = [];
   for (let i = 0; i < missing; i++) {
     const spec = resolveSpec({ kind: "line", data: INJECT_TOKENS[Math.min(i, INJECT_TOKENS.length - 1)] }, results);
     if (!spec.series?.length) break;
-    injected.push({ type: "chart", title: i === 0 ? "Price" : `Supporting chart ${i}`, spec });
+    injected.push({ type: "chart", title: i === 0 ? "Price" : `Supporting chart ${i}`, spec, sourceId: "s1" });
   }
   if (!injected.length) return doc;
-  // Keep citations last, as the contract asks.
-  const at = doc.sections.map((s) => s.type).lastIndexOf("citations");
-  doc.sections.splice(at < 0 ? doc.sections.length : at, 0, ...injected);
+  // Land the charts in their own trailing section (citations ride the tail
+  // as a block inside the last section — append before nothing; it's fine).
+  doc.sections.push({ heading: { level: 2, text: "Price action" }, blocks: injected });
   return doc;
 }
 
 /**
- * Deterministic figure rendering: every chart section gains `svgs`
+ * Deterministic figure rendering: every chart block gains `svgs`
  * (self-contained, theme-var'd — see figure-kit). Runs at assembly after
  * attachChartData/enforceTemplate so tokens are already resolved. Atomic
- * per section: all-or-nothing keeps svgs index-aligned with [spec, ...panels],
- * and a candle among them hands the whole section to the client path
+ * per block: all-or-nothing keeps svgs index-aligned with [spec, ...panels],
+ * and a candle among them hands the whole block to the client path
  * (live MarketChart).
  */
 export function renderFigures(doc: ReportDocument): void {
-  for (const s of doc.sections) {
-    if (s.type !== "chart") continue;
-    const svgs = [s.spec, ...(s.panels ?? [])].map((sp) => renderFigure(sp, { label: s.title, unit: s.measure, ink: s.color }));
-    if (svgs.length && svgs.every((x): x is string => x != null)) s.svgs = svgs;
+  for (const block of allBlocks(doc)) {
+    if (block.type !== "chart") continue;
+    const svgs = [block.spec, ...(block.panels ?? [])].map((sp) => renderFigure(sp, { label: block.title, unit: block.measure, ink: block.color }));
+    if (svgs.length && svgs.every((x): x is string => x != null)) block.svgs = svgs;
   }
-}
-
-// Matches `[src:<any_id>]` (agents invent ids like s1, src_009…) and the
-// legacy bracketless `[src_<id>]` form.
-const TOKEN = /\[src:(\w+)\]|\[src_(\w+)\]/g;
-
-/**
- * Citations as footnotes (never a separate sources list): resolve every
- * inline citation to a Source, assign first-citation numbers, rewrite the
- * `[src:…]` tokens in prose to superscript markers, and store the ordered
- * ids on `doc.footnotes`. Runs at assembly — renderers only print numbers.
- * Resolution tolerates id namespacing (src_019 → src_019_6): exact match,
- * else first id the token is a base of.
- */
-export function computeFootnotes(doc: ReportDocument): void {
-  const resolve = (id: string): string | undefined =>
-    doc.sources.find((x) => x.id === id)?.id ?? doc.sources.find((x) => x.id.startsWith(id + "_"))?.id;
-  const order: string[] = [];
-  const note = (raw?: string) => {
-    if (!raw) return;
-    const id = resolve(raw);
-    if (id && !order.includes(id)) order.push(id);
-  };
-  const prose = (sec: Section): sec is Extract<Section, { type: "paragraph" } | { type: "callout" }> =>
-    sec.type === "paragraph" || sec.type === "callout";
-  for (const sec of doc.sections) {
-    if (prose(sec)) {
-      for (const m of (sec.text ?? "").matchAll(TOKEN)) note(m[1] ?? `src_${m[2]}`);
-      for (const h of sec.highlights ?? []) note(h.sourceId);
-    } else if (sec.type === "quote") note(sec.sourceId);
-    else if (sec.type === "table") {
-      // Agents cite inside table cells — those tokens are citations too.
-      for (const m of (sec.caption ?? "").matchAll(TOKEN)) note(m[1] ?? `src_${m[2]}`);
-      for (const row of sec.rows) for (const cell of row) if (typeof cell === "string") for (const m of cell.matchAll(TOKEN)) note(m[1] ?? `src_${m[2]}`);
-    }
-  }
-  if (order.length) {
-    const sup = (id: string | undefined) => {
-      const r = id ? resolve(id) : undefined;
-      const n = r ? order.indexOf(r) : -1;
-      return n >= 0 ? supGlyph(n + 1) : "";
-    };
-    for (const sec of doc.sections) {
-      if (sec.type === "table") {
-        const sub = (t: string) => t.replace(TOKEN, (whole, a?: string, b?: string) => sup(a ?? `src_${b}`) || whole);
-        if (sec.caption) sec.caption = sub(sec.caption);
-        sec.rows = sec.rows.map((row) => row.map((cell) => (typeof cell === "string" ? sub(cell) : cell)));
-        continue;
-      }
-      if (sec.type === "chart" && sec.caption) {
-        sec.caption = sec.caption.replace(TOKEN, (whole, a?: string, b?: string) => sup(a ?? `src_${b}`) || whole);
-        continue;
-      }
-      if (!prose(sec)) continue;
-      const tokened = new Set(
-        [...sec.text.matchAll(TOKEN)].map((m) => resolve(m[1] ?? `src_${m[2]}`)).filter((x): x is string => !!x),
-      );
-      let text = sec.text.replace(TOKEN, (whole, a?: string, b?: string) => sup(a ?? `src_${b}`) || whole);
-      // a highlight whose source has no token in this paragraph gets the
-      // marker right after its span (first occurrence)
-      for (const h of sec.highlights ?? []) {
-        const r = h.sourceId ? resolve(h.sourceId) : undefined;
-        if (!r || !h.text || tokened.has(r) || !text.includes(h.text)) continue;
-        text = text.replace(h.text, h.text + sup(r));
-      }
-      sec.text = text;
-    }
-  }
-  doc.footnotes = order.length ? order : undefined;
-}
-
-/**
- * Inline clickable citations — the skill override for report-structures that
- * say "No footnotes" (frontmatter `citations: inline`). Rewrites `[src:…]`
- * tokens in prose to `[label](url)` links in place, turns sourceId highlights
- * into links when their paragraph carries no token for that source, links
- * quotes' sourceId, and leaves doc.footnotes unset — no superscript markers,
- * no end-of-report footnote block. Called at assembly INSTEAD of
- * computeFootnotes, after number verify (links are prose, never parsed).
- */
-export function computeInlineCitations(doc: ReportDocument): void {
-  const resolve = (id: string): string | undefined =>
-    doc.sources.find((x) => x.id === id)?.id ?? doc.sources.find((x) => x.id.startsWith(id + "_"))?.id;
-  const source = (id?: string): (typeof doc.sources)[number] | undefined => {
-    const r = id ? resolve(id) : undefined;
-    return r ? doc.sources.find((x) => x.id === r) : undefined;
-  };
-  /** token → inline link; unknown id keeps the token (validation flags it). */
-  const tokenText = (raw?: string): string | undefined => {
-    const s = source(raw);
-    if (!s) return undefined;
-    return s.url ? `[${s.label}](${s.url})` : s.label;
-  };
-  const prose = (sec: Section): sec is Extract<Section, { type: "paragraph" } | { type: "callout" }> =>
-    sec.type === "paragraph" || sec.type === "callout";
-  for (const sec of doc.sections) {
-    if (prose(sec)) {
-      const tokened = new Set(
-        [...(sec.text ?? "").matchAll(TOKEN)].map((m) => resolve(m[1] ?? `src_${m[2]}`)).filter((x): x is string => !!x),
-      );
-      let text = (sec.text ?? "").replace(TOKEN, (whole, a?: string, b?: string) => tokenText(a ?? `src_${b}`) || whole);
-      // Highlight whose source has no token here: the span itself becomes the
-      // link (skill rule: "link source names, numbers, … directly").
-      for (const h of sec.highlights ?? []) {
-        const r = h.sourceId ? resolve(h.sourceId) : undefined;
-        if (!r || !h.text || tokened.has(r) || !text.includes(h.text)) continue;
-        const s = doc.sources.find((x) => x.id === r);
-        if (s?.url) text = text.replace(h.text, `[${h.text}](${s.url})`);
-      }
-      sec.text = text;
-    } else if (sec.type === "quote") {
-      const s = source(sec.sourceId);
-      if (s?.url && !sec.text.includes(s.url)) sec.text = `${sec.text} — [${s.label}](${s.url})`;
-    } else if (sec.type === "table") {
-      const sub = (t: string) => t.replace(TOKEN, (whole, a?: string, b?: string) => tokenText(a ?? `src_${b}`) || whole);
-      if (sec.caption) sec.caption = sub(sec.caption);
-      sec.rows = sec.rows.map((row) => row.map((cell) => (typeof cell === "string" ? sub(cell) : cell)));
-    } else if (sec.type === "chart" && sec.caption) {
-      sec.caption = sec.caption.replace(TOKEN, (whole, a?: string, b?: string) => tokenText(a ?? `src_${b}`) || whole);
-    }
-  }
-  doc.footnotes = undefined;
 }

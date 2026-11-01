@@ -19,8 +19,8 @@
 
 import type { LanguageModel, StepResult, ToolSet } from "ai";
 import { loadAgentConfig, promptDoc } from "../config.js";
-import { countCharts, sectionHeadings, type ReportDocument } from "../report/document.js";
-import { renderFigures, computeInlineCitations, computeFootnotes } from "../report/builder.js";
+import { allBlocks, countCharts, sectionHeadings, type ReportDocument } from "../report/document.js";
+import { attachChartData, renderFigures } from "../report/builder.js";
 import { applyVariables, type OutputTemplate } from "../system-prompts/catalog.js";
 import { activateSkill, reportStructureBlock } from "../skills/activate.js";
 import type { HarnessSkill } from "../skills/loader.js";
@@ -210,16 +210,16 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
   const formatGaps = (): string => {
     const tpl = options.template;
     if (!tpl) return "";
-    const doc = canvas.document({ final: false });
+    const doc = canvas.document();
     const have = sectionHeadings(doc);
     const missing = (tpl.required_sections ?? []).filter((w) => !have.some((h) => h.includes(w.toLowerCase())));
     const charts = countCharts(doc);
-    const chartSections = doc.sections.filter((x) => x.type === "chart");
+    const chartBlocks = allBlocks(doc).filter((x) => x.type === "chart");
     const gaps: string[] = [];
     if (missing.length) gaps.push(`sections still missing: ${missing.join(", ")}`);
     if (tpl.min_charts && charts < tpl.min_charts) gaps.push(`charts: ${charts}/${tpl.min_charts}`);
     if (tpl.require_sources && !doc.sources.length) gaps.push("no sources cited yet");
-    const bare = chartSections.filter((x) => !x.measure || !x.sourceId).length;
+    const bare = chartBlocks.filter((x) => !x.measure || !x.sourceId).length;
     if (bare) gaps.push(`charts missing measure/sourceId: ${bare}`);
     return gaps.length
       ? `## Report format status — still missing\n- ${gaps.join("\n- ")}\nWrite the gaps with report_write before finishing.`
@@ -282,24 +282,15 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
   } catch (e: any) {
     emit({ type: "log", text: `agent loop crashed — ${friendlyError(e?.message || String(e))}` });
   }
-  canvas.recordEvidence(trace);
   notify();
 
-  // ── STITCH — the section-groups, one after the other, as the agent wrote them
-  // Passes: renderFigures draws each chart's SVG; citations follow the active
-  // skill's mode — `citations: inline` (frontmatter) rewrites [src:…] tokens to
-  // clickable [label](url) links and drops the footnotes tail; otherwise the
-  // tokens stamp as numbered footnotes. No template/number validation either way.
-  const document = canvas.document({ final: true });
+  // ── STITCH — the section-groups, one after the other, exactly as the agent
+  // wrote them. Passes: attachChartData expands chart data tokens from this
+  // run's archived results, renderFigures draws each chart's SVG. Raw [src:…]
+  // tokens and sources stay exactly as written — no rewriting.
+  const document = canvas.document();
+  attachChartData(document, trace);
   renderFigures(document);
-  const inlineCitations = options.skills.some((s) => s.citations === "inline");
-  if (inlineCitations) {
-    // The skill's report-structure forbids footnotes/sources lists — links only.
-    document.sections = document.sections.filter((s) => s.type !== "citations");
-    computeInlineCitations(document);
-  } else {
-    computeFootnotes(document);
-  }
 
   const loopErrors: string[] = [];
   if (loopStatus === "failed") loopErrors.push("agent loop failed");

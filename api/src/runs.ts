@@ -163,7 +163,7 @@ export async function runHarnessSymbol(
     try {
       await getDb()
         .from("analysis_runs")
-        .update({ report: canvas.document({ final: false }), updated_at: new Date().toISOString() })
+        .update({ report: canvas.document(), updated_at: new Date().toISOString() })
         .eq("id", runId);
     } catch (e: any) {
       log.warn("harness", `canvas snapshot failed for run ${runId}: ${e?.message || e}`);
