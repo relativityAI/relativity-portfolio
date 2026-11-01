@@ -105,11 +105,13 @@ export const AnalysisService = {
     /** Run a harness agent against a symbol; resolves with the typed ReportDocument. */
     async runAnalysis(config: {
         symbol: string;
-        agent_id: string;
+        agent_id?: string;
         model?: string;
         source?: string;
         share_name?: string;
-        output_template_id?: string;
+        skills?: string[];
+        max_steps?: number;
+        max_tokens?: number;
     }) {
         const response = await axios.post(`${API_BASE}/analysis`, config);
         return response.data as {

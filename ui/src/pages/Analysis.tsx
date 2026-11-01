@@ -1,11 +1,9 @@
 import { Flex, Text, Spinner, Box } from "@chakra-ui/react";
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { MdCheck, MdClose } from "react-icons/md";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AnalysisService, SettingsService, API_BASE, isServerFreeModel } from "@/db";
-import { HarnessAgentService, type HarnessAgent } from "@/lib/harnessAgents";
+import { AnalysisService, SkillService, API_BASE, type SkillSummary } from "@/db";
 import { formatSeconds } from "@/utils";
-import AgentAvatar from "@/components/shared/AgentAvatar";
 import { ModelLogo } from "@/lib/modelLogos";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { type RunStep, runProgressPct } from "./shared/RunStatus";
@@ -13,7 +11,7 @@ import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress
 import AgentActivity from "@/components/shared/AgentActivity";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease, stagger, staggerItem } from "@/lib/motion";
-import { TickerLogo, SourceMark } from "@/lib/sourceLogos";
+import { TickerLogo } from "@/lib/sourceLogos";
 import {
     MenuDropdown,
     DropdownItem,
@@ -21,11 +19,10 @@ import {
     SecondaryButton,
     ResumingButton,
 } from "./shared/AnalysisControls";
+import ChipMultiSelect from "./shared/ChipMultiSelect";
+import { Input } from "@/components/ui/input";
 
 const MAX_POLL_RETRIES = 600;
-
-// Preferred model selected when the user hasn't picked one and it's available.
-const PREFERRED_DEFAULT_MODEL = "groq/openai/gpt-oss-120b";
 
 const PROVIDER_LABELS: Record<string, string> = {
     openai: "OpenAI",
@@ -109,11 +106,11 @@ function SummaryRow({ label, value, sub, muted, icon }: { label: string; value: 
 function AnalysisSummary(props: {
     status: StatusType;
     resuming: boolean;
-    source: string;
     share: string;
     shareName: string;
-    agentName: string | null;
     model: string;
+    skillsLabel: string;
+    budgetLabel: string;
     canRun: boolean;
     onRun: () => void;
     elapsedTime: number;
@@ -124,10 +121,8 @@ function AnalysisSummary(props: {
     const { status } = props;
 
     const companyLabel = props.share ? (props.shareName || props.share) : "Not set";
-    const targetLabel = props.agentName || "Not set";
     const modelLabel = props.model ? modelName(props.model) : "Not set";
     const modelSub = props.model ? `${providerLabel(modelPrefix(props.model))} · ${props.model}` : undefined;
-    const sourceKey = (props.source || "").toUpperCase().includes("SEC") ? "sec" : "nse";
 
     if (status === "PENDING") {
         return (
@@ -220,24 +215,14 @@ function AnalysisSummary(props: {
                 muted={!props.share}
             />
             <SummaryRow
-                label="Market"
-                icon={props.source ? <SourceMark source={sourceKey} size={16} /> : undefined}
-                value={props.source || "Not set"}
-                muted={!props.source}
-            />
-            <SummaryRow
-                label="Agent"
-                icon={props.agentName ? <AgentAvatar agent={props.agentName} size={16} /> : undefined}
-                value={targetLabel}
-                muted={!props.agentName}
-            />
-            <SummaryRow
                 label="Model"
                 icon={props.model ? <ModelLogo model={props.model} size={16} /> : undefined}
                 value={modelLabel}
                 sub={modelSub}
                 muted={!props.model}
             />
+            <SummaryRow label="Skills" value={props.skillsLabel} muted={props.skillsLabel === "All skills"} />
+            <SummaryRow label="Budget" value={props.budgetLabel} muted={props.budgetLabel === "Default"} />
             <Box pt={3} mt={1}>
                 {props.resuming ? (
                     <ResumingButton>
@@ -260,7 +245,6 @@ export default function Analysis() {
     const { id } = useParams();
     const navigate = useNavigate();
 
-    const [availableAgents, setAvailableAgents] = useState<HarnessAgent[]>([]);
     const [correlationId, setCorrelationId] = useState<string>(id || "");
     const [status, setStatus] = useState<StatusType>("EMPTY");
     const [loading, setLoading] = useState(false);
@@ -280,18 +264,15 @@ export default function Analysis() {
         }
     }, [status, startedAt]);
 
+    // CLI parity: the run page passes the same flags as
+    // `cli.ts --real --symbol --model --max-steps --max-tokens --skills`.
+    // Market is fixed to SEC (the CLI's --source default); the persona comes
+    // from the server's seeded default agent — the CLI has no --agent either.
     const [config, setConfig] = useState({
-        source: "NSE",
+        source: "SEC",
         share: "",
         shareName: "",
     });
-
-    const sourceKeyMap: Record<string, { mainKey: string; secondaryKey: string; nameField: string }> = {
-        SEC: { mainKey: "ticker", secondaryKey: "name", nameField: "name" },
-        NSE: { mainKey: "SYMBOL", secondaryKey: "NAME", nameField: "NAME" },
-    };
-
-    const sourceKeys = sourceKeyMap[config.source] || sourceKeyMap.SEC;
 
     const [stockQuery, setStockQuery] = useState("");
     const [stockItems, setStockItems] = useState<any[]>([]);
@@ -302,7 +283,6 @@ export default function Analysis() {
         if (stockDebounceRef.current) clearTimeout(stockDebounceRef.current);
         if (stockAbortRef.current) stockAbortRef.current.abort();
         const query = stockQuery.trim();
-        const source = config.source;
         stockDebounceRef.current = setTimeout(async () => {
             if (!query) {
                 setStockItems([]);
@@ -313,7 +293,8 @@ export default function Analysis() {
             const controller = new AbortController();
             stockAbortRef.current = controller;
             try {
-                const params = new URLSearchParams({ query, source });
+                // One search across BOTH markets — the picked row decides the source.
+                const params = new URLSearchParams({ query });
                 const response = await fetch(`${API_BASE}/stocks/search?${params}`, {
                     signal: controller.signal,
                 });
@@ -328,77 +309,29 @@ export default function Analysis() {
         return () => {
             if (stockDebounceRef.current) clearTimeout(stockDebounceRef.current);
         };
-    }, [stockQuery, config.source]);
+    }, [stockQuery]);
 
-    const [availableModels, setAvailableModels] = useState<string[]>([]);
-    const [defaultModel, setDefaultModel] = useState("");
-    const [selectedModel, setSelectedModel] = useState("");
+    const [model, setModel] = useState("opencode/deepseek-v4.1-flash");
     const [modelError, setModelError] = useState<string | null>(null);
-    const [modelQuery, setModelQuery] = useState("");
-    const [outputTemplates, setOutputTemplates] = useState<{ id: string; name: string; description: string }[]>([]);
-    const [selectedTemplateId, setSelectedTemplateId] = useState("");
+    const [maxSteps, setMaxSteps] = useState("");
+    const [maxTokens, setMaxTokens] = useState("");
+    const [skills, setSkills] = useState<SkillSummary[]>([]);
+    const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
 
     useEffect(() => {
-        HarnessAgentService.listTemplates().then(setOutputTemplates).catch(() => setOutputTemplates([]));
+        SkillService.listSkills().then(setSkills).catch(() => setSkills([]));
     }, []);
 
-    const fetchModels = useCallback(async () => {
-        try {
-            const [modelsData, settings, def] = await Promise.all([
-                AnalysisService.getAvailableModels(),
-                SettingsService.getSettings().catch(() => ({ llm_keys: {} })),
-                AnalysisService.getDefaultModel().catch(() => ({ model_id: "" })),
-            ]);
-            const allModels = Array.isArray(modelsData) ? modelsData : [];
-            const keys = Object.keys(settings?.llm_keys || {});
-            const llmKeys = keys.filter((k) => k !== "tavily");
-            const models = llmKeys.length > 0
-                ? allModels.filter((m: string) => {
-                    const provider = m.split("/")[0];
-                    return provider === "ollama" || llmKeys.includes(provider) || isServerFreeModel(m);
-                })
-                : allModels;
-            setAvailableModels(models);
-            const preferred = models.includes(PREFERRED_DEFAULT_MODEL)
-                ? PREFERRED_DEFAULT_MODEL
-                : models.includes(def?.model_id || "") ? def.model_id : "";
-            setDefaultModel(preferred);
-            setSelectedModel(prev => {
-                if (prev && models.includes(prev)) return prev;
-                return preferred || models[0] || "";
-            });
-        } catch {
-            setAvailableModels([]);
-        }
-    }, []);
-
-    const handleConfigChange = useCallback((field: string, value: string, item?: any) => {
-        const nameField = sourceKeys.nameField;
+    const handleStockPick = useCallback((stock: any) => {
+        // Rows from /stocks/search always carry both key styles; pick from the
+        // row itself so NSE/SEC rows resolve correctly regardless of prior config.
+        const src = String(stock.source || "").toUpperCase() === "NSE" ? "NSE" : "SEC";
         setConfig(prev => ({
             ...prev,
-            [field]: value || "",
-            shareName: field === 'share' && item ? item[nameField] : prev.shareName
+            source: src,
+            share: stock.ticker || stock.SYMBOL || "",
+            shareName: stock.name || stock.NAME || stock.ticker || stock.SYMBOL || "",
         }));
-    }, [sourceKeys]);
-
-    const handleSourceChange = useCallback((value: string) => {
-        setStockQuery("");
-        setStockItems([]);
-        setConfig(prev => ({
-            ...prev,
-            source: value,
-            share: "",
-            shareName: "",
-        }));
-    }, []);
-
-    const fetchAvailableAgents = useCallback(async () => {
-        try {
-            const data = await HarnessAgentService.list();
-            setAvailableAgents(Array.isArray(data) ? data : []);
-        } catch {
-            setAvailableAgents([]);
-        }
     }, []);
 
     const checkModel = useCallback(async (modelId: string) => {
@@ -417,38 +350,34 @@ export default function Analysis() {
     }, []);
 
     useEffect(() => {
-        fetchAvailableAgents();
-        fetchModels();
         if (id) {
             fetchAnalysisData(id);
         }
-    }, [id, fetchAvailableAgents, fetchModels]);
+        // fetchAnalysisData is a stable useCallback; effect key is the route id.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id]);
 
     const [starting, setStarting] = useState(false);
     const [runError, setRunError] = useState<string | null>(null);
-    const [selectedAgentId, setSelectedAgentId] = useState<string>("");
-    const selectedAgent = useMemo(
-        () => availableAgents.find((a) => a.id === selectedAgentId) || null,
-        [availableAgents, selectedAgentId]
-    );
 
     const runAnalysis = async () => {
         if (starting || status !== "EMPTY") return;
-        if (!config.source || !config.share || !selectedAgentId) return;
+        if (!config.share) return;
 
         setStarting(true);
         setRunError(null);
         try {
-            const isValid = await checkModel(selectedModel || availableModels[0]);
+            const isValid = await checkModel(model.trim());
             if (!isValid) return;
 
             const result = await AnalysisService.runAnalysis({
                 share_name: config.shareName || config.share,
                 symbol: config.share,
-                agent_id: selectedAgentId,
-                model: selectedModel || undefined,
+                model: model.trim(),
                 source: config.source,
-                output_template_id: selectedTemplateId || undefined,
+                skills: selectedSkills.length ? selectedSkills : undefined,
+                max_steps: maxSteps ? Number(maxSteps) : undefined,
+                max_tokens: maxTokens ? Number(maxTokens) : undefined,
             });
 
             if (result?.id) {
@@ -501,7 +430,7 @@ export default function Analysis() {
                     setStatus("PENDING");
                 }
 
-                if (data.model) setSelectedModel(data.model);
+                if (data.model) setModel(data.model);
             }
         } catch {
             setStatus("ERROR");
@@ -547,8 +476,15 @@ export default function Analysis() {
         }
     }, [status, correlationId, navigate]);
 
-    const isConfigComplete = config.share !== "" && !!selectedAgentId;
+    const isConfigComplete = config.share !== "" && !!model.trim();
     const canRunAnalysis = isConfigComplete;
+    const skillsLabel = selectedSkills.length
+        ? skills.filter((s) => selectedSkills.includes(s.id)).map((s) => s.name).join(", ")
+        : "All skills";
+    const budgetLabel =
+        [maxSteps && `${maxSteps} steps`, maxTokens && `${Number(maxTokens).toLocaleString()} tokens`]
+            .filter(Boolean)
+            .join(" · ") || "Default";
 
     return (
         <Box
@@ -570,7 +506,7 @@ export default function Analysis() {
                     <Flex direction="column" align="center" gap={3}>
                         <Spinner size="lg" borderWidth="2px" color="var(--accent-primary)" />
                         <Text fontSize="13px" fontFamily="var(--font-body)" color="var(--ink-secondary)">
-                            Running {selectedAgent?.name || "agent"}…
+                            Running analysis…
                         </Text>
                     </Flex>
                 </Box>
@@ -615,36 +551,15 @@ export default function Analysis() {
                                 py={{ base: 5, md: 6 }}
                             >
                                 <Flex direction={{ base: "column", md: "row" }} gap={{ base: 5, md: 6 }}>
-                                    <Box w={{ base: "full", md: "150px" }} flexShrink={0}>
-                                        <FieldLabel>Market</FieldLabel>
-                                        <MenuDropdown value={config.source} placeholder="Market">
-                                            {(close) => (
-                                                <Box>
-                                                    {(["NSE", "SEC"] as const).map((m) => (
-                                                        <DropdownItem
-                                                            key={m}
-                                                            label={m === "SEC" ? "SEC · United States" : "NSE · India"}
-                                                            selected={config.source === m}
-                                                            logo={<SourceMark source={m.toLowerCase() as "nse" | "sec"} size={16} />}
-                                                            onClick={() => {
-                                                                handleSourceChange(m);
-                                                                close();
-                                                            }}
-                                                        />
-                                                    ))}
-                                                </Box>
-                                            )}
-                                        </MenuDropdown>
-                                    </Box>
                                     <Box flex={1} minW={0}>
                                         <FieldLabel>Company</FieldLabel>
                                         <MenuDropdown
                                             value={config.share ? `${config.shareName || config.share}` : null}
-                                            placeholder="Search companies..."
+                                            placeholder="Search company or symbol…"
                                             search={{
                                                 value: stockQuery,
                                                 onChange: setStockQuery,
-                                                placeholder: config.source === "SEC" ? "Search US stocks" : "Search Indian stocks",
+                                                placeholder: "Search by company name or symbol…",
                                             }}
                                         >
                                             {(close) => (
@@ -660,19 +575,25 @@ export default function Analysis() {
                                                             {stockQuery ? `Nothing matches "${stockQuery}".` : "Start typing to search."}
                                                         </Text>
                                                     )}
-                                                    {stockItems.map((stock: any) => (
-                                                        <DropdownItem
-                                                            key={stock[sourceKeys.mainKey]}
-                                                            label={stock[sourceKeys.mainKey]}
-                                                            sub={stock[sourceKeys.secondaryKey]}
-                                                            selected={stock[sourceKeys.mainKey] === config.share}
-                                                            logo={<TickerLogo symbol={stock[sourceKeys.mainKey]} size={18} />}
-                                                            onClick={() => {
-                                                                handleConfigChange("share", stock[sourceKeys.mainKey], stock);
-                                                                close();
-                                                            }}
-                                                        />
-                                                    ))}
+                                                    {stockItems.map((stock: any) => {
+                                                        const sym = stock.ticker || stock.SYMBOL || "";
+                                                        const nm = stock.name || stock.NAME || sym;
+                                                        const market = String(stock.source || "").toLowerCase() === "nse" ? "NSE" : "SEC";
+                                                        return (
+                                                            <DropdownItem
+                                                                key={`${market}-${sym}`}
+                                                                label={nm}
+                                                                sub={sym}
+                                                                tag={market}
+                                                                selected={sym === config.share && market === config.source}
+                                                                logo={<TickerLogo symbol={sym} size={18} />}
+                                                                onClick={() => {
+                                                                    handleStockPick(stock);
+                                                                    close();
+                                                                }}
+                                                            />
+                                                        );
+                                                    })}
                                                 </Box>
                                             )}
                                         </MenuDropdown>
@@ -680,123 +601,27 @@ export default function Analysis() {
                                 </Flex>
                             </Box>
 
-                            {/* Agent + Model, side by side */}
+                            {/* Model + budget — CLI's --model, --max-steps, --max-tokens */}
                             <Flex direction={{ base: "column", md: "row" }} gap={{ base: 0, md: 6 }} align="flex-start">
                             <Box
                                 as={motion.div}
                                 variants={staggerItem}
                                 py={{ base: 5, md: 6 }}
-                                flex={1}
+                                flex={2}
                                 minW={0}
                             >
-                                <StepHeader title="Agent" done={!!selectedAgentId} />
-                                <Box>
-                                    <MenuDropdown
-                                        value={selectedAgent?.name || null}
-                                        placeholder="Select an agent"
-                                    >
-                                        {(close) => (
-                                            <Box>
-                                                {availableAgents.length === 0 && (
-                                                    <Text fontSize="12px" fontFamily="var(--font-body)" color="var(--ink-tertiary)" textAlign="center" py={3}>
-                                                        No agents found. Create one in the agent console first.
-                                                    </Text>
-                                                )}
-                                                {availableAgents.map((agent) => (
-                                                    <DropdownItem
-                                                        key={agent.id}
-                                                        label={agent.name}
-                                                        selected={agent.id === selectedAgentId}
-                                                        logo={<AgentAvatar agent={agent} size={18} />}
-                                                        onClick={() => {
-                                                            setSelectedAgentId(agent.id);
-                                                            close();
-                                                        }}
-                                                    />
-                                                ))}
-                                            </Box>
-                                        )}
-                                    </MenuDropdown>
-                                </Box>
-                            </Box>
-
-                            {/* Model */}
-                            <Box
-                                as={motion.div}
-                                variants={staggerItem}
-                                py={{ base: 5, md: 6 }}
-                                flex={1}
-                                minW={0}
-                            >
-                                <StepHeader title="Model" done={!!selectedModel} />
-                                <MenuDropdown
-                                    value={selectedModel ? modelName(selectedModel) : null}
-                                    placeholder="Select model"
-                                    logo={selectedModel ? <ModelLogo model={selectedModel} size={16} /> : undefined}
-                                    search={{ value: modelQuery, onChange: setModelQuery, placeholder: "Search models" }}
-                                >
-                                    {(close) => (
-                                        <Box>
-                                            {availableModels.length === 0 && (
-                                                <Text fontSize="12px" fontFamily="var(--font-body)" color="var(--ink-tertiary)" textAlign="center" py={3}>
-                                                    No models available
-                                                </Text>
-                                            )}
-                                            {(() => {
-                                                const q = modelQuery.trim().toLowerCase();
-                                                const matching = q
-                                                    ? availableModels.filter((m) =>
-                                                        m.toLowerCase().includes(q) || modelName(m).toLowerCase().includes(q) ||
-                                                        providerLabel(modelPrefix(m)).toLowerCase().includes(q))
-                                                    : availableModels;
-                                                const groups = new Map<string, string[]>();
-                                                for (const m of matching) {
-                                                    const p = modelPrefix(m);
-                                                    if (!groups.has(p)) groups.set(p, []);
-                                                    groups.get(p)!.push(m);
-                                                }
-                                                const order = [...groups.keys()];
-                                                if (defaultModel && !q) {
-                                                    const dp = modelPrefix(defaultModel);
-                                                    if (order.includes(dp)) {
-                                                        order.splice(order.indexOf(dp), 1);
-                                                        order.unshift(dp);
-                                                        groups.set(dp, [defaultModel, ...groups.get(dp)!.filter(m => m !== defaultModel)]);
-                                                    }
-                                                }
-                                                if (matching.length === 0) {
-                                                    return (
-                                                        <Text fontSize="12px" fontFamily="var(--font-body)" color="var(--ink-tertiary)" textAlign="center" py={3}>
-                                                            Nothing matches "{modelQuery}".
-                                                        </Text>
-                                                    );
-                                                }
-                                                return order.map((prefix) => (
-                                                    <Box key={prefix}>
-                                                        <Text fontSize="10px" fontFamily="var(--font-body)" fontWeight={400} color="var(--ink-tertiary)" px={3} pt={2} pb={1}>
-                                                            {providerLabel(prefix)}
-                                                        </Text>
-                                                        {groups.get(prefix)!.map((m) => (
-                                                            <DropdownItem
-                                                                key={m}
-                                                                label={modelName(m)}
-                                                                sub={m}
-                                                                selected={m === selectedModel}
-                                                                logo={<ModelLogo model={m} size={16} />}
-                                                                onClick={() => {
-                                                                    setSelectedModel(m);
-                                                                    setModelError(null);
-                                                                    setModelQuery("");
-                                                                    close();
-                                                                }}
-                                                            />
-                                                        ))}
-                                                    </Box>
-                                                ));
-                                            })()}
-                                        </Box>
-                                    )}
-                                </MenuDropdown>
+                                <StepHeader title="Model" done={!!model.trim()} />
+                                <Input
+                                    value={model}
+                                    onChange={(e) => {
+                                        setModel(e.target.value);
+                                        setModelError(null);
+                                    }}
+                                    placeholder="provider/model"
+                                    aria-label="Model id"
+                                    data-testid="run-model"
+                                    className="rounded-xl"
+                                />
                                 {modelError && (
                                     <Text mt={2} fontSize="11px" fontFamily="var(--font-body)" color="var(--signal-negative)">
                                         {modelError}
@@ -804,41 +629,62 @@ export default function Analysis() {
                                 )}
                             </Box>
 
-                            {/* Output format (plain Box — same motion typing gap as the steps above, minus one error) */}
-                            <Box py={{ base: 5, md: 6 }} flex={1} minW={0}>
-                                <StepHeader title="Output format" done={!!selectedTemplateId} />
-                                <MenuDropdown
-                                    value={outputTemplates.find((t) => t.id === selectedTemplateId)?.name ?? null}
-                                    placeholder="Contract only"
-                                >
-                                    {(close) => (
-                                        <Box>
-                                            <DropdownItem
-                                                label="Contract only"
-                                                sub="Output contract, no template"
-                                                selected={!selectedTemplateId}
-                                                onClick={() => {
-                                                    setSelectedTemplateId("");
-                                                    close();
-                                                }}
-                                            />
-                                            {outputTemplates.map((t) => (
-                                                <DropdownItem
-                                                    key={t.id}
-                                                    label={t.name}
-                                                    sub={t.description || t.id}
-                                                    selected={t.id === selectedTemplateId}
-                                                    onClick={() => {
-                                                        setSelectedTemplateId(t.id);
-                                                        close();
-                                                    }}
-                                                />
-                                            ))}
-                                        </Box>
-                                    )}
-                                </MenuDropdown>
+                            <Box
+                                as={motion.div}
+                                variants={staggerItem}
+                                py={{ base: 5, md: 6 }}
+                                flex={1}
+                                minW={0}
+                            >
+                                <StepHeader title="Max steps" done={!!maxSteps} />
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    value={maxSteps}
+                                    onChange={(e) => setMaxSteps(e.target.value)}
+                                    placeholder="20"
+                                    aria-label="Max steps"
+                                    data-testid="run-max-steps"
+                                    className="rounded-xl"
+                                />
+                            </Box>
+
+                            <Box
+                                as={motion.div}
+                                variants={staggerItem}
+                                py={{ base: 5, md: 6 }}
+                                flex={1}
+                                minW={0}
+                            >
+                                <StepHeader title="Max tokens" done={!!maxTokens} />
+                                <Input
+                                    type="number"
+                                    min={1000}
+                                    value={maxTokens}
+                                    onChange={(e) => setMaxTokens(e.target.value)}
+                                    placeholder="200000"
+                                    aria-label="Max tokens"
+                                    data-testid="run-max-tokens"
+                                    className="rounded-xl"
+                                />
                             </Box>
                             </Flex>
+
+                            {/* Skills — CLI's --skills a,b (empty = all skills) */}
+                            <Box
+                                as={motion.div}
+                                variants={staggerItem}
+                                py={{ base: 5, md: 6 }}
+                            >
+                                <StepHeader title="Skills" done={selectedSkills.length > 0} />
+                                <ChipMultiSelect
+                                    label=""
+                                    description="No selection runs every skill, like omitting --skills."
+                                    options={skills.map((s) => ({ value: s.id, label: s.name }))}
+                                    selected={selectedSkills}
+                                    onChange={setSelectedSkills}
+                                />
+                            </Box>
                         </Box>
 
                         <AnimatePresence mode="wait" initial={false}>
@@ -881,7 +727,7 @@ export default function Analysis() {
                                     </Box>
                                     <AgentActivity
                                         title={`Analyzing ${config.shareName || config.share}`}
-                                        subtitle={`${selectedModel || "default model"} · gathering data, searching, scoring`}
+                                        subtitle={`${model} · gathering data, searching, scoring`}
                                         streamUrl={`/analysis/${correlationId}/stream`}
                                         steps={steps}
                                         startedAt={startedAt}
@@ -917,11 +763,11 @@ export default function Analysis() {
                         <AnalysisSummary
                             status={status}
                             resuming={!!id && status === "EMPTY"}
-                            source={config.source}
                             share={config.share}
                             shareName={config.shareName}
-                            agentName={selectedAgent?.name || null}
-                            model={selectedModel || ""}
+                            model={model.trim()}
+                            skillsLabel={skillsLabel}
+                            budgetLabel={budgetLabel}
                             canRun={canRunAnalysis && !starting}
                             onRun={runAnalysis}
                             elapsedTime={elapsedTime}
