@@ -1,12 +1,13 @@
 import { streamText, generateText, isStepCount, type LanguageModel } from "ai";
 import { extractToolCalls } from "./tools.js";
 import { log } from "./logger.js";
+// Transient-failure helpers moved into the harness module (one owner for
+// provider-flakiness policy); re-exported here for the legacy call sites and
+// tests that still import them from this file.
+import { RETRYABLE_ERROR, repairNullToolArgs } from "./harness/resilience.js";
 
-// Transient failures worth waiting on and retrying — model refused to produce
-// output (no text, no tool call), provider hiccups, rate limits, aborted stream.
-// NB: Gemini reports exhausted quota as 400 RESOURCE_EXHAUSTED — matched here
-// because it IS transient (the free-tier window resets), unlike a real 400.
-export const RETRYABLE_ERROR = /NoOutputGenerated|ECONNRESET|ETIMEDOUT|aborted|429|5\d\d|overloaded|resource.?exhausted|internal error|rate.?limit|quota|exceeded|unavailable|temporarily/i;
+export { RETRYABLE_ERROR, repairNullToolArgs, retryLlmCall } from "./harness/resilience.js";
+
 export const STREAM_RETRIES = 2;
 export const STREAM_RETRY_DELAY_MS = 3000;
 
@@ -46,10 +47,6 @@ const CONTROL_ENVELOPE_RE = /<\/?(?:co|content|function_call|tool_call|thought_s
 export function stripControlEnvelopes(text: string): string {
   return text.replace(CONTROL_ENVELOPE_RE, "").replace(/[ \t]{2,}/g, " ").trim();
 }
-
-// Generous enough for a long structured output on a slow provider, short
-// enough that a hung stream fails and retries inside the run's own lifetime.
-const DEFAULT_CALL_TIMEOUT_MS = 120_000;
 
 /**
  * Shared agent turn harness. Both the analysis pipeline (agent.ts) and the
@@ -140,13 +137,14 @@ export function buildForceToolsPrepareStep(toolNames: string[]) {
 }
 
 /**
- * Re-ask the model for corrected tool args when a tool call fails schema
- * validation (small models emit malformed args). Bounded: one re-ask, short
- * output; best-effort — a failed repair returns null so the SDK surfaces the
- * original InvalidToolInputError to the caller's recovery path.
+ * Deterministic tool-call repair now lives in harness/resilience.ts
+ * (repairNullToolArgs); buildToolCallRepair below is the model re-ask layer
+ * on top of it.
  */
 export function buildToolCallRepair(model: LanguageModel) {
   return async (opts: any): Promise<any> => {
+    const deterministic = repairNullToolArgs(opts?.toolCall);
+    if (deterministic) return deterministic;
     try {
       const { toolCall, inputSchema, error } = opts;
       const schema = await inputSchema({ toolName: toolCall.toolName });
@@ -166,88 +164,13 @@ export function buildToolCallRepair(model: LanguageModel) {
       const start = text.indexOf("{");
       if (start < 0) return null;
       const input = JSON.parse(text.slice(start, text.lastIndexOf("}") + 1));
-      return { ...toolCall, input };
+      // The SDK re-parses `input` with `.trim()` — it must be a JSON string,
+      // not an object (an object silently drops the tool call).
+      return { ...toolCall, input: JSON.stringify(input) };
     } catch {
       return null;
     }
   };
-}
-
-/**
- * Resilience for one-off LLM calls (generateObject / generateText) that
- * sit OUTSIDE the agent-turn loop: structured extraction, planning,
- * report synthesis. The turn loop already retries transient stream
- * failures internally; these single-shot calls used to die on the
- * first provider hiccup and silently downgrade the run (empty plan,
- * lost extraction, missing executive summary). The harness contract is
- * that ONE failed LLM call never kills a pipeline stage: retry it.
- *
- * Retries on transient provider conditions (RETRYABLE_ERROR) and on
- * empty/invalid output when a checker is supplied. Permanent errors
- * (auth, schema misuse) propagate immediately so callers fail fast.
- */
-export async function retryLlmCall<T>(
-  label: string,
-  fn: (signal: AbortSignal) => Promise<T>,
-  opts: {
-    attempts?: number;
-    delayMs?: number;
-    /** Called with the error text on each failure so the key pool can rotate. */
-    onError?: (message: string, attempt: number) => void;
-    /** Validate the result; an invalid result is retried like an error. */
-    check?: (result: T) => boolean;
-    /**
-     * Per-attempt wall-clock budget. Without it a provider that accepts the
-     * request and then never resolves hangs the whole pipeline until the
-     * stale-run sweeper kills the run — which is how we lost reports whose
-     * scores were already persisted. The signal is FRESH per attempt: a
-     * deadline created once would already be expired on the retry.
-     */
-    timeoutMs?: number;
-  } = {},
-): Promise<T> {
-  const attempts = opts.attempts ?? 3;
-  const delayMs = opts.delayMs ?? 2000;
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    if (attempt > 1) {
-      log.warn("[harness]", `retrying ${label} (attempt ${attempt}/${attempts}) after:`, String((lastError as any)?.message || lastError));
-      await sleep(delayMs);
-    }
-    // Both halves matter: the signal cancels the provider request (so we are
-    // not leaking sockets/containers), and the race stops us WAITING on a
-    // caller that ignores the signal.
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        const err = new Error(`${label} timed out after ${timeoutMs}ms`);
-        controller.abort(err);
-        reject(err);
-      }, timeoutMs);
-    });
-    try {
-      const result = await Promise.race([fn(controller.signal), deadline]);
-      if (opts.check && !opts.check(result)) {
-        throw new Error(`${label} returned an invalid/empty result`);
-      }
-      return result;
-    } catch (e: any) {
-      lastError = e;
-      const msg = String(e?.message || e || "");
-      opts.onError?.(msg, attempt);
-      // Clearly permanent failures (auth, bad request, quota) fail fast;
-      // everything else — transient provider conditions AND unknown error
-      // classes — is retried. The harness promise is resilience: one
-      // failed LLM call must never silently downgrade the pipeline.
-      const permanent = /invalid api key|unauthorized|authentication|invalid request|bad request|too_many_tokens|insufficient quota/i.test(msg) && !RETRYABLE_ERROR.test(msg);
-      if (permanent || attempt >= attempts) break;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError || `${label} failed after ${attempts} attempts`));
 }
 
 export async function runAgentTurn(opts: HarnessOptions): Promise<HarnessResult> {

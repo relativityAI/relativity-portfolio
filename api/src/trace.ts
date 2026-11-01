@@ -6,7 +6,9 @@ export type TraceEventType =
   | "tool_result"
   | "decision"
   | "step"
-  | "log";
+  | "log"
+  | "phase"
+  | "canvas_block";
 
 export interface TraceEvent {
   seq: number;
@@ -25,6 +27,12 @@ export interface TraceEvent {
   score?: number;
   value?: unknown;
   label?: string;
+  /** Human summary of what a tool call / section step did (timeline display). */
+  summary?: string;
+  /** Friendly error sentence for a failed step (timeline display). */
+  error?: string;
+  /** Pipeline phase for grouping (plan | research | compose | assemble). */
+  phase?: string;
 }
 
 const BUFFER_CAP = 1024;

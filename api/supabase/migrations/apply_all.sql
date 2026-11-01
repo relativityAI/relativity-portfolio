@@ -111,3 +111,25 @@ ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS skill_id text;
 
 -- ─── 018: v3 pipeline artifacts (verification badge + evidence summary) ─
 ALTER TABLE analysis_runs ADD COLUMN IF NOT EXISTS artifacts JSONB;
+
+-- ─── 019: agent harness v2 (SOUL + skills + budget + run records) ──────
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS soul_prompt text;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS skill_ids text[] NOT NULL DEFAULT '{}';
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS allowed_tools text[] NOT NULL DEFAULT '{}';
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS model_id text;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS budget jsonb NOT NULL DEFAULT '{"maxSteps":20,"maxTokens":200000,"maxCostUsd":0.5,"maxIterations":6}'::jsonb;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS harness_version int NOT NULL DEFAULT 1;
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+  id uuid primary key default gen_random_uuid(),
+  agent_id uuid references agents(id) on delete cascade,
+  user_id uuid,
+  symbol text,
+  status text not null default 'pending',
+  report_document jsonb,
+  trace jsonb not null default '[]'::jsonb,
+  budget_used jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+CREATE INDEX IF NOT EXISTS agent_runs_agent_id_idx ON agent_runs (agent_id);

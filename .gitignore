@@ -24,6 +24,7 @@ docs/
 ANALYSIS_WORKFLOW.md
 /2026-*/
 skills-lock.json
+research
 
 # dev debug / probe / repro scratch scripts
 api/dbg-*
@@ -32,10 +33,13 @@ api/probe-*
 api/repro-*
 api/dump-*
 api/bisect*.tsx
+api/runs/
 api/bisect2*.tsx
 api/mini-pdf-probe.tsx
 api/skillprobe*.mjs
 api/measure-obs.mjs
+.agent-harness/
+preview/index.html
 api/verify-e2e.mts
 api/wire-dumper.mts
 api/scripts/repro-tech.ts

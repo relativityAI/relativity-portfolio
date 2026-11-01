@@ -1,0 +1,28 @@
+# The one harness config file. Read live per call — edit, no restart.
+#   prompts.*  which markdown doc serves which role (paths relative to this dir)
+#   limits     caps for tool-result context offload (large prose spills to
+#              /knowledge_base/tool-output/ instead of entering context);
+#              unknown keys ignored, delete a key to fall back to its default
+#   run        run flags: saveWorkspace = materialize the full in-memory
+#              filesystem next to the run dump (runs/<id>/workspace/) at run end
+#   web        local SearXNG web search (baseUrl, whole-call time budget,
+#              concurrency gate); SEARXNG_URL env overrides baseUrl
+prompts:
+  compaction: prompts/COMPACTION.md
+  agents: prompts/AGENTS.md
+limits:
+  spillThresholdChars: 8000
+  spillHeadChars: 2000
+web:
+  # Local SearXNG instance (start: npm run searxng). timeoutMs caps EACH
+  # fetch attempt (starts when the pacing slot is granted) — a hung or
+  # missing container returns an honest zero instead of stranding a worker.
+  baseUrl: http://localhost:8888
+  # 750ms/3 keeps upstream engines from suspending us (bursts of 6 queries
+  # at 200ms tripped CAPTCHA/429 on DDG/Google/Brave for ~3 min).
+  timeoutMs: 15000
+  maxAttempts: 2
+  minIntervalMs: 750
+  maxConcurrent: 3
+run:
+  saveWorkspace: false
