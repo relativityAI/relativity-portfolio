@@ -671,15 +671,30 @@ app.post("/analysis", requireAuth, async (req, res) => {
     const symbol = String(body.symbol || "").trim();
     const agentId = String(body.agent_id || body.agentId || "").trim();
     const source = String(body.source || "NSE").toUpperCase();
-    if (!symbol || !agentId) return res.status(400).json({ error: "symbol and agent_id are required" });
+    if (!symbol) return res.status(400).json({ error: "symbol is required" });
     if (source !== "NSE" && source !== "SEC") return res.status(400).json({ error: "source must be NSE or SEC" });
     // Request contract: 1 prompt (optional) + multiple skills (optional ids).
     const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : undefined;
     const skillIds = Array.isArray(body.skills) && body.skills.length ? body.skills.map(String) : undefined;
 
     const userId = (req as AuthedRequest).user.id;
-    const agent = await getHarnessAgent(userId, agentId);
-    if (!agent) return res.status(404).json({ error: "Agent not found" });
+    // agent_id is optional: no agent → the seeded default agent (the CLI
+    // resolves its persona the same way — config defaults, no --agent flag).
+    let agent = agentId ? await getHarnessAgent(userId, agentId) : null;
+    if (agentId && !agent) return res.status(404).json({ error: "Agent not found" });
+    if (!agent) {
+      const seeded = await listHarnessAgents(userId);
+      agent = seeded[0] ?? (await createHarnessAgent(userId, DEFAULT_HARNESS_AGENT));
+    }
+
+    // Budget overrides (--max-steps / --max-tokens): only present keys are
+    // forwarded, so an absent flag keeps the agent's own budget.
+    const budgetOverride: { maxSteps?: number; maxTokens?: number } = {};
+    for (const [key, raw] of [["maxSteps", body.max_steps], ["maxTokens", body.max_tokens]] as const) {
+      if (raw == null || raw === "") continue;
+      const n = Number(raw);
+      if (Number.isFinite(n)) budgetOverride[key] = n;
+    }
 
     // Placeholder row so the UI can redirect to the result page instantly; the
     // run continues in the background, streaming its trace to the SSE hub and
@@ -701,7 +716,10 @@ app.post("/analysis", requireAuth, async (req, res) => {
 
     runHarnessSymbol(
       userId,
-      agentId,
+      // agent.id, NOT the raw request agent_id: when the UI omits it the
+      // resolved default agent above is the one that must run — an empty id
+      // makes runHarnessSymbol return null and the row hangs RUNNING forever.
+      agent.id,
       symbol,
       source,
       body.model ? String(body.model) : undefined,
@@ -709,7 +727,12 @@ app.post("/analysis", requireAuth, async (req, res) => {
       runId,
       prompt,
       skillIds,
-    ).catch(async (e: any) => {
+      budgetOverride,
+    ).then((result) => {
+      // Belt: a null resolution (agent row vanished mid-run) must fail the row
+      // instead of leaving the UI on an eternal spinner.
+      if (!result) throw new Error("run did not start: agent not found");
+    }).catch(async (e: any) => {
       console.error("background analysis run failed:", e);
       await getDb().from("analysis_runs")
         .update({ status: "ERROR", error: e?.message || "run failed", updated_at: new Date().toISOString() })
@@ -728,7 +751,7 @@ app.get("/analysis", requireAuth, async (req, res) => {
     const userId = (req as AuthedRequest).user.id;
     const { data, error } = await db
       .from("analysis_runs")
-      .select("id, symbol, share_name, agent_name, run_mode, skill_id, status, total_score, quantitative_score, qualitative_score, created_at, updated_at, duration, model, source, error, coverage, fit_low, fit_high")
+      .select("id, symbol, share_name, agent_name, run_mode, skill_id, status, total_score, quantitative_score, qualitative_score, created_at, updated_at, duration, model, source, error, coverage, fit_low, fit_high, report->verdict")
       .eq("user_id", userId);
     if (error) throw error;
     const docs = (data || []).sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));

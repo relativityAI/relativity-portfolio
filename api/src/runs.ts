@@ -17,6 +17,7 @@ import { TraceCollector, type TraceEvent } from "./trace.js";
 import {
   getAgent,
   compileAgent,
+  clampBudget,
   runCanvasAnalysis,
   ReportCanvas,
   buildToolRegistry,
@@ -93,7 +94,12 @@ export async function runHarnessSymbol(
   promptOverride?: string,
   /** Request override: skill ids. Absent/empty = the user's ALL skills. */
   skillIdsOverride?: string[],
+  /** Request override: loop/token budget (--max-steps / --max-tokens). Caller
+   *  only includes keys it actually parsed — an `undefined` value here would
+   *  wipe the agent's budget back to defaults inside clampBudget. */
+  budgetOverride?: { maxSteps?: number; maxTokens?: number },
 ): Promise<HarnessRunResult | null> {
+  const t0 = Date.now();
   const agent = await getAgent(userId, agentId);
   if (!agent) return null;
 
@@ -107,6 +113,7 @@ export async function runHarnessSymbol(
   });
   const { llmKeys } = await fetchUserKeys(userId);
   let modelId = requestedModel || agent.modelId || keyPool.getDefaultModel(llmKeys);
+  const budget = clampBudget({ ...compiled.budget, ...budgetOverride });
   // Tool sources (websearch + MCP servers) come from harness.config.json's
   // `tools` section — same file the CLI reads. MCP tools are listed fresh from
   // each server per run, so new tools appear without an API restart.
@@ -197,7 +204,7 @@ export async function runHarnessSymbol(
         tools: registry.list(),
         allowedTools: compiled.allowedTools.length ? compiled.allowedTools : undefined,
         ctx: { symbol, source },
-        budget: compiled.budget,
+        budget,
         template,
         initialWorkspace,
         onEvent: (e) => {
@@ -245,9 +252,13 @@ export async function runHarnessSymbol(
     agent_name: agent.name,
     model: modelId,
     source,
-    report: result.document,
+    // Verdict rides inside the report jsonb: no verdict column exists (019
+    // never shipped) and the list page needs it without selecting the whole
+    // document — GET /analysis asks for `report->verdict`.
+    report: result.verdict ? { ...result.document, verdict: result.verdict } : result.document,
     trace: toLegacyTrace(result.trace),
     workspace: result.workspace,
+    duration: Math.round((Date.now() - t0) / 1000),
     // Report validation/fallback notes (e.g. "used prose fallback") — the only
     // channel that surfaces a degraded-but-renderable run. ponytail: no
     // budget_used column yet (agent_runs never shipped); add one when the
