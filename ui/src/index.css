@@ -287,3 +287,11 @@ input::placeholder {
   color: var(--ink-tertiary);
   opacity: 1;
 }
+
+/* Sectoral Agents title — warm terracotta, light/dark tuned. */
+.sectoral-title {
+  color: #c66b4e;
+}
+html.dark .sectoral-title {
+  color: #e58b70;
+}
