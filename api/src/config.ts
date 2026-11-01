@@ -20,6 +20,7 @@ export const LLM_PROVIDERS = [
   "nvidia", // NVIDIA NIM free tier (40 RPM, 1k free credits on signup)
   "cohere", // Cohere trial keys (20 RPM, 1k calls/month)
   "zai", // Z.AI GLM Flash models (free, ~1k RPD)
+  "opencode", // OpenCode Console (Go subscription or pay-as-you-go credits)
 ] as const;
 
 /** Parse a comma-separated env value into a trimmed, non-empty array. */
@@ -70,6 +71,7 @@ export const DEFAULT_DAILY_REQUESTS: Record<string, number> = {
   nvidia: 5000, // 40 RPM free tier (~1,000 free credits)
   cohere: 33, // trial key: 1,000 calls/month ≈ 33/day
   zai: 1000, // GLM Flash free tier
+  opencode: 5000, // Go plan: DeepSeek V4.1 Flash ~173k req/month allowance
 };
 
 /** Per-provider daily request caps used by the quota algorithm ({PROVIDER}_DAILY_REQUESTS). */
@@ -115,7 +117,8 @@ export const config = {
         "bseindia.com",
         "bsmedia.business-standard.com",
       ],
-  // Supabase
+  databaseUrl: process.env.DATABASE_URL || "postgresql+asyncpg://postgres:postgres@localhost:5432/relativity",
+  // Supabase (auth only — JWT verification via JWKS; data lives in Postgres)
   supabaseProjectUrl: process.env.SUPABASE_PROJECT_URL || "",
   supabaseUrl: process.env.SUPABASE_URL || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
@@ -135,11 +138,18 @@ export const config = {
   // Paths
   assetsDir: path.resolve(__dirname, "..", "assets"),
   modelsFile: path.resolve(__dirname, "..", "config", "models.yaml"),
-  // Output-format specs (one .md per format) for the iterative agent's final step.
-  formatsDir: path.resolve(__dirname, "..", "config", "formats"),
+  // The output format is the harness's one file: src/harness/config/prompts/AGENTS.md.
   // Limits
   maxToolSteps: 10,
+  // Per-run budgets for the skill/iterative agent path (the harness path has
+  // its own per-agent budget). "calls" = model steps (tool round-trips).
+  agentMaxSteps: Number(process.env.AGENT_MAX_STEPS || 40),
+  agentMaxTokens: Number(process.env.AGENT_MAX_TOKENS || 200_000),
   rateLimitPerMin: 10,
   tavilyUrl: "https://api.tavily.com/search",
   ollamaUrl: process.env.OLLAMA_URL || "http://localhost:11434/v1",
+  // The Voyager MCP is the harness agent's toolbox (streamable HTTP, re-listed
+  // each run). Required for harness runs; the built-in Voyager REST tools are
+  // no longer registered alongside it.
+  mcpVoyagerUrl: process.env.MCP_VOYAGER_URL || "",
 };

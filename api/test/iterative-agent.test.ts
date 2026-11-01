@@ -13,7 +13,7 @@ function textStream(text: string) {
           c.enqueue({ type: "text-start", id: "t0" });
           c.enqueue({ type: "text-delta", id: "t0", delta: text });
           c.enqueue({ type: "text-end", id: "t0" });
-          c.enqueue({ type: "finish", finishReason: "stop", usage: { inputTokens: 1, outputTokens: 1 } });
+          c.enqueue({ type: "finish", finishReason: "stop", usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } });
           c.close();
         },
       }),
@@ -116,6 +116,20 @@ describe("runIterativeAgent", () => {
       expect(res.status).toBe("DONE");
       expect(res.error).toBeUndefined();
     });
+  });
+  it("stops when the token budget is spent instead of looping forever", async () => {
+    const model = new MockLanguageModelV4({ doStream: textStream("still thinking...") });
+    const res = await runIterativeAgent({
+      instruction: "Summarise the company.",
+      symbol: "RELIANCE",
+      model: model as any,
+      tools: {},
+      maxIterations: 20,
+      maxTokens: 3,
+    });
+    expect(res.status).toBe("PARTIAL");
+    expect(res.error).toMatch(/budget/i);
+    expect(res.iterations).toBeLessThan(20);
   });
 });
 

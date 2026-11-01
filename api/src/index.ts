@@ -21,15 +21,34 @@ import { getToolCatalog } from "./tools.js";
 // ponytail: per-call dynamic import (uncached, unbundled) only on the two
 // artifact paths — loader runs once per request, not in a hot loop.
 import type { WorkbookRecipe } from "./skills/artifacts/types.js";
-import { getPreset, listPresets, buildSeedAgents } from "./presets.js";
+import { getPreset, listPresets } from "./presets.js";
 import { agentFromRow, buildAgentConfigV3, type AgentRow } from "./agentstore.js";
 import { fixAgentMarkdown, parseAgentMd, serializeAgentMd, validateAgentV3 } from "./agentmd.js";
-import { listAllSkillsForUser, saveCustomSkill, deleteCustomSkill, loadBuiltinSkills, serializeSkill, resolveSkill } from "./skills/store.js";
-import { layoutStats } from "./layout.js";
+import { listAllSkillsForUser, saveCustomSkill, deleteCustomSkill, loadBuiltinSkills, serializeSkill } from "./skills/store.js";
 import { fixSkillMarkdown, parseSkillMarkdown, slugifySkillName } from "./skills/parse.js";
-import { runAnalysis, type RunStore } from "./pipeline.js";
 import { fetchSkillMarkdown, listRepoSkills, listSkillRepos, resolveSkillPath } from "./skills/repos.js";
 import { skillDraftTurn, type SkillDraftRequest } from "./skills/draft.js";
+import {
+  // Harness module — one interface (see src/harness/index.ts).
+  listAgents as listHarnessAgents,
+  createAgent as createHarnessAgent,
+  updateAgent as updateHarnessAgent,
+  deleteAgent as deleteHarnessAgent,
+  getAgent as getHarnessAgent,
+  compileAgent as compileHarnessAgent,
+  DEFAULT_HARNESS_AGENT,
+  runCanvasAnalysis,
+  ReportCanvas,
+  buildToolRegistry,
+  loadCliConfig,
+  getOutputTemplate,
+  loadOutputTemplates,
+  type AgentDefinition,
+  type ReportDocument,
+  type Verdict,
+  type TraceEvent as HarnessTraceEvent,
+} from "./harness/index.js";
+import { installHarnessAdapters } from "./harness-adapters.js";
 import { extractText } from "./upload.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
 import multer from "multer";
@@ -40,7 +59,7 @@ import { buildReportPdf, isUuid } from "./pdf.js";
 import { initTelemetry } from "./telemetry.js";
 import { serve } from "inngest/express";
 import { inngest, kbIngestFn } from "./inngest.js";
-import { traceHub, nextSeq, type TraceEvent } from "./trace.js";
+import { traceHub, nextSeq, TraceCollector, type TraceEvent } from "./trace.js";
 // Initialize Langfuse telemetry before any AI SDK calls.
 await initTelemetry();
 
@@ -66,6 +85,10 @@ function statusColor(code: number): string {
   if (code >= 300) return "36";
   return "1;32";
 }
+
+// Harness persistence: install the Supabase adapters (agent/skill
+// repositories) before any route can serve a request.
+installHarnessAdapters();
 
 const app = express();
 app.set("trust proxy", 1);
@@ -173,8 +196,7 @@ app.get("/health", async (_req, res) => {
   } catch {
     dbOk = false;
   }
-  // Aggregate layout counters only — no user data, safe to expose publicly.
-  res.json({ ok: 1, db: dbOk, layout: layoutStats });
+  res.json({ ok: 1, db: dbOk });
 });
 
 app.get("/health/voyager", requireAuth, async (req, res) => {
@@ -283,54 +305,64 @@ app.delete("/user/settings/llm-key/:keyName", requireAuth, async (req, res) => {
 });
 
 // ---- agents (authenticated, scoped to the signed-in user) ----
+/* ── Console agent CRUD — harness-native ───────────────────────────────────
+ * Harness agents live in the same `agents` table, flagged by
+ * configuration.harness_version. These endpoints project a harness definition
+ * into the shape the console expects (persona.philosophy, skills[]) and route
+ * writes back into `configuration`, so the console edits the new format with
+ * no separate data path. Legacy v3 rows stay readable via the fallbacks. */
+
+function harnessToView(d: AgentDefinition) {
+  return {
+    id: d.id,
+    _id: d.id,
+    user_id: d.userId,
+    name: d.name,
+    source: "harness",
+    harness: true,
+    created_at: d.createdAt,
+    persona: { philosophy: d.soulPrompt },
+    skills: d.skillIds.map((skill_id) => ({ skill_id, weight: 5 })),
+    soul_prompt: d.soulPrompt,
+    skill_ids: d.skillIds,
+    allowed_tools: d.allowedTools,
+    model_id: d.modelId,
+    budget: d.budget,
+    output_template_id: d.outputTemplateId,
+  };
+}
+
+/** Map a console write into a harness patch — only fields actually present,
+ *  so a partial update never wipes the rest of the configuration. */
+function viewToHarnessPatch(body: Record<string, any>) {
+  const patch: Record<string, any> = {};
+  if (body.name !== undefined) patch.name = String(body.name);
+  const phil = body.soulPrompt ?? body.soul_prompt ?? body.philosophy
+    ?? body.persona?.philosophy ?? body.persona?.philosophy_and_mindset;
+  if (phil !== undefined) patch.soulPrompt = String(phil);
+  const raw = Array.isArray(body.skillIds) ? body.skillIds
+    : Array.isArray(body.skill_ids) ? body.skill_ids
+      : Array.isArray(body.skills) ? body.skills : undefined;
+  if (raw) patch.skillIds = raw.map((s: any) => (typeof s === "string" ? s : s?.skill_id)).filter(Boolean);
+  const tools = body.allowedTools ?? body.allowed_tools;
+  if (Array.isArray(tools)) patch.allowedTools = tools;
+  if (body.modelId !== undefined || body.model_id !== undefined) patch.modelId = body.modelId ?? body.model_id;
+  if (body.outputTemplateId !== undefined || body.output_template_id !== undefined) {
+    patch.outputTemplateId = body.outputTemplateId ?? body.output_template_id ?? null;
+  }
+  return patch;
+}
+
 app.get("/agents", requireAuth, async (req, res) => {
   try {
-    const db = getDb();
     const userId = (req as AuthedRequest).user.id;
-    const { data, error } = await db.from("agents").select("*").eq("user_id", userId);
-    if (error) throw error;
-    const docs = data || [];
-
-    // Plant the built-in default profiles for anyone who doesn't have them yet
-    // (unless they deliberately deleted them). Check the insert error so
-    // we never return rows that didn't actually persist — a phantom seed list
-    // made fresh accounts show defaults that 404'd on open/save.
-    // Suppression is per-preset: deleting Buffett must not resurrect-kill
-    // O'Neil/Growth/Lynch. Legacy boolean (pre-migration) still suppresses all.
-    const hasDefault = docs.some((a: any) => a.source === "default");
-    if (!hasDefault) {
-      const { data: settings } = await db
-        .from("user_settings")
-        .select("defaults_deleted, deleted_preset_keys")
-        .eq("user_id", userId)
-        .single();
-      const deletedKeys: string[] = Array.isArray(settings?.deleted_preset_keys)
-        ? settings.deleted_preset_keys
-        : [];
-      const legacyAllDeleted = settings?.defaults_deleted === true;
-      const seeds = buildSeedAgents(userId).filter((s) => {
-        const key = String((s as any).preset_key || "");
-        if (legacyAllDeleted && deletedKeys.length === 0) return false;
-        return !deletedKeys.includes(key);
-      });
-      if (seeds.length > 0) {
-        const { error: insErr } = await db.from("agents").insert(seeds);
-        if (insErr) {
-          log.error("[agents]", `default agent seeding failed for ${userId}: ${insErr.message}`);
-        } else {
-          docs.push(...seeds);
-        }
-      }
+    let agents = await listHarnessAgents(userId);
+    if (agents.length === 0) {
+      await createHarnessAgent(userId, DEFAULT_HARNESS_AGENT);
+      agents = await listHarnessAgents(userId);
     }
-
-    docs.sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
-    // Surface parsed v3 config (list omits `md` to keep payloads small).
-    const out = [];
-    for (const row of docs as AgentRow[]) {
-      const { config } = await agentFromRow(row);
-      out.push({ ...row, ...(config || {}), persona: { philosophy: row.persona?.philosophy || row.persona?.philosophy_and_mindset || "" } });
-    }
-    res.json(out);
+    agents.sort((a, b) => +new Date(b.createdAt ?? 0) - +new Date(a.createdAt ?? 0));
+    res.json(agents.map(harnessToView));
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -387,30 +419,17 @@ app.post("/agents/validate-md", requireAuth, async (req, res) => {
 
 app.post("/agents", requireAuth, async (req, res) => {
   try {
-    const db = getDb();
     const userId = (req as AuthedRequest).user.id;
-    const id = req.body?.id || req.body?._id || randomUUID();
-    let built;
-    try {
-      built = buildAgentConfigV3(req.body || {});
-    } catch (e: any) {
-      if (e.issues) return res.status(400).json({ error: e.message, issues: e.issues });
-      throw e;
-    }
-    const { config, md } = built;
-    const now = new Date().toISOString();
-    const doc = {
-      id,
-      user_id: userId,
-      name: config.name,
-      persona: config.persona,
-      md_config: md,
-      created_at: now,
-      updated_at: now,
-    };
-    const { error } = await db.from("agents").insert(doc);
-    if (error) throw error;
-    res.status(201).json({ ...doc, md, ...config });
+    const patch = viewToHarnessPatch(req.body || {});
+    const created = await createHarnessAgent(userId, {
+      name: patch.name || "Untitled Agent",
+      soulPrompt: patch.soulPrompt,
+      skillIds: patch.skillIds,
+      allowedTools: patch.allowedTools,
+      modelId: patch.modelId,
+      outputTemplateId: patch.outputTemplateId ?? null,
+    });
+    res.status(201).json(harnessToView(created));
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -418,11 +437,13 @@ app.post("/agents", requireAuth, async (req, res) => {
 
 app.get("/agents/:id", requireAuth, async (req, res) => {
   try {
-    const db = getDb();
     const userId = (req as AuthedRequest).user.id;
+    const harness = await getHarnessAgent(userId, String(req.params.id));
+    if (harness) return res.json(harnessToView(harness));
+    // Legacy fallback: markdown-first v3 config for pre-harness rows.
+    const db = getDb();
     const { data, error } = await db.from("agents").select("*").eq("id", req.params.id).eq("user_id", userId).single();
     if (error || !data) return res.status(404).json({ error: "Agent not found" });
-    // Markdown-first: surface parsed v3 config, the raw md, and any parse issues.
     const row = data as AgentRow;
     const { config, issues, md } = await agentFromRow(row);
     res.json({ ...row, ...(config || {}), md, md_issues: issues });
@@ -433,9 +454,18 @@ app.get("/agents/:id", requireAuth, async (req, res) => {
 
 app.put("/agents/:id", requireAuth, async (req, res) => {
   try {
-    const db = getDb();
     const userId = (req as AuthedRequest).user.id;
-    const id = req.params.id;
+    const id = String(req.params.id);
+
+    // Harness rows write straight back into `configuration`.
+    const harness = await getHarnessAgent(userId, id);
+    if (harness) {
+      const updated = await updateHarnessAgent(userId, id, viewToHarnessPatch(req.body || {}));
+      if (!updated) return res.status(404).json({ error: "Agent not found" });
+      return res.json(harnessToView(updated));
+    }
+
+    const db = getDb();
     const { data: existing, error: fetchErr } = await db.from("agents").select("*").eq("id", id).eq("user_id", userId).single();
     if (fetchErr || !existing) return res.status(404).json({ error: "Agent not found" });
 
@@ -685,44 +715,64 @@ app.post("/skills/draft", requireAuth, async (req, res) => {
 });
 
 // ---- analysis runs (authenticated, scoped to the signed-in user) ----
-function supabaseRunStore(userId: string): RunStore {
-  return {
-    insert: (row) => getDb().from("analysis_runs").insert(row),
-    update: (id, patch) => getDb().from("analysis_runs").update(patch).eq("id", id).eq("user_id", userId),
-  };
-}
+// POST /analysis is the live analysis entry point: it runs a harness agent
+// (SOUL + skills + budget) and returns the typed ReportDocument. The legacy
+// skill pipeline (pipeline.ts) stays for the console/builder routes.
 
 app.post("/analysis", requireAuth, async (req, res) => {
   try {
     const body = req.body || {};
     const symbol = String(body.symbol || "").trim();
-    const skillId = String(body.skill_id || "").trim();
+    const agentId = String(body.agent_id || body.agentId || "").trim();
     const source = String(body.source || "NSE").toUpperCase();
-    if (!symbol || !skillId) return res.status(400).json({ error: "symbol and skill_id are required" });
+    if (!symbol || !agentId) return res.status(400).json({ error: "symbol and agent_id are required" });
     if (source !== "NSE" && source !== "SEC") return res.status(400).json({ error: "source must be NSE or SEC" });
+    // Request contract: 1 prompt (optional) + multiple skills (optional ids).
+    const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : undefined;
+    const skillIds = Array.isArray(body.skills) && body.skills.length ? body.skills.map(String) : undefined;
 
     const userId = (req as AuthedRequest).user.id;
-    const skill = await resolveSkill(userId, skillId);
-    if (!skill) return res.status(404).json({ error: "Skill not found" });
-    const { llmKeys } = await fetchUserKeys(userId);
-    const modelId = String(body.model || keyPool.getDefaultModel(llmKeys));
-    const { apiKey } = keyPool.pickKey(modelId, llmKeys);
-    await runAnalysis({
-      userId,
+    const agent = await getHarnessAgent(userId, agentId);
+    if (!agent) return res.status(404).json({ error: "Agent not found" });
+
+    // Placeholder row so the UI can redirect to the result page instantly; the
+    // run continues in the background, streaming its trace to the SSE hub and
+    // updating this row when it finishes (or ERROR if it throws).
+    const runId = randomUUID();
+    const { error: phErr } = await getDb().from("analysis_runs").insert({
+      id: runId,
+      user_id: userId,
+      status: "RUNNING",
       symbol,
-      skillId,
+      share_name: symbol,
+      agent_name: agent.name,
+      model: body.model ? String(body.model) : agent.modelId || null,
       source,
-      shareName: String(body.share_name || symbol),
-      agentName: skill.name,
-      skillMarkdown: skill.markdown || serializeSkill(skill),
-      modelId,
-      model: buildModel(modelId, llmKeys as LlmKeys, apiKey),
-      store: supabaseRunStore(userId),
-      onStarted: (id) => res.status(202).json({ analysis_id: id }),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
+    if (phErr) throw new Error(phErr.message);
+
+    runHarnessSymbol(
+      userId,
+      agentId,
+      symbol,
+      source,
+      body.model ? String(body.model) : undefined,
+      body.output_template_id ? String(body.output_template_id) : undefined,
+      runId,
+      prompt,
+      skillIds,
+    ).catch(async (e: any) => {
+      console.error("background analysis run failed:", e);
+      await getDb().from("analysis_runs")
+        .update({ status: "ERROR", error: e?.message || "run failed", updated_at: new Date().toISOString() })
+        .eq("id", runId);
+    });
+    res.json({ id: runId, status: "RUNNING" });
   } catch (e: any) {
     console.error("POST /analysis ERROR:", e);
-    res.status(503).json({ error: e?.message || "Skill summary failed" });
+    res.status(503).json({ error: e?.message || "Analysis failed" });
   }
 });
 
@@ -827,6 +877,9 @@ app.get("/analysis/:id", requireAuth, async (req, res) => {
     const userId = (req as AuthedRequest).user.id;
     const { data, error } = await db.from("analysis_runs").select("*").eq("id", req.params.id).eq("user_id", userId).single();
     if (error || !data) return res.status(404).json({ error: "Analysis not found" });
+    // Harness runs store their typed ReportDocument in `report`; the result
+    // view reads `report_document`, so surface it under that name.
+    if ((data as any).report?.schema === "relativity/report.v1") (data as any).report_document = (data as any).report;
     res.json(data);
   } catch (e: any) {
     res.status(503).json({ error: e.message });
@@ -915,7 +968,7 @@ app.get("/analysis/:id/artifact/:artifactId", requireAuth, async (req, res) => {
 app.get("/analysis/:id/stream", requireAuth, async (req, res) => {
   const runId = String(req.params.id);
   const db = getDb();
-  const { data, error } = await db.from("analysis_runs").select("id").eq("id", runId).eq("user_id", (req as AuthedRequest).user.id).single();
+  const { data, error } = await db.from("analysis_runs").select("trace").eq("id", runId).eq("user_id", (req as AuthedRequest).user.id).single();
   if (error || !data) return res.status(404).json({ error: "Analysis not found" });
 
   res.setHeader("Content-Type", "text/event-stream");
@@ -927,7 +980,19 @@ app.get("/analysis/:id/stream", requireAuth, async (req, res) => {
   const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
   const heartbeat = setInterval(() => res.write(": ping\n\n"), 15000);
 
-  const unsubscribe = traceHub.subscribe(runId, (event) => send({ type: "trace", event }));
+  // Replay the persisted trace first: a subscriber that connects late (or after
+  // a restart that emptied the in-memory hub) still sees the reasoning so far.
+  let lastSeq = 0;
+  for (const event of (data.trace || []) as { seq?: number }[]) {
+    send({ type: "trace", event });
+    if (typeof event.seq === "number" && event.seq > lastSeq) lastSeq = event.seq;
+  }
+
+  // Then live events, skipping anything already replayed from the DB.
+  const unsubscribe = traceHub.subscribe(runId, (event) => {
+    if (typeof event.seq === "number" && event.seq <= lastSeq) return;
+    send({ type: "trace", event });
+  });
   send({ type: "ready", runId });
 
   req.on("close", () => {
@@ -1104,6 +1169,370 @@ app.get("/tool-catalog", (_req, res) => {
   res.json(getToolCatalog());
 });
 
+// ---- harness agents (v2, skill-driven custom agents) ----
+app.get("/harness/agents", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    let agents = await listHarnessAgents(userId);
+    if (agents.length === 0) {
+      // Seed the built-in technical agent for anyone with none, so the new
+      // analysis dropdown is never empty (mirrors the legacy preset seeding).
+      // ponytail: no deletion tracking — delete every harness agent and this
+      // reseeds. Add a suppression flag if that turns out to matter.
+      await createHarnessAgent(userId, DEFAULT_HARNESS_AGENT);
+      agents = await listHarnessAgents(userId);
+    }
+    res.json(agents);
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+app.post("/harness/agents", requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.name) return res.status(400).json({ error: "name is required" });
+    res.status(201).json(await createHarnessAgent((req as AuthedRequest).user.id, body));
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+app.put("/harness/agents/:id", requireAuth, async (req, res) => {
+  try {
+    const updated = await updateHarnessAgent((req as AuthedRequest).user.id, String(req.params.id), req.body || {});
+    if (!updated) return res.status(404).json({ error: "Agent not found" });
+    res.json(updated);
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+app.delete("/harness/agents/:id", requireAuth, async (req, res) => {
+  try {
+    await deleteHarnessAgent((req as AuthedRequest).user.id, String(req.params.id));
+    res.json({ deleted: true });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+interface HarnessRunResult {
+  status: string;
+  document: ReportDocument;
+  errors: string[];
+  verdict?: Verdict | null;
+  runId: string;
+}
+
+/** Harness loop/canvas events → the snake_case shape every UI trace consumer reads. */
+function toLegacyTrace(events: HarnessTraceEvent[]): TraceEvent[] {
+  return events.map((e: any, i: number) => ({
+    seq: i + 1,
+    ts: Date.now() + i,
+    type: e.type,
+    key: e.taskId ?? e.tool ?? e.type,
+    text:
+      e.type === "canvas_block"
+        ? `${e.status === "done" ? "✓" : "✗"} ${e.taskTitle}${e.summary ? ` — ${e.summary}` : ""}`
+        : e.text,
+    tool: e.tool,
+    tool_call_id: e.toolCallId,
+    args: e.args,
+    result: e.type === "canvas_block" ? { taskId: e.taskId, sectionCount: e.sectionCount, status: e.status } : e.result,
+    status: e.status === "ok" ? "OK" : e.status === "error" ? "ERR" : e.status,
+    duration_ms: e.durationMs,
+    score: e.score,
+    summary: e.summary,
+    error: e.error,
+    phase: e.phase,
+    label: e.type === "canvas_block" ? e.taskTitle : e.label,
+  }));
+}
+
+/**
+ * Run a harness agent against a symbol: compile the definition, wire the data
+ * tools (the Voyager MCP — required, throws when MCP_VOYAGER_URL is unset),
+ * execute the CANVAS pipeline (one agent loop: research + write; then assemble) with
+ * key/model fallback, persist the run, and return the typed document.
+ * Shared by POST /analysis and POST /harness/agents/:id/run. Returns null when
+ * the agent does not exist for the user.
+ *
+ * The canvas lives in memory for the run; a throttled snapshot of the partial
+ * document lands in `report` while status is still RUNNING, so the result page
+ * renders sections as they compose and a crash leaves a valid partial report.
+ */
+async function runHarnessSymbol(
+  userId: string,
+  agentId: string,
+  symbol: string,
+  source: string,
+  requestedModel?: string,
+  requestedTemplateId?: string,
+  existingRunId?: string,
+  /** Request override: 1 prompt. Absent = the synthesized Analyze prompt. */
+  promptOverride?: string,
+  /** Request override: skill ids. Absent/empty = the user's ALL skills. */
+  skillIdsOverride?: string[],
+): Promise<HarnessRunResult | null> {
+  const agent = await getHarnessAgent(userId, agentId);
+  if (!agent) return null;
+
+  // System prompt: always the harness report format (one format now —
+  // config/prompts/AGENTS.md; outputTemplateId is kept for schema compat but inert).
+  const template = getOutputTemplate(requestedTemplateId || agent.outputTemplateId || "");
+  const compiled = await compileHarnessAgent(userId, agent, {
+    template,
+    vars: { symbol, title: symbol, date: new Date().toISOString().slice(0, 10), source, agent: agent.name },
+    skillIds: skillIdsOverride,
+  });
+  const { llmKeys } = await fetchUserKeys(userId);
+  let modelId = requestedModel || agent.modelId || keyPool.getDefaultModel(llmKeys);
+  // Tool sources (websearch + MCP servers) come from harness.config.json's
+  // `tools` section — same file the CLI reads. MCP tools are listed fresh from
+  // each server per run, so new tools appear without an API restart.
+  const { registry } = await buildToolRegistry(loadCliConfig().config.tools ?? {}, process.env);
+
+  const runId = existingRunId ?? randomUUID();
+
+  // Re-run of an existing row: restore its workspace so the agent resumes
+  // research (notes, plan, source stubs) instead of starting from nothing.
+  let initialWorkspace: Record<string, string> | undefined;
+  if (existingRunId) {
+    try {
+      const { data } = await getDb()
+        .from("analysis_runs")
+        .select("workspace")
+        .eq("id", existingRunId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      initialWorkspace = (data?.workspace as Record<string, string> | null) ?? undefined;
+    } catch {
+      // column missing (pre-0.20) or row unreadable — run fresh
+    }
+  }
+
+  // Live trace: every canvas/loop event is published to the SSE hub while the
+  // run is going, and a throttled copy is persisted so a restart doesn't blank
+  // the panel. The final write below replaces it with the complete trace.
+  const collector = new TraceCollector(runId, async (events) => {
+    try {
+      await getDb()
+        .from("analysis_runs")
+        .update({ trace: toLegacyTrace(events as unknown as HarnessTraceEvent[]), updated_at: new Date().toISOString() })
+        .eq("id", runId);
+    } catch {
+      // trace persistence is best-effort; the final write is authoritative
+    }
+  });
+
+  // Throttled canvas + workspace snapshots → `report` / `workspace` columns
+  // mid-run. UI polls GET /analysis/:id; the Agent Workspace tab and the live
+  // report both ride this cadence.
+  let lastCanvasFlush = 0;
+  const flushCanvas = async (canvas: ReportCanvas, force = false) => {
+    const now = Date.now();
+    if (!force && now - lastCanvasFlush < 3000) return;
+    lastCanvasFlush = now;
+    try {
+      await getDb()
+        .from("analysis_runs")
+        .update({ report: canvas.document({ final: false }), updated_at: new Date().toISOString() })
+        .eq("id", runId);
+    } catch (e: any) {
+      log.warn("harness", `canvas snapshot failed for run ${runId}: ${e?.message || e}`);
+    }
+  };
+  let lastWorkspaceFlush = 0;
+  const flushWorkspace = async (snapshot: Record<string, string>, force = false) => {
+    const now = Date.now();
+    if (!force && now - lastWorkspaceFlush < 5000) return;
+    lastWorkspaceFlush = now;
+    try {
+      await getDb()
+        .from("analysis_runs")
+        .update({ workspace: snapshot, updated_at: new Date().toISOString() })
+        .eq("id", runId);
+    } catch (e: any) {
+      log.warn("harness", `workspace snapshot failed for run ${runId}: ${e?.message || e}`);
+    }
+  };
+
+  // Transient provider failures (429/quota/5xx/timeout) must not kill the run.
+  // The loop sets maxRetries:0, so each attempt owns its key: rotate to a fresh
+  // key, and if the provider stays exhausted, fall back to another model.
+  // "parse" covers Groq/gpt-oss's intermittent output_parse_failed (400): a
+  // stochastic harmony tool-call glitch, not a bad request — worth another roll.
+  const RETRYABLE_MODEL_ERROR = /429|rate.?limit|too many requests|quota|overloaded|resource.?exhausted|unavailable|temporarily|5\d\d|timeout|ECONNRESET|ETIMEDOUT|aborted|output_parse_failed|could not be parsed|failed to parse|parsing failed/i;
+  let result: Awaited<ReturnType<typeof runCanvasAnalysis>> | undefined;
+  let lastError: any;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const provider = keyPool.modelProvider(modelId);
+    const { apiKey, keyRef } = keyPool.pickKey(modelId, llmKeys);
+    try {
+      result = await runCanvasAnalysis({
+        model: buildModel(modelId, llmKeys as LlmKeys, apiKey),
+        soul: agent.soulPrompt,
+        skills: compiled.skills,
+        prompt: promptOverride || `Analyze ${symbol} (${source}). Use the tools to gather the evidence a rigorous research report needs for ${symbol}.`,
+        tools: registry.list(),
+        allowedTools: compiled.allowedTools.length ? compiled.allowedTools : undefined,
+        ctx: { symbol, source },
+        budget: compiled.budget,
+        template,
+        initialWorkspace,
+        onEvent: (e) => {
+          const ev = e as any;
+          collector.push(ev.type, ev.taskId ?? ev.tool ?? ev.type, {
+            text:
+              ev.type === "canvas_block"
+                ? `${ev.status === "done" ? "✓" : "✗"} ${ev.taskTitle}${ev.summary ? ` — ${ev.summary}` : ""}`
+                : ev.text,
+            tool: ev.tool,
+            tool_call_id: ev.toolCallId,
+            args: ev.args,
+            result: ev.type === "canvas_block" ? { taskId: ev.taskId, sectionCount: ev.sectionCount, status: ev.status } : ev.result,
+            status: ev.status,
+            duration_ms: ev.durationMs,
+            score: ev.score,
+            summary: ev.summary,
+            error: ev.type === "canvas_block" ? ev.error : undefined,
+            phase: ev.phase,
+            label: ev.type === "canvas_block" ? ev.taskTitle : ev.label,
+          });
+        },
+        onCanvas: (canvas) => {
+          void flushCanvas(canvas);
+        },
+        onWorkspace: (snapshot) => {
+          void flushWorkspace(snapshot);
+        },
+      });
+      keyPool.recordUsage({ provider, keyRef, modelId, requests: 1, tokensOut: result.budgetUsed.tokens });
+      break;
+    } catch (e: any) {
+      lastError = e;
+      const msg = String(e?.message || e);
+      if (attempt >= 3 || !RETRYABLE_MODEL_ERROR.test(msg)) throw e;
+      keyPool.markFailure(provider, keyRef);
+      const next = keyPool.getDefaultModel(llmKeys);
+      log.warn("harness", `run ${agent.id} attempt ${attempt}/3 failed on ${modelId}: ${msg} — falling back to ${next || "same model"}`);
+      if (next && next !== modelId) modelId = next;
+      await new Promise((r) => setTimeout(r, 750 * attempt));
+    }
+  }
+  if (!result) throw lastError;
+  await collector.flush().catch(() => {});
+  await flushCanvas(result.canvas, true).catch(() => {});
+
+  // Harness runs persist into the existing analysis_runs table (agent_runs
+  // from migration 019 was never created). The typed ReportDocument goes in
+  // `report`; GET /analysis/:id surfaces it as `report_document`.
+  //
+  // A "partial" canvas run (some tasks failed) is still a renderable report —
+  // COMPLETED with notes, not ERROR. Only a run that produced nothing is ERROR.
+  const legacyStatus = result.status === "failed" ? "ERROR" : "COMPLETED";
+  const notes = [...result.errors];
+  if (result.status === "partial") notes.unshift("some report sections could not be composed (see notes below)");
+  if (result.status === "failed") notes.unshift("run produced no valid sections");
+  const payload = {
+    status: legacyStatus,
+    symbol,
+    share_name: symbol,
+    agent_name: agent.name,
+    model: modelId,
+    source,
+    report: result.document,
+    trace: toLegacyTrace(result.trace),
+    workspace: result.workspace,
+    // Report validation/fallback notes (e.g. "used prose fallback") — the only
+    // channel that surfaces a degraded-but-renderable run. ponytail: no
+    // budget_used column yet (agent_runs never shipped); add one when the
+    // "stopped after N steps" banner is worth a migration.
+    error: notes.length ? notes.join("\n") : null,
+    updated_at: new Date().toISOString(),
+  };
+  if (existingRunId) {
+    let { error } = await getDb().from("analysis_runs").update(payload).eq("id", existingRunId);
+    if (error && /workspace/.test(error.message)) {
+      log.warn("harness", `analysis_runs missing workspace column — apply api/supabase/migrations/020_analysis_workspace.sql (${error.message})`);
+      const { workspace: _drop, ...rest } = payload;
+      ({ error } = await getDb().from("analysis_runs").update(rest).eq("id", existingRunId));
+    }
+    if (error) throw new Error(error.message);
+    return { status: result.status, document: result.document, errors: result.errors, verdict: result.verdict, runId: existingRunId };
+  }
+  let { error } = await getDb().from("analysis_runs").insert({
+    id: runId,
+    user_id: userId,
+    ...payload,
+    created_at: new Date().toISOString(),
+  });
+  // workspace is new in migration 020 — persist without it (report/trace are
+  // what the UI renders) until the column is applied, like pipeline.ts does.
+  if (error && /workspace/.test(error.message)) {
+    log.warn("harness", `analysis_runs missing workspace column — apply api/supabase/migrations/020_analysis_workspace.sql (${error.message})`);
+    const { workspace: _drop, ...rest } = payload;
+    ({ error } = await getDb().from("analysis_runs").insert({ id: runId, user_id: userId, ...rest, created_at: new Date().toISOString() }));
+  }
+  if (error) throw new Error(error.message);
+  return { status: result.status, document: result.document, errors: result.errors, verdict: result.verdict, runId };
+}
+
+// Run a custom harness agent against a symbol and return its ReportDocument.
+app.post("/harness/agents/:id/run", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const body = req.body || {};
+    const symbol = String(body.symbol || "").trim();
+    if (!symbol) return res.status(400).json({ error: "symbol is required" });
+    const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : undefined;
+    const skillIds = Array.isArray(body.skills) && body.skills.length ? body.skills.map(String) : undefined;
+    const result = await runHarnessSymbol(
+      userId,
+      String(req.params.id),
+      symbol,
+      String(body.source || "NSE").toUpperCase(),
+      body.model ? String(body.model) : undefined,
+      body.output_template_id ? String(body.output_template_id) : undefined,
+      undefined,
+      prompt,
+      skillIds,
+    );
+    if (!result) return res.status(404).json({ error: "Agent not found" });
+    res.json({ id: result.runId, status: result.status, document: result.document, errors: result.errors });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+// The report format list (edit src/harness/config/prompts/AGENTS.md frontmatter — live without restart).
+app.get("/harness/templates", requireAuth, async (_req, res) => {
+  try {
+    res.json(
+      loadOutputTemplates().map((t) => ({ id: t.id, name: t.name, description: t.description, default: !!t.default })),
+    );
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
+app.get("/harness/runs/:id", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await getDb()
+      .from("analysis_runs")
+      .select("id, agent_name, symbol, status, report, trace, created_at")
+      .eq("id", String(req.params.id))
+      .eq("user_id", (req as AuthedRequest).user.id)
+      .single();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: "Run not found" });
+    res.json({ ...data, report_document: (data as any).report });
+  } catch (e: any) {
+    res.status(503).json({ error: e.message });
+  }
+});
+
 app.get("/builder/presets", (_req, res) => {
   res.json(listPresets());
 });
@@ -1255,12 +1684,35 @@ app.post("/agents/draft-parameters", requireAuth, async (req, res) => {
   }
 });
 
+const STALE_RUN_MS = 15 * 60 * 1000;
+
+/** Fail analysis_runs stuck in PENDING/RUNNING (in-process runs don't survive a
+ *  restart, and a hung model call would otherwise leave a run "running" forever). */
+async function sweepStaleRuns(reason: string, olderThanMs: number): Promise<void> {
+  try {
+    let q = getDb()
+      .from("analysis_runs")
+      .update({ status: "FAILED", error: reason, updated_at: new Date().toISOString() })
+      .in("status", ["PENDING", "RUNNING"]);
+    if (olderThanMs > 0) q = q.lt("started_at", new Date(Date.now() - olderThanMs).toISOString());
+    const { error } = await q;
+    if (error) log.warn("[sweeper]", `stale-run sweep failed: ${error.message}`);
+  } catch (e: any) {
+    log.warn("[sweeper]", `stale-run sweep error: ${e?.message || e}`);
+  }
+}
+
 const server = app.listen(config.port, async () => {
   log.info("[api]", `listening on :${config.port}`);
   log.info(
     "[api]",
-    `config: supabase=${config.supabaseUrl ? "set" : "unset"} voyager=${config.voyagerUrl} rateLimit=${config.rateLimitPerMin}/min logLevel=${process.env.LOG_LEVEL || "info"}`,
+    `config: supabase=${config.supabaseUrl ? "set" : "unset"} voyager=${config.voyagerUrl} mcp=${config.mcpVoyagerUrl || "off"} rateLimit=${config.rateLimitPerMin}/min logLevel=${process.env.LOG_LEVEL || "info"}`,
   );
+  // Runs execute in-process, so nothing survives a restart: anything left
+  // PENDING/RUNNING from a previous process is dead. Clear it, then keep
+  // sweeping hangs.
+  void sweepStaleRuns("Server restarted while this run was in progress.", 0);
+  setInterval(() => void sweepStaleRuns("Run timed out with no progress.", STALE_RUN_MS), 60_000).unref?.();
 });
 
 async function shutdown() {

@@ -25,6 +25,9 @@ export interface AnalysisRequest {
   model: LanguageModel;
   store: RunStore;
   onStarted: (id: string) => void;
+  /** Optional per-run budgets (fall back to config defaults). */
+  maxSteps?: number;
+  maxTokens?: number;
 }
 
 let missingColumnsWarned = false;
@@ -79,6 +82,8 @@ export async function runAnalysis(req: AnalysisRequest): Promise<void> {
         symbol: req.symbol,
         source: req.source,
         model: req.model,
+        maxSteps: req.maxSteps,
+        maxTokens: req.maxTokens,
         onEvent: (event) => {
           if (event.type === "thought") trace.push("thought", "iterative", { text: event.text });
           else if (event.type === "tool_call") trace.push("tool_call", "iterative", { tool: event.tool, tool_call_id: event.toolCallId, args: event.args });

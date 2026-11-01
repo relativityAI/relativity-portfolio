@@ -42,6 +42,10 @@ export interface IterativeAgentOptions {
   source?: string;
   /** Max outer turns before giving up. Default 6. */
   maxIterations?: number;
+  /** Total tool-call (model step) budget across all turns. Default config.agentMaxSteps. */
+  maxSteps?: number;
+  /** Total token budget (input+output) across all turns. Default config.agentMaxTokens. */
+  maxTokens?: number;
   /** Per-turn wall-clock budget, ms. */
   deadlineMs?: number;
   onEvent?: (event: HarnessTraceEvent) => void;
@@ -82,6 +86,8 @@ export const DEFAULT_SYSTEM = [
 export async function runIterativeAgent(opts: IterativeAgentOptions): Promise<IterativeAgentResult> {
   const modelId = opts.modelId ?? DEFAULT_ITERATIVE_MODEL;
   const maxIterations = opts.maxIterations ?? 6;
+  const maxSteps = opts.maxSteps ?? config.agentMaxSteps;
+  const maxTokens = opts.maxTokens ?? config.agentMaxTokens;
 
   const keys = opts.keys ?? {};
   const model = opts.model ?? buildModel(modelId, keys, keyPool.pickKey(modelId, keys as Record<string, string | undefined>).apiKey);
@@ -104,8 +110,17 @@ export async function runIterativeAgent(opts: IterativeAgentOptions): Promise<It
   let error: string | undefined;
   let status: IterativeAgentResult["status"] = "PARTIAL";
   let rejectReason: string | undefined;
+  let totalToolCalls = 0;
+  let totalTokens = 0;
 
   for (let i = 0; i < maxIterations; i++) {
+    // Hard per-run budgets: stop before the next turn when either is spent, so
+    // a looping model can't run forever ("max calls / max tokens").
+    if (totalToolCalls >= maxSteps || totalTokens >= maxTokens) {
+      error = `Run budget reached (${totalToolCalls} tool calls, ${totalTokens} tokens) — stopped.`;
+      status = "PARTIAL";
+      break;
+    }
     iterations++;
     const prompt =
       i === 0
@@ -126,11 +141,15 @@ export async function runIterativeAgent(opts: IterativeAgentOptions): Promise<It
       prompt,
       tools,
       forceTools: true,
+      // Cap this turn's tool round-trips at the remaining run budget.
+      maxToolSteps: Math.max(1, maxSteps - totalToolCalls),
       deadlineMs: opts.deadlineMs,
       onEvent: opts.onEvent,
     });
 
     toolCalls.push(...turn.toolCalls);
+    totalToolCalls += turn.toolCalls.length;
+    totalTokens += (turn.usage?.input ?? 0) + (turn.usage?.output ?? 0);
     if (turn.text) {
       text += (text ? "\n\n" : "") + turn.text;
       // The final answer is the last turn's text — earlier turns are progress
@@ -161,7 +180,7 @@ export async function runIterativeAgent(opts: IterativeAgentOptions): Promise<It
     }
   }
 
-  if (status !== "DONE" && status !== "FAILED") {
+  if (status !== "DONE" && status !== "FAILED" && !error) {
     error = rejectReason
       ? `Agent did not satisfy the completion criteria within ${maxIterations} iteration(s): ${rejectReason}`
       : `Agent did not complete within ${maxIterations} iteration(s).`;
