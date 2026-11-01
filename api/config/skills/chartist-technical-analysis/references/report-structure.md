@@ -2,43 +2,41 @@
 
 Reports must be visually engaging, concise, and decision-oriented. Prioritize charts, figures, KPI cards, and tables. Minimize prose.
 
-## 1. Quick Summary
+## Quick Summary
 Start with a prominent summary box:
 
 **Key Takeaways**
 - [Most important finding]
-- [Financial performance]
-- [Valuation / technical outlook]
-- [Major catalyst or risk]
+- [Key Verdict based on the skill guidelines]
 
-Include ticker, company, analysis date, verdict, and investment horizon.
 
-# Writing & Design Standards
-
-- Prefer visual comparisons over paragraphs.
-- Use charts for data related to price, moving averages, volume, and relative-strength visualizations. 
+## Writing Style
+- Stop using jargon and speak coherently. State it more simply and concisely, like one human talking to another.
 - No checklist tables. No evidence checklist tables.
-- Use compact comparison tables, impact indicators, and timelines where appropriate.
 - **Short sentences only.** One key idea per sentence. Concision in language is not an excuse to drift.
-- **Less text, more visuals.**
 - Focus on making important information standout and catch attention like - imporant figures, headlines, imp findings.
 - Use compact tables and KPI cards.
-- Do not use paragraphs at all. Prefer markdown unordered listed points (not bullet points) and visual summaries.
+- Do not use paragraphs at all. If you must, dont not put more than 3 consecutive sentences together.
 - Remove generic commentary and repetition.
 - Clearly distinguish facts, estimates, and analytical opinions.
 - Omit irrelevant sections rather than filling space.
 - Maintain institutional research quality.
 
-**Core principle: Make the report something an investor can scan and understand in minutes, not something they have to read for 20 minutes.**
+**Core principle: Make the report something an investor can scan and understand in <2 minutes, not something they have to read for 20 minutes.**
 
-# Visualization Requirements
+# Visualization and Design Standards
 
 **Visual storytelling is the priority. Do not rely on one chart type throughout the report.**
+
+- Prefer visual comparisons over paragraphs.
+- Use charts for data related to price, moving averages, volume, and relative-strength visualizations. 
+- **Less text, more visuals.** - the reader is not here to read, but to glance.
 
 Choose visualizations based on the information:
 
 Rules:
 - IMPORTANT: Use a variety of plot types when the data supports them.
+- Try to keep atleast 5 plots in the entire report - dont just make them for the sake of it. 
 - Prefer visualizations over explanatory paragraphs.
 - Different plots should have different colors. Choose from these: Terracotta (#C66B4E), Coral (#E58B70), Amber (#D9A441), Ochre (#B88A45), Sage (#82977A), Olive (#A3A66A), Dusty Rose (#C58B91), Warm Plum (#96758F), Slate (#788A91), Cream (#E8DCC5).
 - Every chart needs a meaningful title, units, `measure`, and `sourceId`.
@@ -46,7 +44,7 @@ Rules:
 - Do not create decorative or redundant charts.
 - If data is unavailable, state the limitation.
 
-# Citation & Hyperlink Requirements
+## Citation & Hyperlink Requirements
 
 **Use inline clickable citations. No footnotes.**
 
@@ -59,7 +57,7 @@ Rules:
 - Never add a dedicated Sources column to tables.
 - Do not create a lengthy Sources or References section.
 
-Example:
+Examples:
 
 Revenue grew **23% YoY** to $2.45B, beating consensus by 2.5%, according to the [Q3 earnings release](https://example.com/earnings).
 
