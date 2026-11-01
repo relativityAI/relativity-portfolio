@@ -11,7 +11,7 @@ const sanitizeFetch = sanitizeSSEFetch();
 const createOpenAICompatible = (o: Parameters<typeof _createOpenAICompatible>[0]) =>
   _createOpenAICompatible({ fetch: sanitizeFetch, ...o });
 import { config } from "./config.js";
-import { openCodeBaseURL, openCodeHeaders } from "./opencode.js";
+import { openCodeBaseURL, openCodeHeaders } from "./harness/index.js";
 import { getToolCatalog } from "./tools.js";
 import { log } from "./logger.js";
 import { keyPool } from "./keypool.js";

@@ -47,6 +47,7 @@ export type { Budget, TraceEvent, RunPhase } from "./types.js";
 export { friendlyError, isRateLimitError, providerWaitMs } from "./errors.js";
 export { RETRYABLE_ERROR, retryLlmCall, repairNullToolArgs } from "./resilience.js";
 export { log } from "./log.js";
+export { openCodeBaseURL, openCodeHeaders } from "./opencode.js";
 
 // ── Agent definitions (persistence behind AgentRepository) ─────────────────
 export {

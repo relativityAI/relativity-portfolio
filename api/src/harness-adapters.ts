@@ -172,3 +172,49 @@ export function installHarnessAdapters(): void {
   setAgentRepository(supabaseAgentRepository);
   setSkillRepository(supabaseSkillRepository);
 }
+
+// ── Console view mapping ────────────────────────────────────────────────────
+// Row mapping belongs on this side of the seam: the console's view shape
+// (persona.philosophy, skills[]) is a server concern, not a harness one.
+
+/** Project a harness definition into the shape the console expects. */
+export function harnessToView(d: AgentDefinition) {
+  return {
+    id: d.id,
+    _id: d.id,
+    user_id: d.userId,
+    name: d.name,
+    source: "harness",
+    harness: true,
+    created_at: d.createdAt,
+    persona: { philosophy: d.soulPrompt },
+    skills: d.skillIds.map((skill_id) => ({ skill_id, weight: 5 })),
+    soul_prompt: d.soulPrompt,
+    skill_ids: d.skillIds,
+    allowed_tools: d.allowedTools,
+    model_id: d.modelId,
+    budget: d.budget,
+    output_template_id: d.outputTemplateId,
+  };
+}
+
+/** Map a console write into a harness patch — only fields actually present,
+ *  so a partial update never wipes the rest of the configuration. */
+export function viewToHarnessPatch(body: Record<string, any>) {
+  const patch: Record<string, any> = {};
+  if (body.name !== undefined) patch.name = String(body.name);
+  const phil = body.soulPrompt ?? body.soul_prompt ?? body.philosophy
+    ?? body.persona?.philosophy ?? body.persona?.philosophy_and_mindset;
+  if (phil !== undefined) patch.soulPrompt = String(phil);
+  const raw = Array.isArray(body.skillIds) ? body.skillIds
+    : Array.isArray(body.skill_ids) ? body.skill_ids
+      : Array.isArray(body.skills) ? body.skills : undefined;
+  if (raw) patch.skillIds = raw.map((s: any) => (typeof s === "string" ? s : s?.skill_id)).filter(Boolean);
+  const tools = body.allowedTools ?? body.allowed_tools;
+  if (Array.isArray(tools)) patch.allowedTools = tools;
+  if (body.modelId !== undefined || body.model_id !== undefined) patch.modelId = body.modelId ?? body.model_id;
+  if (body.outputTemplateId !== undefined || body.output_template_id !== undefined) {
+    patch.outputTemplateId = body.outputTemplateId ?? body.output_template_id ?? null;
+  }
+  return patch;
+}

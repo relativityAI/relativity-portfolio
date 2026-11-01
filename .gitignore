@@ -27,6 +27,7 @@ skills-lock.json
 research
 
 # dev debug / probe / repro scratch scripts
+api/scratch/
 api/dbg-*
 api/debug-*
 api/probe-*

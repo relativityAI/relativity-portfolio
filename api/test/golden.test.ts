@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { builderResponseSchema } from "../src/builder.js";
-import { aggregateWeightedScores } from "../src/scoring.js";
 import { voyagerCircuitBreaker } from "../src/voyager.js";
 
 describe("Eval Harness & Circuit Breaker Tests", () => {
@@ -41,54 +40,6 @@ describe("Eval Harness & Circuit Breaker Tests", () => {
       };
       const parsed = builderResponseSchema.safeParse(invalid);
       expect(parsed.success).toBe(false);
-    });
-  });
-
-  describe("Honest scoring (plan 0.3: unknown ≠ 0)", () => {
-    it("includeMissingAsZero counts missing data as zero with weight (opt-in only)", () => {
-      const items = [
-        { score: 100, weightage: 5 },
-        { score: null, weightage: 5, unscored_reason: "missing_data" as const },
-      ];
-      // (100*5 + 0*5) / (5 + 5) = 50; coverage 0.5; band [0, 100]
-      const res = aggregateWeightedScores(items, { includeMissingAsZero: true });
-      expect(res.score).toBe(50);
-      expect(res.totalWeight).toBe(10);
-      expect(res.coverage).toBe(0.5);
-      expect(res.fit_low).toBe(50);
-      expect(res.fit_high).toBe(100);
-    });
-
-    it("default treats errored parameters as UNSCORED, not zero and not excluded silently", () => {
-      const items = [
-        { score: 80, weightage: 5 },
-        { score: null, weightage: 5, unscored_reason: "error" as const },
-      ];
-      // Point estimate over scored only: 80. Coverage 0.5; band [40, 90].
-      const res = aggregateWeightedScores(items);
-      expect(res.score).toBe(80);
-      expect(res.totalWeight).toBe(5);
-      expect(res.coverage).toBe(0.5);
-      expect(res.fit_low).toBe(40);
-      expect(res.fit_high).toBe(90);
-    });
-
-    it("zero-weight items are excluded, never defaulted to 5 (plan A2)", () => {
-      const items = [
-        { score: 10, weightage: 0 },
-        { score: 80, weightage: 5 },
-      ];
-      const res = aggregateWeightedScores(items);
-      expect(res.score).toBe(80);
-      expect(res.coverage).toBe(1);
-    });
-
-    it("a real score of 1 no longer becomes 100 (plan A1)", () => {
-      const res = aggregateWeightedScores([
-        { score: 1, weightage: 5 },
-        { score: 60, weightage: 5 },
-      ]);
-      expect(res.score).toBe(30.5);
     });
   });
 

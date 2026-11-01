@@ -13,7 +13,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { openCodeBaseURL, openCodeHeaders } from "../../opencode.js";
+import { openCodeBaseURL, openCodeHeaders } from "../opencode.js";
 
 /** provider → env vars checked in order; plural vars hold comma-separated keys. */
 const KEY_ENV: Record<string, string[]> = {
