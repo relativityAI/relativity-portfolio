@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderFigure, fmtNum, figureCsv } from "../src/harness/report/figure-kit.js";
-import { renderFigures, computeFootnotes, computeInlineCitations } from "../src/harness/report/builder.js";
+import { renderFigures } from "../src/harness/report/builder.js";
 import { SectionSchema, type ReportDocument } from "../src/harness/report/document.js";
 
 const pts = (...vs: number[]) => vs.map((v, i) => ({ t: 1760000000 + i * 86400, v }));
@@ -117,7 +117,7 @@ describe("renderFigure", () => {
     expect((svg.match(/<line /g) ?? []).length).toBe(2); // one hairline per data row
     expect(svg).not.toContain("NaN");
     expect(renderFigure({ kind: "table" })).toBeNull(); // no columns/rows → no placeholder
-    expect(SectionSchema.safeParse({ type: "chart", spec: { kind: "table", columns: ["a"], rows: [[1]] } }).success).toBe(true);
+    expect(SectionSchema.safeParse({ heading: { level: 2, text: "T" }, blocks: [{ type: "chart", sourceId: "s1", spec: { kind: "table", columns: ["a"], rows: [[1]] } }] }).success).toBe(true);
   });
 
   it("stat → Anek label, huge Newsreader numeral, sign ink, spark", () => {
@@ -166,28 +166,28 @@ describe("renderFigure", () => {
     const svg = renderFigure({ kind: "bar", categories: ["x"], values: [1], color: "#C66B4E" })!;
     expect(svg).toContain("#C66B4E");
     expect(svg).not.toContain("#3A5BD0");
-    expect(SectionSchema.safeParse({ type: "chart", spec: { kind: "line", color: "#C66B4E" } }).success).toBe(true);
-    expect(SectionSchema.safeParse({ type: "chart", spec: { kind: "line", color: "red\"/><script" } }).success).toBe(false);
+    expect(SectionSchema.safeParse({ heading: { level: 2, text: "T" }, blocks: [{ type: "chart", sourceId: "s1", spec: { kind: "line", color: "#C66B4E" } }] }).success).toBe(true);
+    expect(SectionSchema.safeParse({ heading: { level: 2, text: "T" }, blocks: [{ type: "chart", sourceId: "s1", spec: { kind: "line", color: "red\"/><script" } }] }).success).toBe(false);
   });
 
   it("section-level color (where models write it, beside measure/sourceId) survives and inks", () => {
-    const p = SectionSchema.safeParse({ type: "chart", measure: "USD", color: "#82977A", spec: { kind: "bar", categories: ["x"], values: [1] } });
+    const p = SectionSchema.safeParse({ heading: { level: 2, text: "T" }, blocks: [{ type: "chart", measure: "USD", color: "#82977A", sourceId: "s1", spec: { kind: "bar", categories: ["x"], values: [1] } }] });
     expect(p.success).toBe(true);
     const doc: ReportDocument = {
-      schema: "relativity/report.v1", title: "T", generatedAt: "2026-10-31", symbol: "AAPL",
+      schema: "relativity/report.v2", title: "T", generatedAt: "2026-10-31", symbol: "AAPL",
       sections: [p.data as any], sources: [],
     };
     renderFigures(doc);
-    const svg = (doc.sections[0] as any).svgs[0] as string;
+    const svg = (doc.sections[0] as any).blocks[0].svgs[0] as string;
     expect(svg).toContain("#82977A");
     expect(svg).not.toContain("#3A5BD0");
   });
 });
 
 describe("renderFigures", () => {
-  const chart = (spec: any, panels?: any[]) => ({ type: "chart", title: "T", spec, panels });
+  const chart = (spec: any, panels?: any[]) => ({ heading: { level: 2, text: "T" }, blocks: [{ type: "chart", title: "T", sourceId: "s1", spec, panels }] });
   const docWith = (...sections: any[]): ReportDocument => ({
-    schema: "relativity/report.v1",
+    schema: "relativity/report.v2",
     title: "T",
     generatedAt: "2026-10-30",
     symbol: "AAPL",
@@ -200,7 +200,7 @@ describe("renderFigures", () => {
       chart({ kind: "line", series: [{ label: "a", points: pts(1, 2) }] }, [{ kind: "bar", categories: ["x"], values: [1] }]),
     );
     renderFigures(doc);
-    const s = doc.sections[0] as any;
+    const s = doc.sections[0].blocks[0] as any;
     expect(s.svgs).toHaveLength(2);
     expect(s.svgs[0]).toContain("<svg");
     expect(s.svgs[1]).toContain("<rect");
@@ -209,11 +209,12 @@ describe("renderFigures", () => {
   it("atomic: a candle among panels leaves the section to the client path", () => {
     const doc = docWith(chart({ kind: "line", series: [{ label: "a", points: pts(1, 2) }] }, [{ kind: "candle", series: [] }]));
     renderFigures(doc);
-    expect((doc.sections[0] as any).svgs).toBeUndefined();
+    expect((doc.sections[0].blocks[0] as any).svgs).toBeUndefined();
   });
 
-  it("schema back-compat: chart sections without the new fields still parse", () => {
-    expect(SectionSchema.safeParse({ type: "chart", spec: { kind: "line" } }).success).toBe(true);
+  it("schema: every figure block requires a sourceId", () => {
+    expect(SectionSchema.safeParse({ heading: { level: 2, text: "T" }, blocks: [{ type: "chart", spec: { kind: "line" } }] }).success).toBe(false);
+    expect(SectionSchema.safeParse({ heading: { level: 2, text: "T" }, blocks: [{ type: "chart", sourceId: "s1", spec: { kind: "line" } }] }).success).toBe(true);
   });
 });
 
@@ -226,114 +227,3 @@ describe("figureCsv", () => {
   });
 });
 
-describe("computeFootnotes (citations as footnotes, never a sources list)", () => {
-  const base = {
-    schema: "relativity/report.v1" as const,
-    title: "T",
-    generatedAt: "2026-10-30",
-    symbol: "AAPL",
-    sources: [
-      { id: "src_019_6", label: "Bloomberg consensus (November 6, 2024)", tool: "web_search", value: "2.39", url: "https://bloomberg.com" },
-      { id: "src_002", label: "Earnings release (November 7, 2024)", tool: "web_search", value: "2.45", url: "https://co.com/er" },
-      { id: "src_006_7", label: "Q3 2024 Form 10-Q", tool: "web_search", value: "margin" },
-    ],
-  };
-
-  it("numbers first-citation order, resolves namespaced ids, rewrites tokens to markers", () => {
-    const doc: any = {
-      ...base,
-      sections: [
-        { type: "paragraph", text: "Beat $2.45B vs $2.39B [src:src_019]; margins [src:src_002]." },
-        { type: "paragraph", text: "Again [src:src_019] and new [src:src_006]." },
-        { type: "citations", refs: [] },
-      ],
-    };
-    computeFootnotes(doc);
-    expect(doc.footnotes).toEqual(["src_019_6", "src_002", "src_006_7"]);
-    expect(doc.sections[0].text).not.toContain("[src:");
-    expect(doc.sections[0].text).toContain("\u00b9"); // src_019_6 (namespaced!) → marker 1
-    expect(doc.sections[0].text).toContain("\u00b2");
-    // same source again keeps its number; new source takes the next
-    expect(doc.sections[1].text).toContain("\u00b9");
-    expect(doc.sections[1].text).toContain("\u00b3");
-    expect(doc.sections[1].text).not.toContain("[src:");
-  });
-
-  it("highlight without a token gets the marker after its span", () => {
-    const doc: any = {
-      ...base,
-      sections: [
-        { type: "paragraph", text: "Net sales rose 16.4% y/y.", highlights: [{ text: "16.4%", kind: "number", sourceId: "src_002" }] },
-      ],
-    };
-    computeFootnotes(doc);
-    expect(doc.footnotes).toEqual(["src_002"]);
-    expect(doc.sections[0].text).toContain("16.4%\u00b9");
-  });
-
-  it("nothing cited → no footnotes, text untouched", () => {
-    const doc: any = { ...base, sections: [{ type: "paragraph", text: "No citations here." }] };
-    computeFootnotes(doc);
-    expect(doc.footnotes).toBeUndefined();
-    expect(doc.sections[0].text).toBe("No citations here.");
-  });
-});
-
-describe("computeInlineCitations (skill override: no footnotes, inline links)", () => {
-  const base = {
-    schema: "relativity/report.v1" as const,
-    title: "T",
-    generatedAt: "2026-10-31",
-    symbol: "AAPL",
-    sources: [
-      { id: "src_001", label: "Yahoo Finance (October 30, 2026)", tool: "web_search", value: "344.63", url: "https://finance.yahoo.com/quote/AAPL" },
-      { id: "src_002", label: "No-url source", tool: "web_search", value: "n/a" },
-    ],
-  };
-
-  it("rewrites tokens to [label](url) links — no markers, no footnotes", () => {
-    const doc: any = {
-      ...base,
-      sections: [
-        { type: "paragraph", text: "Close $344.63 [src:src_001]." },
-        { type: "citations", refs: [] },
-      ],
-    };
-    computeInlineCitations(doc);
-    expect(doc.sections[0].text).toBe("Close $344.63 [Yahoo Finance (October 30, 2026)](https://finance.yahoo.com/quote/AAPL).");
-    expect(doc.sections[0].text).not.toContain("[src:");
-    expect(doc.sections[0].text).not.toContain("\u00b9"); // no superscript
-    expect(doc.footnotes).toBeUndefined();
-  });
-
-  it("a highlight with no token becomes the link text itself", () => {
-    const doc: any = {
-      ...base,
-      sections: [
-        { type: "paragraph", text: "Close up 2.1%.", highlights: [{ text: "2.1%", kind: "number", sourceId: "src_001" }] },
-      ],
-    };
-    computeInlineCitations(doc);
-    expect(doc.sections[0].text).toContain("[2.1%](https://finance.yahoo.com/quote/AAPL)");
-    expect(doc.footnotes).toBeUndefined();
-  });
-
-  it("url-less source consumes the token to a plain label; unknown ids keep it", () => {
-    const doc: any = {
-      ...base,
-      sections: [{ type: "paragraph", text: "A [src:src_002] and B [src:src_999]." }],
-    };
-    computeInlineCitations(doc);
-    expect(doc.sections[0].text).toBe("A No-url source and B [src:src_999].");
-  });
-
-  it("quotes get their source appended as a link", () => {
-    const doc: any = {
-      ...base,
-      sections: [{ type: "quote", text: "Best quarter ever.", sourceId: "src_001" }],
-    };
-    computeInlineCitations(doc);
-    expect(doc.sections[0].text).toContain("[Yahoo Finance (October 30, 2026)](https://finance.yahoo.com/quote/AAPL)");
-    expect(doc.footnotes).toBeUndefined();
-  });
-});

@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { PRIMITIVES } from "../src/harness/report/catalog.js";
+import { BLOCKS, SECTION_SHAPE } from "../src/harness/report/catalog.js";
 import { ChartSpecSchema, SCHEMA_VERSION, supGlyph, type ReportDocument } from "../src/harness/report/document.js";
 import { DATA_TOKENS, plotReferenceMarkdown, sectionContractMarkdown } from "../src/harness/report/reference.js";
-import { computeFootnotes } from "../src/harness/report/builder.js";
 import { Workspace } from "../src/harness/workspace/fs.js";
 import { extractNumbers, verifyDocumentNumbers } from "../src/harness/workspace/verify.js";
 import { validateComposed } from "../src/harness/canvas/canvas.js";
@@ -22,13 +21,20 @@ describe("generated prompt reference (schema → system prompt)", () => {
     expect(plotReferenceMarkdown(true)).not.toMatch(/will NOT resolve/);
   });
 
-  it("ships a copyable JSON example for every section primitive", () => {
+  it("ships the section envelope and a copyable JSON example for every block", () => {
     const md = sectionContractMarkdown();
-    for (const p of PRIMITIVES) {
+    expect(md).toContain(SECTION_SHAPE);
+    expect(md).toContain('"heading"');
+    expect(md).toContain('"blocks"');
+    expect(md).toContain("level-1 text must be IMMEDIATELY followed");
+    for (const p of BLOCKS) {
       expect(md).toContain(`- ${p.id} —`);
       expect(md).toContain(p.json);
       expect(() => JSON.parse(p.json)).not.toThrow();
     }
+    // badges/quote are gone from the vocabulary
+    expect(md).not.toMatch(/- badges —/);
+    expect(md).not.toMatch(/- quote —/);
   });
 });
 
@@ -45,38 +51,30 @@ describe("workspace tree snapshot", () => {
   });
 });
 
-describe("report_write rejections identify the block", () => {
-  it("prefixes index and type so the agent can map failure → block", () => {
-    const out = validateComposed({ sections: [{ type: "chart", title: "x" }, { type: "table", headers: ["a"] }] });
+describe("report_write rejections identify the section", () => {
+  it("prefixes index and heading so the agent can map failure → section", () => {
+    const out = validateComposed({
+      sections: [
+        { heading: { level: 2, text: "Momentum" }, blocks: [{ type: "chart", title: "x" }] },
+        { title: "Risks", blocks: [] },
+      ],
+    });
     expect(out.sections).toHaveLength(0);
-    expect(out.invalid[0]).toMatch(/^sections\[0\] \(chart\): spec: Required/);
-    expect(out.invalid[1]).toMatch(/^sections\[1\] \(table\):/);
+    expect(out.invalid[0]).toMatch(/^sections\[0\] \("Momentum"\):/);
+    expect(out.invalid[0]).toContain("sourceId");
+    expect(out.invalid[1]).toMatch(/^sections\[1\] \("Risks"\):/);
+    expect(out.invalid[1]).toContain("heading");
   });
 });
 
 describe("numeric fidelity (footnote markers and cited derivations)", () => {
-  const para = (text: string) => ({ type: "paragraph", text }) as const;
+  const para = (text: string) => ({ heading: { level: 2, text: "T" }, blocks: [{ type: "text", level: 2, text }] }) as const;
 
   it("markers are non-ASCII so extractNumbers never sees them", () => {
     expect(supGlyph(3)).toBe("³");
     expect(supGlyph(11)).toBe("¹¹");
     expect(supGlyph(12)).toBe("¹²");
     expect(extractNumbers(`upside ${supGlyph(11)} and ${supGlyph(12)}`)).toEqual([]);
-  });
-
-  it("stamping 11 footnotes leaves no marker numbers for the checker", () => {
-    const tokens = Array.from({ length: 11 }, (_, i) => `[src:src_${i + 1}]`).join("");
-    const doc = {
-      title: "t",
-      symbol: "X",
-      generatedAt: "2026-10-30",
-      schema: SCHEMA_VERSION,
-      sections: [para(`A claim ${tokens}`)],
-      sources: Array.from({ length: 11 }, (_, i) => ({ id: `src_${i + 1}`, label: `L${i + 1}`, tool: "web_search", value: `v${i + 1}` })),
-    } as ReportDocument;
-    computeFootnotes(doc);
-    expect(extractNumbers((doc.sections[0] as any).text)).toEqual([]); // only ¹…¹¹ remain
-    expect(verifyDocumentNumbers(doc, new Set())).toEqual([]);
   });
 
   it("whitelists numbers a cited source itself quotes; uncited stay flagged", () => {

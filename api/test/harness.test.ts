@@ -22,7 +22,7 @@ import {
   summarizeOlderMessages,
   SUMMARIZE_KEEP_RECENT,
 } from "../src/harness/loop/agent-loop.js";
-import { ReportCanvas } from "../src/harness/canvas/canvas.js";
+import { ReportCanvas, validateComposed } from "../src/harness/canvas/canvas.js";
 import { reportWriteTool, reportRemoveTool } from "../src/harness/canvas/report-tool.js";
 import { runCanvasAnalysis } from "../src/harness/canvas/run.js";
 import { AGENT_CONFIG_DEFAULT, loadAgentConfig, loadRunConfigDoc, promptDoc } from "../src/harness/config.js";
@@ -808,20 +808,40 @@ describe("deadline nudge (runAgentLoop) — advice, never a forced tool call", (
 });
 
 describe("report_remove / canvas groups", () => {
-  it("surfaces group titles as level-2 headings in the compiled document", () => {
+  it("lands full sections verbatim — group titles are labels, never injected headings", () => {
     const canvas = new ReportCanvas("TCS");
-    canvas.appendSections("What's new", [{ type: "paragraph", text: "Beat." } as any], []);
-    canvas.appendSections("Risks", [{ type: "heading", level: 3, text: "Risks" } as any], []);
+    canvas.appendSections("What's new", [{ heading: { level: 2, text: "What's new" }, blocks: [{ type: "text", level: 1, text: "Beat." }, { type: "text", level: 2, text: "By 3%." }] } as any], []);
+    canvas.appendSections("Risks", [{ heading: { level: 2, text: "Risks" }, blocks: [{ type: "callout", variant: "warn", text: "Margins." }] } as any], []);
     const doc = canvas.document();
-    expect(doc.sections[0]).toMatchObject({ type: "heading", level: 2, text: "What's new" });
-    // the write already led with its own heading — no duplicate injected
-    expect(doc.sections.filter((s) => s.type === "heading" && s.text === "Risks")).toHaveLength(1);
+    // pass-through: exactly what the agent wrote, no extra heading prepended
+    expect(doc.sections.map((s) => s.heading.text)).toEqual(["What's new", "Risks"]);
+    expect(doc.sections[0].blocks).toHaveLength(2);
+    expect(doc.title).toBeUndefined(); // no default title injected
+    expect(doc.generatedAt).toBeUndefined(); // no timestamp injected
   });
 
+  it("rejects a level-1 text not followed by level-2 detail", () => {
+    const canvas = new ReportCanvas("TCS");
+    const v = validateComposed({
+      sections: [{ heading: { level: 2, text: "Trend" }, blocks: [{ type: "text", level: 1, text: "Claim." }, { type: "chart", sourceId: "s1", spec: { kind: "line" } }] }],
+      sources: [],
+    });
+    expect(v.sections).toHaveLength(0);
+    expect(v.invalid[0]).toContain("level-1 text must be immediately followed by a level-2 text");
+  });
+
+  it("rejects figures without a sourceId", () => {
+    const v = validateComposed({
+      sections: [{ heading: { level: 2, text: "Trend" }, blocks: [{ type: "chart", spec: { kind: "line" } }] }],
+      sources: [],
+    });
+    expect(v.sections).toHaveLength(0);
+    expect(v.invalid[0]).toContain("sourceId");
+  });
 
   it("retracts a section-group by id or title and lists groups", async () => {
     const canvas = new ReportCanvas("TCS");
-    canvas.appendSections("Momentum", [{ type: "heading", level: 2, text: "Momentum" } as any], []);
+    canvas.appendSections("Momentum", [{ heading: { level: 2, text: "Momentum" }, blocks: [] } as any], []);
     expect(canvas.groups()).toEqual([{ id: "t1", title: "Momentum", sections: 1 }]);
     const tool = reportRemoveTool(canvas);
     expect(await tool.execute({ group: "Momentum" }, { symbol: "TCS", source: "NSE" } as any)).toEqual({
@@ -836,9 +856,9 @@ describe("report_remove / canvas groups", () => {
   it("report_write still appends after a removal", async () => {
     const canvas = new ReportCanvas("TCS");
     const write = reportWriteTool(canvas);
-    await write.execute({ title: "A", sections: [{ type: "heading", level: 2, text: "A" }], sources: [] }, { symbol: "TCS", source: "NSE" } as any);
+    await write.execute({ title: "A", sections: [{ heading: { level: 2, text: "A" }, blocks: [] }], sources: [] }, { symbol: "TCS", source: "NSE" } as any);
     reportRemoveTool(canvas).execute({ group: "t1" }, { symbol: "TCS", source: "NSE" } as any);
-    const again = await write.execute({ title: "B", sections: [{ type: "heading", level: 2, text: "B" }], sources: [] }, { symbol: "TCS", source: "NSE" } as any);
+    const again = await write.execute({ title: "B", sections: [{ heading: { level: 2, text: "B" }, blocks: [] }], sources: [] }, { symbol: "TCS", source: "NSE" } as any);
     expect(again).toMatchObject({ added: 1, totalSections: 1 });
   });
 });
@@ -947,7 +967,7 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
             [
               toolCall("a2", "report_write", {
                 title: "Momentum",
-                sections: [{ type: "paragraph", text: "RSI is 999999.", highlights: [{ text: "999999", kind: "number" }] }],
+                sections: [{ heading: { level: 2, text: "Momentum" }, blocks: [{ type: "text", level: 2, text: "RSI is 999999.", highlights: [{ text: "999999", kind: "number" }] }] }],
                 sources: [],
               }),
             ],
@@ -1016,7 +1036,7 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
             [
               toolCall("b1", "report_write", {
                 title: "Snapshot",
-                sections: [{ type: "paragraph", text: "RSI is 42.", highlights: [{ text: "42", kind: "number", sourceId: "s1" }] }],
+                sections: [{ heading: { level: 2, text: "Snapshot" }, blocks: [{ type: "text", level: 2, text: "RSI is 42.", highlights: [{ text: "42", kind: "number", sourceId: "s1" }] }] }],
                 sources: [{ id: "s1", label: "TCS rsi", tool: "get_rsi", value: "42" }],
               }),
             ],
@@ -1087,7 +1107,7 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
             [
               toolCall("b1", "report_write", {
                 title: "Snapshot",
-                sections: [{ type: "paragraph", text: "RSI is 42." }],
+                sections: [{ heading: { level: 2, text: "Gaps" }, blocks: [{ type: "text", level: 2, text: "RSI is 42." }] }],
                 sources: [{ id: "s1", label: "TCS rsi", tool: "get_rsi", value: "42" }],
               }),
             ],
@@ -1170,7 +1190,7 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
       template: getOutputTemplate(),
     });
     const tplSys = JSON.stringify(tplPrompts[0]);
-    expect(tplSys).toContain("## Report sections — accepted types"); // {{section_contract}} filled
+    expect(tplSys).toContain("## Report sections — the full-section contract"); // {{section_contract}} filled
     expect((tplSys.match(/## Report sections/g) || []).length).toBe(1); // fallback skipped
     expect(tplSys).not.toContain("{{section_contract}}");
     expect(tplSys).not.toContain("{{workspace_tree}}");
@@ -1189,7 +1209,7 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
       });
     const draft = toolCall("r1", "report_write", {
       title: "Snapshot",
-      sections: [{ type: "paragraph", text: "RSI is 42.", highlights: [{ text: "42", kind: "number", sourceId: "s1" }] }],
+      sections: [{ heading: { level: 2, text: "Snapshot" }, blocks: [{ type: "text", level: 2, text: "RSI is 42.", highlights: [{ text: "42", kind: "number", sourceId: "s1" }] }] }],
       sources: [{ id: "s1", label: "TCS rsi", tool: "get_rsi", value: "42" }],
     });
     const run = (model: any) =>
