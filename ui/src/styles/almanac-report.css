@@ -18,7 +18,16 @@
   --rule: var(--hairline);
   --paper: var(--surface-recessed);
   font-family: var(--font-body);
-  color: var(--ink);
+  color: var(--ink-secondary);
+  font-size: 0.94rem;
+}
+
+/* Prose column: text caps at ~56% on wide screens; figures/tables/ledger
+   stay full width. Phones and narrower laptops get full width. */
+@media (min-width: 1024px) {
+  .almanac-report :is(h1, h2, h3, h4, p):not(.ledger p):not(.fig-measure) {
+    max-width: 56%;
+  }
 }
 
 html.dark .almanac-report {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { Menu, Flex, Text, Box } from "@chakra-ui/react";
 import { Search, Menu as MenuIcon, X, LogOut, Moon, Sun } from "lucide-react";
 import { useAuth } from "@/auth/useAuth";
@@ -21,10 +21,6 @@ export default function NavBar() {
   const location = useLocation();
   const email = user?.email ?? "";
   const [mobileOpen, setMobileOpen] = useState(false);
-  const isWorkspace =
-    location.pathname.startsWith("/my-workspace") ||
-    location.pathname === "/new-analysis" ||
-    location.pathname.startsWith("/analysis");
 
   return (
     <nav className="bg-[var(--surface-canvas)]">
@@ -119,18 +115,31 @@ export default function NavBar() {
             <span className="w-1.5 h-1.5 rounded-full bg-[#C49A6C]" />
             Overview
           </Link>
-          <Link
-            to="/analysis-list"
-            className={cn(
-              "flex items-center gap-2 text-sm transition-colors cursor-pointer shrink-0",
-              isWorkspace
-                ? "text-[var(--ink-primary)]"
-                : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]",
-            )}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-[#7A8B9E]" />
-            My Workspace
-          </Link>
+          <div className="flex items-center gap-6">
+            {[
+              { to: "/my-workspace", label: "Agents", end: true, dot: "#7A8B9E" },
+              { to: "/my-workspace/skills", label: "Skills", end: false, dot: "#7A9E7E" },
+              { to: "/new-analysis", label: "New Run", end: false, dot: "#7A9E7E" },
+              { to: "/analysis-list", label: "Past Runs", end: false, dot: "#C49A6C" },
+            ].map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-2 text-sm transition-colors cursor-pointer shrink-0",
+                    isActive
+                      ? "text-[var(--ink-primary)]"
+                      : "text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]",
+                  )
+                }
+              >
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: item.dot }} />
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -141,8 +150,10 @@ export default function NavBar() {
       {mobileOpen && (
         <div className="md:hidden border-t border-[var(--ink-primary)] bg-[var(--surface-canvas)]">
           {[
+            { to: "/my-workspace", label: "Agents" },
+            { to: "/my-workspace/skills", label: "Skills" },
             { to: "/new-analysis", label: "New Run" },
-            { to: "/analysis-list", label: "My Workspace" },
+            { to: "/analysis-list", label: "Past Runs" },
           ].map((item) => (
             <Link
               key={item.to}

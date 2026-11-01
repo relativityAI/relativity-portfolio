@@ -23,7 +23,6 @@ import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import ThankYou from "./pages/ThankYou";
 import NavBar from "./components/NavBar";
-import WorkspaceNav from "./components/WorkspaceNav";
 import Footer from "./components/Footer";
 import ApiKeySetupDialog from "./components/ApiKeySetupDialog";
 import { MotionConfig, AnimatePresence, motion } from "motion/react";
@@ -144,12 +143,6 @@ function AppRoutes() {
     locationPath === "/new-analysis" ||
     locationPath === "/";
   const showNav = !isLogin;
-  // Level-3 nav (Agents / Skills / New Run / Past Runs) stays visible across
-  // the workspace and the whole runs flow.
-  const showWorkspaceNav =
-    isConsole ||
-    locationPath === "/new-analysis" ||
-    locationPath.startsWith("/analysis");
   // Remove footer from analysis result page (and analysis-related pages as requested)
   const showFooter = showNav && !isPublicPage && !isConsole && !isAnalysisPage && locationPath !== "/settings";
 
@@ -157,7 +150,6 @@ function AppRoutes() {
     <Flex direction="column" h="100dvh" overflow="hidden">
       {user && locationPath !== "/settings" && <ApiKeySetupDialog key={user.id} user={user} />}
       {showNav && <NavBar />}
-      {showNav && showWorkspaceNav && <WorkspaceNav />}
 
         <Box w="100%" flex={1} overflowY={isConsole ? "hidden" : "auto"} overflowX="hidden" paddingX={0}>
             <AnimatePresence mode="wait">
