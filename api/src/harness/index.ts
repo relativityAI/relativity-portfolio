@@ -118,4 +118,4 @@ export type { ReportDocument, Section, Source, ChartSpec, Highlight, DiagramSpec
 export { attachChartData, enforceTemplate, extractJson } from "./report/builder.js";
 export { VERDICTS, gradeReport } from "./report/verdict.js";
 export type { Verdict } from "./report/verdict.js";
-export { PRIMITIVES } from "./report/catalog.js";
+export { BLOCKS, SECTION_SHAPE } from "./report/catalog.js";

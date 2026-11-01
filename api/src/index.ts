@@ -848,7 +848,7 @@ app.get("/analysis/:id", requireAuth, async (req, res) => {
     if (error || !data) return res.status(404).json({ error: "Analysis not found" });
     // Harness runs store their typed ReportDocument in `report`; the result
     // view reads `report_document`, so surface it under that name.
-    if ((data as any).report?.schema === "relativity/report.v1") (data as any).report_document = (data as any).report;
+    if ((data as any).report?.schema === "relativity/report.v1" || (data as any).report?.schema === "relativity/report.v2") (data as any).report_document = (data as any).report;
     res.json(data);
   } catch (e: any) {
     res.status(503).json({ error: e.message });

@@ -113,7 +113,7 @@ export function validateAgainstTemplate(doc: ReportDocument, tpl: OutputTemplate
   const errors: string[] = [];
   const headings = sectionHeadings(doc);
   const body = doc.sections
-    .map((s) => ("text" in s ? String(s.text) : "title" in s ? String(s.title ?? "") : ""))
+    .flatMap((s) => [s.heading.text, ...s.blocks.map((b) => ("text" in b ? String(b.text) : "title" in b && b.title ? String(b.title) : ""))])
     .join("\n")
     .toLowerCase();
 

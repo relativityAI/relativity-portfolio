@@ -8,7 +8,7 @@
  * silent.
  */
 
-import type { ReportDocument, Section } from "../report/document.js";
+import type { Block, ReportDocument, Section } from "../report/document.js";
 import type { SourceStub } from "./archive.js";
 
 // A number must start at a non-alphanumeric boundary so identifiers like
@@ -75,22 +75,22 @@ export function verifyNumbers(text: string, allowed: Set<number>): number[] {
   return flagged;
 }
 
-function sectionText(section: Section): string {
-  switch (section.type) {
-    case "paragraph":
+function blockText(block: Block): string {
+  switch (block.type) {
+    case "text":
     case "callout":
-      return section.text ?? "";
-    case "heading":
-      return section.text;
+      return block.text ?? "";
     case "table":
-      return [section.caption ?? "", ...section.rows.flat().map(String)].join(" ");
+      return [block.caption ?? "", ...block.rows.flat().map(String)].join(" ");
     case "metrics":
-      return section.items.map((i) => `${i.label} ${i.value}`).join(" ");
-    case "quote":
-      return section.text;
+      return block.items.map((i) => `${i.label} ${i.value}`).join(" ");
     default:
       return "";
   }
+}
+
+function sectionText(section: Section): string {
+  return [section.heading.text, ...section.blocks.map(blockText)].join("\n");
 }
 
 /** Unbacked numbers in the assembled document (citations/refs carry no numbers). */

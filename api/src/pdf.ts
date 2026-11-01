@@ -1177,7 +1177,7 @@ const CHART_TYPE = (kind: ChartSpec["kind"]): LegacyChartType =>
   : kind === "vbar" || kind === "hbar" || kind === "bar" || kind === "movers" || kind === "table" ? "bar"
   : kind;
 
-/** Typed ReportDocument → legacy blocks, reusing the existing block renderers. */
+/** Typed ReportDocument (v1 flat or v2 nested) → legacy blocks, reusing the existing block renderers. */
 export function documentToBlocks(doc: ReportDocument): ReportBlock[] {
   const out: ReportBlock[] = [];
   const pushChart = (spec: ChartSpec, title?: string) => {
@@ -1189,13 +1189,59 @@ export function documentToBlocks(doc: ReportDocument): ReportBlock[] {
     const { data, sourceKeys } = chartRows(spec);
     if (data.length > 1) out.push({ type: "chart", chartType: CHART_TYPE(spec.kind), title, data, sourceKeys });
   };
-  for (const s of doc.sections) {
+  const sourceNote = (label?: string) => label ? { type: "paragraph" as const, text: `Source: ${label}`, citedKeys: [] } : null;
+  // v2 nested section → heading + blocks; v1 flat blocks pass through below.
+  const isV2 = doc.sections.some((s: any) => s && typeof s === "object" && "heading" in s);
+  if (isV2) {
+    for (const sec of doc.sections as any[]) {
+      out.push({ type: "heading", level: sec.heading.level === 1 ? 2 : 3, text: sec.heading.text });
+      for (const b of sec.blocks ?? []) {
+        const src = b.sourceId ? doc.sources.find((x) => x.id === b.sourceId) : undefined;
+        switch (b.type) {
+          case "text":
+            out.push({ type: "paragraph", text: b.text, citedKeys: (b.highlights ?? []).map((h: any) => h.sourceId).filter((x: any) => !!x) });
+            break;
+          case "callout":
+            out.push({ type: "callout", tone: b.variant === "warn" ? "caution" : b.variant === "key" ? "positive" : "neutral", text: `${b.title ? `${b.title}: ` : ""}${b.text}` });
+            break;
+          case "table":
+            out.push({ type: "table", title: b.title, columns: b.columns, rows: b.rows, sourceKeys: [] });
+            if (src) out.push(sourceNote(src.url ? `${src.label} (${src.url})` : src.label)!);
+            break;
+          case "chart":
+            pushChart(b.spec, b.title);
+            if (src) out.push(sourceNote(src.url ? `${src.label} (${src.url})` : src.label)!);
+            break;
+          case "metrics":
+            out.push({ type: "table", title: "At a glance", columns: ["Metric", "Value", "Delta"], rows: b.items.map((m: any) => [m.label, m.value, m.delta ?? ""]), sourceKeys: [] });
+            break;
+          case "code":
+            out.push({ type: "quote", text: b.text });
+            break;
+          case "compare":
+            if ("kind" in b.before) pushChart(b.before, `${b.title ?? "Comparison"} — before`);
+            if ("kind" in b.after) pushChart(b.after, `${b.title ?? "Comparison"} — after`);
+            if (src) out.push(sourceNote(src.url ? `${src.label} (${src.url})` : src.label)!);
+            break;
+          case "diagram":
+            // Mermaid renders in the UI; the PDF notes it rather than guessing.
+            out.push({ type: "paragraph", text: `[${b.spec.syntax} diagram — see the report view]` });
+            if (src) out.push(sourceNote(src.url ? `${src.label} (${src.url})` : src.label)!);
+            break;
+          case "citations":
+            break;
+        }
+      }
+    }
+    return out;
+  }
+  for (const s of doc.sections as any[]) {
     switch (s.type) {
       case "heading":
         out.push({ type: "heading", level: s.level === 1 ? 2 : 3, text: s.text });
         break;
       case "paragraph":
-        out.push({ type: "paragraph", text: s.text, citedKeys: (s.highlights ?? []).map((h) => h.sourceId).filter((x): x is string => !!x) });
+        out.push({ type: "paragraph", text: s.text, citedKeys: (s.highlights ?? []).map((h: any) => h.sourceId).filter((x: any) => !!x) });
         break;
       case "callout":
         out.push({ type: "callout", tone: s.variant === "warn" ? "caution" : s.variant === "key" ? "positive" : "neutral", text: `${s.title ? `${s.title}: ` : ""}${s.text}` });
@@ -1210,10 +1256,10 @@ export function documentToBlocks(doc: ReportDocument): ReportBlock[] {
         out.push({ type: "quote", text: s.text, attribution: s.attribution });
         break;
       case "metrics":
-        out.push({ type: "table", title: "At a glance", columns: ["Metric", "Value", "Delta"], rows: s.items.map((m) => [m.label, m.value, m.delta ?? ""]), sourceKeys: [] });
+        out.push({ type: "table", title: "At a glance", columns: ["Metric", "Value", "Delta"], rows: s.items.map((m: any) => [m.label, m.value, m.delta ?? ""]), sourceKeys: [] });
         break;
       case "badges":
-        out.push({ type: "paragraph", text: s.items.map((i) => i.label).join("  ·  ") });
+        out.push({ type: "paragraph", text: s.items.map((i: any) => i.label).join("  ·  ") });
         break;
       case "code":
         out.push({ type: "quote", text: s.text });
@@ -1238,7 +1284,7 @@ async function harnessDocumentPdf(run: any): Promise<Buffer> {
   const doc: ReportDocument = run.report;
   const content: PdfContent = [
     { image: LOGO_PNG_DATA_URI, width: 34, height: 26, margin: [0, 0, 0, 10] },
-    { text: doc.title, style: "title" },
+    ...(doc.title ? [{ text: doc.title, style: "title" } as PdfNode] : []),
     ...(doc.subtitle ? [{ text: doc.subtitle, style: "subtitle" } as PdfNode] : []),
     {
       text: `${doc.symbol}${doc.generatedAt ? ` · ${new Date(doc.generatedAt).toLocaleDateString()}` : ""}${run.source ? ` · ${String(run.source).toUpperCase()}` : ""}`,
@@ -1254,7 +1300,7 @@ async function harnessDocumentPdf(run: any): Promise<Buffer> {
     }
   }
   const document = {
-    info: { title: doc.title, author: "Relativity" },
+    info: { title: doc.title ?? doc.symbol, author: "Relativity" },
     content,
     styles: {
       title: { fontSize: 24, bold: true, color: "#16181B" },
@@ -1281,7 +1327,7 @@ export async function buildReportPdf(run: any): Promise<Buffer> {
   pdfMake.vfs = pdfFonts?.pdfMake?.vfs ?? pdfFonts ?? {};
   const report = run.report || {};
   // Harness runs store a typed ReportDocument in `report` — different renderer.
-  if (report?.schema === "relativity/report.v1") return harnessDocumentPdf(run);
+  if (report?.schema === "relativity/report.v1" || report?.schema === "relativity/report.v2") return harnessDocumentPdf(run);
   const blocks: ReportBlock[] = Array.isArray(report.blocks) ? report.blocks : [];
   const total = run.total_score;
   const coverage = run.coverage;
