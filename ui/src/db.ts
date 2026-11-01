@@ -1,5 +1,6 @@
 import axios from "axios";
 import { supabase } from "@/lib/supabase";
+import type { ReportDocument } from "@/lib/reportContract";
 
 export const API_BASE = import.meta.env.VITE_RELATIVITY_API || "/api";
 
@@ -101,20 +102,22 @@ export const AnalysisService = {
         return response.data;
     },
 
+    /** Run a harness agent against a symbol; resolves with the typed ReportDocument. */
     async runAnalysis(config: {
-        share_name: string;
         symbol: string;
-        agent_name: string;
+        agent_id: string;
         model?: string;
         source?: string;
-        documents?: string[];
-        web_search?: boolean;
-        web_sources?: string[];
-        run_mode?: "agent" | "skill" | "iterative";
-        skill_id?: string;
+        share_name?: string;
+        output_template_id?: string;
     }) {
         const response = await axios.post(`${API_BASE}/analysis`, config);
-        return response.data;
+        return response.data as {
+            id: string;
+            status: string;
+            document: ReportDocument;
+            errors?: string[];
+        };
     },
 
     async getAvailableSources() {

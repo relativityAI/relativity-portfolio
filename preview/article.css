@@ -1,0 +1,28 @@
+/* Markdown report over almanac.css — article typography only (skill foundations:
+   serif heads, hairline section rhythm, no chrome colour). */
+h1{font-family:var(--sans);font-size:.66rem;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);font-weight:600;margin:34px 0 10px}
+h2{font-family:var(--serif);font-weight:400;font-size:var(--t-h2);line-height:1.1;letter-spacing:-.01em;max-width:26ch;margin:0 0 18px}
+h3{font-family:var(--serif);font-weight:500;font-size:var(--t-h3);line-height:1.2;margin:52px 0 14px;padding-top:26px;border-top:1px solid var(--ghost)}
+h4{font-family:var(--serif);font-weight:500;font-size:1.1rem;margin:30px 0 8px}
+p{margin:0 0 16px;max-width:80ch}
+article>p:nth-of-type(2){color:var(--mid);font-size:.86rem;letter-spacing:.04em}
+strong{font-weight:600}
+em{font-style:italic}
+blockquote{margin:26px 0;padding:20px 24px;border-top:1px solid var(--ink);border-bottom:1px solid var(--ink);background:var(--panel)}
+blockquote p{margin:0;font-size:1.01rem}
+ul,ol{margin:0 0 18px 22px;max-width:76ch}
+li{margin:6px 0}
+hr{border:none;border-top:1px solid var(--ghost);margin:36px 0}
+svg{width:100%;max-width:100%;height:auto;display:block;margin:8px 0 6px}
+p:has(>svg){max-width:none}   /* charts use the full column, not the prose measure */
+/* figure: title line keeps its bold serif voice, source stays dim */
+p:has(>strong:first-child){font-family:var(--serif);font-weight:500;font-size:1.06rem;margin:30px 0 4px}
+pre{background:var(--paper);border:1px solid var(--line);padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:.78rem;margin:0 0 18px}
+code{font-family:var(--mono);font-size:.86em}
+a{color:var(--c);text-decoration:none;border-bottom:1px solid var(--line)}
+a:hover{border-bottom-color:var(--c)}
+details{margin:0 0 18px;border-top:1px solid var(--line);padding-top:10px}
+summary{font-size:.6rem;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);cursor:pointer}
+summary:hover{color:var(--ink)}
+figcaption,.src,.table-wrap+em{color:var(--dim);font-size:.8rem}
+@media(max-width:680px){h2{max-width:none}blockquote{padding:16px 16px}.nav-r{display:none}}

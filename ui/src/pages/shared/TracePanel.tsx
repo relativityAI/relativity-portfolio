@@ -9,7 +9,7 @@ import { supabase } from "@/lib/supabase";
 export interface TraceEvent {
     seq: number;
     ts: number;
-    type: "thought" | "tool_call" | "tool_result" | "decision" | "step" | "log";
+    type: "thought" | "tool_call" | "tool_result" | "decision" | "step" | "log" | "phase" | "canvas_block";
     key: string;
     text?: string;
     tool?: string;
@@ -20,6 +20,12 @@ export interface TraceEvent {
     duration_ms?: number;
     score?: number;
     label?: string;
+    /** Human summary of what a tool call / section step did. */
+    summary?: string;
+    /** Friendly error sentence for a failed step (never a raw provider dump). */
+    error?: string;
+    /** Pipeline phase for grouping (run | assemble). */
+    phase?: string;
 }
 
 type Segment =
@@ -27,7 +33,8 @@ type Segment =
     | { kind: "tool_call"; tool: string; args: unknown }
     | { kind: "tool_result"; tool: string; status: string; duration_ms?: number; result?: unknown }
     | { kind: "decision"; score?: number; text?: string }
-    | { kind: "log"; text: string };
+    | { kind: "log"; text: string }
+    | { kind: "canvas_block"; text: string; status: string };
 
 function appendSegment(groups: Record<string, Segment[]>, ev: TraceEvent): Record<string, Segment[]> {
     const group = groups[ev.key] || (groups[ev.key] = []);
@@ -70,6 +77,9 @@ function appendSegment(groups: Record<string, Segment[]>, ev: TraceEvent): Recor
             break;
         case "log":
             group.push({ kind: "log", text: ev.text || "" });
+            break;
+        case "canvas_block":
+            group.push({ kind: "canvas_block", text: ev.text || "", status: ev.status || "" });
             break;
         default:
             break;
@@ -256,6 +266,23 @@ function ParamBlock({ name, segments, isActive }: { name: string; segments: Segm
                                             </Text>
                                             {seg.score != null && <Text fontSize="11px" fontFamily="var(--font-tabular)" color="var(--ink-primary)">{seg.score.toFixed(1)}</Text>}
                                             {seg.text && <Text fontSize="11px" color="var(--signal-negative)">{seg.text}</Text>}
+                                        </HStack>
+                                    );
+                                }
+                                if (seg.kind === "canvas_block") {
+                                    return (
+                                        <HStack key={i} gap={2} py={0.5}>
+                                            <Text
+                                                fontSize="11px"
+                                                fontFamily="var(--font-mono)"
+                                                flexShrink={0}
+                                                color={seg.status === "done" ? "var(--signal-positive)" : "var(--signal-negative)"}
+                                            >
+                                                {seg.status === "done" ? "■" : "□"} canvas
+                                            </Text>
+                                            <Text fontSize="11.5px" color="var(--ink-secondary)" minW={0}>
+                                                {seg.text}
+                                            </Text>
                                         </HStack>
                                     );
                                 }

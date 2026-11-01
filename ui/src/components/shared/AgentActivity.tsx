@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Flex, Text, HStack, Spinner } from "@chakra-ui/react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Box, Flex, Text, HStack, Spinner, type BoxProps } from "@chakra-ui/react";
 import { motion, AnimatePresence } from "motion/react";
 import { MdCheck, MdClose, MdOutlineAnalytics } from "react-icons/md";
 import { dur, ease } from "@/lib/motion";
@@ -149,6 +149,50 @@ function mmss(totalSec: number): string {
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+/** Mask applied only once a line actually overruns its box — colour eases out
+ *  over the last stretch, right where the text reaches the very end. */
+const FADE_STYLE: CSSProperties = {
+    maskImage: "linear-gradient(to right, #000 86%, transparent)",
+    WebkitMaskImage: "linear-gradient(to right, #000 86%, transparent)",
+};
+
+/**
+ * A single line of reasoning output. Short lines print normally — no mask, no
+ * ellipsis. Only when the text overflows its container does the tail fade, so
+ * a line that ends mid-row never gets washed out.
+ */
+function FadeLine({ children, ...rest }: { children: string } & BoxProps) {
+    const ref = useRef<HTMLDivElement>(null);
+    const [clipped, setClipped] = useState(false);
+
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const check = () => setClipped(el.scrollWidth > el.clientWidth + 1);
+        check();
+        const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(check) : null;
+        ro?.observe(el);
+        // Font swap can widen the text without resizing the box.
+        document.fonts?.ready.then(check).catch(() => {});
+        return () => ro?.disconnect();
+    }, [children]);
+
+    return (
+        <Box
+            ref={ref}
+            whiteSpace="nowrap"
+            overflow="hidden"
+            style={clipped ? FADE_STYLE : undefined}
+            {...rest}
+        >
+            {children}
+        </Box>
+    );
+}
+
+/** Cap one arg value so a file body never lands in the DOM whole. */
+const ARG_VALUE_MAX = 160;
+
 function toolArgsSummary(args: unknown): string {
     if (args == null) return "";
     try {
@@ -156,12 +200,44 @@ function toolArgsSummary(args: unknown): string {
         if (typeof o === "object" && !Array.isArray(o)) {
             return Object.entries(o)
                 .filter(([, v]) => v != null && v !== "" && typeof v !== "object")
-                .map(([k, v]) => `${k}=${v}`)
+                .map(([k, v]) => {
+                    const s = String(v);
+                    return `${k}=${s.length > ARG_VALUE_MAX ? `${s.slice(0, ARG_VALUE_MAX)}…` : s}`;
+                })
                 .join("  ");
         }
-        return JSON.stringify(args);
+        const json = JSON.stringify(args);
+        return json.length > ARG_VALUE_MAX ? `${json.slice(0, ARG_VALUE_MAX)}…` : json;
     } catch {
         return "";
+    }
+}
+
+/** One-line statement per row for the plain feed. Tool dumps are skipped. */
+function statementFor(row: ActivityRow): string {
+    switch (row.kind) {
+        case "step":
+            return row.label;
+        case "thought": {
+            // The final message is the report JSON — already rendered as the
+            // report; don't dump the whole document into the feed.
+            const t = row.text.trim();
+            if (t.startsWith("{") && t.includes('"schema"')) return "";
+            return t.length > 600 ? `${t.slice(0, 600)}…` : t;
+        }
+        case "tool": {
+            const args = toolArgsSummary(row.args);
+            const call = `${row.name}${args ? `  ${args}` : ""}`;
+            if (row.status === "running") return `${call} …`;
+            const secs = typeof row.duration_ms === "number" ? `  ·  ${(row.duration_ms / 1000).toFixed(1)}s` : "";
+            return row.status === "OK" ? `✓ ${call}${secs}` : `✗ ${call}${secs}`;
+        }
+        case "decision":
+            return `Decision ${row.score != null ? Number(row.score).toFixed(1) : ""}${row.text ? ` — ${row.text}` : ""}`;
+        case "log":
+            return row.text;
+        default:
+            return "";
     }
 }
 
@@ -234,14 +310,14 @@ function Row({ row, active }: { row: ActivityRow; active: boolean }) {
                             )}
                         </HStack>
                         {row.args != null && (
-                            <Text fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" wordBreak="break-all" mt={0.5}>
+                            <FadeLine fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" mt={0.5}>
                                 {toolArgsSummary(row.args)}
-                            </Text>
+                            </FadeLine>
                         )}
                         {row.snippet && (
-                            <Text fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" lineClamp={2} mt={0.5} opacity={0.85}>
+                            <FadeLine fontSize="10.5px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)" mt={0.5} opacity={0.85}>
                                 {row.snippet.length > 300 ? row.snippet.slice(0, 300) + "…" : row.snippet}
-                            </Text>
+                            </FadeLine>
                         )}
                     </Flex>
                 </Flex>
@@ -297,7 +373,9 @@ export interface AgentStep {
 }
 
 interface AgentActivityProps {
-    title: string;
+    title?: string;
+    /** "panel" = boxed header+list (builder). "plain" = avatar-per-statement feed. */
+    variant?: "panel" | "plain";
     subtitle?: string;
     /** Agent identity — renders the agent's chip in the header. */
     agent?: AgentSeedLike | string;
@@ -318,6 +396,7 @@ interface AgentActivityProps {
 export default function AgentActivity({
     title,
     subtitle,
+    variant = "panel",
     agent,
     streamUrl,
     events,
@@ -365,6 +444,42 @@ export default function AgentActivity({
 
     const identity = useMemo(() => agentIdentity(agentSeed(agent)), [agent]);
     const spinColor = useColorModeValue(identity.color.light, identity.color.dark);
+
+    if (variant === "plain") {
+        const feed = rows.filter((r) => r.kind !== "tool_response" && statementFor(r));
+        return (
+            <Box display="flex" flexDirection="column" gap={2.5} minW={0}>
+                {title && (
+                    <Text fontSize={{ base: "24px", md: "28px" }} fontWeight={200} color="var(--ink-primary)" letterSpacing="-0.015em" lineHeight={1.15} mb={1.5}>
+                        {title}
+                    </Text>
+                )}
+                {feed.map((row, i) => {
+                    const ongoing = !!active && i === feed.length - 1;
+                    return (
+                        <Flex key={i} align="flex-start" gap={2.5} minW={0}>
+                            <Flex flexShrink={0} align="center" gap={1} mt="2px">
+                                <AgentAvatar agent={agent} size={20} />
+                                {ongoing && (
+                                    <Spinner size="xs" borderWidth="2px" color={spinColor} />
+                                )}
+                            </Flex>
+                            <FadeLine fontSize="14px" lineHeight="1.65" color="var(--ink-secondary)" minW={0}>
+                                {statementFor(row)}
+                            </FadeLine>
+                        </Flex>
+                    );
+                })}
+                {feed.length === 0 && (
+                    <Flex align="center" gap={2.5}>
+                        <AgentAvatar agent={agent} size={20} />
+                        <Spinner size="xs" borderWidth="2px" color={spinColor} />
+                        <Text fontSize="14px" color="var(--ink-tertiary)">{connected ? "Starting…" : "Connecting…"}</Text>
+                    </Flex>
+                )}
+            </Box>
+        );
+    }
 
     return (
         <Box

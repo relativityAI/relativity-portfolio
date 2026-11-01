@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
     BarChart3, CalendarClock,
     DollarSign, FileSearch, FileText, Globe, Landmark, ListTree,
-    Newspaper, PieChart, Presentation, Receipt, Search,
+    ListTodo, Newspaper, PieChart, Presentation, Receipt, Search,
     TrendingUp, Users, Video, type LucideIcon,
 } from "lucide-react";
 import {
@@ -49,6 +49,11 @@ const TOOL_META: Record<string, { verb: string; icon: LucideIcon }> = {
     get_price_history: { verb: "Pulling", icon: TrendingUp },
     get_macro_snapshot: { verb: "Checking", icon: Globe },
     web_search: { verb: "Searching", icon: Globe },
+    web_fetch: { verb: "Fetching", icon: Globe },
+    fs_write: { verb: "Writing", icon: FileText },
+    fs_read: { verb: "Reading", icon: FileText },
+    todo_write: { verb: "Updating", icon: ListTodo },
+    report_write: { verb: "Writing", icon: FileText },
 };
 
 const FALLBACK_META = { verb: "Calling", icon: FileSearch };
@@ -57,7 +62,7 @@ const FALLBACK_META = { verb: "Calling", icon: FileSearch };
 function chipFor(tool: string, args: unknown): string {
     if (args && typeof args === "object" && !Array.isArray(args)) {
         const o = args as Record<string, unknown>;
-        const pick = ["symbol", "symbols", "query", "share_name", "fields", "filing_type", "source"];
+        const pick = ["symbol", "symbols", "query", "url", "share_name", "fields", "filing_type", "source"];
         for (const k of pick) {
             const v = o[k];
             if (typeof v === "string" && v) return v.length > 28 ? `${v.slice(0, 27)}…` : v;
