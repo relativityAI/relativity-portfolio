@@ -116,7 +116,11 @@ function styleOf(props: Props): CSSProperties {
     if (p.backgroundColor != null) s.background = p.backgroundColor;
     if (p.color != null) s.color = token(p.color) as string;
     if (p.opacity != null) s.opacity = p.opacity;
-    if (p.borderRadius != null) s.borderRadius = typeof p.borderRadius === "number" ? `${p.borderRadius}px` : p.borderRadius;
+    if (p.borderRadius != null) {
+        const r = typeof p.borderRadius === "number" ? `${p.borderRadius}px` : p.borderRadius;
+        // Chakra's "full" radius token; raw `border-radius: full` is invalid CSS.
+        s.borderRadius = r === "full" ? "9999px" : r;
+    }
     if (p.border != null) s.border = p.border;
     if (p.borderWidth != null) s.borderWidth = px(p.borderWidth);
     if (p.borderColor != null) { const c = borderColor(token(p.borderColor)); if (c) s.borderColor = c; else if (typeof p.borderColor === "string") s.borderColor = p.borderColor; }

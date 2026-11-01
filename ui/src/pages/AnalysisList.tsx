@@ -12,14 +12,12 @@ import { TickerLogo } from "@/lib/sourceLogos";
 import { mixHex, resolvedTheme, tooltipStyle, type ECOption, type ResolvedTheme } from "@/lib/echarts";
 import { useColorMode } from "@/components/ui/color-mode";
 import { motion, AnimatePresence } from "motion/react";
-import { ease, stagger, staggerItem, CountUp, dur } from "@/lib/motion";
+import { stagger, staggerItem, dur } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
+import { CirclePlus, Search } from "lucide-react";
 
 type SortKey = "share" | "created_at" | "score" | "status" | "agent" | "model" | "duration";
 
@@ -68,25 +66,11 @@ function timeAgo(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString();
 }
 
+/** Insight labels: light Anek Latin, sentence case — no caps, no box. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
     return (
-        <div className="text-[10.5px] font-medium tracking-[0.06em] text-[var(--ink-tertiary)] uppercase">
+        <div className="font-app-body text-[12.5px] leading-none font-light text-[var(--ink-secondary)]">
             {children}
-        </div>
-    );
-}
-
-function MiniBar({ value, max, color }: { value: number; max: number; color: string }) {
-    const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
-    return (
-        <div className="h-6px min-w-0 flex-1 overflow-hidden rounded-[2px] bg-[var(--surface-recessed)]">
-            <motion.div
-                className="h-full"
-                style={{ background: color }}
-                initial={{ width: 0 }}
-                animate={{ width: `${pct}%` }}
-                transition={{ duration: 0.6, ease }}
-            />
         </div>
     );
 }
@@ -121,19 +105,20 @@ function shadeRamp(t: ResolvedTheme, anchor: string, i: number, n: number): stri
 }
 
 /**
- * An ECharts legend can't render images (legend text is rich-text, not HTML),
- * so the model plot carries its own logo legend instead. Names only — the
- * counts stay in the tooltip.
+ * Legends are HTML, not ECharts': a canvas legend eats the strip's width and
+ * pushes the plots out of line. Every item is capped so a long name truncates
+ * instead of claiming a whole row — the count/tooltip stays the source of
+ * truth, the legend just names the slice.
  */
 function LogoLegend({ items }: { items: { key: string; label: string; model: string }[] }) {
     return (
-        <div className="mt-2 flex flex-col gap-1.5">
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1.5">
             {items.map((it) => (
-                <div key={it.key} className="flex min-w-0 items-center gap-1.5">
+                <div key={it.key} className="flex min-w-0 max-w-[112px] items-center gap-1.5">
                     <ModelLogo model={it.model} size={12} />
                     <div
                         title={it.label}
-                        className="truncate font-app-mono text-[10.5px] text-[var(--ink-secondary)]"
+                        className="truncate font-app-body text-[11px] font-light text-[var(--ink-secondary)]"
                     >
                         {it.label}
                     </div>
@@ -143,34 +128,43 @@ function LogoLegend({ items }: { items: { key: string; label: string; model: str
     );
 }
 
+/** Same legend treatment as LogoLegend, with a colour dot instead of a logo. */
+function DotLegend({ items }: { items: { key: string; label: string; color: string; title?: string }[] }) {
+    return (
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1.5">
+            {items.map((it) => (
+                <div key={it.key} className="flex min-w-0 max-w-[112px] items-center gap-1.5">
+                    <span
+                        className="size-[7px] shrink-0 rounded-full"
+                        style={{ background: it.color }}
+                    />
+                    <span
+                        title={it.title ?? it.label}
+                        className="truncate font-app-body text-[11px] font-light text-[var(--ink-secondary)]"
+                    >
+                        {it.label}
+                    </span>
+                </div>
+            ))}
+        </div>
+    );
+}
+
 /**
- * Rounded donut shared by the score-band and model plots: same slice rounding,
- * same legend treatment, only the data and tooltip body differ.
+ * Rounded pie/donut shared by the model and stock plots: same slice rounding,
+ * no canvas legend (the HTML legend sits under the plot), only the data and
+ * tooltip body differ.
  */
 function donutOption(
     t: ResolvedTheme,
     anim: ECOption["animation"],
     slices: { name: string; value: number; itemStyle: { color: string } }[],
     tooltipBody: (index: number, percent: number) => string,
-    showLegend = true
+    radius: [string, string] = ["48%", "72%"]
 ): ECOption {
     return {
         animation: anim,
-        legend: showLegend
-            ? {
-                  // Legend carries the labels; the counts live in the tooltip so
-                  // the card isn't a table with a chart stuck to it.
-                  type: "scroll",
-                  bottom: 0,
-                  left: "center",
-                  itemWidth: 8,
-                  itemHeight: 8,
-                  itemGap: 10,
-                  icon: "circle",
-                  textStyle: { color: t.ink.secondary, fontSize: 10, fontFamily: t.fonts.mono },
-                  formatter: (name: string) => (name.length > 16 ? `${name.slice(0, 15)}…` : name),
-              }
-            : { show: false },
+        legend: { show: false },
         tooltip: {
             ...tooltipStyle(t),
             trigger: "item",
@@ -183,126 +177,19 @@ function donutOption(
         series: [
             {
                 type: "pie",
-                radius: ["48%", "72%"],
-                // Sit higher when the legend owns the bottom strip.
-                center: showLegend ? ["50%", "43%"] : ["50%", "50%"],
+                radius,
+                center: ["50%", "50%"],
                 label: { show: false },
                 labelLine: { show: false },
-                itemStyle: { borderColor: t.surface.panel, borderWidth: 2, borderRadius: 4 },
+                // No slice borders — the plots sit flush on the canvas like
+                // everything else on the page.
                 data: slices,
             },
         ],
     };
 }
 
-function Sparkline({ data, agents, height = 40 }: { data: any[]; agents: any[]; height?: number }) {
-    const [tip, setTip] = useState<number | null>(null);
-    if (data.length < 2) {
-        return (
-            <div className="text-[11px] text-[var(--ink-tertiary)]">Not enough completed runs yet</div>
-        );
-    }
-    const W = 100;
-    const pts = data.map((item, i) => {
-        const v = item.total_score;
-        const x = (i / (data.length - 1)) * W;
-        const y = height - ((Math.max(0, Math.min(100, v)) / 100) * height);
-        return { x, y, item } as const;
-    });
-    const line = pts.map(({ x, y }) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
-    const area = `0,${height} ${line} ${W},${height}`;
-    return (
-        <div className="relative w-full">
-            <svg
-                width="100%"
-                height={height}
-                viewBox={`0 0 ${W} ${height}`}
-                preserveAspectRatio="none"
-                style={{ display: "block" }}
-            >
-                <motion.polyline
-                    points={line}
-                    fill="none"
-                    stroke="var(--accent-primary)"
-                    strokeWidth="1.5"
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                    initial={{ pathLength: 0 }}
-                    animate={{ pathLength: 1 }}
-                    transition={{ duration: 0.9, ease }}
-                />
-                <motion.polygon points={area} fill="var(--accent-primary)" initial={{ opacity: 0 }} animate={{ opacity: 0.08 }} transition={{ duration: 0.6, delay: 0.5 }} />
-            </svg>
-            {pts.map(({ x, y, item }, i) => {
-                const symbol = item.share_name || item.symbol || "—";
-                const date = item.created_at
-                    ? new Date(item.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                    : "—";
-                const agent = agentDisplayName(item.agent_name || item.agent, agents) || "—";
-                const score = typeof item.total_score === "number" ? item.total_score.toFixed(0) : "—";
-                return (
-                    <div
-                        key={i}
-                        className="absolute h-[18px] w-[18px] cursor-default"
-                        style={{ left: `${x}%`, top: `${y}px`, transform: "translate(-50%, -50%)" }}
-                        onMouseEnter={() => setTip(i)}
-                        onMouseLeave={() => setTip(null)}
-                    >
-                        <div
-                            className="absolute h-[6px] w-[6px] rounded-full border-[1.5px] border-[var(--accent-primary)] bg-[var(--surface-panel)]"
-                            style={{ top: "50%", left: "50%", transform: "translate(-50%, -50%)" }}
-                        />
-                        {tip === i && (
-                            <div
-                                className="pointer-events-none absolute z-20 rounded-lg border border-[var(--hairline)] bg-[var(--surface-panel)] px-2.5 py-1.5 whitespace-nowrap shadow-[0_8px_24px_rgba(0,0,0,0.14)]"
-                                style={{
-                                    bottom: "10px",
-                                    left: i === 0 ? "0%" : i === pts.length - 1 ? "100%" : "50%",
-                                    transform:
-                                        i === 0 ? "none" : i === pts.length - 1 ? "translateX(-100%)" : "translateX(-50%)",
-                                }}
-                            >
-                                <div className="text-[11px] font-semibold text-[var(--ink-primary)]">{symbol}</div>
-                                <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] text-[var(--ink-tertiary)]">
-                                    <span>{date}</span>
-                                    <span>·</span>
-                                    <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={12} />
-                                    <span>{agent}</span>
-                                </div>
-                                <div className="text-[11px] font-semibold text-[var(--signal-positive)]">
-                                    Fit {score}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
 type GroupMode = "individual" | "date" | "agent" | "stock" | "model";
-
-/**
- * Masthead stat: a light, small-caps label under a tabular figure. The two
- * weights and two ink shades do the work a divider or a box would otherwise.
- */
-function Stat({ value, label }: { value: string; label: string }) {
-    return (
-        <span className="inline-flex items-baseline gap-1.5">
-            <span className="font-app-tabular text-[13px] leading-none font-medium tabular-nums text-[var(--ink-secondary)]">
-                {value}
-            </span>
-            <span className="text-[10.5px] leading-none font-medium tracking-[0.08em] text-[var(--ink-tertiary)] uppercase">
-                {label}
-            </span>
-        </span>
-    );
-}
-
-function Sep() {
-    return <span className="text-[var(--grid-line)]">/</span>;
-}
 
 const GROUP_VIEWS: { key: GroupMode; label: string }[] = [
     { key: "individual", label: "All runs" },
@@ -585,29 +472,6 @@ export default function AnalysisList() {
         return uniqueAnalysis.filter((a) => f(a) === "failed" || f(a) === "error");
     }, [uniqueAnalysis]);
 
-    const total = uniqueAnalysis.length;
-    const successRate = total > 0 ? completed.length / total : 0;
-
-    const avgScore = useMemo(() => {
-        const vals = completed.map((a) => a.total_score).filter((v) => typeof v === "number");
-        return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
-    }, [completed]);
-
-    const scoreBands = useMemo(() => {
-        const bands = [
-            { key: "low", label: "0–39", color: "var(--signal-negative)", count: 0 },
-            { key: "mid", label: "40–69", color: "var(--signal-caution)", count: 0 },
-            { key: "high", label: "70–100", color: "var(--signal-positive)", count: 0 },
-        ];
-        completed.forEach((a) => {
-            const s = a.total_score;
-            if (s < 40) bands[0].count++;
-            else if (s < 70) bands[1].count++;
-            else bands[2].count++;
-        });
-        return bands;
-    }, [completed]);
-
     // Top 5 models by run count; everything past the top 5 is one "Other"
     // slice so the pie never silently drops runs.
     const modelUsage = useMemo(() => {
@@ -624,31 +488,30 @@ export default function AnalysisList() {
         return rest > 0 ? [...top, { model: OTHER_KEY, count: rest }] : top;
     }, [uniqueAnalysis]);
 
-    // Best score per stock over a rolling 30-day window.
+    // Top 5 stocks by run count — the pie ranks how often each name is run.
+    // The symbol rides along so the legend can show the ticker under the plot.
     const topStocks = useMemo(() => {
-        const cutoff = Date.now() - 30 * 86400000;
-        const best = new Map<string, number>();
-        completed.forEach((a) => {
+        const map = new Map<string, { label: string; symbol: string; count: number }>();
+        uniqueAnalysis.forEach((a) => {
             const label = String(a.share_name || a.symbol || "").trim();
-            if (!label || typeof a.total_score !== "number") return;
-            const when = +new Date(a.created_at ?? 0);
-            if (!(when >= cutoff)) return;
-            const prev = best.get(label);
-            if (prev == null || a.total_score > prev) best.set(label, a.total_score);
+            if (!label) return;
+            const entry = map.get(label) ?? { label, symbol: "", count: 0 };
+            entry.count += 1;
+            if (!entry.symbol) {
+                const sym = String(a.symbol || "").trim();
+                if (sym) entry.symbol = sym;
+            }
+            map.set(label, entry);
         });
-        return Array.from(best.entries())
-            .map(([label, score]) => ({ label, score }))
-            .sort((a, b) => b.score - a.score)
+        return Array.from(map.values())
+            .sort((a, b) => b.count - a.count)
             .slice(0, 5);
-    }, [completed]);
+    }, [uniqueAnalysis]);
 
     const modelRuns = useMemo(() => modelUsage.reduce((s, m) => s + m.count, 0), [modelUsage]);
 
-    const trend = useMemo(() => {
-        return [...completed]
-            .sort((a, b) => +new Date(a.created_at ?? 0) - +new Date(b.created_at ?? 0))
-            .slice(-15);
-    }, [completed]);
+    // Completed vs failed share of all runs; counts live in the tooltip only.
+    const healthTotal = completed.length + failed.length;
 
     const colSpan = 8;
 
@@ -679,99 +542,95 @@ export default function AnalysisList() {
                     ? `<img src="${asset.src}"${asset.invert ? ' class="llm-mark"' : ""} style="width:14px;height:14px;object-fit:contain;vertical-align:-3px;margin-right:6px;" alt="" />`
                     : "";
                 return `${mark}<b>${other ? "Other models" : esc(m.model)}</b><br/><span style="color:${t.ink.tertiary}">${percent}% · ${m.count}${other ? "" : " runs"}</span>`;
-            },
-            false // logos come from LogoLegend below the chart
+            }
         );
     }, [modelUsage, chartTheme, chartAnim]);
 
     /**
-     * Stock leaderboard — horizontal bars, not a donut. A ranking is read by
-     * comparing lengths down a shared axis; a donut makes that comparison
-     * harder than it needs to be. Fixed 0–100 domain so bar length means the
-     * same thing on every run.
+     * Completed vs failed as one stacked horizontal bar. No segment labels —
+     * the counts only surface in the tooltip, so the strip stays a shape.
+     * The colours are deliberately punchier than the muted signal tokens:
+     * the band has to read as red and green at a glance.
      */
-    const stockBars = useMemo(() => {
+    const healthSegments = useMemo(
+        () => [
+            { name: "Completed", value: completed.length, color: "#16A34A" },
+            { name: "Failed", value: failed.length, color: "#DC2626" },
+        ],
+        [completed, failed]
+    );
+
+    const runHealthBar = useMemo(() => {
         const t = chartTheme;
-        const n = topStocks.length;
+        const segments = healthSegments;
         return {
             animation: chartAnim,
-            // Labels fill the gutter (they were reserved but hidden — that was
-            // the dead space on the left) and the tooltip names the bar on hover.
-            grid: { left: 92, right: 34, top: 4, bottom: 2 },
+            grid: { left: 0, right: 0, top: 8, bottom: 8 },
             tooltip: {
                 ...tooltipStyle(t),
                 trigger: "item",
                 confine: true,
-                axisPointer: { show: false },
                 formatter: (params: any) => {
                     const p = Array.isArray(params) ? params[0] : params;
-                    const s = topStocks[p.dataIndex];
+                    const s = segments[p.seriesIndex ?? p.dataIndex];
                     if (!s) return "";
-                    return `<b>${esc(s.label)}</b><br/><span style="color:${t.ink.tertiary}">${s.score.toFixed(1)} match · best in 30d</span>`;
+                    return `<b>${s.name}</b><br/><span style="color:${t.ink.tertiary}">${s.value} run${s.value === 1 ? "" : "s"}</span>`;
                 },
             },
-            xAxis: { type: "value", min: 0, max: 100, show: false },
-            yAxis: {
-                type: "category",
-                inverse: true, // rank 1 on top
-                show: true,
-                axisLine: { show: false },
-                axisTick: { show: false },
-                data: topStocks.map((s) => s.label),
-                axisLabel: {
-                    color: t.ink.secondary,
-                    fontSize: 10,
-                    fontFamily: t.fonts.mono,
-                    width: 84,
-                    overflow: "truncate",
-                    margin: 8,
-                },
-            },
-            series: [
-                {
-                    type: "bar",
-                    barWidth: 9,
-                    data: topStocks.map((s, i) => ({
-                        value: s.score,
-                        itemStyle: { color: shadeRamp(t, t.signals.positive, i, n) },
-                    })),
-                    itemStyle: { borderRadius: [0, 4, 4, 0] },
-                    label: {
-                        show: true,
-                        position: "right",
-                        distance: 6,
-                        color: t.ink.primary,
-                        fontSize: 10,
-                        fontFamily: t.fonts.tabular,
-                        formatter: (p: any) => p.value.toFixed(1),
-                    },
-                },
-            ],
+            xAxis: { type: "value", max: healthTotal, show: false, splitLine: { show: false } },
+            yAxis: { type: "category", data: [""], show: false },
+            series: segments.map((s) => ({
+                name: s.name,
+                type: "bar",
+                stack: "health",
+                barWidth: 48,
+                itemStyle: { color: s.color },
+                label: { show: false },
+                data: [s.value],
+            })),
         };
-    }, [topStocks, chartTheme, chartAnim]);
+    }, [healthSegments, healthTotal, chartTheme, chartAnim]);
 
-    const scorePie = useMemo(() => {
+    /**
+     * Most run stocks — a pie of run counts for the top 5 names. Slice shades
+     * ramp by rank so magnitude still reads without looking up the legend.
+     */
+    /**
+     * Slice colours for the stock pie, computed once so the HTML legend and
+     * the chart can never drift apart. Shades ramp by rank so magnitude still
+     * reads without looking up the legend.
+     */
+    const stockSlices = useMemo(
+        () =>
+            topStocks.map((s, i) => ({
+                ...s,
+                color: shadeRamp(chartTheme, chartTheme.accent, i, topStocks.length),
+            })),
+        [topStocks, chartTheme]
+    );
+
+    const stockPie = useMemo(() => {
         const t = chartTheme;
         return donutOption(
             t,
             chartAnim,
-            // Bands are ordered severity, so they keep the app's signal colors
-            // rather than a monochrome ramp. Resolved to concrete values —
-            // ECharts cannot read var(--x).
-            scoreBands.map((b) => ({
-                name: b.label,
-                value: b.count,
-                itemStyle: {
-                    color: b.key === "high" ? t.signals.positive : b.key === "mid" ? t.signals.caution : t.signals.negative,
-                },
+            stockSlices.map((s) => ({
+                name: s.label,
+                value: s.count,
+                itemStyle: { color: s.color },
             })),
             (i, percent) => {
-                const b = scoreBands[i];
-                if (!b) return "";
-                return `<b>${esc(b.label)} match</b><br/><span style="color:${t.ink.tertiary}">${percent}% · ${b.count} run${b.count === 1 ? "" : "s"}</span>`;
-            }
+                const s = stockSlices[i];
+                if (!s) return "";
+                const head =
+                    s.symbol && s.symbol !== s.label
+                        ? `${esc(s.symbol)} <span style="color:${t.ink.tertiary}">· ${esc(s.label)}</span>`
+                        : esc(s.label);
+                return `<b>${head}</b><br/><span style="color:${t.ink.tertiary}">${percent}% · ${s.count} run${s.count === 1 ? "" : "s"}</span>`;
+            },
+            ["0%", "70%"]
         );
-    }, [scoreBands, chartTheme, chartAnim]);
+    }, [stockSlices, chartTheme, chartAnim]);
 
     const onRowClick = (id: string) => {
         navigate("/analysis-result/" + id);
@@ -779,163 +638,105 @@ export default function AnalysisList() {
 
     return (
         <div className="min-h-full bg-[var(--surface-canvas)]">
-            <div className="flex w-full flex-col gap-6 px-6 py-6">
-                {/*
-                 * Masthead. No panel around it: the title carries the weight and
-                 * the stat line carries the data, separated by tracking, weight
-                 * and three shades of ink rather than by a box.
-                 */}
-                <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-0.5">
-                    <div className="min-w-0">
-                        <h1 className="text-[26px] leading-[1.1] font-semibold tracking-[-0.02em] text-[var(--ink-primary)] md:text-[30px]">
-                            Runs
-                        </h1>
-                        <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                            <Stat value={String(total)} label={total === 1 ? "run" : "runs"} />
-                            {completed.length > 0 && (
-                                <>
-                                    <Sep />
-                                    <Stat value={String(completed.length)} label="completed" />
-                                </>
-                            )}
-                            {avgScore != null && (
-                                <>
-                                    <Sep />
-                                    <Stat value={avgScore.toFixed(1)} label="avg match" />
-                                </>
-                            )}
-                        </div>
-                    </div>
+            {/*
+             * Masthead. The App wrapper already carries the navbar's 1.5rem
+             * gutter, so this page adds no horizontal padding of its own —
+             * the title lines up with the nav above it.
+             */}
+            <div className="flex w-full flex-col gap-6 py-6">
+                <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+                    <h1 className="font-app-display text-[26px] leading-[1.1] font-normal tracking-[-0.02em] text-[var(--ink-primary)] md:text-[30px]">
+                        Past Runs
+                    </h1>
                     <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }} className="shrink-0">
-                        <Button size="sm" onClick={() => navigate("/")} className="rounded-[3px] px-4">
-                            + New Run
+                        <Button
+                            variant="ghost"
+                            onClick={() => navigate("/")}
+                            className="h-12 gap-2.5 rounded-[3px] bg-transparent px-6 font-normal text-[15.5px] text-[var(--ink-primary)] hover:bg-transparent"
+                        >
+                            <CirclePlus className="size-6" strokeWidth={1.5} />
+                            New Run
                         </Button>
                     </motion.div>
                 </header>
 
-                {/* Body: sidebar + table */}
-                <div className="flex flex-wrap items-start gap-6 lg:flex-nowrap">
-                    {/* Insights — one tall card, same shell as the run summary */}
-                    <motion.div
-                        variants={stagger}
-                        initial="initial"
-                        animate="animate"
-                        className="w-full lg:w-[280px] lg:shrink-0"
-                    >
-                        <Card className="gap-3 rounded-lg py-4 shadow-none">
-                            <CardHeader className="px-4 pb-0">
-                                <CardTitle className="text-[11px] font-medium tracking-[0.06em] text-muted-foreground uppercase">
-                                    Insights
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="flex flex-col gap-3 px-4">
-                        {/* Top stocks — first: the leaderboard is the headline insight */}
-                        <motion.div variants={staggerItem}>
-                            <SectionLabel>Top Stocks</SectionLabel>
+                {/*
+                 * Insights — a flat horizontal strip above the table. No card,
+                 * no borders, no dividers between the plots: a responsive grid
+                 * and whitespace do the separating.
+                 */}
+                <motion.section
+                    variants={stagger}
+                    initial="initial"
+                    animate="animate"
+                    className="flex flex-col gap-3"
+                >
+                    <SectionLabel>Insights</SectionLabel>
+                    <div className="grid grid-cols-1 items-start gap-x-8 gap-y-7 sm:grid-cols-2 lg:grid-cols-3">
+                        {/* Most run stocks — headline insight */}
+                        <motion.div variants={staggerItem} className="flex min-w-0 flex-col gap-3">
+                            <SectionLabel>Most run stocks</SectionLabel>
                             {topStocks.length === 0 ? (
-                                <p className="text-[12px] text-[var(--ink-tertiary)]">No scored runs in the last 30 days</p>
-                            ) : (
-                                <Echart
-                                    height={topStocks.length * 26 + 12}
-                                    aria-label={`Top ${topStocks.length} stocks by best match score over the last 30 days. ${topStocks
-                                        .map((s) => `${s.label} ${s.score.toFixed(1)}`)
-                                        .join(", ")}`}
-                                    option={stockBars}
-                                />
-                            )}
-                            <p className="mt-2 text-[11px] text-[var(--ink-tertiary)]">
-                                Best match per stock · last 30 days
-                            </p>
-                        </motion.div>
-
-                        <div className="border-t border-[var(--hairline)]" />
-
-                        {/* Run health */}
-                        <motion.div variants={staggerItem}>
-                            <SectionLabel>Run Health</SectionLabel>
-                            <div className="flex flex-col gap-3">
-                                <div className="flex items-baseline justify-between">
-                                    <span className="text-[13px] text-[var(--ink-secondary)]">Completed</span>
-                                    <span className="font-app-tabular text-[24px] leading-none font-semibold tabular-nums text-[var(--ink-primary)]">
-                                        <CountUp value={completed.length} decimals={0} />
-                                    </span>
-                                </div>
-                                <div className="flex items-baseline justify-between">
-                                    <span className="text-[13px] text-[var(--ink-secondary)]">Failed</span>
-                                    <span
-                                        className={cn(
-                                            "font-app-tabular text-[24px] leading-none font-semibold tabular-nums",
-                                            failed.length > 0 ? "text-[var(--signal-negative)]" : "text-[var(--ink-primary)]"
-                                        )}
-                                    >
-                                        <CountUp value={failed.length} decimals={0} />
-                                    </span>
-                                </div>
-                                {total > 0 && (
-                                    <div className="flex items-center gap-2">
-                                        <MiniBar value={completed.length} max={total} color="var(--signal-positive)" />
-                                        <span className="shrink-0 font-app-tabular text-[12px] tabular-nums text-[var(--ink-secondary)]">
-                                            {Math.round(successRate * 100)}%
-                                        </span>
-                                    </div>
-                                )}
-                                {avgScore != null && (
-                                    <p className="text-[11px] text-[var(--ink-tertiary)]">
-                                        Avg match{" "}
-                                        <span className="font-app-tabular font-medium tabular-nums text-[var(--ink-primary)]">
-                                            {avgScore.toFixed(1)}
-                                        </span>
-                                    </p>
-                                )}
-                            </div>
-                        </motion.div>
-
-                        <div className="border-t border-[var(--hairline)]" />
-
-                        {/* Score distribution */}
-                        <motion.div variants={staggerItem}>
-                            <SectionLabel>Score Distribution</SectionLabel>
-                            {completed.length === 0 ? (
-                                <p className="text-[12px] text-[var(--ink-tertiary)]">No completed runs yet</p>
-                            ) : (
-                                <Echart
-                                    height={168}
-                                    aria-label={`Match score bands across ${completed.length} completed runs. ${scoreBands
-                                        .map((b) => `${b.label}: ${b.count}`)
-                                        .join(", ")}`}
-                                    option={scorePie}
-                                />
-                            )}
-                        </motion.div>
-
-                        <div className="border-t border-[var(--hairline)]" />
-
-                        {/* Recent trend */}
-                        <motion.div variants={staggerItem}>
-                            <SectionLabel>Recent Trend</SectionLabel>
-                            <Sparkline data={trend} agents={agents} />
-                            {trend.length > 0 && (
-                                <p className="mt-2 text-[11px] text-[var(--ink-tertiary)]">
-                                    Last{" "}
-                                    <span className="font-app-tabular font-medium tabular-nums text-[var(--ink-primary)]">
-                                        {trend.length}
-                                    </span>{" "}
-                                    completed runs · oldest → newest
+                                <p className="font-app-body text-[12px] font-light text-[var(--ink-tertiary)]">
+                                    No runs yet
                                 </p>
-                            )}
-                        </motion.div>
-
-                        <div className="border-t border-[var(--hairline)]" />
-
-                        {/* Model usage */}
-                        <motion.div variants={staggerItem}>
-                            <SectionLabel>Model Usage</SectionLabel>
-                            {modelUsage.length === 0 ? (
-                                <p className="text-[12px] text-[var(--ink-tertiary)]">No runs yet</p>
                             ) : (
                                 <div>
                                     <Echart
-                                        height={140}
+                                        height={160}
+                                        aria-label={`Top ${topStocks.length} most run stocks. ${topStocks
+                                            .map((s) => `${s.symbol || s.label} ${s.count} runs`)
+                                            .join(", ")}`}
+                                        option={stockPie}
+                                    />
+                                    <DotLegend
+                                        items={stockSlices.map((s) => ({
+                                            key: s.label,
+                                            label: s.symbol || s.label,
+                                            title: s.label,
+                                            color: s.color,
+                                        }))}
+                                    />
+                                </div>
+                            )}
+                        </motion.div>
+
+                        {/* Run health — one stacked strip, counts on hover only */}
+                        <motion.div variants={staggerItem} className="flex min-w-0 flex-col gap-3">
+                            <SectionLabel>Run health</SectionLabel>
+                            {healthTotal === 0 ? (
+                                <p className="font-app-body text-[12px] font-light text-[var(--ink-tertiary)]">
+                                    No runs yet
+                                </p>
+                            ) : (
+                                <div>
+                                    <Echart
+                                        height={160}
+                                        aria-label={`Run outcomes: ${completed.length} completed, ${failed.length} failed.`}
+                                        option={runHealthBar}
+                                    />
+                                    <DotLegend
+                                        items={healthSegments.map((s) => ({
+                                            key: s.name,
+                                            label: s.name,
+                                            color: s.color,
+                                        }))}
+                                    />
+                                </div>
+                            )}
+                        </motion.div>
+
+                        {/* Most used models */}
+                        <motion.div variants={staggerItem} className="flex min-w-0 flex-col gap-3">
+                            <SectionLabel>Most used models</SectionLabel>
+                            {modelUsage.length === 0 ? (
+                                <p className="font-app-body text-[12px] font-light text-[var(--ink-tertiary)]">
+                                    No runs yet
+                                </p>
+                            ) : (
+                                <div>
+                                    <Echart
+                                        height={160}
                                         aria-label={`Runs by model across ${modelRuns} runs. ${modelUsage
                                             .map((m) => `${m.model} ${m.count}`)
                                             .join(", ")}`}
@@ -951,14 +752,13 @@ export default function AnalysisList() {
                                 </div>
                             )}
                         </motion.div>
-                            </CardContent>
-                        </Card>
-                    </motion.div>
+                    </div>
+                </motion.section>
 
-                    {/* Main table */}
-                    <div className="min-w-0 flex-1">
-                        {/* Filters + search — one line above the table */}
-                        <div className="mb-3 flex flex-wrap items-center gap-2">
+                {/* Main table */}
+                <div className="min-w-0 flex-1">
+                    {/* Filters + search — one line above the table */}
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
                         <ToggleGroup
                             type="single"
                             value={viewMode}
@@ -975,300 +775,303 @@ export default function AnalysisList() {
                                 </ToggleGroupItem>
                             ))}
                         </ToggleGroup>
-                            <div className="relative ml-auto w-full sm:w-[240px]">
-                                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[var(--ink-tertiary)]" />
-                                <Input
-                                    className="pl-9"
-                                    placeholder="Search share, agent, model…"
-                                    aria-label="Search runs"
-                                    value={query}
-                                    onChange={(e) => setQuery(e.target.value)}
-                                />
-                            </div>
+                        <div className="relative ml-auto w-full sm:w-[240px]">
+                            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-[var(--ink-tertiary)]" />
+                            {/*
+                             * Same chrome as the new-analysis inputs: hairline
+                             * border, subtle fill, square corners, 36px tall,
+                             * 14px Anek Latin at 400.
+                             */}
+                            <input
+                                type="text"
+                                placeholder="Search share, agent, model…"
+                                aria-label="Search runs"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                className="h-9 w-full min-w-0 rounded-none border border-[var(--hairline)] bg-[var(--surface-recessed)] py-1 pr-2 pl-8 font-app-body text-[14px] font-normal text-[var(--ink-primary)] transition-colors outline-none placeholder:text-[var(--ink-tertiary)] focus:border-[var(--ink-secondary)]"
+                            />
                         </div>
-                        {loading && uniqueAnalysis.length === 0 ? (
-                            <div className="flex justify-center gap-3 py-16 text-[var(--ink-secondary)]">
-                                <Spinner />
-                                <span className="text-[13px]">Loading runs…</span>
-                            </div>
-                        ) : (
-                            <div className="overflow-hidden rounded-[2px] border border-[var(--hairline)] bg-[var(--surface-panel)]">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[1000px] border-collapse text-sm">
-                                        <thead>
-                                            <tr className="bg-[var(--surface-recessed)]">
-                                                {(
-                                                    [
-                                                        ["share", "Share"],
-                                                        ["agent", "Agent"],
-                                                        ["model", "Model"],
-                                                        ["score", "Match"],
-                                                        ["duration", "Duration"],
-                                                        ["created_at", "Created"],
-                                                        ["status", "Status"],
-                                                    ] as const
-                                                ).map(([key, label]) => (
-                                                    <th
-                                                        key={key}
-                                                        onClick={() => toggleSort(key)}
-                                                        className="cursor-pointer px-4 py-3 text-left text-[10.5px] font-medium tracking-[0.06em] text-[var(--ink-tertiary)] uppercase select-none"
-                                                    >
-                                                        <span className="inline-flex items-center gap-1">
-                                                            {label}
-                                                            <SortIcon column={key} />
-                                                        </span>
-                                                    </th>
-                                                ))}
-                                                <th className="w-[48px] px-4 py-3" />
-                                            </tr>
-                                        </thead>
-                                        <motion.tbody variants={stagger} initial="initial" animate="animate">
-                                            <AnimatePresence initial={false}>
-                                            {loading ? (
-                                                <motion.tr key="loading" variants={staggerItem} exit={{ opacity: 0 }}>
-                                                    <td colSpan={colSpan} className="py-12">
-                                                        <div className="flex justify-center gap-3 text-[var(--ink-secondary)]">
-                                                            <Spinner />
-                                                            <span className="text-[13px]">Loading runs…</span>
-                                                        </div>
-                                                    </td>
-                                                </motion.tr>
-                                            ) : fetchError ? (
-                                                <motion.tr key="error" variants={staggerItem} exit={{ opacity: 0 }}>
-                                                    <td colSpan={colSpan} className="px-4 py-8">
-                                                        <div className="border-l-[3px] border-[var(--signal-negative)] pl-3">
-                                                            <p className="text-[13px] text-[var(--ink-primary)]">
-                                                                Failed to fetch runs.
-                                                            </p>
-                                                            <p className="mt-1 text-[12px] text-[var(--ink-secondary)]">
-                                                                Check if the backend service is running.
-                                                            </p>
-                                                        </div>
-                                                    </td>
-                                                </motion.tr>
-                                            ) : sorted.length === 0 && !loading ? (
-                                                <motion.tr key="empty" variants={staggerItem} exit={{ opacity: 0 }}>
-                                                    <td
-                                                        colSpan={colSpan}
-                                                        className="py-12 text-center text-[13px] text-[var(--ink-tertiary)]"
-                                                    >
-                                                        No runs found.
-                                                    </td>
-                                                </motion.tr>
-                                            ) : (
-                                                visibleSections.flatMap((sec) => [
-                                                    ...(viewMode === "individual"
-                                                        ? []
-                                                        : [
-                                                            <GroupHeaderRow
-                                                                key={`h-${sec.key}`}
-                                                                avatar={
-                                                                    viewMode === "agent" ? (
-                                                                        <AgentAvatar agent={resolveAgent(sec.key, agents)} size={18} />
-                                                                    ) : viewMode === "model" ? (
-                                                                        <ModelLogo model={sec.key} size={14} />
+                    </div>
+                    {loading && uniqueAnalysis.length === 0 ? (
+                        <div className="flex justify-center gap-3 py-16 text-[var(--ink-secondary)]">
+                            <Spinner />
+                            <span className="text-[13px]">Loading runs…</span>
+                        </div>
+                    ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full min-w-[1000px] border-collapse text-sm">
+                                    <thead>
+                                        <tr className="bg-[var(--surface-recessed)]">
+                                            {(
+                                                [
+                                                    ["share", "Share"],
+                                                    ["agent", "Agent"],
+                                                    ["model", "Model"],
+                                                    ["score", "Match"],
+                                                    ["duration", "Duration"],
+                                                    ["created_at", "Created"],
+                                                    ["status", "Status"],
+                                                ] as const
+                                            ).map(([key, label]) => (
+                                                <th
+                                                    key={key}
+                                                    onClick={() => toggleSort(key)}
+                                                    className="cursor-pointer px-4 py-3 text-left text-[10.5px] font-medium tracking-[0.06em] text-[var(--ink-tertiary)] uppercase select-none"
+                                                >
+                                                    <span className="inline-flex items-center gap-1">
+                                                        {label}
+                                                        <SortIcon column={key} />
+                                                    </span>
+                                                </th>
+                                            ))}
+                                            <th className="w-[48px] px-4 py-3" />
+                                        </tr>
+                                    </thead>
+                                    <motion.tbody variants={stagger} initial="initial" animate="animate">
+                                        <AnimatePresence initial={false}>
+                                        {loading ? (
+                                            <motion.tr key="loading" variants={staggerItem} exit={{ opacity: 0 }}>
+                                                <td colSpan={colSpan} className="py-12">
+                                                    <div className="flex justify-center gap-3 text-[var(--ink-secondary)]">
+                                                        <Spinner />
+                                                        <span className="text-[13px]">Loading runs…</span>
+                                                    </div>
+                                                </td>
+                                            </motion.tr>
+                                        ) : fetchError ? (
+                                            <motion.tr key="error" variants={staggerItem} exit={{ opacity: 0 }}>
+                                                <td colSpan={colSpan} className="px-4 py-8">
+                                                    <div className="border-l-[3px] border-[var(--signal-negative)] pl-3">
+                                                        <p className="text-[13px] text-[var(--ink-primary)]">
+                                                            Failed to fetch runs.
+                                                        </p>
+                                                        <p className="mt-1 text-[12px] text-[var(--ink-secondary)]">
+                                                            Check if the backend service is running.
+                                                        </p>
+                                                    </div>
+                                                </td>
+                                            </motion.tr>
+                                        ) : sorted.length === 0 && !loading ? (
+                                            <motion.tr key="empty" variants={staggerItem} exit={{ opacity: 0 }}>
+                                                <td
+                                                    colSpan={colSpan}
+                                                    className="py-12 text-center text-[13px] text-[var(--ink-tertiary)]"
+                                                >
+                                                    No runs found.
+                                                </td>
+                                            </motion.tr>
+                                        ) : (
+                                            visibleSections.flatMap((sec) => [
+                                                ...(viewMode === "individual"
+                                                    ? []
+                                                    : [
+                                                        <GroupHeaderRow
+                                                            key={`h-${sec.key}`}
+                                                            avatar={
+                                                                viewMode === "agent" ? (
+                                                                    <AgentAvatar agent={resolveAgent(sec.key, agents)} size={18} />
+                                                                ) : viewMode === "model" ? (
+                                                                    <ModelLogo model={sec.key} size={14} />
 ) : viewMode === "stock" ? (
-                                                                    <TickerLogo
-                                                                        symbol={sections.find((s) => s.key === sec.key)?.items[0]?.symbol}
-                                                                        size={18}
-                                                                    />
-                                                                ) : null
-                                                                }
-                                                                label={viewMode === "date" ? formatGroupDate(sec.key) : sec.key}
-                                                                count={sections.find((s) => s.key === sec.key)?.items.length ?? sec.items.length}
-                                                                avg={groupAverage(sections.find((s) => s.key === sec.key)?.items || sec.items)}
-                                                                expanded={expanded.has(sec.key)}
-                                                                onToggle={() => toggleGroup(sec.key)}
-                                                            />,
-                                                        ]),
-                                                    ...sec.items.map((item) => {
-                                                    const id =
-                                                        item.analysis_id || item._id || item.id;
-                                                    const itemScore: number | null =
-                                                        item.total_score;
-                                                    const sig =
-                                                        itemScore != null
-                                                            ? scoreSignal(itemScore)
-                                                            : null;
-                                                    const itemStatus = (
-                                                        item.status || ""
-                                                    ).toLowerCase();
-                                                    const isItemError =
-                                                        itemStatus === "error" ||
-                                                        itemStatus === "failed";
-                                                    const isItemComplete =
-                                                        itemStatus === "complete" ||
-                                                        itemStatus === "completed" ||
-                                                        itemStatus === "success";
+                                                                <TickerLogo
+                                                                    symbol={sections.find((s) => s.key === sec.key)?.items[0]?.symbol}
+                                                                    size={18}
+                                                                />
+                                                            ) : null
+                                                            }
+                                                            label={viewMode === "date" ? formatGroupDate(sec.key) : sec.key}
+                                                            count={sections.find((s) => s.key === sec.key)?.items.length ?? sec.items.length}
+                                                            avg={groupAverage(sections.find((s) => s.key === sec.key)?.items || sec.items)}
+                                                            expanded={expanded.has(sec.key)}
+                                                            onToggle={() => toggleGroup(sec.key)}
+                                                        />,
+                                                    ]),
+                                                ...sec.items.map((item) => {
+                                                const id =
+                                                    item.analysis_id || item._id || item.id;
+                                                const itemScore: number | null =
+                                                    item.total_score;
+                                                const sig =
+                                                    itemScore != null
+                                                        ? scoreSignal(itemScore)
+                                                        : null;
+                                                const itemStatus = (
+                                                    item.status || ""
+                                                ).toLowerCase();
+                                                const isItemError =
+                                                    itemStatus === "error" ||
+                                                    itemStatus === "failed";
+                                                const isItemComplete =
+                                                    itemStatus === "complete" ||
+                                                    itemStatus === "completed" ||
+                                                    itemStatus === "success";
 
-                                                    return (
-                                                        <motion.tr
-                                                            variants={staggerItem}
-                                                            exit={{ opacity: 0 }}
-                                                            layout={false}
-                                                            key={id}
-                                                            onClick={() => onRowClick(id)}
-                                                            className="cursor-pointer transition-colors duration-[160ms] hover:bg-[var(--surface-recessed)]"
-                                                        >
-                                                            {/* Share — plain text, not badge */}
-                                                            <td className="px-4 py-3">
-                                                                <div className="flex items-center gap-2.5">
-                                                                    <TickerLogo symbol={item.symbol} size={22} />
-                                                                    <div className="flex flex-col">
-                                                                        <span className="text-[13.5px] leading-snug font-medium text-[var(--ink-primary)]">
-                                                                            {item.share_name ||
-                                                                                item.symbol ||
-                                                                                "—"}
-                                                                        </span>
-                                                                        {item.share_name &&
-                                                                            item.symbol && (
-                                                                                <span className="font-app-mono text-[11px] text-[var(--ink-tertiary)]">
-                                                                                    {item.symbol}
-                                                                                </span>
-                                                                            )}
-                                                                    </div>
+                                                return (
+                                                    <motion.tr
+                                                        variants={staggerItem}
+                                                        exit={{ opacity: 0 }}
+                                                        layout={false}
+                                                        key={id}
+                                                        onClick={() => onRowClick(id)}
+                                                        className="cursor-pointer transition-colors duration-[160ms] hover:bg-[var(--surface-recessed)]"
+                                                    >
+                                                        {/* Share — plain text, not badge */}
+                                                        <td className="px-4 py-3">
+                                                            <div className="flex items-center gap-2.5">
+                                                                <TickerLogo symbol={item.symbol} size={22} />
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-[13.5px] leading-snug font-medium text-[var(--ink-primary)]">
+                                                                        {item.share_name ||
+                                                                            item.symbol ||
+                                                                            "—"}
+                                                                    </span>
+                                                                    {item.share_name &&
+                                                                        item.symbol && (
+                                                                            <span className="font-app-mono text-[11px] text-[var(--ink-tertiary)]">
+                                                                                {item.symbol}
+                                                                            </span>
+                                                                        )}
                                                                 </div>
-                                                            </td>
+                                                            </div>
+                                                        </td>
 
-                                                            {/* Agent / Skill */}
-                                                            <td className="max-w-[140px] overflow-hidden px-4 py-3">
-                                                                {item.run_mode === "agent" ? (
-                                                                    <div className="flex min-w-0 items-center gap-2">
-                                                                        <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={24} />
-                                                                        <span className="truncate text-[13px] text-[var(--ink-secondary)]">
-                                                                            {agentName(item.agent_name || item.agent)}
-                                                                        </span>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="flex min-w-0 items-center gap-2">
-                                                                        <SkillAvatar skill={{ id: item.skill_id, name: skillName(item.skill_id) }} size={24} />
-                                                                        <span className="min-w-0">
-                                                                            <span className="block truncate text-[13px] text-[var(--ink-secondary)]">
-                                                                                {skillName(item.skill_id)}
-                                                                            </span>
-                                                                            <span className="block text-[10px] font-medium uppercase tracking-wide text-[var(--accent-primary)]">
-                                                                                Skill run
-                                                                            </span>
-                                                                        </span>
-                                                                    </div>
-                                                                )}
-                                                            </td>
-
-                                                            {/* Model */}
-                                                            <td
-                                                                className="max-w-[200px] overflow-hidden px-4 py-3"
-                                                                title={item.model || undefined}
-                                                            >
+                                                        {/* Agent / Skill */}
+                                                        <td className="max-w-[140px] overflow-hidden px-4 py-3">
+                                                            {item.run_mode === "agent" ? (
                                                                 <div className="flex min-w-0 items-center gap-2">
-                                                                    <ModelLogo model={item.model} size={13} />
-                                                                    <span className="truncate font-app-mono text-[13px] text-[var(--ink-secondary)]">
-                                                                        {item.model || "—"}
+                                                                    <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={24} />
+                                                                    <span className="truncate text-[13px] text-[var(--ink-secondary)]">
+                                                                        {agentName(item.agent_name || item.agent)}
                                                                     </span>
                                                                 </div>
-                                                            </td>
-
-                                                            {/* Match — tabular-nums + signal dot */}
-                                                            <td className="px-4 py-3">
-                                                                {itemScore != null ? (
-                                                                    <span className="inline-flex items-center gap-1.5">
-                                                                        <span
-                                                                            className="h-[5px] w-[5px] shrink-0 rounded-full"
-                                                                            style={{ background: signalColor(sig!) }}
-                                                                        />
-                                                                        <span className="font-app-tabular text-[13.5px] font-medium tabular-nums text-[var(--ink-primary)]">
-                                                                            {itemScore.toFixed(1)}
+                                                            ) : (
+                                                                <div className="flex min-w-0 items-center gap-2">
+                                                                    <SkillAvatar skill={{ id: item.skill_id, name: skillName(item.skill_id) }} size={24} />
+                                                                    <span className="min-w-0">
+                                                                        <span className="block truncate text-[13px] text-[var(--ink-secondary)]">
+                                                                            {skillName(item.skill_id)}
+                                                                        </span>
+                                                                        <span className="block text-[10px] font-medium uppercase tracking-wide text-[var(--accent-primary)]">
+                                                                            Skill run
                                                                         </span>
                                                                     </span>
-                                                                ) : (
-                                                                    <span className="text-[13px] text-[var(--ink-tertiary)]">—</span>
-                                                                )}
-                                                            </td>
+                                                                </div>
+                                                            )}
+                                                        </td>
 
-                                                            {/* Duration — tabular */}
-                                                            <td className="px-4 py-3 font-app-tabular text-[13px] tabular-nums text-[var(--ink-secondary)]">
-                                                                {item.duration != null
-                                                                    ? formatDuration(item.duration)
-                                                                    : "—"}
-                                                            </td>
+                                                        {/* Model */}
+                                                        <td
+                                                            className="max-w-[200px] overflow-hidden px-4 py-3"
+                                                            title={item.model || undefined}
+                                                        >
+                                                            <div className="flex min-w-0 items-center gap-2">
+                                                                <ModelLogo model={item.model} size={13} />
+                                                                <span className="truncate font-app-mono text-[13px] text-[var(--ink-secondary)]">
+                                                                    {item.model || "—"}
+                                                                </span>
+                                                            </div>
+                                                        </td>
 
-                                                            {/* Created — relative time */}
-                                                            <td
-                                                                className="px-4 py-3 text-[13px] text-[var(--ink-secondary)]"
-                                                                title={
-                                                                    item.created_at
-                                                                        ? new Date(
-                                                                              item.created_at
-                                                                          ).toLocaleString()
-                                                                        : undefined
-                                                                }
-                                                            >
-                                                                {item.created_at
-                                                                    ? timeAgo(item.created_at)
-                                                                    : "—"}
-                                                            </td>
-
-                                                            {/* Status — dot + label */}
-                                                            <td className="px-4 py-3">
+                                                        {/* Match — tabular-nums + signal dot */}
+                                                        <td className="px-4 py-3">
+                                                            {itemScore != null ? (
                                                                 <span className="inline-flex items-center gap-1.5">
                                                                     <span
                                                                         className="h-[5px] w-[5px] shrink-0 rounded-full"
-                                                                        style={{
-                                                                            background: isItemError
-                                                                                ? "var(--signal-negative)"
-                                                                                : isItemComplete
-                                                                                ? "var(--signal-positive)"
-                                                                                : "var(--signal-caution)",
-                                                                        }}
+                                                                        style={{ background: signalColor(sig!) }}
                                                                     />
-                                                                    <span className="text-[12px] text-[var(--ink-secondary)]">
-                                                                        {isItemError
-                                                                            ? "Failed"
-                                                                            : isItemComplete
-                                                                            ? "Complete"
-                                                                            : "Running"}
+                                                                    <span className="font-app-tabular text-[13.5px] font-medium tabular-nums text-[var(--ink-primary)]">
+                                                                        {itemScore.toFixed(1)}
                                                                     </span>
                                                                 </span>
-                                                            </td>
+                                                            ) : (
+                                                                <span className="text-[13px] text-[var(--ink-tertiary)]">—</span>
+                                                            )}
+                                                        </td>
 
-                                                            {/* Delete — hover-revealed */}
-                                                            <td className="px-2 py-3">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setDeleteTarget(item);
+                                                        {/* Duration — tabular */}
+                                                        <td className="px-4 py-3 font-app-tabular text-[13px] tabular-nums text-[var(--ink-secondary)]">
+                                                            {item.duration != null
+                                                                ? formatDuration(item.duration)
+                                                                : "—"}
+                                                        </td>
+
+                                                        {/* Created — relative time */}
+                                                        <td
+                                                            className="px-4 py-3 text-[13px] text-[var(--ink-secondary)]"
+                                                            title={
+                                                                item.created_at
+                                                                    ? new Date(
+                                                                          item.created_at
+                                                                      ).toLocaleString()
+                                                                    : undefined
+                                                            }
+                                                        >
+                                                            {item.created_at
+                                                                ? timeAgo(item.created_at)
+                                                                : "—"}
+                                                        </td>
+
+                                                        {/* Status — dot + label */}
+                                                        <td className="px-4 py-3">
+                                                            <span className="inline-flex items-center gap-1.5">
+                                                                <span
+                                                                    className="h-[5px] w-[5px] shrink-0 rounded-full"
+                                                                    style={{
+                                                                        background: isItemError
+                                                                            ? "var(--signal-negative)"
+                                                                            : isItemComplete
+                                                                            ? "var(--signal-positive)"
+                                                                            : "var(--signal-caution)",
                                                                     }}
-                                                                    aria-label="Delete run"
-                                                                    className="flex h-11 w-11 items-center justify-center text-[var(--ink-tertiary)] opacity-100 transition-[color,opacity] hover:text-[var(--signal-negative)] focus-visible:ring-[1px] focus-visible:ring-ring focus-visible:outline-none md:h-auto md:w-auto md:opacity-40 md:[tr:hover_&]:opacity-100"
+                                                                />
+                                                                <span className="text-[12px] text-[var(--ink-secondary)]">
+                                                                    {isItemError
+                                                                        ? "Failed"
+                                                                        : isItemComplete
+                                                                        ? "Complete"
+                                                                        : "Running"}
+                                                                </span>
+                                                            </span>
+                                                        </td>
+
+                                                        {/* Delete — hover-revealed */}
+                                                        <td className="px-2 py-3">
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setDeleteTarget(item);
+                                                                }}
+                                                                aria-label="Delete run"
+                                                                className="flex h-11 w-11 items-center justify-center text-[var(--ink-tertiary)] opacity-100 transition-[color,opacity] hover:text-[var(--signal-negative)] focus-visible:ring-[1px] focus-visible:ring-ring focus-visible:outline-none md:h-auto md:w-auto md:opacity-40 md:[tr:hover_&]:opacity-100"
+                                                            >
+                                                                <svg
+                                                                    width="14"
+                                                                    height="14"
+                                                                    viewBox="0 0 24 24"
+                                                                    fill="none"
+                                                                    stroke="currentColor"
+                                                                    strokeWidth="1.5"
+                                                                    strokeLinecap="round"
+                                                                    strokeLinejoin="round"
                                                                 >
-                                                                    <svg
-                                                                        width="14"
-                                                                        height="14"
-                                                                        viewBox="0 0 24 24"
-                                                                        fill="none"
-                                                                        stroke="currentColor"
-                                                                        strokeWidth="1.5"
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                    >
-                                                                        <path d="M3 6h18" />
-                                                                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                                                                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                                                                    </svg>
-                                                                </button>
-                                                            </td>
-                                                        </motion.tr>
-                                                    );
-                                                }),
-                                            ])
-                                            )}
+                                                                    <path d="M3 6h18" />
+                                                                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                                                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                                                </svg>
+                                                            </button>
+                                                        </td>
+                                                    </motion.tr>
+                                                );
+                                            }),
+                                        ])
+                                        )}
 </AnimatePresence>
-                                        </motion.tbody>
-                                    </table>
-                                </div>
+                                    </motion.tbody>
+                                </table>
                             </div>
-                        )}
-                    </div>
+                    )}
                 </div>
             </div>
 

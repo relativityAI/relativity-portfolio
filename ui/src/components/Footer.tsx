@@ -4,7 +4,7 @@ import Logo from "@/components/Logo";
 export default function Footer() {
   return (
     <footer className="mt-10 border-t border-t-[var(--hairline)]">
-      <div className="mx-auto max-w-[1100px] px-6 md:px-10 py-10 md:py-14">
+      <div className="mx-auto max-w-[1200px] px-6 md:px-10 py-10 md:py-14">
         <div className="flex flex-col items-center gap-3 text-center">
           <Logo preset="landing" fontWeight={400} showMark={false} />
           <p className="text-sm text-[var(--ink-secondary)] max-w-[42ch] leading-relaxed">

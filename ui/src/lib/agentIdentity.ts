@@ -5,14 +5,10 @@
  * own data — no DB fields, no user setup:
  *
  *  - The seed is the agent's stable id (`_id || id || name`). The same
- *    seed drives BOTH the color and the Notionists portrait, so an
+ *    seed drives BOTH the color and the Pixel Art portrait, so an
  *    agent looks identical on every screen and across sessions.
  *    Renames don't change the identity; deleting and recreating an
  *    agent (new id) intentionally does.
- *
- *  - Portraits render in sepia (CSS filter in AgentAvatar) so they read
- *    like engraved investor likenesses rather than playful cartoons,
- *    sitting on a muted chip in the agent's color.
  *
  *  - The palette is curated to sit beside the app's monochrome design
  *    system. The system accent blue (--accent-primary) is deliberately
@@ -21,10 +17,10 @@
 import { Avatar, Style } from "@dicebear/core";
 // Style definitions ship as JSON in @dicebear/styles (all 61 styles on the
 // website); only the notionists definition is imported.
-import notionistsDefinition from "@dicebear/styles/notionists.json";
+import pixelArtDefinition from "@dicebear/styles/pixel-art.json";
 
 // Wrap once — Avatar warns when a raw definition is passed per call.
-const notionists = new Style(notionistsDefinition);
+const pixelArt = new Style(pixelArtDefinition);
 
 export interface AgentSeedLike {
     _id?: string;
@@ -107,7 +103,7 @@ export function resolveAgent(
     return hit ?? raw;
 }
 
-/* ─── Portrait rendering (sepia Notionists, transparent background) ─────── */
+/* ─── Portrait rendering (Pixel Art, transparent background) ─────── */
 
 const svgCache = new Map<string, string>();
 
@@ -118,13 +114,8 @@ const svgCache = new Map<string, string>();
 export function agentAvatarSvg(seed: string): string {
     const cached = svgCache.get(seed);
     if (cached) return cached;
-    const svg = new Avatar(notionists, {
+    const svg = new Avatar(pixelArt, {
         seed,
-        // Close-up framing: zoom in on the head so the face stays clearly
-        // legible at chip sizes, nudged up to keep it centered.
-        // v10 scale is a multiplier (0–10), not the v9 percent value (140 → 1.4).
-        scale: 1.4,
-        translateY: 6,
         // No backgroundColor → transparent; the chip supplies the tint.
     }).toString()
         // DiceBear emits a viewBox with no width/height, so the SVG has no

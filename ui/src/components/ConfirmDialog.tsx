@@ -1,6 +1,5 @@
-import { Box, Text, Button, HStack } from "@chakra-ui/react";
 import { motion, AnimatePresence } from "motion/react";
-import { MdClose, MdWarningAmber } from "react-icons/md";
+import { X } from "lucide-react";
 import { dur, ease } from "@/lib/motion";
 
 interface ConfirmDialogProps {
@@ -8,142 +7,82 @@ interface ConfirmDialogProps {
     title: string;
     message: string;
     confirmLabel?: string;
-    /** Palette for the confirm action. Defaults to "red" (destructive). */
-    confirmColorPalette?: string;
     onCancel: () => void;
     onConfirm: () => void;
 }
 
+/**
+ * Flat confirm sheet — hairline border, square corners, Anek Latin, the same
+ * outline-cancel / solid-confirm pairing the rest of the app uses for
+ * secondary and primary actions. No rounded chips, no Chakra chrome.
+ */
 export default function ConfirmDialog({
     open,
     title,
     message,
     confirmLabel = "Delete",
-    confirmColorPalette = "red",
     onCancel,
     onConfirm,
 }: ConfirmDialogProps) {
     return (
         <AnimatePresence>
             {open && (
-                <Box
-                    as={motion.div}
-                    position="fixed"
-                    inset={0}
-                    zIndex={1400}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: dur.fast, ease }}
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="center"
-                    p={4}
-                    onClick={onCancel}
+                <div
+                    className="fixed inset-0 z-[1400] flex items-center justify-center p-4"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={title}
                 >
-                    <Box
-                        position="absolute"
-                        inset={0}
-                        bg="rgba(0,0,0,0.45)"
-                        backdropFilter="blur(2px)"
+                    <motion.div
+                        className="absolute inset-0 bg-black/45 backdrop-blur-[2px]"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: dur.fast, ease }}
+                        onClick={onCancel}
                     />
-                    <Box
-                        as={motion.div}
-                        position="relative"
-                        w={{ base: "100%", md: "360px" }}
-                        bg="var(--surface-panel)"
-                        border="1px solid var(--hairline)"
-                        borderRadius="10px"
-                        boxShadow="0 16px 48px rgba(0,0,0,0.18)"
-                        p={0}
-                        overflow="hidden"
-                        initial={{ opacity: 0, scale: 0.94, y: 8 }}
+                    <motion.div
+                        className="relative w-full max-w-[400px] border border-[var(--hairline)] bg-[var(--surface-panel)] shadow-[0_16px_48px_rgba(0,0,0,0.18)]"
+                        initial={{ opacity: 0, scale: 0.97, y: 8 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.96, y: 6 }}
+                        exit={{ opacity: 0, scale: 0.98, y: 6 }}
                         transition={{ duration: dur.base, ease }}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <HStack align="center" spacing={2.5} px={4} pt={3.5}>
-                            <Box
-                                display="flex"
-                                alignItems="center"
-                                justifyContent="center"
-                                w="30px"
-                                h="30px"
-                                borderRadius="8px"
-                                bg="color-mix(in srgb, var(--signal-negative) 14%, transparent)"
-                                color="var(--signal-negative)"
-                                flexShrink={0}
-                            >
-                                <MdWarningAmber size={17} />
-                            </Box>
-                            <Text
-                                fontSize="14px"
-                                fontWeight={600}
-                                color="var(--ink-primary)"
-                                flex={1}
-                                minW={0}
-                            >
+                        <div className="flex items-start justify-between gap-3 px-5 pt-4">
+                            <h2 className="font-app-body text-[15px] leading-snug font-medium text-[var(--ink-primary)]">
                                 {title}
-                            </Text>
-                            <Button
-                                variant="subtle"
-                                size="sm"
-                                minW="auto"
-                                h="auto"
-                                p="2px"
-                                color="var(--ink-tertiary)"
-                                borderRadius="6px"
+                            </h2>
+                            <button
+                                type="button"
                                 aria-label="Close"
                                 onClick={onCancel}
+                                className="-mt-1 -mr-1 p-1 text-[var(--ink-tertiary)] transition-colors hover:text-[var(--ink-primary)]"
                             >
-                                <MdClose size={16} />
-                            </Button>
-                        </HStack>
-                        <Text
-                            fontSize="12.5px"
-                            lineHeight="short"
-                            color="var(--ink-secondary)"
-                            px={4}
-                            pt={1.5}
-                            pb={3}
-                        >
+                                <X className="size-4" />
+                            </button>
+                        </div>
+                        <p className="px-5 pt-2 pb-5 font-app-body text-[13px] leading-relaxed font-light text-[var(--ink-secondary)]">
                             {message}
-                        </Text>
-                        <HStack
-                            spacing={2}
-                            px={4}
-                            py={3}
-                            bg="var(--surface-recessed)"
-                            borderTop="1px solid var(--hairline)"
-                        >
-                            <Button
-                                variant="subtle"
-                                size="sm"
-                                flex={1}
-                                h="34px"
-                                fontSize="13px"
-                                fontWeight={500}
-                                color="var(--ink-secondary)"
+                        </p>
+                        <div className="flex justify-end gap-2 border-t border-[var(--hairline)] px-5 py-3.5">
+                            <button
+                                type="button"
                                 onClick={onCancel}
+                                className="h-9 rounded-[3px] border border-[var(--hairline)] bg-transparent px-4 font-app-body text-[13px] font-normal text-[var(--ink-secondary)] transition-colors hover:border-[var(--ink-tertiary)] hover:text-[var(--ink-primary)]"
                             >
                                 Cancel
-                            </Button>
-                            <Button
-                                size="sm"
-                                flex={1}
-                                h="34px"
-                                fontSize="13px"
-                                fontWeight={600}
-                                variant="surface"
-confirmColorPalette={confirmColorPalette}
-                                    onClick={onConfirm}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onConfirm}
+                                className="h-9 rounded-[3px] bg-[var(--signal-negative)] px-4 font-app-body text-[13px] font-medium text-white transition-opacity hover:opacity-90"
                             >
                                 {confirmLabel}
-                            </Button>
-                        </HStack>
-                    </Box>
-                </Box>
+                            </button>
+                        </div>
+                    </motion.div>
+                </div>
             )}
         </AnimatePresence>
     );

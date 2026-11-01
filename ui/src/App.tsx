@@ -13,6 +13,7 @@ import { useAuth } from "./auth/useAuth";
 import Login from "./pages/Login";
 import AuthCallback from "./pages/AuthCallback";
 import Landing from "./pages/Landing";
+import HomePage from "./pages/HomePage";
 import AgentsList from "./pages/AgentsList";
 import AnalysisList from "./pages/AnalysisList";
 import Analysis from "./pages/Analysis";
@@ -42,8 +43,8 @@ function Protected({ children }: { children: ReactNode }) {
   return (
     <AnimatePresence mode="wait" initial={false}>
       {loading ? (
-        <motion.div key="loading" exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }}>
-          <Center minH="calc(100vh - 44px)">
+        <motion.div key="loading" style={{ height: "100%" }} exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }}>
+          <Center minH="100%">
             <Spinner size="lg" />
           </Center>
         </motion.div>
@@ -62,14 +63,14 @@ function Home() {
   return (
     <AnimatePresence mode="wait" initial={false}>
       {loading ? (
-        <motion.div key="loading" exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }}>
-          <Center minH="calc(100vh - 44px)">
+        <motion.div key="loading" style={{ height: "100%" }} exit={{ opacity: 0 }} transition={{ duration: dur.fast, ease }}>
+          <Center minH="100%">
             <Spinner size="lg" />
           </Center>
         </motion.div>
       ) : (
         <motion.div key={user ? "home" : "landing"} style={{ height: "100%" }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
-          {user ? <Navigate to="/new-analysis" replace /> : <Landing />}
+          {user ? <HomePage /> : <Landing />}
         </motion.div>
       )}
     </AnimatePresence>
@@ -140,9 +141,9 @@ function AppRoutes() {
       {user && locationPath !== "/settings" && <ApiKeySetupDialog key={user.id} user={user} />}
       {showNav && <NavBar />}
 
-        <Box w="100%" flex={1} overflowY="auto" overflowX={isConsole ? undefined : "hidden"} paddingX={0}>
+        <Box w="100%" flex={1} overflowY={isConsole ? "hidden" : "auto"} overflowX="hidden" paddingX={0}>
             <AnimatePresence mode="wait">
-              <motion.div key={isConsole ? "console" : location.pathname} variants={page} style={{ height: "100%" }} initial="initial" animate="animate" exit="exit">
+              <motion.div key={isConsole ? "console" : location.pathname} variants={page} style={{ height: "100%", maxWidth: "1200px", margin: "0 auto", paddingLeft: "1.5rem", paddingRight: "1.5rem" }} initial="initial" animate="animate" exit="exit">
                 <Suspense fallback={<PageFallback />}>
                   <Routes location={location}>
                     <Route path="/login" element={<Login />} />

@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import { Avatar, Style } from "@dicebear/core";
-import shapesDefinition from "@dicebear/styles/shapes.json";
+import shadowsDefinition from "@dicebear/styles/shadows.json";
 
-const shapes = new Style(shapesDefinition);
+const shadows = new Style(shadowsDefinition);
 import { Box } from "@/compat/ui";
 
 /**
- * User avatar — square, DiceBear-generated from the signed-in identity.
- * Uses geometric/glyph-like shapes style for distinctive avatars.
+ * User avatar — round, DiceBear-generated from the signed-in identity.
+ * Uses the shadows style.
  * ponytail: minimal change; reuse existing DiceBear deps.
  */
 export default function UserAvatar({
@@ -24,7 +24,7 @@ export default function UserAvatar({
 
     const svg = useMemo(
         () =>
-            new Avatar(shapes, {
+            new Avatar(shadows, {
                 seed: seedValue,
                 // v10 renamed the global `radius` option to `borderRadius`.
                 borderRadius: 0,
@@ -45,7 +45,7 @@ export default function UserAvatar({
             w={{ base: `${w.base}px`, md: `${w.md}px` }}
             h={{ base: `${w.base}px`, md: `${w.md}px` }}
             flexShrink={0}
-            borderRadius="2px"
+            borderRadius="full"
             overflow="visible"
             border="var(--hairline-w) solid var(--hairline)"
             bg="var(--surface-recessed)"
@@ -56,7 +56,7 @@ export default function UserAvatar({
                 aria-label={`${seedValue} avatar`}
                 w="100%"
                 h="100%"
-                borderRadius="1px"
+                borderRadius="full"
                 overflow="hidden"
                 dangerouslySetInnerHTML={{ __html: svg }}
             />

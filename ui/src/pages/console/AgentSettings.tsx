@@ -3,7 +3,7 @@ import {
 } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import {
-    Download, Trash2, MoreHorizontal, Copy, Save,
+    Download, Trash2, Save, SquareArrowOutUpRight,
 } from "lucide-react";
 
 import { AgentService, SkillService } from "@/db";
@@ -18,16 +18,12 @@ import { zipFiles, downloadBlob } from "@/lib/zip";
 import AgentAvatar from "@/components/shared/AgentAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-    DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
 import {
     AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
     AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import PhilosophySection from "./forge/PhilosophySection";
-import SkillsSection from "./forge/SkillsSection";
+import SkillsSection, { SkillPicker } from "./forge/SkillsSection";
 
 /**
  * Agent settings — inside the console. One straight, centered form:
@@ -68,7 +64,7 @@ const isNew = !urlParams.id || urlParams.id === "new"
         if (!ids.length) { setSkillNames({}); return }
         let cancelled = false
         Promise.all(
-            ids.map(async (id) => {
+            ids.map(async (id: string) => {
                 try {
                     const full = await SkillService.readSkill(id)
                     return [id, full?.name || id] as const
@@ -255,16 +251,6 @@ useEffect(() => {
         }
     }
 
-    const copyAgentId = async () => {
-        if (!agentId) return
-        try {
-            await navigator.clipboard.writeText(agentId)
-            toaster.create({ title: "Copied agent ID", type: "success" })
-        } catch {
-            toaster.create({ title: "Couldn't copy agent ID", type: "error" })
-        }
-    }
-
     const updateAgent = (updates: any) => {
         setAgent((prev: any) => ({ ...prev, ...updates }))
         if (!loading) setIsDirty(true)
@@ -280,10 +266,9 @@ useEffect(() => {
                 ? { label: "Draft", tone: "muted" as const }
                 : { label: "Saved", tone: "positive" as const }
 
-    const metaLine = !isNew ? [
-        agentId ? `ID ${String(agentId).slice(0, 10)}` : null,
-        agent.created_at ? new Date(agent.created_at).toLocaleDateString() : null,
-    ].filter(Boolean).join("  ·  ") : null
+    const metaLine = !isNew && agent.created_at
+        ? `Created ${new Date(agent.created_at).toLocaleDateString()}`
+        : null
 
     if (loading) return (
         <div className="flex min-h-[60vh] items-center justify-center">
@@ -309,44 +294,20 @@ useEffect(() => {
     )
 
     return (
-        <div className="w-full px-5 pb-12 sm:px-8">
+        <div className="w-full pb-12">
             {/* Sticky header — title, save state, actions */}
-            <div className="sticky top-0 z-10 -mx-5 bg-console-canvas/90 px-5 py-3 backdrop-blur-md sm:-mx-8 sm:px-8">
+            <div className="sticky top-0 z-10 bg-console-canvas/90 py-3 backdrop-blur-md">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                         <AgentAvatar agent={agent} size={40} label={agent.name || "Agent"} />
                         <div className="min-w-0 max-w-72 flex-1">
-                            <p className="truncate px-2 text-lg font-bold tracking-tight text-console-ink">
+                            <p className="truncate text-lg font-bold tracking-tight text-console-ink">
                                 {agent.name?.trim() || "New agent"}
                             </p>
                             {metaLine && (
-                                <p className="truncate font-mono text-[11px] text-console-ink-4">{metaLine}</p>
+                                <p className="truncate text-[11px] text-console-ink-4">{metaLine}</p>
                             )}
                         </div>
-
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" aria-label="More actions">
-                                    <MoreHorizontal />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={handleExport} disabled={exporting}>
-                                    <Download /> Export agent
-                                </DropdownMenuItem>
-                                {agentId && (
-                                    <>
-                                        <DropdownMenuItem onClick={copyAgentId}>
-                                            <Copy /> Copy agent ID
-                                        </DropdownMenuItem>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem variant="destructive" onClick={() => setDeleteOpen(true)}>
-                                            <Trash2 /> Delete agent
-                                        </DropdownMenuItem>
-                                    </>
-                                )}
-                            </DropdownMenuContent>
-                        </DropdownMenu>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -367,6 +328,14 @@ useEffect(() => {
                             </span>
                         </span>
 
+                        <Button variant="ghost" size="icon" aria-label="Export agent" title="Export agent" onClick={handleExport} disabled={exporting}>
+                            <Download />
+                        </Button>
+                        {agentId && (
+                            <Button variant="ghost" size="icon" aria-label="Delete agent" title="Delete agent" onClick={() => setDeleteOpen(true)}>
+                                <Trash2 className="text-console-negative" />
+                            </Button>
+                        )}
                         <Button size="sm" onClick={handleSave} disabled={saving} data-testid="agent-save">
                             <Save /> {isNew ? "Create agent" : "Save"}
                         </Button>
@@ -374,11 +343,11 @@ useEffect(() => {
                 </div>
             </div>
 
-            {/* Body: one straight form, centered */}
-            <div className="mx-auto mt-10 max-w-2xl">
+            {/* Body: one straight, full-width form */}
+            <div className="mt-10 w-full">
                 <section className="pb-12">
                     <header className="mb-4">
-                        <h2 className="text-xl font-bold tracking-tight text-console-ink">Name</h2>
+                        <h2 className="text-3xl font-light tracking-tight text-console-ink">Name</h2>
                         <p className="mt-1 text-[13px] text-console-ink-3">What this agent is called.</p>
                     </header>
                     <Input
@@ -387,7 +356,7 @@ useEffect(() => {
                         placeholder="Untitled agent"
                         aria-label="Agent name"
                         className={cn(
-                            "h-auto bg-transparent px-3 py-2.5 text-base shadow-none focus-visible:bg-console-recessed/50 focus-visible:shadow-none",
+                            "h-auto max-w-md rounded-none border-[0.5px] border-[color:var(--hairline)] bg-transparent px-2.5 py-1.5 text-sm shadow-none placeholder:text-console-ink-4 focus-visible:ring-1 focus-visible:ring-console-accent/40 dark:bg-transparent",
                             nameError && "text-console-negative",
                         )}
                         data-testid="agent-name-input"
@@ -396,8 +365,8 @@ useEffect(() => {
 
                 <section className="pb-12">
                     <header className="mb-4">
-                        <h2 className="text-xl font-bold tracking-tight text-console-ink">Philosophy</h2>
-                        <p className="mt-1 text-[13px] text-console-ink-3">Written in the agent's own words.</p>
+                        <h2 className="text-3xl font-light tracking-tight text-console-ink">Soul</h2>
+                        <p className="mt-1 text-[13px] text-console-ink-3">The agent's beliefs, in its own words.</p>
                     </header>
                     <PhilosophySection
                         philosophy={agent.persona?.philosophy || agent.persona?.philosophy_and_mindset || ""}
@@ -406,29 +375,31 @@ useEffect(() => {
                 </section>
 
                 <section className="pb-6">
-                    <header className="mb-4 flex items-center justify-between">
+                    <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
                         <div>
-                            <h2 className="text-xl font-bold tracking-tight text-console-ink">Skills</h2>
+                            <h2 className="text-3xl font-light tracking-tight text-console-ink">
+                                Skills
+                                <span className="ml-2 text-lg font-light text-console-ink-4">{agent.skills?.length ?? 0}</span>
+                            </h2>
                             <p className="mt-1 text-[13px] text-console-ink-3">What the agent measures.</p>
                         </div>
-                        {(agent.skills?.length ?? 0) > 0 && (
-                            <Badge variant="secondary">{agent.skills.length} attached</Badge>
-                        )}
+                        <div className="flex items-center gap-2">
+                            <SkillPicker
+                                attachedIds={new Set((agent.skills || []).map((s: any) => s.skill_id))}
+                                onPick={(s) => updateAgent({ skills: [...(agent.skills || []), { skill_id: s.id, weight: 5 }] })}
+                            />
+                            <Button variant="ghost" size="sm" onClick={() => navigate("/console/skills")}>
+                                <SquareArrowOutUpRight /> Browse all skills
+                            </Button>
+                        </div>
                     </header>
                     <SkillsSection
                         skills={agent.skills || []}
                         skillNames={skillNames}
                         onChange={(v) => updateAgent({ skills: v })}
-                        onOpenLibrary={() => navigate("/console/skills")}
                         onInspect={(skillId) => navigate(`/console/skills?skill=${encodeURIComponent(skillId)}`)}
                     />
                 </section>
-
-                <div className="flex justify-end pb-8">
-                    <Button onClick={handleSave} disabled={saving}>
-                        <Save /> {isNew ? "Create agent" : "Save"}
-                    </Button>
-                </div>
             </div>
 
             <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>

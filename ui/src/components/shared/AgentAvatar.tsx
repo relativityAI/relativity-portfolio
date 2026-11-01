@@ -22,7 +22,7 @@ export interface AgentAvatarProps {
 }
 
 /**
- * An agent's identity chip: a sepia Notionists portrait on a muted chip
+ * An agent's identity chip: a Pixel Art portrait on a muted chip
  * in the agent's stable color. Deterministic — same agent, same chip,
  * everywhere it appears. Below 14px the portrait is dropped in favor of
  * a plain color swatch, which stays legible at tooltip sizes.
@@ -64,9 +64,6 @@ export default function AgentAvatar({ agent, size = 24, label }: AgentAvatarProp
             w={`${size}px`}
             h={`${size}px`}
             borderRadius="2px"
-            bg={tint}
-            border="1px solid"
-            borderColor={`color-mix(in srgb, ${color} 38%, transparent)`}
             overflow="hidden"
             role={label ? "img" : undefined}
             aria-label={label}
@@ -80,8 +77,6 @@ export default function AgentAvatar({ agent, size = 24, label }: AgentAvatarProp
                     width: "90%",
                     height: "90%",
                     display: "block",
-                    // Sepia wash — engraved-ink portraits, not cartoons.
-                    filter: "sepia(0.52) saturate(0.72) contrast(0.96)",
                 }}
                 dangerouslySetInnerHTML={{ __html: svg }}
             />

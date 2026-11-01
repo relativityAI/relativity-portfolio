@@ -6,7 +6,6 @@ import { AgentService } from "@/db";
 import AgentAvatar from "@/components/shared/AgentAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -14,8 +13,9 @@ import {
 import { toaster } from "@/compat/ui";
 
 /**
- * Agent Library — the console's default view. Every agent renders as a
- * borderless card: identity, thesis, skills, last-run health.
+ * Agent Library — the console's default view. Agents render as a typographic
+ * index: no cards, no backgrounds — hierarchy comes from Anek Latin weight
+ * and size alone, over a hairline rule that marks each entry.
  */
 
 interface Agent {
@@ -28,15 +28,6 @@ interface Agent {
     skills?: { skill_id: string; weight: number }[];
 }
 
-interface AnalysisLite {
-    agent?: string;
-    agent_name?: string;
-    status?: string;
-    total_score?: number;
-    created_at?: string;
-    updated_at?: string;
-}
-
 /** First sentence of the philosophy — the agent's thesis. */
 function creedOf(agent: Agent): string {
     const phil = agent.persona?.philosophy || agent.persona?.philosophy_and_mindset || "";
@@ -44,32 +35,9 @@ function creedOf(agent: Agent): string {
     return first ? (first.length > 140 ? first.slice(0, 137) + "…" : first) : "";
 }
 
-function timeAgo(dateStr?: string): string {
-    if (!dateStr) return "";
-    const s = Math.max(0, (Date.now() - +new Date(dateStr)) / 1000);
-    if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m ago`;
-    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-    return `${Math.floor(s / 86400)}d ago`;
-}
-
-/** Last finished run for an agent, by name match on the analyses list. */
-function lastRunOf(agent: Agent, analyses: AnalysisLite[]) {
-    const name = agent.name;
-    if (!name) return null;
-    const mine = analyses.filter(
-        (a) => (a.agent_name || a.agent) === name &&
-            !["running", "pending", "queued"].includes((a.status || "").toLowerCase()),
-    );
-    if (!mine.length) return null;
-    const latest = mine.reduce((a, b) =>
-        +new Date(b.updated_at || b.created_at || 0) > +new Date(a.updated_at || a.created_at || 0) ? b : a,
-    );
-    const failed = ["failed", "error", "canceled"].includes((latest.status || "").toLowerCase());
-    return {
-        score: failed ? null : latest.total_score != null ? Number(latest.total_score).toFixed(1) : null,
-        failed,
-        at: latest.updated_at || latest.created_at,
-    };
+function formatDate(dateStr?: string): string {
+    if (!dateStr) return "—";
+    return new Date(dateStr).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 const ARCHETYPES = [
@@ -96,7 +64,6 @@ const ARCHETYPES = [
 export default function AgentLibrary() {
     const navigate = useNavigate();
     const [agents, setAgents] = useState<Agent[]>([]);
-    const [analyses, setAnalyses] = useState<AnalysisLite[]>([]);
     const [skillNames, setSkillNames] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [fetchError, setFetchError] = useState(false);
@@ -106,14 +73,10 @@ export default function AgentLibrary() {
 
     useEffect(() => {
         let cancelled = false;
-        Promise.all([
-            AgentService.listAgents(),
-            import("@/db").then(({ AnalysisService }) => AnalysisService.listAnalyses()).catch(() => []),
-        ])
-            .then(([agentsData, analysesData]) => {
+        AgentService.listAgents()
+            .then((agentsData) => {
                 if (cancelled) return;
                 setAgents(Array.isArray(agentsData) ? agentsData : []);
-                setAnalyses(Array.isArray(analysesData) ? analysesData : []);
                 setFetchError(!Array.isArray(agentsData));
             })
             .catch(() => { if (!cancelled) { setAgents([]); setFetchError(true); } })
@@ -165,7 +128,7 @@ export default function AgentLibrary() {
     }, [agents, query, skillNames]);
 
     return (
-        <div className="w-full px-8 py-8">
+        <div className="w-full py-8">
             {/* Header */}
             <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
@@ -173,10 +136,10 @@ export default function AgentLibrary() {
                         Agents
                     </h1>
                     <p className="mt-1 text-sm text-console-ink-2">
-                        Every analyst you've built — their philosophy and skills.
+                        Every analyst you've built — their soul and skills.
                     </p>
                 </div>
-                <Button size="sm" variant="outline" className="rounded-full px-4" onClick={() => navigate("/console/agent/new")}>
+                <Button size="sm" variant="outline" className="rounded-none px-4" onClick={() => navigate("/console/agent/new")}>
                     <Plus /> New agent
                 </Button>
             </div>
@@ -196,9 +159,9 @@ export default function AgentLibrary() {
             )}
 
             {loading ? (
-                <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="mt-10 grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-x-10 gap-y-12">
                     {Array.from({ length: 3 }).map((_, i) => (
-                        <div key={i} className="h-56 animate-pulse rounded-2xl bg-console-surface shadow-console" />
+                        <div key={i} className="h-40 animate-pulse rounded-none bg-console-recessed/30" />
                     ))}
                 </div>
             ) : fetchError ? (
@@ -264,8 +227,8 @@ export default function AgentLibrary() {
                     </div>
                 </motion.div>
             ) : (
-                /* ── The portfolio — agents as cards in a grid ── */
-                <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                /* ── The roster — a typographic index, no cards ── */
+                <div className="mt-10 grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-x-10 gap-y-12">
                     {filtered.length === 0 && (
                         <p className="col-span-full py-6 text-center text-sm text-console-ink-3">
                             No agents match that search.
@@ -274,14 +237,13 @@ export default function AgentLibrary() {
                     {filtered.map((agent) => {
                         const key = agent._id || agent.id || "";
                         const creed = creedOf(agent);
-                        const run = lastRunOf(agent, analyses);
                         const skills = agent.skills || [];
                         return (
                             <motion.div
                                 key={key}
                                 layout
-                                initial={{ opacity: 0, scale: 0.97 }}
-                                animate={{ opacity: 1, scale: 1 }}
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
                                 transition={{ duration: 0.22 }}
                             >
                                 <div
@@ -291,28 +253,22 @@ export default function AgentLibrary() {
                                     onKeyDown={(e) => {
                                         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/console/agent/" + key); }
                                     }}
-                                    className="group flex h-full cursor-pointer flex-col gap-3 rounded-2xl bg-console-surface p-5 shadow-console transition-all duration-200 hover:-translate-y-0.5 hover:shadow-console-lift focus-visible:ring-2 focus-visible:ring-console-accent/40 focus-visible:outline-none"
+                                    className="group flex h-full cursor-pointer flex-col pt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-accent/40"
                                 >
-                                    {/* Identity row */}
-                                    <div className="flex min-w-0 items-center gap-3">
-                                        <AgentAvatar agent={agent} size={44} label={agent.name || "Agent"} />
+                                    {/* Identity */}
+                                    <div className="flex min-w-0 items-start gap-3">
+                                        <AgentAvatar agent={agent} size={40} label={agent.name || "Agent"} />
                                         <div className="min-w-0 flex-1">
-                                            <p className="truncate text-[15px] font-bold tracking-tight text-console-ink">
+                                            <p className="truncate font-app-body text-[26px] leading-[1.05] font-semibold tracking-[-0.015em] text-console-ink">
                                                 {agent.name || "Untitled agent"}
                                             </p>
-                                            {creed ? (
-                                                <p className="mt-0.5 truncate text-xs italic text-console-ink-2">
-                                                    “{creed}”
-                                                </p>
-                                            ) : (
-                                                <p className="mt-0.5 truncate text-xs italic text-console-ink-4">
-                                                    No philosophy written yet.
-                                                </p>
-                                            )}
+                                            <p className={`mt-1.5 truncate font-app-body text-[14px] leading-snug font-light italic ${creed ? "text-console-ink-2" : "text-console-ink-4"}`}>
+                                                “{creed || "No philosophy written yet."}”
+                                            </p>
                                         </div>
                                         <Button
                                             variant="ghost"
-                                            size="iconSm"
+                                            size="icon-sm"
                                             aria-label={`Delete ${agent.name || "agent"}`}
                                             className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                                             onClick={(e) => {
@@ -324,42 +280,26 @@ export default function AgentLibrary() {
                                         </Button>
                                     </div>
 
-                                    {/* Skill pills */}
-                                    {skills.length ? (
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {skills.slice(0, 3).map((s) => (
-                                                <Badge key={s.skill_id} variant="accent">
-                                                    {skillNames[s.skill_id] || s.skill_id}
-                                                </Badge>
-                                            ))}
-                                            {skills.length > 3 && (
-                                                <Badge variant="muted">+{skills.length - 3}</Badge>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <p className="text-xs italic text-console-ink-4">No skills attached yet.</p>
-                                    )}
-
-                                    {/* Last-run health */}
-                                    <div className="mt-auto flex items-end justify-end pt-1">
-                                        {run ? (
-                                            run.failed ? (
-                                                <div className="text-right">
-                                                    <p className="text-xs font-semibold text-console-negative">Failed</p>
-                                                    <p className="mt-0.5 text-[10px] tabular-nums text-console-ink-4">{timeAgo(run.at)}</p>
-                                                </div>
-                                            ) : (
-                                                <div className="text-right">
-                                                    <p className="text-lg leading-tight font-bold tabular-nums text-console-ink">
-                                                        {run.score ?? "—"}
-                                                    </p>
-                                                    <p className="mt-0.5 text-[10px] tabular-nums text-console-ink-4">{timeAgo(run.at)}</p>
-                                                </div>
-                                            )
+                                    {/* Skills */}
+                                    <div className="mt-6">
+                                        <p className="font-app-body text-[10px] font-semibold tracking-[0.16em] text-console-ink-4 uppercase">
+                                            Skills
+                                        </p>
+                                        {skills.length ? (
+                                            <p className="mt-1.5 font-app-body text-[12.5px] leading-relaxed font-normal text-console-ink-2">
+                                                {skills.map((s) => skillNames[s.skill_id] || s.skill_id).join(" · ")}
+                                            </p>
                                         ) : (
-                                            <p className="text-xs italic text-console-ink-4">Never run</p>
+                                            <p className="mt-1.5 font-app-body text-[12.5px] font-light italic text-console-ink-4">
+                                                None attached
+                                            </p>
                                         )}
                                     </div>
+
+                                    {/* Created */}
+                                    <p className="mt-auto pt-6 font-app-body text-[11px] font-normal tracking-wide text-console-ink-4">
+                                        Created {formatDate(agent.created_at)}
+                                    </p>
                                 </div>
                             </motion.div>
                         );

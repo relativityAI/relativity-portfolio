@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Blocks, ArrowUp, ArrowDown, X, Plus, Search, Check } from "lucide-react";
+import { ArrowUp, ArrowDown, X, Plus, Search, Check, CirclePlus } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,6 +9,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { SkillSourceBadge } from "@/components/console/SkillSourceBadge";
 import { SkillService, type SkillSummary } from "@/db";
+import SkillAvatar from "@/components/shared/SkillAvatar";
 import { cn } from "@/lib/utils";
 
 export interface AgentSkillRef {
@@ -20,7 +21,6 @@ interface SkillsSectionProps {
     skills: AgentSkillRef[];
     skillNames: Record<string, string>;
     onChange: (skills: AgentSkillRef[]) => void;
-    onOpenLibrary: () => void;
     onInspect: (skillId: string) => void;
 }
 
@@ -28,7 +28,7 @@ interface SkillsSectionProps {
  * Inline skill picker — choose from the available skills without leaving the
  * agent settings page. Search, provenance badges, and one-click attach.
  */
-function SkillPicker({
+export function SkillPicker({
     attachedIds,
     onPick,
 }: {
@@ -58,8 +58,8 @@ function SkillPicker({
     return (
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
-                <Button variant="secondary" size="sm">
-                    <Plus /> Add skills
+                <Button variant="ghost" size="sm">
+                    <CirclePlus /> Add skills
                 </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-96 p-0 overflow-hidden">
@@ -68,7 +68,7 @@ function SkillPicker({
                         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-console-ink-4" />
                         <Input
                             autoFocus
-                            className="pl-9"
+                            className="pl-9 rounded-none border-[0.5px] border-[color:var(--hairline)] bg-transparent text-sm shadow-none placeholder:text-console-ink-4 focus-visible:ring-1 focus-visible:ring-console-accent/40 dark:bg-transparent"
                             placeholder="Search skills…"
                             aria-label="Search skills to attach"
                             value={query}
@@ -103,9 +103,7 @@ function SkillPicker({
                                             : "hover:bg-console-recessed/70 focus-visible:ring-2 focus-visible:ring-console-accent/40",
                                     )}
                                 >
-                                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-console-accent-soft text-console-accent-strong">
-                                        <Blocks className="size-4" aria-hidden />
-                                    </span>
+                                    <SkillAvatar skill={s} size={32} />
                                     <span className="min-w-0 flex-1">
                                         <span className="flex items-center gap-1.5">
                                             <span className="truncate text-[13px] font-medium text-console-ink">{s.name}</span>
@@ -131,7 +129,7 @@ function SkillPicker({
 }
 
 export default function SkillsSection({
-    skills, skillNames, onChange, onOpenLibrary, onInspect,
+    skills, skillNames, onChange, onInspect,
 }: SkillsSectionProps) {
     const totalWeight = useMemo(() => skills.reduce((s, x) => s + (x.weight || 5), 0), [skills]);
 
@@ -147,12 +145,6 @@ export default function SkillsSection({
         [next[index], next[target]] = [next[target], next[index]];
         onChange(next);
     };
-
-    const pick = (skill: SkillSummary) => {
-        onChange([...skills, { skill_id: skill.id, weight: 5 }]);
-    };
-
-    const attachedIds = useMemo(() => new Set(skills.map((s) => s.skill_id)), [skills]);
 
     return (
         <motion.div
@@ -170,14 +162,12 @@ export default function SkillsSection({
                         variants={{ initial: { opacity: 0, y: 8 }, animate: { opacity: 1, y: 0 } }}
                         layout
                         transition={{ type: "spring", stiffness: 320, damping: 30 }}
-                        className="rounded-2xl bg-console-surface p-4 shadow-console"
+                        className="bg-console-surface p-4 shadow-console"
                     >
                         <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
                             {/* Identity */}
                             <div className="flex min-w-0 flex-1 basis-52 items-center gap-3">
-                                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-console-accent-soft text-console-accent-strong">
-                                    <Blocks className="size-4" aria-hidden />
-                                </span>
+                                <SkillAvatar skill={{ id: ref.skill_id, name }} size={36} />
                                 <div className="min-w-0">
                                     <button
                                         className="block max-w-full truncate text-left text-sm font-semibold text-console-ink transition-colors hover:text-console-accent-strong focus-visible:ring-2 focus-visible:ring-console-accent/40 focus-visible:outline-none"
@@ -213,13 +203,13 @@ export default function SkillsSection({
 
                             {/* Order + remove */}
                             <div className="flex shrink-0 gap-0.5">
-                                <Button variant="ghost" size="iconSm" aria-label={`Move ${name} up`} onClick={() => move(i, -1)} disabled={i === 0}>
+                                <Button variant="ghost" size="icon-sm" aria-label={`Move ${name} up`} onClick={() => move(i, -1)} disabled={i === 0}>
                                     <ArrowUp />
                                 </Button>
-                                <Button variant="ghost" size="iconSm" aria-label={`Move ${name} down`} onClick={() => move(i, 1)} disabled={i === skills.length - 1}>
+                                <Button variant="ghost" size="icon-sm" aria-label={`Move ${name} down`} onClick={() => move(i, 1)} disabled={i === skills.length - 1}>
                                     <ArrowDown />
                                 </Button>
-                                <Button variant="ghost" size="iconSm" aria-label={`Remove ${name}`} onClick={() => remove(ref.skill_id)}>
+                                <Button variant="ghost" size="icon-sm" aria-label={`Remove ${name}`} onClick={() => remove(ref.skill_id)}>
                                     <X className="text-console-negative" />
                                 </Button>
                             </div>
@@ -228,26 +218,14 @@ export default function SkillsSection({
                 );
             })}
 
-            {skills.length === 0 ? (
-                <div className="rounded-2xl bg-console-recessed/60 px-5 py-8 text-center">
+            {skills.length === 0 && (
+                <div className="bg-console-recessed/60 px-5 py-8 text-center">
                     <p className="text-[13px] font-medium text-console-ink">No skills attached</p>
                     <p className="mx-auto mt-1 max-w-sm text-[12.5px] text-console-ink-3">
                         An agent needs at least one skill to score anything. Add one to start.
                     </p>
                 </div>
-            ) : (
-                <p className="text-[11.5px] text-console-ink-3">
-                    Weight scales each skill's contribution to the fit score
-                    {skills.length > 1 ? ` — shares shown per card (total weight ${totalWeight})` : ""}.
-                </p>
             )}
-
-            <div className="-mt-1 flex flex-wrap items-center justify-end gap-1.5">
-                <SkillPicker attachedIds={attachedIds} onPick={pick} />
-                <Button variant="ghost" size="sm" onClick={onOpenLibrary}>
-                    Browse all
-                </Button>
-            </div>
         </motion.div>
     );
 }

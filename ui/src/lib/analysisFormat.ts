@@ -86,11 +86,14 @@ export function verdictForScore(score: number | null | undefined): Verdict {
   if (score == null || !Number.isFinite(score)) {
     return { label: "Unscored", color: "var(--ink-tertiary)" };
   }
-  if (score >= 90) return { label: "Outstanding", color: "var(--signal-positive)" };
-  if (score >= 70) return { label: "Strong", color: "var(--signal-positive)" };
-  if (score >= 55) return { label: "Fair", color: "var(--signal-caution)" };
-  if (score >= 40) return { label: "Underwhelming", color: "var(--signal-caution)" };
-  return { label: "Subpar", color: "var(--signal-negative)" };
+  // Subtle tint: mute the signal toward ink so the word reads as colored
+  // text, not a bright badge.
+  const muted = (c: string) => `color-mix(in srgb, ${c} 60%, var(--ink-primary))`;
+  if (score >= 90) return { label: "Outstanding", color: muted("var(--signal-positive)") };
+  if (score >= 70) return { label: "Strong", color: muted("var(--signal-positive)") };
+  if (score >= 55) return { label: "Fair", color: muted("var(--signal-caution)") };
+  if (score >= 40) return { label: "Underwhelming", color: muted("var(--signal-caution)") };
+  return { label: "Subpar", color: muted("var(--signal-negative)") };
 }
 
 /**

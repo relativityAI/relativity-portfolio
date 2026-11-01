@@ -257,9 +257,9 @@ export default function AgentSkills() {
                 </div>
 
                 {loading ? (
-                    <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" role="status" aria-label="Loading skills">
+                    <div className="mt-10 grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-x-10 gap-y-12" role="status" aria-label="Loading skills">
                         {Array.from({ length: 8 }).map((_, i) => (
-                            <div key={i} className="h-[76px] animate-pulse rounded-xl bg-console-recessed" />
+                            <div key={i} className="h-32 animate-pulse rounded-none bg-console-recessed/30" />
                         ))}
                     </div>
                 ) : libraryError ? (
@@ -267,7 +267,7 @@ export default function AgentSkills() {
                         The skill library could not be loaded. Reload to retry.
                     </p>
                 ) : (
-                    <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    <div className="mt-10 grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-x-10 gap-y-12">
                         {filtered.length === 0 && (
                             <p className="col-span-full py-8 text-center text-[13px] text-console-ink-3">
                                 {library.length === 0
@@ -279,19 +279,31 @@ export default function AgentSkills() {
                             <button
                                 key={s.id}
                                 onClick={() => openSkill(s)}
-                                className="flex items-start gap-2.5 rounded-xl bg-console-surface p-2.5 text-left shadow-console transition hover:shadow-console-lift focus-visible:ring-2 focus-visible:ring-console-accent/40 focus-visible:outline-none"
+                                className="group flex h-full flex-col pt-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-accent/40"
                             >
-                                <SkillAvatar skill={s} size={28} />
-                                <span className="min-w-0 flex-1">
-                                    <span className="flex items-center gap-1.5">
-                                        <span className="min-w-0 truncate text-[13px] font-semibold text-console-ink">{s.name}</span>
+                                <span className="flex min-w-0 items-start gap-3">
+                                    <SkillAvatar skill={s} size={40} />
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block truncate font-app-body text-[26px] leading-[1.05] font-semibold tracking-[-0.015em] text-console-ink">
+                                            {s.name}
+                                        </span>
+                                        <span className="mt-1.5 block truncate font-app-body text-[14px] leading-snug font-light text-console-ink-2">
+                                            {s.description}
+                                        </span>
                                     </span>
-                                    <span className="mt-0.5 line-clamp-2 block text-[11.5px] leading-snug text-console-ink-3">
-                                        {s.description.length > 96 ? s.description.slice(0, 96) + "…" : s.description}
+                                </span>
+
+                                <span className="mt-6 block">
+                                    <span className="block font-app-body text-[10px] font-semibold tracking-[0.16em] text-console-ink-4 uppercase">
+                                        Category
                                     </span>
-                                    <span className="mt-1 block text-[10px] font-medium tracking-wide text-console-ink-4 uppercase">
+                                    <span className="mt-1.5 block font-app-body text-[12.5px] font-normal text-console-ink-2">
                                         {CATEGORY_LABELS[s.category] || s.category}
                                     </span>
+                                </span>
+
+                                <span className="mt-auto block pt-6 font-app-body text-[11px] font-normal tracking-wide text-console-ink-4">
+                                    Version {s.version}
                                 </span>
                             </button>
                         ))}
@@ -302,7 +314,7 @@ export default function AgentSkills() {
     })();
 
     return (
-        <div className="w-full px-8 py-8">
+        <div className="w-full py-8">
             {/* One toolbar row in every view: nav/title left, contextual
                 actions right on the title's baseline, subtitle underneath. */}
             {isDetail && !editing && (
@@ -314,8 +326,8 @@ export default function AgentSkills() {
                 <div className="flex min-w-0 items-center gap-2.5">
                     {selected ? (
                         <>
-                            <SkillAvatar skill={selected} size={28} />
-                            <h1 className="font-app-display min-w-0 truncate text-[30px] font-medium tracking-tight text-console-ink">
+                            <SkillAvatar skill={selected} size={36} />
+                            <h1 className="font-app-display min-w-0 truncate text-[40px] font-medium tracking-tight text-console-ink">
                                 {selected.name}
                             </h1>
                             <SkillSourceBadge source={selected.source} />

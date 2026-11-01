@@ -44,12 +44,15 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
+  /* Client brief: square controls. Buttons, inputs, selects and dropdown
+     panels read --radius-sm/md/lg via rounded-*, so zeroing those squares
+     every control. Standalone cards use rounded-xl/2xl and stay unaffected. */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
   --radius-xl: calc(var(--radius) + 4px);
 
-  --color-console-canvas: var(--background);
+  --color-console-canvas: var(--surface-canvas);
   --color-console-surface: var(--card);
   --color-console-recessed: var(--muted);
   --color-console-ink: var(--foreground);
@@ -64,6 +67,7 @@
 
   /* App fonts from index.css, exposed as utilities so pages can use
      font-app-mono / font-app-tabular instead of Chakra fontFamily props. */
+  --font-app-body: var(--font-body);
   --font-app-mono: var(--font-mono);
   --font-app-tabular: var(--font-tabular);
   --font-app-display: var(--font-display);
@@ -196,6 +200,12 @@ html.dark .console-shell [data-slot="accordion-item"],
 html.dark .console-shell [data-slot="sheet-content"] {
   box-shadow: none;
   outline: none;
+}
+
+/* Client brief: input boxes carry a hairline, not a full 1px border. */
+.console-shell [data-slot="input"],
+.console-shell [data-slot="textarea"] {
+  border-width: 0.5px;
 }
 
 /* The console lives below the app's 44px navbar, but the official Sidebar's

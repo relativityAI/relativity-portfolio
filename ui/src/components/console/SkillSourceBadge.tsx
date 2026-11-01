@@ -1,8 +1,6 @@
 /**
- * Provenance tag for a skill: "Built-in" (shipped with Relativity — carries
- * the Relativity mark) vs "Custom" (the user's own creation). The wording
- * matches how the rest of the app speaks: built-ins save-as-your-copy when
- * edited, customs edit in place.
+ * Provenance tag for a skill. Only "Custom" (the user's own creation) is
+ * labelled — built-ins are the default and need no tag.
  */
 export function SkillSourceBadge({
     source,
@@ -11,35 +9,16 @@ export function SkillSourceBadge({
     source: "builtin" | "custom" | undefined;
     className?: string;
 }) {
-    if (source === "custom") {
-        return (
-            <span
-                className={
-                    "inline-flex shrink-0 items-center gap-1 rounded-full bg-console-recessed px-2 py-0.5 text-[10px] font-medium text-console-ink-2 " +
-                    (className || "")
-                }
-                title="Your own skill — edits apply everywhere it's used"
-            >
-                Custom
-            </span>
-        );
-    }
+    if (source !== "custom") return null;
     return (
         <span
             className={
-                "inline-flex shrink-0 items-center gap-1 rounded-full bg-console-accent-soft px-2 py-0.5 text-[10px] font-medium text-console-accent-strong " +
+                "inline-flex shrink-0 items-center gap-1 rounded-full bg-console-recessed px-2 py-0.5 text-[10px] font-medium text-console-ink-2 " +
                 (className || "")
             }
-            title="Provided by Relativity — editing it saves your own copy"
+            title="Your own skill — edits apply everywhere it's used"
         >
-            <span
-                className="font-bold leading-none text-console-accent-strong"
-                style={{ fontFamily: "var(--font-display)" }}
-                aria-hidden="true"
-            >
-                R.
-            </span>
-            Built-in
+            Custom
         </span>
     );
 }

@@ -483,7 +483,7 @@ export default function SkillCreatePane({
                                             minW="140px"
                                             value={c.data}
                                             onChange={(e) => patch({ charts: form.charts.map((x, j) => (j === i ? { ...x, data: e.target.value } : x)) })}
-                                            placeholder="series key, e.g. revenue_by_quarter"
+                                            placeholder="e.g. price, sma200"
                                             aria-label={`Chart ${i + 1} series`}
                                             className="font-mono"
                                         />
@@ -573,7 +573,7 @@ export default function SkillCreatePane({
                 >
                     Validate
                 </Button>
-                <Button size="sm" variant="outline" className="rounded-full px-4" loading={saving} onClick={save} disabled={!canSave}>
+                <Button size="sm" variant="outline" className="rounded-none px-4" loading={saving} onClick={save} disabled={!canSave}>
                     Create skill
                 </Button>
             </Flex>

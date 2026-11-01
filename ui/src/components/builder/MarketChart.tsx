@@ -49,6 +49,10 @@ const labelFor = (key: string) =>
 const themeColor = (token: string, fallback: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(token).trim() || fallback;
 
+/** Append 8-digit alpha to a #RRGGBB color — chart grids read lighter. */
+const fade = (hex: string, a: number) =>
+  /^#[0-9a-f]{6}$/i.test(hex) ? hex + Math.round(a * 255).toString(16).padStart(2, "0") : hex;
+
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
 interface ParsedSeries {
@@ -227,7 +231,7 @@ export function MarketChart({ data, variant, height = 380, title }: MarketChartP
     const container = containerRef.current;
     if (!container || !model) return;
 
-    const grid = themeColor("--hairline", "#e5e7eb");
+    const grid = fade(themeColor("--hairline", "#e5e7eb"), 0.55);
     const ink = themeColor("--ink-tertiary", "#6b7280");
     const up = themeColor("--signal-positive", "#2f9e6e");
     const down = themeColor("--signal-negative", "#c05050");

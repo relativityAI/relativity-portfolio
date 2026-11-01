@@ -26,12 +26,13 @@ describe("agent portraits", () => {
     // Sized parent = inline style, NOT a dropped `css` prop.
     expect(html).toMatch(/style="[^"]*width:90%/);
     expect(html).toMatch(/style="[^"]*height:90%/);
-    expect(html).toContain("sepia(0.52)");
     expect(html).toMatch(/<svg [^>]*width="100%"/);
   });
 
   it("UserAvatar portrait is self-sizing", () => {
     const html = renderToStaticMarkup(wrap(<UserAvatar seed="a@b.com" size={26} />));
     expect(html).toMatch(/<svg [^>]*width="100%"[^>]*height="100%"/);
+    // Round, not square: the "full" radius must resolve to real CSS.
+    expect(html).toContain("9999px");
   });
 });

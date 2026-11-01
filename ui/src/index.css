@@ -59,7 +59,7 @@ html.dark {
     filter: invert(1);
   }
 
-  --surface-canvas: #191919;
+  --surface-canvas: #151515;
   --surface-panel: #1F1F1F;
   --surface-floating: #262626;
   --surface-recessed: #121212;
@@ -85,6 +85,8 @@ body {
      only), so nothing else sets a body face. Without this the whole app —
      including buttons, which do not inherit font-family — renders serif. */
   font-family: var(--font-body);
+  /* Anek Latin regular renders at Light (300) app-wide */
+  font-weight: 300;
 }
 
 /* Make Chakra table grid lines clearly visible (line variant sets width but
@@ -266,12 +268,22 @@ a:hover,
 .group:hover * {
   transition: color 120ms ease, filter 120ms ease, opacity 120ms ease;
 }
-[role="button"]:not([class*="bg-"]):hover,
-button:not([class*="bg-"]):hover,
+/* Text/icon brightness only — solid-filled buttons opt out via [data-solid]:
+   brightness() shifts their background too, and a disabled fill landed on the
+   canvas value, so the button vanished on hover. */
+[role="button"]:not([class*="bg-"]):not([data-solid]):hover,
+button:not([class*="bg-"]):not([data-solid]):hover,
 [class*="hover:text-"]:hover {
   filter: brightness(1.15) saturate(1.05);
 }
 [data-sidebar="menu-button"]:hover {
   background-color: transparent !important;
   filter: brightness(1.15);
+}
+
+/* Raw inputs (dropdown search fields) inherit the page face; placeholder is
+   the only thing Chakra's reset would have themed. */
+input::placeholder {
+  color: var(--ink-tertiary);
+  opacity: 1;
 }
