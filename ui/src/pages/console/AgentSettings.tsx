@@ -175,7 +175,7 @@ useEffect(() => {
                     // that was just persisted.
                     savedRef.current = true
                     clearLocalDraft(storageKey)
-                    navigate("/console/agent/" + newId, { replace: true })
+                    navigate("/my-workspace/agent/" + newId, { replace: true })
                 }
             }
 
@@ -202,7 +202,7 @@ useEffect(() => {
             await AgentService.deleteAgent(agentId)
             clearLocalDraft(storageKey)
             toaster.create({ title: "Agent deleted", type: "success" })
-            navigate("/console")
+            navigate("/my-workspace")
         } catch (error) {
             console.error("Delete Error:", error)
             toaster.create({ title: "Couldn't delete", type: "error" })
@@ -283,7 +283,7 @@ useEffect(() => {
             <p className="text-base font-semibold text-console-ink">Agent unavailable</p>
             <p className="mt-1.5 text-[13px] text-console-ink-3">{loadError}</p>
             <div className="mt-5 flex justify-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => navigate("/console")}>
+                <Button variant="outline" size="sm" onClick={() => navigate("/my-workspace")}>
                     Back to agents
                 </Button>
                 <Button size="sm" onClick={() => { setLoading(true); fetchAgent() }}>
@@ -388,7 +388,7 @@ useEffect(() => {
                                 attachedIds={new Set((agent.skills || []).map((s: any) => s.skill_id))}
                                 onPick={(s) => updateAgent({ skills: [...(agent.skills || []), { skill_id: s.id, weight: 5 }] })}
                             />
-                            <Button variant="ghost" size="sm" onClick={() => navigate("/console/skills")}>
+                            <Button variant="ghost" size="sm" onClick={() => navigate("/my-workspace/skills")}>
                                 <SquareArrowOutUpRight /> Browse all skills
                             </Button>
                         </div>
@@ -397,7 +397,7 @@ useEffect(() => {
                         skills={agent.skills || []}
                         skillNames={skillNames}
                         onChange={(v) => updateAgent({ skills: v })}
-                        onInspect={(skillId) => navigate(`/console/skills?skill=${encodeURIComponent(skillId)}`)}
+                        onInspect={(skillId) => navigate(`/my-workspace/skills?skill=${encodeURIComponent(skillId)}`)}
                     />
                 </section>
             </div>

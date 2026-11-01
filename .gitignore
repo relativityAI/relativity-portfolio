@@ -24,6 +24,7 @@ docs/
 ANALYSIS_WORKFLOW.md
 /2026-*/
 skills-lock.json
+api/config/skills/
 research
 
 # dev debug / probe / repro scratch scripts

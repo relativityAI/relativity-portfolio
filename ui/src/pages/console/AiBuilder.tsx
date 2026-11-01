@@ -549,7 +549,7 @@ export default function AiBuilder() {
             .then(() => {
                 toaster.create({ title: "Changes applied to your agent", type: "success" });
                 setProposal(agentContext);
-                navigate(`/console/agent/${agentIdParam}`);
+                navigate(`/my-workspace/agent/${agentIdParam}`);
             })
             .catch((e: any) => {
                 toaster.create({ title: "Couldn't apply", description: e?.message, type: "error" });

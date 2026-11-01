@@ -68,7 +68,7 @@ export default function AgentSkills() {
 
     const requestedSkill = searchParams.get("skill");
 
-    // Deep link: /console/skills?skill=<id> (used by the agent settings page).
+    // Deep link: /my-workspace/skills?skill=<id> (used by the agent settings page).
     // The sidebar link clears the param — that must close the open skill too,
     // otherwise clicking "Agent Skills" while a skill is open goes nowhere.
     useEffect(() => {

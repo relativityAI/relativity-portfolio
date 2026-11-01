@@ -560,8 +560,8 @@ export default function Armory({
                             Every skill an agent can use — read it, draft one with AI, or write your own.
                         </Text>
                     </Box>
-                    <Button size="sm" variant="outline" minH="36px" borderColor="var(--hairline)" color="var(--ink-secondary)" onClick={() => navigate("/console")}>
-                        ← Agent Console
+                    <Button size="sm" variant="outline" minH="36px" borderColor="var(--hairline)" color="var(--ink-secondary)" onClick={() => navigate("/analysis-list")}>
+                        ← My Workspace
                     </Button>
                 </Flex>
                 {body}

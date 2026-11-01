@@ -1,9 +1,11 @@
 import { useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { Flex, Text, Box } from "@chakra-ui/react";
+import { Link, useNavigate } from "react-router-dom";
+import { Box, Text } from "@chakra-ui/react";
+import { ArrowLeft } from "lucide-react";
 import { Helmet } from "react-helmet-async";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/auth/useAuth";
+import Footer from "@/components/Footer";
 
 interface GoogleGsiId {
   initialize(settings: { client_id: string; callback: (res: { credential?: string }) => void }): void;
@@ -46,38 +48,49 @@ export default function Login() {
   if (user) return null;
 
   return (
-    <Flex className="landing" minH="calc(100vh - 44px)" align="center" justify="center" p={6} position="relative" overflow="hidden">
+    <div className="landing h-full overflow-y-auto overflow-x-hidden bg-[var(--surface-canvas)] text-[var(--ink-primary)]">
       <Helmet>
         <title>Sign in | Relativity</title>
         <meta name="description" content="Create custom research agents wired to live market data. Sign in with Google." />
       </Helmet>
 
-      <Flex direction="column" align="center" w="100%" maxW="520px" gap={6}>
-        <Text
-          fontFamily="var(--font-display)"
-          fontWeight={400}
-          fontSize={{ base: "2xl", md: "3xl" }}
-          letterSpacing="-0.01em"
-          textAlign="center"
-          textShadow="0 10px 40px -20px rgba(0,0,0,0.45)"
-        >
-          Relativity.
-        </Text>
+      <header className="px-4 md:px-8 py-4">
+        <div className="max-w-[1500px] mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Link
+              to="/"
+              className="flex items-center gap-2 text-sm text-[var(--ink-primary)] hover:opacity-60 transition-opacity select-none"
+            >
+              <ArrowLeft size={16} />
+              Home page
+            </Link>
+          </div>
+        </div>
+      </header>
 
-        <Text fontSize="sm" color="var(--ink-secondary)" textAlign="center" maxW="380px">
-          Research agents wired to live market data.
-        </Text>
+      <section className="max-w-[1500px] mx-auto px-4 md:px-8 pt-12 md:pt-20 pb-12 flex flex-col items-center text-center gap-6">
+        <h1 className="text-[clamp(1.8rem,3.4vw,3rem)] leading-[1.1] font-light tracking-[-0.02em] max-w-[22ch] text-[var(--ink-primary)]">
+          Agents watch the market, you watch the agents.
+        </h1>
 
-        <Box mt={2} w="full" display="flex" justifyContent="center">
+        <div className="mt-4 flex justify-center">
           {clientId ? (
             <Box ref={gsiRef} />
           ) : (
-            <Text fontSize="sm" color="var(--signal-negative)" textAlign="center">
+            <Text fontSize="sm" color="var(--signal-negative)">
               Missing VITE_GOOGLE_CLIENT_ID.
             </Text>
           )}
-        </Box>
-      </Flex>
-    </Flex>
+        </div>
+      </section>
+
+      <section className="px-4 md:px-8 pb-4">
+        <p className="text-center text-xs md:text-sm text-[var(--ink-tertiary)] max-w-[46ch] mx-auto leading-relaxed">
+          Not investment advice · no trade calls · no hidden ranking — research only.
+        </p>
+      </section>
+
+      <Footer />
+    </div>
   );
 }

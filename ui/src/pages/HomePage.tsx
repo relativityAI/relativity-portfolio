@@ -61,6 +61,48 @@ const EVENTS = [
   ]},
 ];
 
+const RATINGS = [
+  { label: "Very poor", color: "#C0453F" },
+  { label: "Poor", color: "#D97736" },
+  { label: "Fair", color: "#C9A227" },
+  { label: "Good", color: "#7FA650" },
+  { label: "Excellent", color: "#4C8B6B" },
+];
+
+function LivePulse({ size = 20 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      className="flex-shrink-0"
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="2.5" fill="none" stroke="var(--signal-positive)" strokeWidth="1.25">
+        <animate
+          attributeName="r"
+          values="2.5;7;2.5"
+          dur="1.8s"
+          repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.4 0 0.6 1;0.4 0 0.6 1"
+          keyTimes="0;0.5;1"
+        />
+        <animate
+          attributeName="opacity"
+          values="0.7;0;0.7"
+          dur="1.8s"
+          repeatCount="indefinite"
+          calcMode="spline"
+          keySplines="0.4 0 0.6 1;0.4 0 0.6 1"
+          keyTimes="0;0.5;1"
+        />
+      </circle>
+      <circle cx="8" cy="8" r="2.5" fill="var(--signal-positive)" />
+    </svg>
+  );
+}
+
 function Sparkline({ data, up }: { data: number[]; up: boolean }) {
   const max = Math.max(...data);
   const min = Math.min(...data);
@@ -98,6 +140,12 @@ function BigChart() {
   );
 }
 
+// Demo cells get a random rating once at module load — decorative, not state.
+const RATED_AGENTS = AGENTS.map((a) => ({
+  ...a,
+  rating: RATINGS[Math.floor(Math.random() * RATINGS.length)],
+}));
+
 export default function HomePage() {
   return (
     <div className="min-h-full bg-[var(--surface-canvas)] text-[var(--ink-primary)]">
@@ -108,8 +156,8 @@ export default function HomePage() {
             <h1 className="font-[family-name:var(--font-display)] text-[clamp(2.5rem,4.5vw,4.5rem)] leading-[1.05] font-light tracking-[-0.02em] text-[var(--ink-primary)]">
               Agents watch the market, you watch the agents.
             </h1>
-            <p className="mt-6 text-lg font-[family-name:var(--font-body)] font-normal text-[var(--ink-secondary)] leading-relaxed">
-              <span className="font-[family-name:var(--font-display)] text-[var(--ink-primary)]">Relativity</span> agents evaluate stocks and markets against a specific investment thesis. Every agent's reasoning and verdict is supported by citations to official data sources.
+            <p className="mt-6 text-lg font-[family-name:var(--font-body)] font-[200] text-[var(--ink-secondary)] leading-relaxed">
+              <span className="font-[family-name:var(--font-display)] font-normal text-[var(--ink-primary)]">Relativity</span> agents evaluate stocks and markets against a specific investment thesis. Every agent's reasoning and verdict is supported by citations to official data sources.
             </p>
           </div>
 
@@ -121,17 +169,35 @@ export default function HomePage() {
               </a>
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {AGENTS.map((a) => (
+              {RATED_AGENTS.map((a) => (
                 <div key={a.name} className="flex items-stretch gap-3 p-3">
                   <AgentAvatar seed={a.seed} size={64} />
-                  <div className="flex min-w-0 flex-1 flex-col justify-between">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <h3 className="font-[family-name:var(--font-display)] font-normal text-[var(--ink-primary)] text-lg">{a.name}</h3>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <div className="flex items-center gap-2">
                       <span className="whitespace-nowrap font-[family-name:var(--font-body)] text-[10px] font-normal tracking-wide text-[var(--ink-tertiary)]">
                         {a.when}
                       </span>
+                      <LivePulse size={22} />
                     </div>
-                    <p className="mt-1 text-xs font-[family-name:var(--font-body)] font-normal text-[var(--ink-secondary)] truncate">{a.verdict}</p>
+                    <h3 className="mt-1.5 truncate font-[family-name:var(--font-display)] font-normal text-[var(--ink-primary)] text-lg">{a.name}</h3>
+                    <div className="mt-auto flex items-center justify-between gap-2 pt-2">
+                      <p
+                        className="text-xs font-[family-name:var(--font-body)] font-medium tracking-wide"
+                        style={{ color: a.rating.color }}
+                      >
+                        {a.rating.label}
+                      </p>
+                      <Link
+                        to="/analysis-list"
+                        className="inline-flex flex-shrink-0 items-center gap-1 font-[family-name:var(--font-body)] text-xs font-normal text-[#4A6E8E] hover:text-[var(--ink-primary)] transition-colors underline-offset-2 hover:underline cursor-pointer"
+                      >
+                        Read full
+                        <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M3 9L9 3" />
+                          <path d="M4.5 3H9v4.5" />
+                        </svg>
+                      </Link>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -160,7 +226,7 @@ export default function HomePage() {
             <div>
               <h4 className="text-xs uppercase tracking-[0.08em] text-[var(--ink-tertiary)] mb-3">Resources</h4>
               <div className="space-y-2 text-[var(--ink-secondary)]">
-                <Link to="/console" className="block hover:text-[var(--ink-primary)]">Console</Link>
+                <Link to="/analysis-list" className="block hover:text-[var(--ink-primary)]">My Workspace</Link>
                 <Link to="/settings" className="block hover:text-[var(--ink-primary)]">Settings</Link>
               </div>
             </div>

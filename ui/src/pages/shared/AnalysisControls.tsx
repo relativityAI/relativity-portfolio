@@ -129,6 +129,7 @@ export function MenuDropdown({ value, placeholder, search, logo, children }: {
                     minHeight: "30px",
                     outline: "none",
                     borderTop: "0.5px solid var(--hairline)",
+                    borderRadius: "12px 12px 0 0",
                 }}
             >
                 {logo && <span style={{ display: "inline-flex", flexShrink: 0, marginRight: 2 }}>{logo}</span>}
@@ -200,7 +201,7 @@ export function MenuDropdown({ value, placeholder, search, logo, children }: {
                             transformOrigin: "top left",
                             background: canvas,
                             border: `1px solid ${hairline}`,
-                            borderRadius: "0",
+                            borderRadius: "12px",
                             maxHeight: "280px",
                             overflowY: "auto",
                             outline: "none",
@@ -214,9 +215,11 @@ export function MenuDropdown({ value, placeholder, search, logo, children }: {
     );
 }
 
-export function DropdownItem({ label, sub, selected, logo, onClick }: {
+export function DropdownItem({ label, sub, tag, selected, logo, onClick }: {
     label: string;
     sub?: string;
+    /** Right-aligned trailing chip — rendered in the lighter ink (e.g. market name). */
+    tag?: string;
     selected?: boolean;
     logo?: ReactNode;
     onClick: () => void;
@@ -238,7 +241,7 @@ export function DropdownItem({ label, sub, selected, logo, onClick }: {
                 textAlign: "left",
                 padding: "8px 10px",
                 border: "none",
-                borderRadius: "0",
+                borderRadius: "12px",
                 background: "transparent",
                 cursor: "pointer",
                 outline: "none",
@@ -277,6 +280,20 @@ export function DropdownItem({ label, sub, selected, logo, onClick }: {
                     </span>
                 )}
             </span>
+            {tag && (
+                <span
+                    style={{
+                        flexShrink: 0,
+                        fontSize: "11px",
+                        fontWeight: 300,
+                        fontFamily: font,
+                        color: ink3,
+                        whiteSpace: "nowrap",
+                    }}
+                >
+                    {tag}
+                </span>
+            )}
             {selected && (
                 <motion.span
                     initial={{ scale: 0.4, opacity: 0 }}
@@ -320,7 +337,7 @@ export function PrimaryButton({ children, onClick, disabled, flex, style }: Pres
                 background: disabled ? recessed : ink1,
                 color: disabled ? ink3 : canvas,
                 border: "none",
-                borderRadius: "0",
+                borderRadius: "12px",
                 fontFamily: font,
                 fontWeight: 500,
                 fontSize: "14px",
@@ -357,7 +374,7 @@ export function SecondaryButton({ children, onClick, disabled, flex, style }: Pr
                 background: panel,
                 color: ink2,
                 border: `1px solid ${hairline}`,
-                borderRadius: "0",
+                borderRadius: "12px",
                 fontFamily: font,
                 fontWeight: 500,
                 fontSize: "13px",
@@ -387,7 +404,7 @@ export function ResumingButton({ children }: { children: ReactNode }) {
                 background: recessed,
                 color: ink3,
                 border: "none",
-                borderRadius: "0",
+                borderRadius: "12px",
                 fontFamily: font,
                 fontWeight: 500,
                 fontSize: "14px",

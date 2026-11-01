@@ -12,7 +12,6 @@ import { AuthProvider } from "./auth/AuthContext";
 import { useAuth } from "./auth/useAuth";
 import Login from "./pages/Login";
 import AuthCallback from "./pages/AuthCallback";
-import Landing from "./pages/Landing";
 import HomePage from "./pages/HomePage";
 import AgentsList from "./pages/AgentsList";
 import AnalysisList from "./pages/AnalysisList";
@@ -24,12 +23,13 @@ import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import ThankYou from "./pages/ThankYou";
 import NavBar from "./components/NavBar";
+import WorkspaceNav from "./components/WorkspaceNav";
 import Footer from "./components/Footer";
 import ApiKeySetupDialog from "./components/ApiKeySetupDialog";
 import { MotionConfig, AnimatePresence, motion } from "motion/react";
 import { page, dur, ease } from "@/lib/motion";
 import { Toaster } from "./components/ui/toaster";
-// Agent Console (shadcn/Tailwind island inside the Chakra app)
+// My Workspace (shadcn/Tailwind island inside the Chakra app)
 import ConsoleLayout from "./pages/console/ConsoleLayout";
 import AgentLibrary from "./pages/console/AgentLibrary";
 import AgentSkills from "./pages/console/AgentSkills";
@@ -58,7 +58,7 @@ function Protected({ children }: { children: ReactNode }) {
 }
 
 function Home() {
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
 
   return (
     <AnimatePresence mode="wait" initial={false}>
@@ -69,8 +69,8 @@ function Home() {
           </Center>
         </motion.div>
       ) : (
-        <motion.div key={user ? "home" : "landing"} style={{ height: "100%" }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
-          {user ? <HomePage /> : <Landing />}
+        <motion.div key="home" style={{ height: "100%" }} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: dur.base, ease }}>
+          <HomePage />
         </motion.div>
       )}
     </AnimatePresence>
@@ -91,10 +91,21 @@ function UnknownRoute() {
   return user ? <Navigate to="/" replace /> : <NotFound />;
 }
 
-/** Old wizard / builder URLs open the console agent editor. */
+/** Old wizard / builder URLs open the workspace agent editor. */
 function AgentRedirect() {
   const { id } = useParams();
-  return <Navigate to={!id || id === "new" ? "/console/agent/new" : `/console/agent/${id}`} replace />;
+  return <Navigate to={!id || id === "new" ? "/my-workspace/agent/new" : `/my-workspace/agent/${id}`} replace />;
+}
+
+/** Old /console URLs → /my-workspace, keeping the sub-path and query. */
+function ConsoleLegacyRedirect() {
+  const location = useLocation();
+  return (
+    <Navigate
+      to={location.pathname.replace(/^\/console/, "/my-workspace") + location.search}
+      replace
+    />
+  );
 }
 
 const PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/thank-you", "/auth/callback"];
@@ -116,7 +127,7 @@ function AppRoutes() {
       if (path === "/analysis-list") return "Runs";
       if (path.startsWith("/analysis-result/")) return "Run Result";
       if (path === "/settings") return "Settings";
-      if (path === "/console" || path.startsWith("/console/")) return "Agent Console";
+      if (path === "/my-workspace" || path.startsWith("/my-workspace/")) return "My Workspace";
       return "Relativity AI";
     };
 
@@ -124,15 +135,21 @@ function AppRoutes() {
   }, [locationPath, user]);
 
   const isLogin = locationPath === "/login";
-  const isLanding = locationPath === "/" && !user;
-  const isConsole = locationPath.startsWith("/console");
+  const isConsole = locationPath.startsWith("/my-workspace");
   const isPublicPage = PUBLIC_PATHS.includes(locationPath);
   // The new analysis page owns the whole viewport — no footer under it.
+  // "/" is always footerless: HomePage renders its own.
   const isAnalysisPage =
     locationPath.startsWith("/analysis") ||
     locationPath === "/new-analysis" ||
-    (locationPath === "/" && !!user);
-  const showNav = !isLogin && !isLanding;
+    locationPath === "/";
+  const showNav = !isLogin;
+  // Level-3 nav (Agents / Skills / New Run / Past Runs) stays visible across
+  // the workspace and the whole runs flow.
+  const showWorkspaceNav =
+    isConsole ||
+    locationPath === "/new-analysis" ||
+    locationPath.startsWith("/analysis");
   // Remove footer from analysis result page (and analysis-related pages as requested)
   const showFooter = showNav && !isPublicPage && !isConsole && !isAnalysisPage && locationPath !== "/settings";
 
@@ -140,6 +157,7 @@ function AppRoutes() {
     <Flex direction="column" h="100dvh" overflow="hidden">
       {user && locationPath !== "/settings" && <ApiKeySetupDialog key={user.id} user={user} />}
       {showNav && <NavBar />}
+      {showNav && showWorkspaceNav && <WorkspaceNav />}
 
         <Box w="100%" flex={1} overflowY={isConsole ? "hidden" : "auto"} overflowX="hidden" paddingX={0}>
             <AnimatePresence mode="wait">
@@ -222,9 +240,9 @@ function AppRoutes() {
                     <Route path="/terms" element={<Terms />} />
                     <Route path="/thank-you" element={<ThankYou />} />
                     <Route path="/index.html" element={<Navigate to="/" replace />} />
-                    {/* The agent console — shadcn/Tailwind shell with its own sidebar. */}
+                    {/* My Workspace — shadcn/Tailwind shell. */}
                     <Route
-                      path="/console"
+                      path="/my-workspace"
                       element={
                         <Protected>
                           <ConsoleLayout />
@@ -238,6 +256,9 @@ function AppRoutes() {
                       <Route path="agent/new" element={<AgentSettings />} />
                       <Route path="agent/:id" element={<AgentSettings />} />
                     </Route>
+                    {/* Old /console URLs keep working. */}
+                    <Route path="/console" element={<Navigate to="/my-workspace" replace />} />
+                    <Route path="/console/*" element={<ConsoleLegacyRedirect />} />
                     <Route path="*" element={<UnknownRoute />} />
                   </Routes>
                 </Suspense>

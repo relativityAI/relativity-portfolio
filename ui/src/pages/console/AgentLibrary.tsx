@@ -139,7 +139,7 @@ export default function AgentLibrary() {
                         Every analyst you've built — their soul and skills.
                     </p>
                 </div>
-                <Button size="sm" variant="outline" className="rounded-none px-4" onClick={() => navigate("/console/agent/new")}>
+                <Button size="sm" variant="outline" className="rounded-none px-4" onClick={() => navigate("/my-workspace/agent/new")}>
                     <Plus /> New agent
                 </Button>
             </div>
@@ -186,7 +186,7 @@ export default function AgentLibrary() {
                         Build an agent from nothing, or start from a template — each one is fully editable the moment it exists.
                     </p>
                     <div className="mt-6 flex flex-wrap justify-center gap-3">
-                        <Button onClick={() => navigate("/console/agent/new")}>
+                        <Button onClick={() => navigate("/my-workspace/agent/new")}>
                             <Plus /> Create an agent
                         </Button>
                     </div>
@@ -209,7 +209,7 @@ export default function AgentLibrary() {
                                             description: "Attach skills in Agent Skills to make it run.",
                                             type: "success",
                                         });
-                                        navigate("/console/agent/" + newId);
+                                        navigate("/my-workspace/agent/" + newId);
                                     } catch (e: any) {
                                         toaster.create({
                                             title: "Couldn't create the agent",
@@ -249,9 +249,9 @@ export default function AgentLibrary() {
                                 <div
                                     role="link"
                                     tabIndex={0}
-                                    onClick={() => navigate("/console/agent/" + key)}
+                                    onClick={() => navigate("/my-workspace/agent/" + key)}
                                     onKeyDown={(e) => {
-                                        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/console/agent/" + key); }
+                                        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate("/my-workspace/agent/" + key); }
                                     }}
                                     className="group flex h-full cursor-pointer flex-col pt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-console-accent/40"
                                 >
