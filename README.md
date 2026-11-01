@@ -1,87 +1,176 @@
-# Relativity AI Portfolio _(relativity-portfolio)_
+<a id="readme-top"></a>
+
+[![Contributors][contributors-shield]][contributors-url]
+[![Forks][forks-shield]][forks-url]
+[![Stargazers][stars-shield]][stars-url]
+[![Issues][issues-shield]][issues-url]
+[![UNLICENSED License][license-shield]][license-url]
+
+
+
+<div align="center">
+  <img src="assets/header.svg" alt="Relativity — Agents watch the market, you watch the agents." width="100%">
+
+  <p>
+    AI powered stock market research.
+    <br />
+    <a href="https://github.com/relativityAI/relativity-portfolio"><strong>Explore the repo »</strong></a>
+    <br />
+    <br />
+    <a href="https://github.com/relativityAI/relativity-portfolio/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
+    &middot;
+    <a href="https://github.com/relativityAI/relativity-portfolio/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
+  </p>
+</div>
+
+
+
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li>
+      <a href="#about-the-project">About The Project</a>
+      <ul>
+        <li><a href="#built-with">Built With</a></li>
+      </ul>
+    </li>
+    <li><a href="#usage">Usage</a></li>
+    <li><a href="#skill-creation">Skill Creation</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#contributing">Contributing</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#contact">Contact</a></li>
+    <li><a href="#acknowledgments">Acknowledgments</a></li>
+  </ol>
+</details>
+
+
+
+## About The Project
 
 Every investor has a style. We capture it.
 
-AI powered stock market research.
+Relativity AI Portfolio turns an investing style into an *investor agent* — a set of rules and guidelines that dictate how a stock should be evaluated. Once the agent is configured, the system delegates the research to AI and algorithms. No more endless screen time. No more scattered data. The portfolio does the digging. You do the deciding.
 
-Relativity AI Portfolio turns an investing style into something called an *investor agent* — a set of rules and guidelines that dictate how a stock should be evaluated. Once the agent is configured, the system delegates the research to AI and algorithms. No more endless screen time. No more scattered data. The portfolio does the digging. You do the deciding.
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-## Background
 
-The name *Relativity* draws inspiration from Einsteins Theory of Relativity. A good investment to one person may be a bad one to another. It is all relative. Relativity AI Portfolio respects that truth — it does not pick stocks for you. It learns how you pick them, then works within those lines.
 
-## Architecture
+### Built With
 
-- **UI** (`ui/`) — React (Vite + Chakra) frontend on port 5173.
-- **API** (`api/`) — in-repo Express + Vercel AI SDK backend on port 8080. Owns agents, skills, and one-call skill summaries, and exposes the curated model list and skill library.
-- **[Voyager](https://github.com/relativityAI/voyager)** — hosted data service (`https://voyager-api-0csb.onrender.com`) used by the API for data availability and pull-status checks.
-- **Market data** — server-side Yahoo Finance chart client (`api/src/marketdata.ts`) for daily OHLCV + SMA/RSI indicators, powering the technical-analysis skill's candlestick charts.
-- **Inngest** — background document ingestion.
-- **Supabase / Postgres** — persistence for user agents, custom skills, builder sessions, and analysis runs.
+* [![React][React.js]][React-url]
+* [![Vite][Vite]][Vite-url]
+* [![Chakra UI][Chakra]][Chakra-url]
+* [![Express][Express]][Express-url]
+* [![Supabase][Supabase]][Supabase-url]
 
-The UI talks only to `/api` (proxied to 8080). LLM and Voyager API keys are stored server-side, encrypted at rest (AES-256-GCM) — they are never persisted in the browser. The API forwards your Voyager key to the hosted service as `X-API-Key`.
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-## Install
 
-### Setup
-
-The stack requires a Supabase project (Postgres, auth, and key storage) — there is no bundled local database. Configure it before starting:
-
-```bash
-git clone https://github.com/relativityAI/relativity-portfolio.git
-cd relativity-portfolio
-export SUPABASE_PROJECT_URL='https://<project>.supabase.co'
-export SUPABASE_URL='https://<project>.supabase.co'
-export SUPABASE_SERVICE_ROLE_KEY='<service-role-key>'
-export ENCRYPTION_KEY='<64-hex-char key>'
-export VITE_SUPABASE_URL='https://<project>.supabase.co'
-export VITE_SUPABASE_ANON_KEY='<anon-key>'
-docker compose up -d
-```
-
-Add `--build` to rebuild images after pulling changes.
-
-This starts the UI (5173) and the API (8080). The API targets the hosted Voyager service by default — no local Voyager is required. Inngest handles background document ingestion when configured.
-
-See `api/.env.example` for the full list of supported environment variables (Voyager admin key, optional server-side LLM key pools, Langfuse, etc.).
-
-### Local development
-
-A Supabase project (or its env vars) is required for the API to start, then:
-
-```bash
-# API (port 8080)
-cd api
-cp .env.example .env   # optional
-npm install
-npm run dev
-
-# UI (port 5173)
-cd ui
-npm install
-npm run dev
-```
 
 ## Usage
 
 Open [http://localhost:5173](http://localhost:5173).
 
-- **New Analysis** — In skill mode, pick a source (SEC/NSE), company, skill, and model. The LLM summarizes the skill using only its definition and the stock identity; no market data or tools are used. Agent runs are currently unavailable.
-- **Agents** — Create agents from metadata + investment philosophy + **skills**: attach built-in skills (DCF valuation, moat analysis, technical analysis, …) with per-skill weights, or draft custom skills in the AI chat. Every agent is a set of skills.
-- **Skills** — The library ships built-in skills across valuation, fundamentals, qualitative, market, and macro categories. Add them to agents, or write your own by hand or with AI; custom skills validate against the editor's skill format.
-- **Analysis** — Browse saved runs and view skill summaries.
-- **Settings** — Store LLM provider API keys and your Voyager API key. Keys are stored server-side, encrypted at rest (AES-256-GCM), and never returned unmasked to the browser.
+- **`/new-analysis`** — Pick a source, company, skill, and model, then run an analysis.
+- **`/analysis-list`** — Browse saved analysis runs.
+- **`/agents`** — View and manage your investor agents.
+- **`/console`** — Agent console: library, skills, builder, and tools.
+- **`/settings`** — Store LLM and Voyager API keys, encrypted at rest server-side.
 
-## The skill format
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-A skill is a markdown document with frontmatter (`id`, `name`, `description`, `category`, `version`) and sections: **Purpose**, **Data** (which tools it may call), **Method** (analysis steps), **Verdict Anchors** (weighted YES/PARTIAL/NO checklist), **Charts** (declarative plot specs), **Output Template**. The LLM gathers evidence and gives verdicts; code computes every score. See `api/config/skills/` for the built-in set and `docs/2026-09-26-analysis-redesign-decisions.md` for the full design rationale.
+
+
+## Skill Creation
+
+Coming soon.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+## Roadmap
+
+- [ ] Agent runs (multi-skill orchestrated research)
+- [ ] Public skill library sharing
+- [ ] Portfolio tracking
+
+See the [open issues](https://github.com/relativityAI/relativity-portfolio/issues) for a full list of proposed features (and known issues).
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
 
 ## Contributing
 
-Questions, bug reports, and feature requests are welcome via [GitHub Issues](https://github.com/relativityAI/relativity-portfolio/issues).
+Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
 
-Pull requests are accepted. Keep the code style consistent and pass linting before submitting.
+If you have a suggestion that would make this better, please fork the repo and create a pull request. You can also simply open an issue with the tag "enhancement".
+Don't forget to give the project a star! Thanks again!
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+### Top contributors:
+
+<a href="https://github.com/relativityAI/relativity-portfolio/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=relativityAI/relativity-portfolio" alt="contrib.rocks image" />
+</a>
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
 
 ## License
 
-UNLICENSED
+Distributed under the UNLICENSED license. All rights reserved.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+## Contact
+
+Relativity AI - [@relativityAI](https://github.com/relativityAI)
+
+Project Link: [https://github.com/relativityAI/relativity-portfolio](https://github.com/relativityAI/relativity-portfolio)
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+## Acknowledgments
+
+* [Best-README-Template](https://github.com/othneildrew/Best-README-Template)
+* [Google Fonts](https://fonts.google.com) — Newsreader, Anek Latin
+* [Vercel AI SDK](https://sdk.vercel.ai)
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
+<!-- MARKDOWN LINKS & IMAGES -->
+[contributors-shield]: https://img.shields.io/github/contributors/relativityAI/relativity-portfolio.svg?style=for-the-badge
+[contributors-url]: https://github.com/relativityAI/relativity-portfolio/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/relativityAI/relativity-portfolio.svg?style=for-the-badge
+[forks-url]: https://github.com/relativityAI/relativity-portfolio/network/members
+[stars-shield]: https://img.shields.io/github/stars/relativityAI/relativity-portfolio.svg?style=for-the-badge
+[stars-url]: https://github.com/relativityAI/relativity-portfolio/stargazers
+[issues-shield]: https://img.shields.io/github/issues/relativityAI/relativity-portfolio.svg?style=for-the-badge
+[issues-url]: https://github.com/relativityAI/relativity-portfolio/issues
+[license-shield]: https://img.shields.io/badge/license-UNLICENSED-blue.svg?style=for-the-badge
+[license-url]: https://github.com/relativityAI/relativity-portfolio/blob/main/LICENSE
+[React.js]: https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB
+[React-url]: https://reactjs.org/
+[Vite]: https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white
+[Vite-url]: https://vitejs.dev/
+[Chakra]: https://img.shields.io/badge/Chakra%20UI-319795?style=for-the-badge&logo=chakraui&logoColor=white
+[Chakra-url]: https://chakra-ui.com/
+[Express]: https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white
+[Express-url]: https://expressjs.com/
+[Supabase]: https://img.shields.io/badge/Supabase-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white
+[Supabase-url]: https://supabase.com/
