@@ -377,7 +377,7 @@ export async function processBuilderTurn(
     "\n\nRespond with JSON only.";
 
   // Web search is always on (free DuckDuckGo default; Tavily when configured).
-  const tools = renderToolResults({ web_search: buildWebSearchTool(req.llm_keys.tavily) });
+  const tools = renderToolResults({ web_search: buildWebSearchTool() });
 
   // When the user explicitly asks to search the web, force the tool so the
   // model can't shortcut straight to memory.

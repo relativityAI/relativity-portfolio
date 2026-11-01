@@ -40,6 +40,20 @@ export function isKeylessProvider(provider: string): boolean {
 
 // ── Dynamic model discovery ──────────────────────────────────────────
 
+/**
+ * OpenRouter `:free` models that exist in the catalog but are unusable here,
+ * excluded from both the curated YAML list and live free-tier discovery:
+ *   * thinkingmachines/inkling* — HTTP 403, restricted to OpenRouter's own
+ *     agentic harness apps (coding agents / productivity apps on openrouter.ai)
+ *   * nvidia/nemotron-3.5-content-safety — guardrail/moderation model, not a
+ *     general chat model
+ */
+const OPENROUTER_FREE_EXCLUDED = new Set([
+  "thinkingmachines/inkling:free",
+  "thinkingmachines/inkling-small:free",
+  "nvidia/nemotron-3.5-content-safety:free",
+]);
+
 const PROVIDER_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const providerModelCache = new Map<string, { models: string[]; fetchedAt: number }>();
 
@@ -145,12 +159,19 @@ const PROVIDER_ENDPOINTS: Record<string, ProviderEndpoint> = {
 async function fetchProviderModels(
   provider: string,
   apiKey: string,
+  opts: {
+    /** Keep only raw (unprefixed) model ids matching this predicate. */
+    filter?: (id: string) => boolean;
+    /** Cache key when one provider is fetched with different filters. */
+    cacheKey?: string;
+  } = {},
 ): Promise<string[]> {
   const endpoint = PROVIDER_ENDPOINTS[provider];
   if (!endpoint) return [];
 
+  const cacheKey = opts.cacheKey ?? provider;
   // Check cache
-  const cached = providerModelCache.get(provider);
+  const cached = providerModelCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < PROVIDER_CACHE_TTL_MS) {
     return cached.models;
   }
@@ -176,15 +197,15 @@ async function fetchProviderModels(
     }
 
     const data = await res.json();
-    const rawIds = endpoint.extractModels(data);
+    const rawIds = endpoint.extractModels(data).filter((id) => !opts.filter || opts.filter(id));
 
     // Add provider prefix if not already present
     const prefixed = rawIds.map((id: string) =>
       id.startsWith(`${endpoint.prefix}/`) ? id : `${endpoint.prefix}/${id}`,
     );
 
-    providerModelCache.set(provider, { models: prefixed, fetchedAt: Date.now() });
-    log.info("[models]", `${provider}: discovered ${prefixed.length} models`);
+    providerModelCache.set(cacheKey, { models: prefixed, fetchedAt: Date.now() });
+    log.info("[models]", `${cacheKey}: discovered ${prefixed.length} models`);
     return prefixed;
   } catch (e: any) {
     log.warn("[models]", `${provider} model list error: ${e?.message || e}`);
@@ -197,6 +218,8 @@ async function fetchProviderModels(
  * server's own key pools (config.serverKeys).
  * Providers the server is keyed for use their explicit PROVIDER_MODELS list
  * (or the curated YAML list); user-keyed providers keep curated + live discovery.
+ * OpenRouter additionally live-discovers its `:free` tier with the server key so
+ * keyless users see every free model (unless OPENROUTER_MODELS pins the list).
  * Curated models appear first (sorted by priority), dynamic models after (sorted alpha).
  */
 export async function getAvailableModelsForUser(
@@ -242,6 +265,24 @@ export async function getAvailableModelsForUser(
     if (!key) return [];
     return fetchProviderModels(provider, key);
   });
+
+  // OpenRouter's free catalog churns constantly (new `:free` models weekly),
+  // while models.yaml can only be updated by hand — so also discover the free
+  // tier with the server's key. That keeps every usable no-cost model in the
+  // dropdown for keyless users even before the curated list is edited. Users
+  // with their own OpenRouter key already get the full catalog above, and
+  // models nobody can actually call here are filtered out (OPENROUTER_FREE_EXCLUDED).
+  // An explicit OPENROUTER_MODELS env list wins over both (no discovery).
+  const serverOpenrouterKey = config.serverKeys.openrouter?.[0];
+  if (serverOpenrouterKey && !userProviders.includes("openrouter") && !config.serverModels.openrouter?.length) {
+    fetches.push(
+      fetchProviderModels("openrouter", serverOpenrouterKey, {
+        filter: (id) => id.endsWith(":free") && !OPENROUTER_FREE_EXCLUDED.has(id),
+        cacheKey: "openrouter:free",
+      }),
+    );
+  }
+
   const liveResults = await Promise.all(fetches);
   const liveModels = new Set(liveResults.flat());
 

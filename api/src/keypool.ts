@@ -219,6 +219,16 @@ export class KeyPool {
     return 1 - Math.min(0.5, fail / (req + 1));
   }
 
+  /** True when the provider has a user key, a key not in cooldown, or is keyless (ollama). */
+  private hasHealthyKey(provider: string, userKeys: Record<string, string | undefined>): boolean {
+    if (userKeys[provider]) return true;
+    const keys = this.cfg.serverKeys[provider] || [];
+    if (!keys.length) return provider === "ollama";
+    const st = this.state(provider);
+    const now = Date.now();
+    return keys.some((_, i) => !(st.keys[i].lastFailAt && now - st.keys[i].lastFailAt < this.cooldownMs));
+  }
+
   /**
    * Algorithm for the default model when the user has not picked one:
    *   priority (curated/env order) + quota remaining + key health + user-key bonus − recency.
@@ -230,14 +240,22 @@ export class KeyPool {
     if (!providers.length) return getModels()[0]?.id || "";
 
     // DEFAULT_MODEL pins the model for every run that does not name one.
-    // Only honoured when its provider is actually configured, so a stale pin
-    // falls through to scoring instead of failing the run.
+    // Only honoured when its provider is configured AND still has a usable key
+    // with quota left — a pin to an exhausted provider (e.g. Cohere's 33/day
+    // trial tier) must fall through to scoring instead of failing every run.
     const pinned = process.env.DEFAULT_MODEL?.trim();
-    if (pinned && providers.includes(this.modelProvider(pinned))) return pinned;
+    if (pinned && providers.includes(this.modelProvider(pinned))) {
+      const pp = this.modelProvider(pinned);
+      if (this.hasHealthyKey(pp, userKeys) && (userKeys[pp] || this.providerQuota(pp) > 0)) return pinned;
+    }
 
     const hasUser = (p: string) => !!userKeys[p] && p !== "tavily";
+    // Prefer providers with a live key; if every key is cooling down, fall back
+    // to the full list so we still return something rather than "".
+    const healthy = providers.filter((p) => this.hasHealthyKey(p, userKeys));
+    const pool = healthy.length ? healthy : providers;
     const candidates: string[] = [];
-    for (const p of providers) {
+    for (const p of pool) {
       for (const m of this.modelsFor(p)) {
         if (!candidates.includes(m)) candidates.push(m);
       }

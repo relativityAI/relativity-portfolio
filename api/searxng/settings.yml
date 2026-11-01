@@ -1,0 +1,39 @@
+# Local SearXNG for the harness web_search / search_news tools.
+# Mounted at /etc/searxng/settings.yml by `npm run searxng`.
+use_default_settings: true
+search:
+  # format=json is 403 without this — it is the API the harness calls.
+  formats: [html, json]
+server:
+  # Localhost only. limiter=false skips inbound rate-limiting (the limiter
+  # needs a valkey database we don't run).
+  limiter: false
+  public_instance: false
+  secret_key: "relativity-harness-local-9c2f7a1e"
+outgoing:
+  # Per-engine wait inside SearXNG: suspended/hung engines are cut at 5s and
+  # the instance answers with whatever arrived (partial > slow). The client's
+  # per-attempt cap (agent.yaml web.timeoutMs, 15s) stays the hard bound.
+  request_timeout: 5.0
+engines:
+  # The stock defaults leave ONLY duckduckgo + google cse + brave general
+  # web searchers on — when those three trip CAPTCHA/429 the harness sees
+  # "0 results" for everything. Enable the rest of the general category so
+  # suspensions of any single engine never blackout the run. Each entry is
+  # an attribute override merged over the built-in default for that engine.
+  - name: bing
+    disabled: false
+  - name: google
+    disabled: false
+  - name: yahoo
+    disabled: false
+  - name: yandex
+    disabled: false
+  - name: qwant
+    disabled: false
+  - name: duckduckgo web
+    disabled: false
+  - name: seznam
+    disabled: false
+  - name: wiby
+    disabled: false

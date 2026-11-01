@@ -39,7 +39,7 @@ Always report the last five quarters of revenue and EPS with the YoY growth rate
 
 No-hallucination constraint: never estimate revenue, EPS, or growth rates for a period the tools did not return. If fewer than five quarters are available, chart and quote only what was observed and say how many periods were found — never extrapolate the missing ones.
 
-Citation requirement (mandatory): every finding and every verdict evidence line MUST carry a citation — the tool the figure came from (e.g. get_financial_metrics) and, when the data came from the public web or a filing document, the exact URL. A number without a citation reads as invented and will be flagged.
+Citation requirement (mandatory): every finding and every verdict evidence line MUST carry a citation — the tool the figure came from (e.g. the financial-metrics tool) and, when the data came from the public web or a filing document, the exact URL. A number without a citation reads as invented and will be flagged.
 
 ## Data Needs
 - need: financials

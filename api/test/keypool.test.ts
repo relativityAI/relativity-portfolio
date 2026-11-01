@@ -109,4 +109,41 @@ describe("getDefaultModel", () => {
     kp.recordUsage({ provider: "gemini", keyRef: "server:2", modelId: "gemini/x", requests: 1 });
     expect(kp.serverRequests("gemini")).toBe(4);
   });
+
+  describe("DEFAULT_MODEL pin", () => {
+    const withPin = <T>(model: string, fn: () => T): T => {
+      const prev = process.env.DEFAULT_MODEL;
+      process.env.DEFAULT_MODEL = model;
+      try {
+        return fn();
+      } finally {
+        if (prev === undefined) delete process.env.DEFAULT_MODEL;
+        else process.env.DEFAULT_MODEL = prev;
+      }
+    };
+
+    it("is honoured while its provider has a healthy key", () => {
+      withPin("openai/gpt-4o-mini", () => {
+        expect(pool().getDefaultModel({})).toBe("openai/gpt-4o-mini");
+      });
+    });
+
+    it("falls through when the pinned provider's only key is in cooldown", () => {
+      withPin("openai/gpt-4o-mini", () => {
+        const kp = pool();
+        kp.markFailure("openai", "server:0");
+        expect(kp.getDefaultModel({})).toBe("gemini/gemini-3.5-flash-lite");
+      });
+    });
+
+    it("falls through when the pinned provider's quota is spent", () => {
+      withPin("openai/gpt-4o-mini", () => {
+        const kp = pool();
+        for (let i = 0; i < 100; i++) {
+          kp.recordUsage({ provider: "openai", keyRef: "server:0", modelId: "openai/gpt-4o-mini", requests: 1 });
+        }
+        expect(kp.getDefaultModel({})).toBe("gemini/gemini-3.5-flash-lite");
+      });
+    });
+  });
 });

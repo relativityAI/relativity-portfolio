@@ -11,6 +11,7 @@ const sanitizeFetch = sanitizeSSEFetch();
 const createOpenAICompatible = (o: Parameters<typeof _createOpenAICompatible>[0]) =>
   _createOpenAICompatible({ fetch: sanitizeFetch, ...o });
 import { config } from "./config.js";
+import { openCodeBaseURL, openCodeHeaders } from "./opencode.js";
 import { getToolCatalog } from "./tools.js";
 import { log } from "./logger.js";
 import { keyPool } from "./keypool.js";
@@ -27,6 +28,7 @@ export interface LlmKeys {
   nvidia?: string;
   cohere?: string;
   zai?: string;
+  opencode?: string;
   tavily?: string;
 }
 
@@ -46,6 +48,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   cohere: "Cohere",
   zai: "Z.AI",
   ollama: "Ollama",
+  opencode: "OpenCode",
 };
 
 /**
@@ -80,6 +83,7 @@ const LEGACY_ENV_KEYS: Record<string, string | undefined> = {
   nvidia: process.env.NVIDIA_API_KEY || process.env.NVIDIA_NIM_API_KEY,
   cohere: process.env.COHERE_API_KEY || process.env.COHERE_API_TOKEN,
   zai: process.env.ZAI_API_KEY || process.env.Z_AI_API_KEY,
+  opencode: process.env.OPENCODE_API_KEY,
 };
 
 export function buildModel(modelId: string, keys: LlmKeys, apiKey?: string) {
@@ -137,6 +141,16 @@ export function buildModel(modelId: string, keys: LlmKeys, apiKey?: string) {
         name: "zai",
         apiKey: key,
         baseURL: "https://api.z.ai/api/paas/v4",
+      })(name);
+    case "opencode":
+      // OpenCode Console (Go plan). Every text model is served via chat
+      // completions (Console translates other API families); the session
+      // header is mandatory on Go.
+      return createOpenAICompatible({
+        name: "opencode",
+        apiKey: key,
+        baseURL: openCodeBaseURL(),
+        headers: openCodeHeaders(),
       })(name);
     case "ollama":
       return createOpenAICompatible({

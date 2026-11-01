@@ -17,7 +17,7 @@ Determines what the business is worth today from the cash it actually produces. 
 1. Pull the TTM metrics snapshot; record current price, market capitalization, P/E, EV/EBITDA, and per-share figures (EPS, book value, FCF per share). Note explicitly which price-derived fields are missing (price_data=unavailable) and mark affected anchors INSUFFICIENT rather than reconstructing prices.
 2. Pull the last five years of cash flows; take operating cash flow minus capital expenditure per year to trace free cash flow, and compute the historical FCF trajectory (growing, stable, erratic).
 3. Build a discounted cash flow: project free cash flow forward five years at the historical FCF CAGR (clamped to a conservative range), discount at a stated required return, and add a Gordon-growth terminal value. State the discount rate and terminal growth explicitly — these are assumptions, not data.
-4. Cross-check with the market's own pricing: current P/E vs the growth implied by filings, EV/EBITDA vs the company's sector peers via compare_financial_metrics. Where a peer's symbol is unknown, resolve it with search_symbol first — never guess a ticker.
+4. Cross-check with the market's own pricing: current P/E vs the growth implied by filings, EV/EBITDA vs the company's sector peers via the peer-comparison metrics tool. Where a peer's symbol is unknown, resolve it with the symbol-search tool first — never guess a ticker.
 5. Compute margin-of-safety reasoning: at what growth and discount assumptions does the current price make sense, and do the filings support them? State plainly when the observed data cannot support the price.
 6. Check reasonableness: implied multiples and growth assumptions must be plausible for the sector; flag any check that fails.
 
@@ -38,9 +38,9 @@ A downloadable workbook with live formulas is built from the same cash-flow and 
 
 State current price, TTM EPS/FCF per share, and the observed growth rates with their periods. Present the owner-earnings math transparently: what growth you assumed, why the filings support it, and what multiple the price implies. Name the two assumptions the valuation is most sensitive to. If filings data is unavailable, say so and mark the affected anchors INSUFFICIENT rather than guessing.
 
-No-hallucination constraint: never fabricate intrinsic values, per-share figures, growth or discount-rate assumptions, or FCF numbers. Quote them only from get_financial_metrics / compare_financial_metrics / get_financials / get_cash_flows results in this session; an ungrounded value estimate is worse than none.
+No-hallucination constraint: never fabricate intrinsic values, per-share figures, growth or discount-rate assumptions, or FCF numbers. Quote them only from the fundamentals tools' results in this session (metrics, financials, cash flows); an ungrounded value estimate is worse than none.
 
-Citation requirement (mandatory): every finding and every verdict evidence line MUST carry a citation — the tool the figure came from (e.g. get_financial_metrics) and, when the data came from the public web or a filing document, the exact URL. A number without a citation reads as invented and will be flagged.
+Citation requirement (mandatory): every finding and every verdict evidence line MUST carry a citation — the tool the figure came from (e.g. the metrics tool) and, when the data came from the public web or a filing document, the exact URL. A number without a citation reads as invented and will be flagged.
 
 ## Data Needs
 - need: financials

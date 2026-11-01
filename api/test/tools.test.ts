@@ -54,6 +54,28 @@ describe("get_announcements schema", () => {
   });
 });
 
+describe("get_technicals schema (Groq validates tool args server-side)", () => {
+  const tools = () =>
+    buildTools({
+      voyager: new VoyagerClient("http://localhost", "test-key", 1),
+      symbol: "KEI",
+      country: "in",
+      source: "NSE",
+      shareName: "KEI Industries",
+    } as any);
+
+  it("accepts an explicit null for the optional sections arg", () => {
+    // Groq validates the model's tool call against the JSON schema we send and
+    // 400s an explicit `null` for a typed property (gpt-oss emits null to mean
+    // "omit"). The schema must permit null, or every run dies before the SDK
+    // can repair it.
+    const schema = tools().get_technicals.inputSchema as any;
+    const parsed = schema.safeParse({ sections: null });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data.sections).toBeUndefined();
+  });
+});
+
 describe("read_latest_transcript", () => {
   const mkTools = (host: string) =>
     buildTools({

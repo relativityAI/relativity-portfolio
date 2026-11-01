@@ -76,7 +76,7 @@ metadata:
 - Anchor phrased as a checkable claim — weight N     (weight 1-10, default 5)
 
 ## Charts
-- type: line | title: Chart title | data: series_key   (optional; types: line, bar, candlestick, table)
+- type: line | title: Chart title | data: series tokens   (optional; types: line, bar, candlestick, table; tokens: price, volume, sma20, sma50, sma200, rsi14)
 
 ## Output Template
 What the analyst must state first, and what to mark INSUFFICIENT when data is missing.
@@ -117,7 +117,7 @@ export async function skillDraftTurn(req: SkillDraftRequest): Promise<SkillDraft
   // Web search is always available (free DuckDuckGo default; Tavily when a
   // key is configured) — skill authoring should ground named methodologies
   // even with zero keys configured.
-  const tools = searchRequested ? renderToolResults({ web_search: buildWebSearchTool(req.llm_keys.tavily) }) : undefined;
+  const tools = searchRequested ? renderToolResults({ web_search: buildWebSearchTool() }) : undefined;
 
   // "Search for X and build a skill" style asks must search, not draft from
   // memory — same trigger vocabulary as the agent builder.
