@@ -14,10 +14,10 @@ export function reportWriteTool(canvas: ReportCanvas, onChange?: () => void, fix
   return {
     name: "report_write",
     description:
-      "Write one section-group of the report onto the report canvas (typed sections + the sources they cite). Call repeatedly; each call appends. The final document is compiled from every call. The active skill's Report structure (BINDING) governs what you write — its section list, summary box, sentence-length and table rules — not a generic format.",
+      "Write one section-group of the report onto the report canvas. Each section is a COMPLETE unit: { heading: {level,text}, blocks: [...] } — one heading, then any mix of text/figure blocks (see the full-section contract). Call repeatedly; each call appends. The final document is compiled from every call. The active skill's Report structure (BINDING) governs what you write — its section list, summary box, sentence-length and table rules — not a generic format.",
     parameters: z.object({
-      title: z.string().describe("Short section-group title (2–5 words), e.g. 'What's new'"),
-      sections: z.array(z.any()).min(1).describe("Typed section blocks — the primitives from the output-format instructions"),
+      title: z.string().describe("Short section-group label (2–5 words), e.g. 'What's new' — a label only, not a heading"),
+      sections: z.array(z.any()).min(1).describe("Full sections — each { heading: {level, text}, blocks: [...] } per the output-format contract"),
       sources: z.array(z.any()).default([]).describe('Sources cited by these sections: { id, label, tool, value, url? } — set url to the document link'),
     }),
     execute: async ({ title, sections, sources }) => {

@@ -7,6 +7,6 @@
 
 export { runCanvasAnalysis } from "./run.js";
 export type { RunStats, RunCanvasOptions, RunCanvasResult, CanvasRunStatus } from "./run.js";
-export { ReportCanvas, validateComposed, rewriteSectionSourceIds, collectSourceRefs } from "./canvas.js";
-export type { CanvasEntry, DocumentOptions } from "./canvas.js";
+export { ReportCanvas, validateComposed } from "./canvas.js";
+export type { CanvasEntry } from "./canvas.js";
 export { reportWriteTool, reportRemoveTool } from "./report-tool.js";
