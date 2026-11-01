@@ -2,9 +2,13 @@
  * Client mirror of the harness ReportDocument contract
  * (api/src/harness/report/document.ts). Keep in sync — the UI renders this
  * document deterministically; no model runs in the render path.
+ *
+ * Two shapes: v2 (current — nested full sections) and v1 (stored runs —
+ * flat block list). The renderer branches on `schema`.
  */
 
-export const REPORT_SCHEMA = "relativity/report.v1";
+export const REPORT_SCHEMA = "relativity/report.v2";
+export const REPORT_SCHEMA_V1 = "relativity/report.v1";
 
 export interface SeriesPoint {
   t: number;
@@ -59,29 +63,61 @@ export interface ArtifactRef {
   url: string;
 }
 
+/** Inner block of a v2 section. Figures (chart/diagram/table/compare) carry a required sourceId. */
+export type ReportBlock =
+  | { type: "text"; level: 1 | 2; text: string; highlights?: Highlight[] }
+  | { type: "callout"; variant: "info" | "warn" | "key"; title?: string; text: string; highlights?: Highlight[] }
+  | { type: "chart"; title?: string; spec: ChartSpec; panels?: ChartSpec[]; caption?: string; measure?: string; sourceId: string; color?: string; svgs?: string[] }
+  | { type: "diagram"; title?: string; spec: DiagramSpec; caption?: string; sourceId: string }
+  | { type: "table"; title?: string; columns: string[]; rows: (string | number)[][]; caption?: string; sourceId: string }
+  | { type: "compare"; title?: string; before: ChartSpec | DiagramSpec; after: ChartSpec | DiagramSpec; sourceId: string }
+  | { type: "metrics"; items: { label: string; value: string; delta?: string; tone?: "neutral" | "positive" | "negative"; sourceId?: string }[] }
+  | { type: "code"; language?: string; text: string }
+  | { type: "citations"; refs: string[] };
+
+/** v2 full section: exactly one heading + its inner blocks. */
+export interface ReportSection {
+  heading: { level: 1 | 2 | 3; text: string };
+  blocks: ReportBlock[];
+}
+
+/** v1 flat section (stored runs — read path only). */
 export type Section =
   | { type: "heading"; level: 1 | 2 | 3; text: string }
   | { type: "paragraph"; text: string; highlights?: Highlight[] }
   | { type: "callout"; variant: "info" | "warn" | "key"; title?: string; text: string; highlights?: Highlight[] }
-  | { type: "table"; title?: string; columns: string[]; rows: (string | number)[][]; caption?: string }
+  | { type: "table"; title?: string; columns: string[]; rows: (string | number)[][]; caption?: string; sourceId?: string }
   | { type: "chart"; title?: string; spec: ChartSpec; panels?: ChartSpec[]; caption?: string; measure?: string; sourceId?: string; svgs?: string[] }
   | { type: "citations"; refs: string[] }
-  | { type: "diagram"; title?: string; spec: DiagramSpec; caption?: string }
+  | { type: "diagram"; title?: string; spec: DiagramSpec; caption?: string; sourceId?: string }
   | { type: "badges"; items: { label: string; tone?: "neutral" | "positive" | "negative" | "accent" }[] }
-  | { type: "compare"; title?: string; before: ChartSpec | DiagramSpec; after: ChartSpec | DiagramSpec }
+  | { type: "compare"; title?: string; before: ChartSpec | DiagramSpec; after: ChartSpec | DiagramSpec; sourceId?: string }
   | { type: "metrics"; items: { label: string; value: string; delta?: string; tone?: "neutral" | "positive" | "negative"; sourceId?: string }[] }
   | { type: "code"; language?: string; text: string }
   | { type: "quote"; text: string; attribution?: string; sourceId?: string };
 
-export interface ReportDocument {
-  schema: typeof REPORT_SCHEMA;
-  title: string;
+interface ReportDocumentBase {
+  title?: string;
   subtitle?: string;
-  generatedAt: string;
+  generatedAt?: string;
   symbol: string;
-  sections: Section[];
   sources: Source[];
-  /** Footnote order (source ids) — assembly-computed; absent on legacy docs. */
+  /** Footnote order (source ids) — assembly-computed. */
   footnotes?: string[];
   artifacts?: ArtifactRef[];
 }
+
+export interface ReportDocumentV2 extends ReportDocumentBase {
+  schema: typeof REPORT_SCHEMA;
+  sections: ReportSection[];
+}
+
+export interface ReportDocumentV1 extends ReportDocumentBase {
+  schema: typeof REPORT_SCHEMA_V1;
+  sections: Section[];
+}
+
+export type ReportDocument = ReportDocumentV2 | ReportDocumentV1;
+
+/** True when the document is the current nested-section shape. */
+export const isV2 = (doc: ReportDocument): doc is ReportDocumentV2 => doc.schema === REPORT_SCHEMA;

@@ -18,7 +18,7 @@ import { render, screen } from "@testing-library/react";
 import { ChakraProvider, createSystem, defaultConfig } from "@chakra-ui/react";
 import { ThemeProvider } from "next-themes";
 import { ReportDocumentRenderer } from "../components/report/ReportDocumentRenderer";
-import { REPORT_SCHEMA, type ReportDocument } from "../lib/reportContract";
+import { REPORT_SCHEMA, REPORT_SCHEMA_V1, type ReportDocument } from "../lib/reportContract";
 
 vi.mock("../components/builder/MarketChart", () => ({
   MarketChart: (props: { variant: string; data: unknown[]; title?: string }) => (
@@ -31,7 +31,7 @@ vi.mock("mermaid", () => ({
 }));
 
 const doc: ReportDocument = {
-  schema: REPORT_SCHEMA,
+  schema: REPORT_SCHEMA_V1,
   title: "Apple Inc. — Equity Research",
   subtitle: "Owner-earnings and momentum review",
   generatedAt: "2026-10-18T00:00:00.000Z",
@@ -195,7 +195,7 @@ describe("ReportDocumentRenderer (extended primitives)", () => {
 
 describe("figure frames (almanac, assembly-rendered svgs)", () => {
   const figureDoc: ReportDocument = {
-    schema: REPORT_SCHEMA,
+    schema: REPORT_SCHEMA_V1,
     title: "AAPL — Equity Research",
     generatedAt: "2026-10-30T00:00:00.000Z",
     symbol: "AAPL",
@@ -257,5 +257,66 @@ describe("figure frames (almanac, assembly-rendered svgs)", () => {
     expect(ledger.className).toContain("ledger");
     expect(ledger.querySelector(".num")).toBeTruthy();
     expect(screen.getByTestId("report-badges").querySelector(".chip")).toBeTruthy();
+  });
+});
+
+describe("ReportDocumentRenderer (v2 full sections)", () => {
+  const v2Doc: ReportDocument = {
+    schema: REPORT_SCHEMA,
+    title: "Apple Inc. — Equity Research",
+    generatedAt: "2026-11-01T00:00:00.000Z",
+    symbol: "AAPL",
+    sections: [
+      {
+        heading: { level: 2, text: "Trend" },
+        blocks: [
+          {
+            type: "text",
+            level: 1,
+            text: "Momentum turned bullish.",
+            highlights: [{ text: "61", kind: "number", sourceId: "s1" }],
+          },
+          { type: "text", level: 2, text: "RSI crossed 50 on rising volume." },
+          {
+            type: "chart",
+            title: "Price — 1 year",
+            measure: "USD",
+            sourceId: "s1",
+            svgs: ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 420"><path d="M0 0"/></svg>'],
+            spec: { kind: "line", series: [{ label: "close", points: [{ t: 1710000000, v: 190 }, { t: 1710100000, v: 195 }] }] },
+          },
+          {
+            type: "table",
+            title: "Levels",
+            columns: ["Band", "USD"],
+            rows: [["Support", 185]],
+            sourceId: "s1",
+          },
+        ],
+      },
+      {
+        heading: { level: 2, text: "Risks" },
+        blocks: [{ type: "callout", variant: "warn", title: "Risk", text: "Mix pressure." }],
+      },
+    ],
+    sources: [{ id: "s1", label: "Price data", tool: "get_price", value: "195", url: "https://example.com/px" }],
+    footnotes: ["s1"],
+  };
+
+  it("renders the heading, L1/L2 text, figures with Source lines and footnotes", () => {
+    render(wrap(<ReportDocumentRenderer document={v2Doc} />));
+    const headings = screen.getAllByTestId("report-heading");
+    expect(headings.map((h) => h.textContent)).toEqual(["Trend", "Risks"]);
+    // text blocks render as paragraphs
+    expect(screen.getAllByTestId("report-paragraph")).toHaveLength(2);
+    // figures print their source beneath (table via SourceNote, svg figure via its own link)
+    const sources = screen.getAllByTestId("report-source");
+    expect(sources.length).toBeGreaterThanOrEqual(1);
+    expect(sources[0].querySelector("a")).toHaveAttribute("href", "https://example.com/px");
+    expect(screen.getByTestId("report-figure").querySelector("a")).toHaveAttribute("href", "https://example.com/px");
+    expect(screen.getByTestId("report-table")).toBeInTheDocument();
+    expect(screen.getByTestId("report-footnotes")).toBeInTheDocument();
+    // Fig. N still sequences over nested charts
+    expect(screen.getByTestId("report-figure").textContent).toContain("Fig. 1");
   });
 });

@@ -34,7 +34,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MarketChart } from "@/components/builder/MarketChart";
 import { downloadSvg, downloadCsv, downloadPng } from "@/lib/figureExport";
-import type { ChartSpec, DiagramSpec, Highlight, ReportDocument, Section, Source } from "@/lib/reportContract";
+import { isV2, type ChartSpec, type DiagramSpec, type Highlight, type ReportBlock, type ReportDocument, type ReportSection, type Section, type Source } from "@/lib/reportContract";
 import "@/styles/almanac-report.css";
 
 const HIGHLIGHT_COLOR: Record<Highlight["kind"], string> = {
@@ -253,14 +253,33 @@ function HighlightParts({ text, highlights, footnotes }: { text: string; highlig
 function ParagraphBlock({ section, footnotes }: { section: Extract<Section, { type: "paragraph" }>; footnotes?: string[] }) {
   if (!section.highlights?.length) {
     return (
-      <Box data-testid="report-paragraph" my={2}>
+      <Box data-testid="report-paragraph" my={3}>
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{section.text}</ReactMarkdown>
       </Box>
     );
   }
   return (
-    <Text as="p" data-testid="report-paragraph" my={2} lineHeight="tall">
+    <Text as="p" data-testid="report-paragraph" my={3} lineHeight="tall">
       <HighlightParts text={section.text} highlights={section.highlights} footnotes={footnotes} />
+    </Text>
+  );
+}
+
+/** Source line beneath a figure (chart/diagram/table/compare) — required on every v2 figure. */
+function SourceNote({ sourceId, sources }: { sourceId?: string; sources: Source[] }) {
+  if (!sourceId) return null;
+  const src = sources.find((s) => s.id === sourceId);
+  if (!src) return null;
+  return (
+    <Text data-testid="report-source" fontSize="sm" color="fg.muted" mt={1}>
+      Source:{" "}
+      {src.url ? (
+        <a href={src.url} target="_blank" rel="noreferrer">
+          {src.label}
+        </a>
+      ) : (
+        src.label
+      )}
     </Text>
   );
 }
@@ -325,10 +344,15 @@ function SectionView({
         <Text
           data-testid="report-heading"
           as={`h${section.level + 1}` as "h2" | "h3" | "h4"}
-          fontSize={section.level === 1 ? "2xl" : section.level === 2 ? "xl" : "lg"}
-          fontWeight="bold"
-          mt={6}
-          mb={2}
+          fontSize={
+            section.level === 1
+              ? { base: "28px", md: "38px" }
+              : section.level === 2
+                ? { base: "22px", md: "30px" }
+                : { base: "18px", md: "23px" }
+          }
+          mt={10}
+          mb={3}
         >
           {section.text}
         </Text>
@@ -405,6 +429,7 @@ function SectionView({
             </TableBody>
           </Table>
           {section.caption && <Text fontSize="sm" color="fg.muted" mt={1}>{section.caption}</Text>}
+          <SourceNote sourceId={section.sourceId} sources={sources} />
         </Box>
       );
     case "chart":
@@ -416,10 +441,17 @@ function SectionView({
           <ChartBlock spec={section.spec} title={section.title} />
           {section.panels?.map((p, i) => <ChartBlock key={i} spec={p} title={section.title} />)}
           {section.caption && <Text fontSize="sm" color="fg.muted">{section.caption}</Text>}
+          <SourceNote sourceId={section.sourceId} sources={sources} />
         </Box>
       );
     case "diagram":
-      return <DiagramBlock spec={section.spec} title={section.title} />;
+      return (
+        <Box my={4}>
+          <DiagramBlock spec={section.spec} title={section.title} />
+          {(section as any).caption && <Text fontSize="sm" color="fg.muted">{(section as any).caption}</Text>}
+          <SourceNote sourceId={(section as any).sourceId} sources={sources} />
+        </Box>
+      );
     case "badges":
       return (
         <Flex data-testid="report-badges" gap={2} flexWrap="wrap" my={2}>
@@ -442,6 +474,7 @@ function SectionView({
               {isChart(section.after) ? <ChartBlock spec={section.after} title="After" /> : <DiagramBlock spec={section.after} title="After" />}
             </Box>
           </Flex>
+          <SourceNote sourceId={(section as any).sourceId} sources={sources} />
         </Box>
       );
     case "metrics":
@@ -505,30 +538,74 @@ function SectionView({
   }
 }
 
-export function ReportDocumentRenderer({ document }: { document: ReportDocument }) {
+/** v2 nested sections → the flat block list SectionView already renders.
+ *  text becomes a paragraph (level 1/2 share the paragraph style); the section
+ *  heading becomes a heading block; figure blocks pass through with sourceId
+ *  so the Source line prints beneath them. */
+function flattenSections(doc: ReportDocument): Section[] {
+  if (!isV2(doc)) return doc.sections as Section[];
+  return (doc.sections as ReportSection[]).flatMap((sec): Section[] => [
+    { type: "heading", ...sec.heading },
+    ...sec.blocks.map((b): Section => (b.type === "text" ? { type: "paragraph", text: b.text, highlights: b.highlights } : (b as Section))),
+  ]);
+}
+
+export function ReportDocumentRenderer({ document }: { document: ReportDocument | null | undefined }) {
+  // Harness runs may render this before a document exists (running/failed
+  // with no flushed doc) — one guard here covers every caller.
+  if (!document) return null;
+  const sections = flattenSections(document);
   // Fig. N sequence: charts numbered in document order (shared with the md dump)
   let figSeq = 0;
   const figOf = new Map<number, number>();
-  document.sections.forEach((s, i) => {
+  sections.forEach((s, i) => {
     if (s.type === "chart") figOf.set(i, ++figSeq);
   });
   return (
     <Box data-testid="report-document" data-symbol={document.symbol} className="almanac-report dom-economy">
-      <Text as="h1" fontSize="3xl" fontWeight="bold">
-        {document.title}
-      </Text>
+      {document.title && (
+        <Text as="h1" fontSize={{ base: "32px", md: "46px" }}>
+          {document.title}
+        </Text>
+      )}
       {document.subtitle && (
         <Text color="fg.muted" mb={2}>
           {document.subtitle}
         </Text>
       )}
-      <Flex gap={4} fontSize="sm" color="fg.muted" mb={4}>
-        <Text>{document.symbol}</Text>
-        <Text>{document.generatedAt}</Text>
-      </Flex>
-      {document.sections.map((section, i) => (
+      {(document.symbol || document.generatedAt) && (
+        <Flex gap={4} fontSize="sm" color="fg.muted" mb={4}>
+          <Text>{document.symbol}</Text>
+          {document.generatedAt && <Text>{document.generatedAt}</Text>}
+        </Flex>
+      )}
+      {sections.map((section, i) => (
         <SectionView key={i} section={section} sources={document.sources} figN={figOf.get(i)} footnotes={document.footnotes} />
       ))}
+      {/* v2: footnotes print from doc.footnotes even without a citations block */}
+      {isV2(document) && document.footnotes?.length && !sections.some((s) => s.type === "citations") ? (
+        <Box data-testid="report-footnotes" className="footnotes">
+          {document.footnotes.map((id, i) => {
+            const src = document.sources.find((s) => s.id === id);
+            if (!src) return null;
+            return (
+              <Box key={id} data-testid="report-footnote" data-source-id={id} className="fn">
+                <sup>{i + 1}</sup>
+                <span>
+                  {src.url ? (
+                    <a href={src.url} target="_blank" rel="noreferrer">
+                      {src.label}
+                    </a>
+                  ) : (
+                    src.label
+                  )}
+                  {src.value ? ` — ${src.value}` : ""}
+                </span>
+              </Box>
+            );
+          })}
+        </Box>
+      ) : null}
       {document.artifacts?.length ? (
         <Box data-testid="report-artifacts" mt={6} pt={3} borderTopWidth="1px" borderColor="border">
           <Text fontSize="sm" fontWeight="semibold" mb={1}>Attachments</Text>
