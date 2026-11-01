@@ -289,7 +289,7 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
   // run's archived results, renderFigures draws each chart's SVG. Raw [src:…]
   // tokens and sources stay exactly as written — no rewriting.
   const document = canvas.document();
-  attachChartData(document, trace);
+  attachChartData(document, trace, workspace.payloadEntries());
   renderFigures(document);
 
   const loopErrors: string[] = [];
