@@ -6,7 +6,7 @@
  * the block itself so the contract always reaches the model).
  */
 
-import { PRIMITIVES } from "./catalog.js";
+import { BLOCKS, SECTION_SHAPE } from "./catalog.js";
 import { ChartSpecSchema } from "./document.js";
 
 /**
@@ -38,9 +38,10 @@ const PLOT_NOTES: Record<string, string> = {
   bar: "LEGACY — prefer `hbar` (categorical) or `vbar` (columns); accepted only so old documents still render",
 };
 
-/** The report_write contract: every primitive with a copyable JSON example. */
+/** The report_write contract: the section envelope + every block with a copyable JSON example. */
 export function sectionContractMarkdown(): string {
-  return PRIMITIVES.map((p) => `- ${p.id} — ${p.when}\n      ${p.json}`).join("\n");
+  const blocks = BLOCKS.map((p) => `- ${p.id} — ${p.when}\n      ${p.json}`).join("\n");
+  return `${SECTION_SHAPE}\n\nBlock types allowed inside a section:\n${blocks}`;
 }
 
 /**
