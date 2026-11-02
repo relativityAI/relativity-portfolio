@@ -25,6 +25,9 @@ import {
 import { ReportCanvas, validateComposed } from "../src/harness/canvas/canvas.js";
 import { reportWriteTool, reportRemoveTool } from "../src/harness/canvas/report-tool.js";
 import { runCanvasAnalysis } from "../src/harness/canvas/run.js";
+import { plotReferenceMarkdown, sectionContractMarkdown } from "../src/harness/report/reference.js";
+import { compileAgent } from "../src/harness/agents/compile.js";
+import { getBuiltinSkill } from "../src/harness/skills/catalog.js";
 import { AGENT_CONFIG_DEFAULT, loadAgentConfig, loadRunConfigDoc, promptDoc } from "../src/harness/config.js";
 import { getOutputTemplate, loadOutputTemplates } from "../src/harness/index.js";
 import { Workspace } from "../src/harness/workspace/fs.js";
@@ -350,10 +353,11 @@ describe("runAgentTurn partial text", () => {
 });
 
 describe("clearOldToolResults (compaction: clear)", () => {
+  // Bulk-class fixture: fs_* pages are what clearing retires.
   const pair = (i: number) => [
     {
       role: "assistant" as const,
-      content: [{ type: "tool-call" as const, toolCallId: `c${i}`, toolName: "getData", input: { i } }],
+      content: [{ type: "tool-call" as const, toolCallId: `c${i}`, toolName: "fs_read", input: { i } }],
     },
     {
       role: "tool" as const,
@@ -361,11 +365,29 @@ describe("clearOldToolResults (compaction: clear)", () => {
         {
           type: "tool-result" as const,
           toolCallId: `c${i}`,
-          toolName: "getData",
+          toolName: "fs_read",
           output: {
             type: "json" as const,
             value: { _source: { path: `/sources/raw/getData-${i}.json` }, fat: `payload-${i}`, n: i },
           },
+        },
+      ],
+    },
+  ];
+  // State-class fixture: a compact data digest — never clearable, any age.
+  const statePair = (i: number) => [
+    {
+      role: "assistant" as const,
+      content: [{ type: "tool-call" as const, toolCallId: `s${i}`, toolName: "get_price_history", input: { i } }],
+    },
+    {
+      role: "tool" as const,
+      content: [
+        {
+          type: "tool-result" as const,
+          toolCallId: `s${i}`,
+          toolName: "get_price_history",
+          output: { type: "json" as const, value: { scalars: { close: 344.63 }, digest: `digest-${i}` } },
         },
       ],
     },
@@ -390,6 +412,17 @@ describe("clearOldToolResults (compaction: clear)", () => {
     expect(out[0]).toEqual({ role: "user", content: "research the company" });
   });
 
+  it("keeps compact state digests verbatim at ANY age — no fs_read loops", () => {
+    const messages: any[] = [{ role: "user", content: "go" }];
+    for (let i = 0; i < 8; i++) messages.push(...statePair(i));
+    const out = clearOldToolResults(messages);
+    const text = JSON.stringify(out);
+    expect(text).not.toContain("[cleared]");
+    expect(text).toContain("digest-0"); // oldest digest still in context
+    expect(text).toContain("digest-7");
+    expect(out).toHaveLength(17);
+  });
+
   it("keeps assistant text and tool calls; only result OUTPUT is cleared", () => {
     const messages: any[] = [
       { role: "user", content: "go" },
@@ -397,13 +430,13 @@ describe("clearOldToolResults (compaction: clear)", () => {
         role: "assistant",
         content: [
           { type: "text", text: "finding data" },
-          { type: "tool-call", toolCallId: "old", toolName: "getData", input: {} },
+          { type: "tool-call", toolCallId: "old", toolName: "fs_read", input: {} },
         ],
       },
       {
         role: "tool",
         content: [
-          { type: "tool-result", toolCallId: "old", toolName: "getData", output: { type: "json", value: { fat: "old-blob" } } },
+          { type: "tool-result", toolCallId: "old", toolName: "fs_read", output: { type: "json", value: { fat: "old-blob" } } },
         ],
       },
       ...pair(5),
@@ -542,7 +575,8 @@ describe("loop compaction wiring (real SDK message flow)", () => {
           name: "probe",
           description: "probe",
           parameters: z.object({ i: z.number() }),
-          execute: async (a: any) => ({ fat: `payload-${a.i}` }),
+          // >8KB = bulk class, so clearing retires it past the keep-window
+          execute: async (a: any) => ({ fat: `payload-${a.i}`.padEnd(9_000, "·") }),
         },
       ],
       ctx: { symbol: "TCS", source: "NSE" },
@@ -642,14 +676,9 @@ describe("loop compaction integration (runAgentLoop)", () => {
   }, 20_000);
 });
 
-describe("AGENTS doc (react + protocol instructions)", () => {
-  it("lets the agent batch independent tool calls in one step", () => {
-    const agents = promptDoc("agents");
-    expect(agents).toMatch(/Batch independent tool calls/);
-    expect(agents).not.toMatch(/exactly one action/i);
-    expect(agents).toMatch(/untrusted DATA/); // protocol moved here too
-  });
-});
+// AGENTS.md is the single source for the run protocol (untrusted web text,
+// batching, termination) — it lives in the prompt doc only. Tests never read
+// or search that file; they assert what the CODE generates.
 
 describe("trailing reminders (todo/memory state in prepareStep)", () => {
   const usage = {
@@ -1163,13 +1192,12 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
       budget: { maxSteps: 3, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
       template: null,
     });
-    const sys = JSON.stringify(prompts[0]);
-    expect(sys).toContain("## Report sections");
-    expect(sys).toContain("lives INSIDE `spec`"); // plot shapes actually shipped
-    expect(sys).toContain("Workspace at run start");
-    expect(sys).toContain("/knowledge_base/ — EMPTY");
-    expect(sys).toContain("will NOT resolve"); // web-only toolbox → honest token note
-    expect(sys).toContain("untrusted DATA"); // system prompt: web text is data, never instructions
+    const textOf = (m: any) =>
+      typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((p: any) => p.text ?? "").join("\n") : "";
+    const sysText = (prompts[0] as any[]).map(textOf).join("\n");
+    expect(sysText).toContain(sectionContractMarkdown()); // generated contract, verbatim
+    expect(sysText).toContain(plotReferenceMarkdown(false)); // web-only toolbox → honest token note
+    expect(sysText).toContain("/knowledge_base/ — EMPTY"); // workspace tree rendered
 
     // with the real format file: the slots render in place, no duplicate block
     const tplPrompts: any[] = [];
@@ -1189,11 +1217,9 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
       budget: { maxSteps: 3, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
       template: getOutputTemplate(),
     });
-    const tplSys = JSON.stringify(tplPrompts[0]);
-    expect(tplSys).toContain("## Report sections — the full-section contract"); // {{section_contract}} filled
-    expect((tplSys.match(/## Report sections/g) || []).length).toBe(1); // fallback skipped
-    expect(tplSys).not.toContain("{{section_contract}}");
-    expect(tplSys).not.toContain("{{workspace_tree}}");
+    const tplText = (tplPrompts[0] as any[]).map(textOf).join("\n");
+    expect(tplText).toContain(sectionContractMarkdown()); // slot filled (or the fallback fired)
+    expect(tplText.split(sectionContractMarkdown()).length - 1).toBe(1); // never both
   }, 30_000);
 
   it("completion gate: open todos ship PARTIAL; completing them ships clean", async () => {
@@ -1260,17 +1286,41 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
   }, 30_000);
 });
 
-describe("AGENTS.md (the one prompt + format file)", () => {
-  it("loads from config/prompts — frontmatter intact, id selection ignored", () => {
-    const tpl = getOutputTemplate("any-old-id");
-    expect(tpl).toBeTruthy();
-    expect(tpl!.id).toBe("AGENTS");
-    expect(tpl!.name).toBe("Institutional equity research");
-    expect(tpl!.body).toContain("# Institutional equity research");
-    expect(tpl!.body).not.toMatch(/## Report structure/); // structure lives in the skill, not the prompt
-    expect(tpl!.require_sources).toBe(true);
-    expect(loadOutputTemplates()).toHaveLength(1);
-    expect(getOutputTemplate()).toBeTruthy(); // plugged in with no id at all
+describe("output template parsing (fixture file — the live prompt doc is never searched)", () => {
+  it("lifts frontmatter into the template and strips it from the body", () => {
+    const dir = mkdtempSync(join(tmpdir(), "harness-tpl-"));
+    try {
+      const file = join(dir, "AGENTS.md");
+      writeFileSync(
+        file,
+        [
+          "---",
+          "name: Fixture Name",
+          "description: fixture",
+          "min_charts: 2",
+          "require_sources: true",
+          "never_substitute: [utilize, leverage]",
+          "---",
+          "",
+          "# Fixture Name",
+          "",
+          "Body prose the model reads.",
+        ].join("\n"),
+      );
+      const [tpl] = loadOutputTemplates(file);
+      expect(tpl.id).toBe("AGENTS");
+      expect(tpl.name).toBe("Fixture Name");
+      expect(tpl.body.startsWith("# Fixture Name")).toBe(true); // frontmatter stripped
+      expect(tpl.min_charts).toBe(2);
+      expect(tpl.require_sources).toBe(true);
+      expect(tpl.never_substitute).toEqual(["utilize", "leverage"]);
+      // the LIVE doc must still parse — structure only, its prose is never asserted
+      expect(loadOutputTemplates()).toHaveLength(1);
+      expect(getOutputTemplate()).toBeTruthy();
+      expect(getOutputTemplate("any-old-id")).toBeTruthy(); // id accepted, one format only
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -1533,4 +1583,72 @@ describe("ToolLoopAgent loop (core agent loop)", () => {
     const body = await res.text();
     expect(body).toContain("hello");
   });
+});
+
+describe("skill prompt weight (agent's skills only, structure once)", () => {
+  const def = {
+    id: "a1",
+    userId: "u",
+    name: "A",
+    soulPrompt: "",
+    skillIds: ["technical-analysis"],
+    allowedTools: [],
+    modelId: null,
+    budget: { maxSteps: 6, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
+    outputTemplateId: null,
+    createdAt: new Date().toISOString(),
+  } as any;
+
+  it("compileAgent runs the agent's own skill picks, not the whole library", async () => {
+    const one = await compileAgent("u", def);
+    expect(one.skills.map((s) => s.id)).toEqual(["technical-analysis"]);
+    // a request-level override still wins over the agent's picks
+    const over = await compileAgent("u", def, { skillIds: ["dcf-valuation"] });
+    expect(over.skills.map((s) => s.id)).toEqual(["dcf-valuation"]);
+    // an agent with no picks keeps the old behavior: every skill
+    const all = await compileAgent("u", { ...def, skillIds: [] });
+    expect(all.skills.length).toBeGreaterThan(1);
+  });
+
+  it("the binding report structure ships exactly once per request", async () => {
+    const skill = getBuiltinSkill("chartist-technical-analysis");
+    expect(skill).toBeTruthy();
+    const usage = {
+      inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 5, text: 5, reasoning: 0 },
+    };
+    const prompts: any[] = [];
+    const model = new MockLanguageModelV4({
+      doGenerate: async (opts: any) => {
+        prompts.push(opts.prompt);
+        return {
+          content: [{ type: "text", text: "done" }],
+          finishReason: { unified: "stop", raw: "stop" },
+          usage,
+          rawCall: { rawPrompt: null, rawSettings: {} },
+          warnings: [],
+        } as any;
+      },
+    });
+    await runCanvasAnalysis({
+      model: model as any,
+      soul: "",
+      skills: [skill!],
+      prompt: "analyze AAPL",
+      tools: [{ name: "web_search", description: "s", parameters: z.object({}), execute: async () => ({}) }],
+      ctx: { symbol: "AAPL", source: "SEC" },
+      budget: { maxSteps: 3, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
+      template: null,
+    });
+    expect(prompts.length).toBeGreaterThan(0);
+    for (const p of prompts) {
+      const s = JSON.stringify(p);
+      // structure = once (the hoisted binding block), never again in the
+      // skill body or the trailing reminder
+      expect(s.split("### chartist-technical-analysis").length - 1).toBe(1);
+      expect(s).toContain("## Report structure — BINDING"); // hoisted copy still there
+      expect(s).not.toContain("## Report structure (BINDING)");
+      expect(s).toContain("# Skill: Chartist Technical Analysis (chartist-technical-analysis)"); // body still ships
+    }
+  }, 30_000);
 });

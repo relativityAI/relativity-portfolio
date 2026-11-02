@@ -11,11 +11,13 @@
  * blown the context window (the failure mode where a run dies 8 steps in with
  * 46k re-billed input tokens and a half-written report):
  *
- *   CLEAR     every step: tool results older than the last ~3 are replaced
- *             with `[cleared] full output at <workspace path>` — Anthropic's
- *             clearing config default. Stays restorable: the full payload
- *             lives on the workspace filesystem (the KB archive), so the
- *             model fs_read's it back when a figure is needed again.
+ *   CLEAR     every step: BULK tool results (fs_* pages, >8KB) older than
+ *             the last ~3 are replaced with `[cleared] full output at
+ *             <workspace path>` — Anthropic's clearing config default.
+ *             Compact state digests are never retired (see isClearable).
+ *             Stays restorable: the full payload lives on the workspace
+ *             filesystem (the KB archive), so the model fs_read's it back
+ *             when a figure is needed again.
  *   SUMMARIZE when the last step's input tokens pass ~90% of the context
  *             budget: a cheap model compacts everything older than the last
  *             N messages into a continuation brief (tickers, figures with
@@ -64,6 +66,23 @@ function stripNullArgs(args: unknown): unknown {
 
 /** Clearing keeps the last N tool results verbatim (Anthropic's default). */
 export const KEEP_RECENT_TOOL_RESULTS = 3;
+/** Results over this size are bulk regardless of tool — always clearable. */
+const CLEAR_SIZE_CHARS = 8_000;
+
+/**
+ * What clearing may retire: `fs_*` pages (raw workspace reads, one fs_read
+ * away from restore) and anything over CLEAR_SIZE_CHARS (bulk prose/MCP).
+ * Everything else past the keep-window is RESEARCH STATE — the compact
+ * digests the model reasons over ("tool results are your research state").
+ * Stubbing those sends the model into fs_read/re-search loops to get the
+ * numbers back: run efb0994b re-read the same price digest for 22 of 30
+ * steps (41 fs_reads) and shipped a single section.
+ */
+function isClearable(part: { toolName?: string; output?: unknown }): boolean {
+  if (part.toolName?.startsWith("fs_")) return true;
+  const text = typeof part.output === "string" ? part.output : JSON.stringify(part.output ?? "");
+  return text.length > CLEAR_SIZE_CHARS;
+}
 /** Messages kept verbatim beside the summary when the summarizer trips. */
 export const SUMMARIZE_KEEP_RECENT = 6;
 /** Summarize when the last step's input tokens pass this share of the budget. */
@@ -90,11 +109,12 @@ function truncate(value: unknown, max = 1500): string {
 }
 
 /**
- * CLEAR: replace tool results older than the last `keep` with a one-line
+ * CLEAR: replace bulk tool results older than the last `keep` with a one-line
  * stub pointing at the workspace path where the full output lives. The
  * assistant tool-call parts stay (the pairing remains valid), so context
  * grows by ~20 tokens per retired call instead of the full payload — and a
- * needed figure is one fs_read away.
+ * needed figure is one fs_read away. Compact state digests (see isClearable)
+ * are NEVER retired, however old they get.
  */
 export function clearOldToolResults(messages: ModelMessage[], keep = KEEP_RECENT_TOOL_RESULTS): ModelMessage[] {
   return clearOldToolResultsDetailed(messages, keep).messages;
@@ -110,26 +130,29 @@ export function clearOldToolResultsDetailed(
     if (m.role === "tool") toolIndexes.push(i);
   });
   if (toolIndexes.length <= keep) return { messages, cleared: 0 };
-  const cleared = new Set(toolIndexes.slice(0, toolIndexes.length - keep));
-  return { messages: messages.map((m, i) => {
-    if (m.role !== "tool" || !cleared.has(i)) return m;
-    return {
-      ...m,
-      content: (m.content as Array<Record<string, unknown>>).map((part) => {
-        if (part?.type !== "tool-result") return part;
-        const path = sourcePathOf(part.output);
-        return {
-          ...part,
-          output: {
-            type: "text",
-            value: path
-              ? `[cleared] full output at ${path} — fs_read to restore`
-              : "[cleared] full output archived in the research workspace",
-          },
-        };
-      }),
-    } as ModelMessage;
-  }), cleared: cleared.size };
+  const beyondWindow = new Set(toolIndexes.slice(0, toolIndexes.length - keep));
+  let cleared = 0;
+  const out = messages.map((m, i) => {
+    if (m.role !== "tool" || !beyondWindow.has(i)) return m;
+    let changed = false;
+    const content = (m.content as Array<Record<string, unknown>>).map((part) => {
+      if (part?.type !== "tool-result" || !isClearable(part)) return part;
+      changed = true;
+      cleared++;
+      const path = sourcePathOf(part.output);
+      return {
+        ...part,
+        output: {
+          type: "text",
+          value: path
+            ? `[cleared] full output at ${path} — fs_read to restore`
+            : "[cleared] full output archived in the research workspace",
+        },
+      } as Record<string, unknown>;
+    });
+    return changed ? ({ ...m, content } as ModelMessage) : m;
+  });
+  return { messages: out, cleared };
 }
 
 /** Drop reminders we injected last step (idempotent if the SDK persisted them). */

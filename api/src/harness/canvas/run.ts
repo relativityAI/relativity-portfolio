@@ -243,9 +243,9 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
       // AGENTS.md rides the static instructions — only re-send the LIVE copy
       // when the agent actually edited it (otherwise it's plain duplication).
       liveAgents && liveAgents !== agentsDoc ? `## AGENTS.md (edited this run — live copy)\n${liveAgents}` : "",
-      // Structure is binding but rides the static system prompt; re-send it
-      // every step so a write late in the run still has it in view.
-      structure ? `## Report structure (BINDING) — applies to every report_write\n${structure}` : "",
+      // Report structure rides the static system prompt only — instructions
+      // survive compaction untouched, so re-sending it every step is pure
+      // duplicate input (it used to ship 3×: system + skill body + reminder).
       formatGaps(),
     ].filter(Boolean);
     return parts.join("\n\n");

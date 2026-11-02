@@ -62,17 +62,15 @@ export function reportStructureBlock(skills: HarnessSkill[]): string {
 }
 
 /**
- * Full instructions for an activated skill. The report-structure reference is
- * hoisted to a BINDING section right under the header (models ignore specs
- * appended after a long body); the remaining references stay on demand.
+ * Full instructions for an activated skill: header, body, then the remaining
+ * references on demand. The report-structure reference is NOT repeated here —
+ * the harness hoists it once as a single BINDING block above every skill body
+ * (reportStructureBlock), so the structure ships exactly once per prompt.
  */
 export function activateSkill(skill: HarnessSkill): string {
-  const header = `# Skill: ${skill.name} (${skill.id})`;
-  const structure = reportStructureOf(skill);
-  const structureBlock = structure ? `\n\n## Report structure (BINDING)\n${structure}` : "";
   const refs = skill.references.filter((r) => !/report[-_ ]?structure/i.test(r.path));
   const refsText = refs.length
     ? `\n\n## References\n${refs.map((r) => `### ${r.path}\n${r.text}`).join("\n\n")}`
     : "";
-  return `${header}${structureBlock}\n\n${skill.body}${refsText}`;
+  return `# Skill: ${skill.name} (${skill.id})\n\n${skill.body}${refsText}`;
 }

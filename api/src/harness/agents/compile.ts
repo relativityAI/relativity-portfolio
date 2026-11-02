@@ -2,9 +2,9 @@
  * Compile an agent definition into a runnable context: the skills, the tool
  * allowlist, the budget, and the selected system prompt.
  *
- * Every run loads ALL skills (builtins + the user's customs) — a request may
- * pass an explicit skill id list to override. Skill bodies are injected whole
- * into the agent's prompt.
+ * A run loads the skills it asked for (request override, else the agent's own
+ * skillIds; an agent with none gets every builtin + custom). Skill bodies are
+ * injected whole into the agent's prompt.
  */
 
 import { listAllSkillsForUser, resolveSkill } from "../skills/catalog.js";
@@ -29,9 +29,12 @@ export interface CompileOptions {
 }
 
 export async function compileAgent(userId: string, def: AgentDefinition, opts: CompileOptions = {}): Promise<CompiledAgent> {
+  // Request override > the agent's own picks > (empty = every skill). Without
+  // this the agent's skillIds were dead code and every run inlined ALL skills.
+  const ids = opts.skillIds?.length ? opts.skillIds : def.skillIds;
   let skills: HarnessSkill[];
-  if (opts.skillIds?.length) {
-    const resolved = await Promise.all(opts.skillIds.map((id) => resolveSkill(userId, id)));
+  if (ids?.length) {
+    const resolved = await Promise.all(ids.map((id) => resolveSkill(userId, id)));
     skills = resolved.filter((s): s is HarnessSkill => s !== null);
   } else {
     skills = await listAllSkillsForUser(userId);
