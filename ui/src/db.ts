@@ -112,6 +112,8 @@ export const AnalysisService = {
         skills?: string[];
         max_steps?: number;
         max_tokens?: number;
+        /** Named system prompt (agent.yaml prompts.<name>); omitted = default. */
+        system_prompt?: string;
     }) {
         const response = await axios.post(`${API_BASE}/analysis`, config);
         return response.data as {

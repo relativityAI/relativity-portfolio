@@ -327,7 +327,7 @@ export function validateReportDocument(doc: ReportDocument): string[] {
 
 /**
  * Count the chart blocks a document carries. `min_charts` enforcement in
- * report/builder.enforceTemplate uses this so the number and the rule share
+ * report/builder.enforceSystemPrompt uses this so the number and the rule share
  * one definition.
  */
 export function countCharts(doc: Pick<ReportDocument, "sections">): number {

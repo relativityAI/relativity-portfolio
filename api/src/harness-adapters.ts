@@ -45,7 +45,7 @@ function rowToDefinition(row: any): AgentDefinition {
     allowedTools: c.allowed_tools ?? [],
     modelId: c.model_id ?? null,
     budget: clampBudget(c.budget ?? undefined),
-    outputTemplateId: c.output_template_id ?? null,
+    systemPrompt: c.system_prompt ?? null,
     createdAt: row.created_at ?? null,
   };
 }
@@ -59,7 +59,7 @@ function toConfig(input: AgentInput, base?: Record<string, unknown>): Record<str
     allowed_tools: input.allowedTools ?? [],
     model_id: input.modelId ?? null,
     budget: clampBudget(input.budget),
-    output_template_id: input.outputTemplateId ?? null,
+    system_prompt: input.systemPrompt ?? null,
   };
 }
 
@@ -106,7 +106,7 @@ export const supabaseAgentRepository: AgentRepository = {
       allowedTools: input.allowedTools ?? c.allowed_tools ?? [],
       modelId: input.modelId !== undefined ? input.modelId : c.model_id ?? null,
       budget: input.budget ?? c.budget,
-      outputTemplateId: input.outputTemplateId !== undefined ? input.outputTemplateId : c.output_template_id ?? null,
+      systemPrompt: input.systemPrompt !== undefined ? input.systemPrompt : c.system_prompt ?? null,
     };
     const patch: Record<string, unknown> = {
       configuration: toConfig(merged, c),
@@ -194,7 +194,7 @@ export function harnessToView(d: AgentDefinition) {
     allowed_tools: d.allowedTools,
     model_id: d.modelId,
     budget: d.budget,
-    output_template_id: d.outputTemplateId,
+    system_prompt: d.systemPrompt,
   };
 }
 
@@ -213,8 +213,8 @@ export function viewToHarnessPatch(body: Record<string, any>) {
   const tools = body.allowedTools ?? body.allowed_tools;
   if (Array.isArray(tools)) patch.allowedTools = tools;
   if (body.modelId !== undefined || body.model_id !== undefined) patch.modelId = body.modelId ?? body.model_id;
-  if (body.outputTemplateId !== undefined || body.output_template_id !== undefined) {
-    patch.outputTemplateId = body.outputTemplateId ?? body.output_template_id ?? null;
+  if (body.systemPrompt !== undefined || body.system_prompt !== undefined) {
+    patch.systemPrompt = body.systemPrompt ?? body.system_prompt ?? null;
   }
   return patch;
 }

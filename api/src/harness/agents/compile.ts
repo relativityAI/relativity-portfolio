@@ -11,18 +11,18 @@ import { listAllSkillsForUser, resolveSkill } from "../skills/catalog.js";
 import type { HarnessSkill } from "../skills/loader.js";
 import type { Budget } from "../types.js";
 import type { AgentDefinition } from "./store.js";
-import { applyVariables, type OutputTemplate } from "../system-prompts/catalog.js";
+import { applyVariables, type SystemPrompt } from "../system-prompts/catalog.js";
 
 export interface CompiledAgent {
   allowedTools: string[];
   budget: Budget;
   skills: HarnessSkill[];
-  template: OutputTemplate | null;
+  template: SystemPrompt | null;
 }
 
 export interface CompileOptions {
-  template?: OutputTemplate | null;
-  /** `{{placeholders}}` substituted into the template body. */
+  template?: SystemPrompt | null;
+  /** `{{placeholders}}` substituted into the prompt body. */
   vars?: Record<string, string | undefined>;
   /** Explicit skill ids (request override); omitted/empty = all of the user's skills. */
   skillIds?: string[];

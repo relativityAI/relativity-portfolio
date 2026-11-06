@@ -7,25 +7,24 @@
  * from the agent's analysis (soul prompt). Optional YAML frontmatter adds
  * machine-enforceable rules; everything else is prose the model reads.
  *
- * Storage: ONE file — `api/src/harness/config/prompts/AGENTS.md`, its YAML
- * frontmatter being the machine-enforceable rules (edit the file, the next
- * run picks it up). The path comes from config/agent.yaml prompts.agents.
+ * Storage: `api/src/harness/config/prompts/*.md`, one file per named system
+ * prompt, mapped by key in config/agent.yaml `prompts:` (edit the file or the
+ * config, the next run picks it up). Each file's YAML frontmatter is the
+ * machine-enforceable rules; its prose is the agent's system instructions.
  * Report structure is NOT defined here — the active skill's report-structure
  * owns it.
  */
 
-import { readFileSync, existsSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
-import { promptDocPath } from "../config.js";
+import { promptDocPath, promptNames } from "../config.js";
 import { countCharts, sectionHeadings, type ReportDocument } from "../report/document.js";
 
-export interface OutputTemplate {
+export interface SystemPrompt {
   id: string;
   name: string;
   description: string;
-  /** The template body (markdown, already variable-substituted). */
+  /** The prompt body (markdown). */
   body: string;
   default?: boolean;
   /** Frontmatter enforcement rules (all optional). */
@@ -33,33 +32,21 @@ export interface OutputTemplate {
   min_charts?: number;
   section_order?: string[];
   require_sources?: boolean;
-  /** Banned words the template's vocabulary forbids (never substitute). */
+  /** Banned words the prompt's vocabulary forbids (never substitute). */
   never_substitute?: string[];
   allowed_primitives?: string[];
 }
 
 const DEFAULT_ID = "default";
-const FILE_ID = (file: string) => file.replace(/\.md$/i, "");
-
-/**
- * The single format file = config/prompts/AGENTS.md (frontmatter = verify
- * rules, prose = the agent's system instructions). Path via agent.yaml
- * (memoized per process); the file itself is re-read per call so an edit is
- * live.
- */
-let formatFile: string | null = null;
-function reportFormatFile(): string {
-  if (formatFile) return formatFile;
-  formatFile = promptDocPath("agents") || join(dirname(fileURLToPath(import.meta.url)), "..", "config", "prompts", "AGENTS.md");
-  return formatFile;
-}
+/** agent.yaml's default system prompt role — its file is the default choice. */
+const DEFAULT_ROLE = "agents";
 
 function titleFrom(id: string, body: string): string {
   const heading = body.match(/^#\s+(.+)$/m)?.[1]?.trim();
   return heading || id.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function parseTemplate(id: string, raw: string): OutputTemplate {
+function parsePrompt(id: string, raw: string): SystemPrompt {
   let frontmatter: Record<string, any> = {};
   let body = raw;
   const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
@@ -82,21 +69,31 @@ function parseTemplate(id: string, raw: string): OutputTemplate {
   };
 }
 
-/** Read the one format file. Empty = none configured (run stays unformatted). */
-export function loadOutputTemplates(file: string = reportFormatFile()): OutputTemplate[] {
-  if (!existsSync(file)) return [];
-  try {
-    return [parseTemplate(FILE_ID(basename(file)), readFileSync(file, "utf8"))];
-  } catch {
-    return [];
+/**
+ * Every named system prompt (agent.yaml prompts.* minus the compaction role):
+ * id = the config key, so a name picked in the CLI/UI resolves back to its
+ * file. Empty = none configured (run stays unformatted). Re-read per call so
+ * an edit is live without a restart.
+ */
+export function loadSystemPrompts(dir?: string): SystemPrompt[] {
+  const out: SystemPrompt[] = [];
+  for (const name of promptNames(dir)) {
+    const path = promptDocPath(name, dir);
+    if (!path) continue;
+    try {
+      const tpl = parsePrompt(name, readFileSync(path, "utf8"));
+      out.push({ ...tpl, default: tpl.default || name === DEFAULT_ROLE });
+    } catch {
+      // unreadable prompt file = skipped; the run falls back to the default
+    }
   }
+  return out;
 }
 
-export function getOutputTemplate(_id?: string): OutputTemplate | null {
-  // ponytail: ONE format (AGENTS.md) — the id is accepted for caller
-  // compat (the API stores outputTemplateId) but ignored; restore id matching
-  // when a second format file exists.
-  return loadOutputTemplates()[0] ?? null;
+/** The prompt chosen by name; absent/unknown id → the default (`agents`). */
+export function getSystemPrompt(id?: string, dir?: string): SystemPrompt | null {
+  const all = loadSystemPrompts(dir);
+  return (id ? all.find((t) => t.id === id) : null) ?? all.find((t) => t.default) ?? all[0] ?? null;
 }
 
 /** `{{name}}` placeholders → run values (symbol, title, date, source, agent). */
@@ -105,10 +102,10 @@ export function applyVariables(text: string, vars: Record<string, string | undef
 }
 
 /**
- * Validate a built document against a template's frontmatter rules. Returns
+ * Validate a built document against the prompt's frontmatter rules. Returns
  * human-readable violations; the run surfaces them in `report.errors`.
  */
-export function validateAgainstTemplate(doc: ReportDocument, tpl: OutputTemplate | null): string[] {
+export function validateAgainstSystemPrompt(doc: ReportDocument, tpl: SystemPrompt | null): string[] {
   if (!tpl) return [];
   const errors: string[] = [];
   const headings = sectionHeadings(doc);
@@ -118,28 +115,26 @@ export function validateAgainstTemplate(doc: ReportDocument, tpl: OutputTemplate
     .toLowerCase();
 
   if (tpl.min_charts != null && countCharts(doc) < tpl.min_charts) {
-    errors.push(`template "${tpl.id}" wants at least ${tpl.min_charts} chart(s); document has ${countCharts(doc)}`);
+    errors.push(`system prompt "${tpl.id}" wants at least ${tpl.min_charts} chart(s); document has ${countCharts(doc)}`);
   }
   for (const want of tpl.required_sections ?? []) {
     if (!headings.some((h) => h.includes(want.toLowerCase()))) {
-      errors.push(`template "${tpl.id}" requires a "${want}" section`);
+      errors.push(`system prompt "${tpl.id}" requires a "${want}" section`);
     }
   }
   if (tpl.section_order?.length) {
     const positions = tpl.section_order.map((want) => headings.findIndex((h) => h.includes(want.toLowerCase())));
     const seen = positions.filter((p) => p >= 0);
     if (seen.length > 1 && seen.some((p, i) => i > 0 && p < seen[i - 1])) {
-      errors.push(`template "${tpl.id}" expects sections in order ${tpl.section_order.join(" → ")}`);
+      errors.push(`system prompt "${tpl.id}" expects sections in order ${tpl.section_order.join(" → ")}`);
     }
   }
   if (tpl.require_sources && doc.sources.length === 0) {
-    errors.push(`template "${tpl.id}" requires at least one source`);
+    errors.push(`system prompt "${tpl.id}" requires at least one source`);
   }
   for (const banned of tpl.never_substitute ?? []) {
     const re = new RegExp(`\\b${banned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
-    if (re.test(body)) errors.push(`template "${tpl.id}" forbids the word "${banned}"`);
+    if (re.test(body)) errors.push(`system prompt "${tpl.id}" forbids the word "${banned}"`);
   }
   return errors;
 }
-
-export { DEFAULT_ID as DEFAULT_TEMPLATE_ID };

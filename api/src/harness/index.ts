@@ -87,8 +87,8 @@ export { compileSkillCatalog, activateSkill, skillMetadata, reportStructureOf, r
 export type { SkillMetadata } from "./skills/activate.js";
 
 // ── System prompts (selectable presentation format, resolved from disk) ────
-export { loadOutputTemplates, getOutputTemplate, applyVariables, validateAgainstTemplate, DEFAULT_TEMPLATE_ID } from "./system-prompts/catalog.js";
-export type { OutputTemplate } from "./system-prompts/catalog.js";
+export { loadSystemPrompts, getSystemPrompt, applyVariables, validateAgainstSystemPrompt } from "./system-prompts/catalog.js";
+export type { SystemPrompt } from "./system-prompts/catalog.js";
 
 // ── Tools ──────────────────────────────────────────────────────────────────
 export { ToolRegistry } from "./tools/registry.js";
@@ -115,7 +115,7 @@ export { verifyDocumentNumbers, allowedNumbers } from "./workspace/verify.js";
 // ── Report contract (relativity/report.v1) ─────────────────────────────────
 export { ReportDocumentSchema, validateReportDocument, countCharts, sectionHeadings, SCHEMA_VERSION } from "./report/document.js";
 export type { ReportDocument, Section, Source, ChartSpec, Highlight, DiagramSpec, Series, SeriesPoint, ArtifactRef } from "./report/document.js";
-export { attachChartData, enforceTemplate, extractJson } from "./report/builder.js";
+export { attachChartData, enforceSystemPrompt, extractJson } from "./report/builder.js";
 export { VERDICTS, gradeReport } from "./report/verdict.js";
 export type { Verdict } from "./report/verdict.js";
 export { BLOCKS, SECTION_SHAPE } from "./report/catalog.js";

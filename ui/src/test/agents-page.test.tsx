@@ -21,7 +21,7 @@ import { ThemeProvider } from "next-themes";
 vi.mock("@/lib/harnessAgents", () => ({
   HarnessAgentService: {
     list: vi.fn(async () => []),
-    listTemplates: vi.fn(async () => [{ id: "default", name: "Research report", description: "" }]),
+    listSystemPrompts: vi.fn(async () => [{ id: "agents", name: "Stock Market Research", description: "" }]),
     create: vi.fn(async (input: Record<string, unknown>) => ({ id: "a1", ...input, allowedTools: [], modelId: null })),
   },
 }));

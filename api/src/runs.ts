@@ -22,7 +22,7 @@ import {
   ReportCanvas,
   buildToolRegistry,
   loadCliConfig,
-  getOutputTemplate,
+  getSystemPrompt,
   type AgentDefinition,
   type ReportDocument,
   type Verdict,
@@ -88,7 +88,7 @@ export async function runHarnessSymbol(
   symbol: string,
   source: string,
   requestedModel?: string,
-  requestedTemplateId?: string,
+  requestedSystemPrompt?: string,
   existingRunId?: string,
   /** Request override: 1 prompt. Absent = the synthesized Analyze prompt. */
   promptOverride?: string,
@@ -103,9 +103,11 @@ export async function runHarnessSymbol(
   const agent = await getAgent(userId, agentId);
   if (!agent) return null;
 
-  // System prompt: always the harness report format (one format now —
-  // config/prompts/AGENTS.md; outputTemplateId is kept for schema compat but inert).
-  const template = getOutputTemplate(requestedTemplateId || agent.outputTemplateId || "");
+  // System prompt chosen by name (agent.yaml prompts.*): request override, else
+  // the agent's own pick, else the default `agents` doc. Unknown names fall
+  // back to the default in both resolvers below.
+  const systemPrompt = requestedSystemPrompt || agent.systemPrompt || undefined;
+  const template = getSystemPrompt(systemPrompt || "");
   const compiled = await compileAgent(userId, agent, {
     template,
     vars: { symbol, title: symbol, date: new Date().toISOString().slice(0, 10), source, agent: agent.name },
@@ -205,6 +207,7 @@ export async function runHarnessSymbol(
         allowedTools: compiled.allowedTools.length ? compiled.allowedTools : undefined,
         ctx: { symbol, source },
         budget,
+        systemPrompt,
         template,
         initialWorkspace,
         onEvent: (e) => {

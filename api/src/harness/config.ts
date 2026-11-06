@@ -1,8 +1,11 @@
 /**
  * Harness config — `src/harness/config/agent.yaml` maps each role to a plain
  * markdown doc under `config/prompts/` (AGENTS, COMPACTION…): drop a
- * file, edit a file, no code change. Everything is read per call so an edit is
- * live without a restart. HTML comments stripped, leading frontmatter stripped
+ * file, edit a file, no code change. Extra keys under `prompts:` are named
+ * system prompts — choose one by name (CLI --system-prompt, API
+ * system_prompt, UI dropdown), absent/unknown → `prompts.agents`.
+ * Everything is read per call so an edit is live without a restart. HTML
+ * comments stripped, leading frontmatter stripped
  * (AGENTS.md's frontmatter is the format's verify contract — the harness reads
  * it raw, the model never sees it), first 200 lines load. Missing file = "".
  */
@@ -14,7 +17,12 @@ import { parse } from "yaml";
 import { log } from "./log.js";
 
 export interface AgentConfig {
-  prompts: { compaction: string; agents: string };
+  /**
+   * `compaction` is a harness role; `agents` is the default system prompt.
+   * Every OTHER key is a named system prompt (agent.yaml prompts.<name>) —
+   * choose one per run: CLI --system-prompt, API system_prompt, UI dropdown.
+   */
+  prompts: { compaction: string; agents: string; [name: string]: string };
   limits: {
     spillThresholdChars: number;
     spillHeadChars: number;
@@ -82,12 +90,18 @@ export function loadRunConfigDoc(name: string, dir?: string): string {
     .trim();
 }
 
-/** Absolute path of a prompt doc (agent.yaml prompts.*), "" when missing. */
+/** Absolute path of a prompt doc (agent.yaml prompts.*), "" when missing. Unknown name → the default `agents` doc. */
 export function promptDocPath(role: keyof AgentConfig["prompts"], dir?: string): string {
   const base = dir ?? configDir();
-  const rel = loadAgentConfig(base).prompts[role];
+  const cfg = loadAgentConfig(base);
+  const rel = cfg.prompts[role] ?? cfg.prompts.agents;
   const file = join(base, rel);
   return existsSync(file) ? file : "";
+}
+
+/** Named system prompts — agent.yaml prompts.* minus the compaction role. */
+export function promptNames(dir?: string): string[] {
+  return Object.keys(loadAgentConfig(dir).prompts).filter((name) => name !== "compaction");
 }
 
 /** A prompt doc by role: comment-stripped, frontmatter-stripped, 200-line cap. */

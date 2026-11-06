@@ -28,8 +28,8 @@ export interface AgentDefinition {
   allowedTools: string[];
   modelId: string | null;
   budget: Budget;
-  /** Output template (format) applied as the last step; null = contract only. */
-  outputTemplateId: string | null;
+  /** The agent's default system prompt (agent.yaml prompts.* name); null = default prompt. */
+  systemPrompt: string | null;
   createdAt: string | null;
 }
 
@@ -40,7 +40,7 @@ export interface AgentInput {
   allowedTools?: string[];
   modelId?: string | null;
   budget?: Partial<Budget>;
-  outputTemplateId?: string | null;
+  systemPrompt?: string | null;
 }
 
 /** Seeded for a user with no harness agents: the built-in technical read. */
@@ -82,7 +82,7 @@ export function createMemoryAgentRepository(): AgentRepository {
         allowedTools: input.allowedTools ?? [],
         modelId: input.modelId ?? null,
         budget: clampBudget(input.budget),
-        outputTemplateId: input.outputTemplateId ?? null,
+        systemPrompt: input.systemPrompt ?? null,
         createdAt: new Date().toISOString(),
       };
       rows.set(row.id, row);
@@ -99,7 +99,7 @@ export function createMemoryAgentRepository(): AgentRepository {
         allowedTools: input.allowedTools ?? existing.allowedTools,
         modelId: input.modelId !== undefined ? input.modelId : existing.modelId,
         budget: input.budget ? clampBudget({ ...existing.budget, ...input.budget }) : existing.budget,
-        outputTemplateId: input.outputTemplateId !== undefined ? input.outputTemplateId : existing.outputTemplateId,
+        systemPrompt: input.systemPrompt !== undefined ? input.systemPrompt : existing.systemPrompt,
       };
       rows.set(id, merged);
       return merged;

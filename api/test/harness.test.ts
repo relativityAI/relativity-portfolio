@@ -28,8 +28,8 @@ import { runCanvasAnalysis } from "../src/harness/canvas/run.js";
 import { plotReferenceMarkdown, sectionContractMarkdown } from "../src/harness/report/reference.js";
 import { compileAgent } from "../src/harness/agents/compile.js";
 import { getBuiltinSkill } from "../src/harness/skills/catalog.js";
-import { AGENT_CONFIG_DEFAULT, loadAgentConfig, loadRunConfigDoc, promptDoc } from "../src/harness/config.js";
-import { getOutputTemplate, loadOutputTemplates } from "../src/harness/index.js";
+import { AGENT_CONFIG_DEFAULT, loadAgentConfig, loadRunConfigDoc, promptDoc, promptNames } from "../src/harness/config.js";
+import { getSystemPrompt, loadSystemPrompts } from "../src/harness/index.js";
 import { Workspace } from "../src/harness/workspace/fs.js";
 import { readPlan, workspaceTools } from "../src/harness/workspace/tools.js";
 import { PATHS } from "../src/harness/workspace/paths.js";
@@ -1215,7 +1215,7 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
       tools: [{ name: "web_search", description: "s", parameters: z.object({}), execute: async () => ({}) }],
       ctx: { symbol: "TCS", source: "NSE" },
       budget: { maxSteps: 3, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
-      template: getOutputTemplate(),
+      template: getSystemPrompt(),
     });
     const tplText = (tplPrompts[0] as any[]).map(textOf).join("\n");
     expect(tplText).toContain(sectionContractMarkdown()); // slot filled (or the fallback fired)
@@ -1290,9 +1290,10 @@ describe("output template parsing (fixture file — the live prompt doc is never
   it("lifts frontmatter into the template and strips it from the body", () => {
     const dir = mkdtempSync(join(tmpdir(), "harness-tpl-"));
     try {
-      const file = join(dir, "AGENTS.md");
+      mkdirSync(join(dir, "prompts"), { recursive: true });
+      writeFileSync(join(dir, "agent.yaml"), "prompts:\n  agents: prompts/AGENTS.md\n");
       writeFileSync(
-        file,
+        join(dir, "prompts", "AGENTS.md"),
         [
           "---",
           "name: Fixture Name",
@@ -1307,17 +1308,50 @@ describe("output template parsing (fixture file — the live prompt doc is never
           "Body prose the model reads.",
         ].join("\n"),
       );
-      const [tpl] = loadOutputTemplates(file);
-      expect(tpl.id).toBe("AGENTS");
+      const [tpl] = loadSystemPrompts(dir);
+      expect(tpl.id).toBe("agents"); // id = the agent.yaml key, not the filename
       expect(tpl.name).toBe("Fixture Name");
       expect(tpl.body.startsWith("# Fixture Name")).toBe(true); // frontmatter stripped
       expect(tpl.min_charts).toBe(2);
       expect(tpl.require_sources).toBe(true);
       expect(tpl.never_substitute).toEqual(["utilize", "leverage"]);
-      // the LIVE doc must still parse — structure only, its prose is never asserted
-      expect(loadOutputTemplates()).toHaveLength(1);
-      expect(getOutputTemplate()).toBeTruthy();
-      expect(getOutputTemplate("any-old-id")).toBeTruthy(); // id accepted, one format only
+      expect(tpl.default).toBe(true);
+      // the LIVE config lists one entry per named prompt — the default plus
+      // every extra file under config/prompts/ (robust as more are added)
+      const live = loadSystemPrompts();
+      expect(live.map((t) => t.id)).toContain("agents");
+      expect(live.map((t) => t.id)).toContain("brief");
+      expect(live.find((t) => t.default)?.id).toBe("agents");
+      expect(getSystemPrompt("brief")?.name).toBe("Market Brief");
+      expect(getSystemPrompt()).toBeTruthy();
+      expect(getSystemPrompt("any-old-id")).toBeTruthy(); // unknown name → the default
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("named system prompts (agent.yaml prompts.*)", () => {
+  it("lists the names and resolves each prompt by name", () => {
+    const dir = mkdtempSync(join(tmpdir(), "harness-sysprompt-"));
+    try {
+      mkdirSync(join(dir, "prompts"), { recursive: true });
+      writeFileSync(
+        join(dir, "agent.yaml"),
+        "prompts:\n  compaction: prompts/COMPACTION.md\n  agents: prompts/AGENTS.md\n  macro: prompts/MACRO.md\n",
+      );
+      writeFileSync(join(dir, "prompts", "AGENTS.md"), "# Default Doc\n\nDefault body.\n");
+      writeFileSync(join(dir, "prompts", "MACRO.md"), "---\nname: Macro\nmin_charts: 1\n---\n# Macro Doc\n\nMacro body.\n");
+
+      expect(promptNames(dir)).toEqual(["agents", "macro"]); // compaction is a role, not a choice
+      expect(promptDoc("macro", dir)).toBe("# Macro Doc\n\nMacro body.");
+      expect(promptDoc("nope", dir)).toContain("Default body."); // unknown name → default
+
+      const tpls = loadSystemPrompts(dir);
+      expect(tpls.map((t) => t.id)).toEqual(["agents", "macro"]);
+      expect(tpls.filter((t) => t.default).map((t) => t.id)).toEqual(["agents"]);
+      expect(getSystemPrompt("macro", dir)?.min_charts).toBe(1);
+      expect(getSystemPrompt("nope", dir)?.id).toBe("agents");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1595,7 +1629,7 @@ describe("skill prompt weight (agent's skills only, structure once)", () => {
     allowedTools: [],
     modelId: null,
     budget: { maxSteps: 6, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
-    outputTemplateId: null,
+    systemPrompt: null,
     createdAt: new Date().toISOString(),
   } as any;
 

@@ -36,7 +36,7 @@ import {
   deleteAgent as deleteHarnessAgent,
   getAgent as getHarnessAgent,
   DEFAULT_HARNESS_AGENT,
-  loadOutputTemplates,
+  loadSystemPrompts,
   type ReportDocument,
   type Verdict,
 } from "./harness/index.js";
@@ -374,7 +374,7 @@ app.post("/agents", requireAuth, async (req, res) => {
       skillIds: patch.skillIds,
       allowedTools: patch.allowedTools,
       modelId: patch.modelId,
-      outputTemplateId: patch.outputTemplateId ?? null,
+      systemPrompt: patch.systemPrompt ?? null,
     });
     res.status(201).json(harnessToView(created));
   } catch (e: any) {
@@ -743,7 +743,7 @@ app.post("/analysis", requireAuth, async (req, res) => {
       symbol,
       source,
       body.model ? String(body.model) : undefined,
-      body.output_template_id ? String(body.output_template_id) : undefined,
+      body.system_prompt ? String(body.system_prompt) : undefined,
       runId,
       prompt,
       skillIds,
@@ -1221,7 +1221,7 @@ app.post("/harness/agents/:id/run", requireAuth, async (req, res) => {
       symbol,
       String(body.source || "NSE").toUpperCase(),
       body.model ? String(body.model) : undefined,
-      body.output_template_id ? String(body.output_template_id) : undefined,
+      body.system_prompt ? String(body.system_prompt) : undefined,
       undefined,
       prompt,
       skillIds,
@@ -1233,11 +1233,11 @@ app.post("/harness/agents/:id/run", requireAuth, async (req, res) => {
   }
 });
 
-// The report format list (edit src/harness/config/prompts/AGENTS.md frontmatter — live without restart).
-app.get("/harness/templates", requireAuth, async (_req, res) => {
+// The system-prompt list (agent.yaml prompts.* — every named prompt, live without restart).
+app.get("/harness/system-prompts", requireAuth, async (_req, res) => {
   try {
     res.json(
-      loadOutputTemplates().map((t) => ({ id: t.id, name: t.name, description: t.description, default: !!t.default })),
+      loadSystemPrompts().map((t) => ({ id: t.id, name: t.name, description: t.description, default: !!t.default })),
     );
   } catch (e: any) {
     res.status(503).json({ error: e.message });

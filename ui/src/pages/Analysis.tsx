@@ -4,7 +4,7 @@ import { MdCheck, MdClose } from "react-icons/md";
 import { Building2, Cpu, Sparkles, Bot, CircleCheck, CircleDashed } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AnalysisService, SkillService, API_BASE, type SkillSummary } from "@/db";
-import { HarnessAgentService, type OutputTemplateSummary } from "@/lib/harnessAgents";
+import { HarnessAgentService, type SystemPromptSummary } from "@/lib/harnessAgents";
 import { formatSeconds } from "@/utils";
 import { ModelLogo } from "@/lib/modelLogos";
 import SkillAvatar from "@/components/shared/SkillAvatar";
@@ -343,14 +343,14 @@ export default function Analysis() {
     const [skills, setSkills] = useState<SkillSummary[]>([]);
     const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
     // Named system prompts (agent.yaml prompts.*) — "" = the default one.
-    const [agentPrompts, setAgentPrompts] = useState<OutputTemplateSummary[]>([]);
+    const [agentPrompts, setAgentPrompts] = useState<SystemPromptSummary[]>([]);
     const [agentPrompt, setAgentPrompt] = useState("");
 
     useEffect(() => {
         SkillService.listSkills()
             .then((all) => setSkills(all.filter((s) => s.source === "builtin")))
             .catch(() => setSkills([]));
-        HarnessAgentService.listTemplates()
+        HarnessAgentService.listSystemPrompts()
             .then(setAgentPrompts)
             .catch(() => setAgentPrompts([]));
     }, []);
@@ -411,7 +411,7 @@ export default function Analysis() {
                 skills: selectedSkills.length ? selectedSkills : undefined,
                 max_steps: maxSteps ? Number(maxSteps) : undefined,
                 max_tokens: maxTokens ? Number(maxTokens) : undefined,
-                output_template_id: selectedAgent?.id,
+                system_prompt: selectedAgent?.id,
             });
 
             if (result?.id) {

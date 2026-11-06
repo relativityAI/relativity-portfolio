@@ -17,8 +17,8 @@ export interface HarnessAgent {
   allowedTools: string[];
   modelId: string | null;
   budget: Budget;
-  /** Output template (format) applied last; null = contract only. */
-  outputTemplateId: string | null;
+  /** The agent's default system prompt (agent.yaml prompts.* name); null = default prompt. */
+  systemPrompt: string | null;
 }
 
 export interface HarnessAgentInput {
@@ -28,10 +28,10 @@ export interface HarnessAgentInput {
   allowedTools?: string[];
   modelId?: string | null;
   budget?: Partial<Budget>;
-  outputTemplateId?: string | null;
+  systemPrompt?: string | null;
 }
 
-/** The API returns snake_case (`skill_ids`, `output_template_id`, …). */
+/** The API returns snake_case (`skill_ids`, `system_prompt`, …). */
 function toView(a: Record<string, any>): HarnessAgent {
   return {
     id: a.id,
@@ -41,11 +41,11 @@ function toView(a: Record<string, any>): HarnessAgent {
     allowedTools: a.allowed_tools ?? [],
     modelId: a.model_id ?? null,
     budget: a.budget ?? { maxSteps: 20, maxTokens: 200_000, maxCostUsd: 0.5, maxIterations: 6 },
-    outputTemplateId: a.output_template_id ?? null,
+    systemPrompt: a.system_prompt ?? null,
   };
 }
 
-export interface OutputTemplateSummary {
+export interface SystemPromptSummary {
   id: string;
   name: string;
   description: string;
@@ -57,8 +57,8 @@ export const HarnessAgentService = {
     const rows = (await axios.get(`${API_BASE}/harness/agents`)).data as Record<string, any>[];
     return rows.map(toView);
   },
-  async listTemplates(): Promise<OutputTemplateSummary[]> {
-    return (await axios.get(`${API_BASE}/harness/templates`)).data;
+  async listSystemPrompts(): Promise<SystemPromptSummary[]> {
+    return (await axios.get(`${API_BASE}/harness/system-prompts`)).data;
   },
   async create(input: HarnessAgentInput): Promise<HarnessAgent> {
     return toView((await axios.post(`${API_BASE}/harness/agents`, input)).data);

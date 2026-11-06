@@ -21,7 +21,7 @@ import type { LanguageModel, StepResult, ToolSet } from "ai";
 import { loadAgentConfig, promptDoc } from "../config.js";
 import { allBlocks, countCharts, sectionHeadings, type ReportDocument } from "../report/document.js";
 import { attachChartData, renderFigures } from "../report/builder.js";
-import { applyVariables, type OutputTemplate } from "../system-prompts/catalog.js";
+import { applyVariables, type SystemPrompt } from "../system-prompts/catalog.js";
 import { activateSkill, reportStructureBlock } from "../skills/activate.js";
 import type { HarnessSkill } from "../skills/loader.js";
 import type { ToolContext, ToolDefinition } from "../tools/registry.js";
@@ -58,8 +58,10 @@ export interface RunCanvasOptions {
   contextBudget?: number;
   /** Cheap model for summarize compaction (clearing runs without it). */
   summarizerModel?: LanguageModel;
+  /** Named system prompt (agent.yaml prompts.<name>); absent/unknown → the default `agents` doc. */
+  systemPrompt?: string;
   /** The selected system prompt — its body is the report's format spec. */
-  template?: OutputTemplate | null;
+  template?: SystemPrompt | null;
   onEvent?: (event: TraceEvent) => void;
   /**
    * Pure observation hook: fires after each loop step with the untouched
@@ -120,10 +122,10 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
   const workspace = new Workspace();
   const resumed = !!options.initialWorkspace && Object.keys(options.initialWorkspace).length > 0;
   if (resumed) workspace.hydrate(options.initialWorkspace!);
-  // Root doc: the agent's instructions (AGENTS.md is the one prompt doc),
+  // Root doc: the agent's instructions (the selected prompt doc),
   // seeded once (a resumed run keeps the agent's edits; reminders() re-sends
   // it when edited). The plan is NOT seeded — todo_write owns /workspace/plan.json.
-  const agentsDoc = promptDoc("agents");
+  const agentsDoc = promptDoc(options.systemPrompt ?? "agents") || promptDoc("agents");
   if (agentsDoc && workspace.read(PATHS.agents) == null) workspace.write(PATHS.agents, agentsDoc);
   // Compaction must WORK without extra config: when no cheap summarizer model
   // is passed, summarize with the run's own model. (The summarize call runs
@@ -171,7 +173,7 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
     workspace_tree: workspace.treeMarkdown(),
   };
   const fill = (text: string) => applyVariables(text, slots);
-  // Contract & plots always reach the model — the AGENTS doc's slots decide
+  // Contract & plots always reach the model — the prompt doc's slots decide
   // placement; without them they're appended here (format file edited away).
   const generated = [
     /\{\{\s*section_contract\s*\}\}/.test(agentsDoc)
@@ -181,7 +183,7 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
   ]
     .filter(Boolean)
     .join("\n\n");
-  // Instructions = the one AGENTS doc (identity + protocol + format contract),
+  // Instructions = the selected prompt doc (identity + protocol + format contract),
   // then the skill-owned report structure as a BINDING block near the top
   // (models ignore specs appended after long skill bodies), then soul, per-run
   // bits, and the skill instructions themselves.

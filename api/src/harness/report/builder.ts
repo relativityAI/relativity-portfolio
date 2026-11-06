@@ -1,5 +1,5 @@
 /**
- * Report builder — chart-token resolution and template enforcement over the
+ * Report builder — chart-token resolution and system-prompt rules over the
  * typed ReportDocument.
  *
  * The canvas pipeline owns document construction; this module supplies the
@@ -18,7 +18,7 @@ import {
   type Series,
 } from "./document.js";
 import type { TraceEvent } from "../types.js";
-import { type OutputTemplate } from "../system-prompts/catalog.js";
+import { type SystemPrompt } from "../system-prompts/catalog.js";
 import { renderFigure } from "./figure-kit.js";
 import { jsonrepair } from "jsonrepair";
 
@@ -269,13 +269,13 @@ export function attachChartData(
 const INJECT_TOKENS = ["price", "volume", "price, sma200"];
 
 /**
- * Template enforcement that needs this run's data: when a template demands
+ * System-prompt enforcement that needs this run's data: when a prompt demands
  * `min_charts` and the document falls short, inject a resolved price/volume
  * chart built from real tool results — never a placeholder.
  */
-export function enforceTemplate(
+export function enforceSystemPrompt(
   doc: ReportDocument,
-  tpl: OutputTemplate | null | undefined,
+  tpl: SystemPrompt | null | undefined,
   trace: TraceEvent[],
   payloads?: { callId: string; payload: unknown }[],
 ): ReportDocument {
@@ -303,7 +303,7 @@ export function enforceTemplate(
 /**
  * Deterministic figure rendering: every chart block gains `svgs`
  * (self-contained, theme-var'd — see figure-kit). Runs at assembly after
- * attachChartData/enforceTemplate so tokens are already resolved. Atomic
+ * attachChartData/enforceSystemPrompt so tokens are already resolved. Atomic
  * per block: all-or-nothing keeps svgs index-aligned with [spec, ...panels],
  * and a candle among them hands the whole block to the client path
  * (live MarketChart).

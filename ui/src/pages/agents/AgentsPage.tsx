@@ -3,7 +3,7 @@ import { Box, Button, Flex, Input, Stack, Text, Textarea } from "@chakra-ui/reac
 import { HarnessAgentService, type HarnessAgent } from "@/lib/harnessAgents";
 import { SkillService, type SkillSummary } from "@/db";
 import { SkillPicker } from "@/components/agents/SkillPicker";
-import type { OutputTemplateSummary } from "@/lib/harnessAgents";
+import type { SystemPromptSummary } from "@/lib/harnessAgents";
 
 export function AgentsPage() {
   const [agents, setAgents] = useState<HarnessAgent[]>([]);
@@ -13,13 +13,13 @@ export function AgentsPage() {
   const [skillIds, setSkillIds] = useState<string[]>([]);
   const [maxSteps, setMaxSteps] = useState(20);
   const [maxCostUsd, setMaxCostUsd] = useState(0.5);
-  const [templates, setTemplates] = useState<OutputTemplateSummary[]>([]);
-  const [outputTemplateId, setOutputTemplateId] = useState("");
+  const [systemPrompts, setSystemPrompts] = useState<SystemPromptSummary[]>([]);
+  const [systemPrompt, setSystemPrompt] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     HarnessAgentService.list().then(setAgents).catch((e) => setError(e?.message ?? "failed to load agents"));
-    HarnessAgentService.listTemplates().then(setTemplates).catch(() => setTemplates([]));
+    HarnessAgentService.listSystemPrompts().then(setSystemPrompts).catch(() => setSystemPrompts([]));
     SkillService.listSkills().then(setSkills).catch(() => {});
   }, []);
 
@@ -34,7 +34,7 @@ export function AgentsPage() {
         soulPrompt,
         skillIds,
         budget: { maxSteps, maxCostUsd },
-        outputTemplateId: outputTemplateId || null,
+        systemPrompt: systemPrompt || null,
       });
       setAgents((a) => [...a, agent]);
       setName("");
@@ -105,16 +105,16 @@ export function AgentsPage() {
           </Text>
           <SkillPicker skills={skills} selected={skillIds} onChange={setSkillIds} />
           <Text fontSize="sm" mb={1} mt={3}>
-            Output format
+            System prompt
           </Text>
           <select
-            data-testid="agent-template-select"
-            value={outputTemplateId}
-            onChange={(e) => setOutputTemplateId(e.target.value)}
+            data-testid="agent-system-prompt-select"
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
             className="w-full rounded border border-[var(--hairline)] bg-transparent px-2 py-1.5 text-sm"
           >
-            <option value="">Contract only</option>
-            {templates.map((t) => (
+            <option value="">Default</option>
+            {systemPrompts.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
@@ -139,7 +139,7 @@ export function AgentsPage() {
                 <Text fontWeight="medium">{a.name}</Text>
                 <Text fontSize="sm" color="fg.muted">
                   {a.skillIds.join(", ") || "no skills"} · {a.budget.maxSteps} steps · ${a.budget.maxCostUsd}
-                  {a.outputTemplateId ? ` · format: ${a.outputTemplateId}` : ""}
+                  {a.systemPrompt ? ` · prompt: ${a.systemPrompt}` : ""}
                 </Text>
               </Box>
             ))

@@ -1,5 +1,11 @@
 # The one harness config file. Read live per call — edit, no restart.
-#   prompts.*  which markdown doc serves which role (paths relative to this dir)
+#   prompts.*  which markdown doc serves which role (paths relative to this dir).
+#              `compaction` is a harness role; `agents` is the DEFAULT system
+#              prompt. Any OTHER key is a named system prompt — add one key +
+#              one file under prompts/ and it becomes selectable by name:
+#                CLI  --system-prompt <name>
+#                API  system_prompt        UI  new-run "Agent" dropdown
+#              Unknown/absent name falls back to prompts.agents.
 #   limits     caps for tool-result context offload (large prose spills to
 #              /knowledge_base/tool-output/ instead of entering context);
 #              unknown keys ignored, delete a key to fall back to its default
@@ -10,6 +16,7 @@
 prompts:
   compaction: prompts/COMPACTION.md
   agents: prompts/AGENTS.md
+  brief: prompts/BRIEF.md
 limits:
   spillThresholdChars: 8000
   spillHeadChars: 2000

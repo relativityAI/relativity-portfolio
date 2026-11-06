@@ -31,6 +31,7 @@ import {
   loadBuiltinSkills,
   buildToolRegistry,
 } from "./index.js";
+import { promptNames } from "./config.js";
 import { buildModelFromEnv } from "./cli/model.js";
 import { loadCliConfig, resolveRunConfig, CONFIG_FILENAME, type LoadedCliConfig } from "./cli/config.js";
 import { dumpMarkdown } from "./cli/dump.js";
@@ -90,6 +91,12 @@ async function runReal(flags: RealFlags): Promise<void> {
 
   const symbol = arg("--symbol");
   if (!symbol) die("--real requires --symbol <TICKER>");
+  // Named system prompt (agent.yaml prompts.<name>) — a typo must not silently
+  // run the default prompt.
+  const systemPrompt = arg("--system-prompt");
+  if (systemPrompt && !promptNames().includes(systemPrompt)) {
+    die(`unknown system prompt "${systemPrompt}" — configured in agent.yaml prompts: ${promptNames().join(", ")}`);
+  }
   const source = cfg.source;
   const modelId = cfg.model;
   const soul = cfg.soul;
@@ -99,9 +106,10 @@ async function runReal(flags: RealFlags): Promise<void> {
   const skills = cfg.skills.length ? allSkills.filter((s) => cfg.skills.includes(s.id)) : allSkills;
   if (!skills.length) die(`no skills matched: ${cfg.skills.join(", ")}`);
 
-  // Output format is skill-determined (each skill's SKILL.md + references/;
-  // format prose lives in config/prompts/AGENTS.md; its frontmatter still drives
-  // verification). getOutputTemplate stays for the API server.
+  // Output format is skill-determined (each skill's SKILL.md + references/);
+  // the chosen system prompt (config/prompts/*.md) supplies identity + its
+  // frontmatter rules. The CLI reads no format record — getSystemPrompt is
+  // the API server's path; --system-prompt picks the doc by name.
   const template = null;
 
   const model = buildModelFromEnv(modelId);
@@ -199,6 +207,7 @@ async function runReal(flags: RealFlags): Promise<void> {
       budget,
       contextBudget,
       summarizerModel,
+      systemPrompt,
       template,
       abortSignal: controller.signal,
       // flag only ever enables; absent → fall through to agent.yaml
@@ -362,6 +371,7 @@ function usage(code: number): never {
     "      --model <id>        provider/model (default: opencode/deepseek-v4.1-flash)",
     "      --source <SRC>      evidence source label (default: SEC)",
     "      --soul <text>       analyst soul prompt",
+    "      --system-prompt <n>  named system prompt from agent.yaml prompts (default: agents)",
     "      --mcp <url>         MCP endpoint (default: $MCP_VOYAGER_URL)",
     "      --mcp-allow a,b     restrict MCP tools",
     "      --max-steps <n>     loop step budget",
