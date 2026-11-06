@@ -1,16 +1,15 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
-    Search, PenLine, Trash2, ShieldCheck, Link2,
+    Search, PenLine, Trash2, Link2,
     ListFilter, ChevronDown, X, ArrowLeft, Globe,
 } from "lucide-react";
 import { SkillService, AgentService, type SkillSummary } from "@/db";
-import { useSkillLibrary, SkillEditor } from "@/components/skills/SkillBrowser";
+import { useSkillLibrary } from "@/components/skills/SkillBrowser";
 import SkillAvatar from "@/components/shared/SkillAvatar";
-import SkillCreatePane from "@/components/skills/SkillCreatePane";
+import SkillWorkspace from "@/components/skills/SkillWorkspace";
 import SkillImportPane from "@/components/skills/SkillImportPane";
-import { SkillMarkdown } from "@/components/skills/SkillMarkdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,9 +21,10 @@ import { cn } from "@/lib/utils";
 
 /**
  * Agent Skills — one full-width console page. Title, search and the create
- * actions sit on top; the library is a grid of compact cards below. Opening a
- * skill takes over the main pane as a document (editable in place), so
- * nothing scrolls separately from the rest of the console.
+ * actions sit on top; the library is a grid of compact cards below. Opening
+ * a skill (or creating one) swaps in the SkillWorkspace: a navigable file
+ * tree beside the editor, so references/ and assets/ are just files you
+ * click. Nothing scrolls separately from the rest of the console.
  */
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -38,29 +38,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 type Mode = "inspect" | "create" | "download";
 
-/** Section heading with the pencil that says "this section is editable". */
-function SectionHead({ children, onEdit }: { children: ReactNode; onEdit: () => void }) {
-    return (
-        <h3 className="mb-2 flex items-center gap-1 text-xs font-medium text-console-ink-3">
-            {children}
-            <button
-                type="button"
-                onClick={onEdit}
-                aria-label="Edit this section"
-                className="rounded p-0.5 text-console-ink-4 opacity-60 transition hover:bg-console-recessed hover:text-console-accent-strong focus-visible:ring-2 focus-visible:ring-console-accent/40 focus-visible:outline-none"
-            >
-                <PenLine className="size-3" />
-            </button>
-        </h3>
-    );
-}
-
 export default function AgentSkills() {
     const [searchParams, setSearchParams] = useSearchParams();
     const { library, loading, error: libraryError, setLibrary } = useSkillLibrary();
     const [selected, setSelected] = useState<SkillSummary | null>(null);
     const [mode, setMode] = useState<Mode>("inspect");
-    const [editing, setEditing] = useState(false);
     const [query, setQuery] = useState("");
     const [category, setCategory] = useState("all");
     const [agents, setAgents] = useState<{ _id?: string; id?: string; name: string; skills?: { skill_id: string; weight: number }[] }[]>([]);
@@ -74,10 +56,9 @@ export default function AgentSkills() {
     useEffect(() => {
         if (requestedSkill && library.length) {
             const s = library.find((x) => x.id === requestedSkill);
-            if (s) { setSelected(s); setMode("inspect"); setEditing(false); }
+            if (s) { setSelected(s); setMode("inspect"); }
         } else if (!requestedSkill) {
             setSelected(null);
-            setEditing(false);
         }
     }, [requestedSkill, library]);
 
@@ -101,13 +82,11 @@ export default function AgentSkills() {
     const openSkill = (s: SkillSummary) => {
         setSelected(s);
         setMode("inspect");
-        setEditing(false);
         setSearchParams({ skill: s.id }, { replace: true });
     };
 
     const backToGrid = () => {
         setSelected(null);
-        setEditing(false);
         setMode("inspect");
         setSearchParams({}, { replace: true });
     };
@@ -135,14 +114,12 @@ export default function AgentSkills() {
     const startCreate = () => {
         setMode("create");
         setSelected(null);
-        setEditing(false);
         setSearchParams({}, { replace: true });
     };
 
     const startDownload = () => {
         setMode("download");
         setSelected(null);
-        setEditing(false);
         setSearchParams({}, { replace: true });
     };
 
@@ -153,17 +130,15 @@ export default function AgentSkills() {
     const body = (() => {
         if (mode === "create") {
             return (
-                <div className="max-w-4xl">
-                    <SkillCreatePane
-                        library={library}
-                        onCancel={() => setMode("inspect")}
-                        onSaved={(skill) => {
-                            setLibrary((lib) => [...lib.filter((s) => s.id !== skill.id), skill]);
-                            setSelected(skill); setMode("inspect");
-                            setSearchParams({ skill: skill.id }, { replace: true });
-                        }}
-                    />
-                </div>
+                <SkillWorkspace
+                    library={library}
+                    onCancel={() => setMode("inspect")}
+                    onSaved={(skill) => {
+                        setLibrary((lib) => [...lib.filter((s) => s.id !== skill.id), skill]);
+                        setSelected(skill); setMode("inspect");
+                        setSearchParams({ skill: skill.id }, { replace: true });
+                    }}
+                />
             );
         }
 
@@ -181,34 +156,26 @@ export default function AgentSkills() {
 
         if (selected) {
             return (
-                <div className="max-w-4xl">
-                    <AnimatePresence mode="wait" initial={false}>
-                        <motion.div
-                            key={editing ? `edit-${selected.id}` : `view-${selected.id}`}
-                            initial={{ opacity: 0, y: 8 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.18 }}
-                        >
-                            {editing ? (
-                                <SkillEditor
-                                    skill={selected}
-                                    onSaved={(s) => {
-                                        setLibrary((lib) => lib.map((x) => (x.id === s.id ? s : x)));
-                                        setSelected(s);
-                                        setEditing(false);
-                                    }}
-                                    onCancel={() => setEditing(false)}
-                                />
-                            ) : (
-                                <SkillDetail
-                                    skill={selected}
-                                    onEdit={() => setEditing(true)}
-                                />
-                            )}
-                        </motion.div>
-                    </AnimatePresence>
-                </div>
+                <AnimatePresence mode="wait" initial={false}>
+                    <motion.div
+                        key={selected.id}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.18 }}
+                    >
+                        <SkillWorkspace
+                            key={selected.id}
+                            skill={selected}
+                            library={library}
+                            onCancel={backToGrid}
+                            onSaved={(s) => {
+                                setLibrary((lib) => lib.map((x) => (x.id === s.id ? s : x)));
+                                setSelected(s);
+                            }}
+                        />
+                    </motion.div>
+                </AnimatePresence>
             );
         }
 
@@ -317,7 +284,7 @@ export default function AgentSkills() {
         <div className="w-full py-8">
             {/* One toolbar row in every view: nav/title left, contextual
                 actions right on the title's baseline, subtitle underneath. */}
-            {isDetail && !editing && (
+            {isDetail && (
                 <Button variant="ghost" size="sm" onClick={backToGrid} className="-ml-2 mb-1.5 text-console-ink-2">
                     <ArrowLeft /> All skills
                 </Button>
@@ -357,7 +324,7 @@ export default function AgentSkills() {
                             </Button>
                         </>
                     )}
-                    {isDetail && !editing && (
+                    {isDetail && (
                         <>
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -378,9 +345,6 @@ export default function AgentSkills() {
                                     ))}
                                 </DropdownMenuContent>
                             </DropdownMenu>
-                            <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
-                                <PenLine /> Edit
-                            </Button>
                             {selected.source === "custom" && (
                                 <Button
                                     variant="ghost"
@@ -413,41 +377,3 @@ export default function AgentSkills() {
         </div>
     );
 }
-
-/* ── Skill detail ─────────────────────────────────────────────────────── */
-
-function SkillDetail({ skill, onEdit }: { skill: SkillSummary; onEdit: () => void }) {
-    return (
-        <div className="mt-5 flex flex-col gap-5">
-            <p className="max-w-[75ch] text-sm leading-relaxed text-console-ink-2">{skill.description}</p>
-
-            {skill.purpose && (
-                <section>
-                    <SectionHead onEdit={onEdit}>What it measures</SectionHead>
-                    <div className="max-w-[75ch]">
-                        <SkillMarkdown>{skill.purpose}</SkillMarkdown>
-                    </div>
-                </section>
-            )}
-
-            {!!skill.anchors?.length && (
-                <section>
-                    <SectionHead onEdit={onEdit}>
-                        <ShieldCheck className="size-3.5" /> Verdicts it returns
-                    </SectionHead>
-                    <div className="flex flex-col gap-1.5">
-                        {skill.anchors.map((a) => (
-                            <div key={a.label} className="flex items-center gap-2">
-                                <span className="size-1.5 rounded-full bg-console-accent" aria-hidden />
-                                <span className="text-[13px] text-console-ink-2">{a.label}</span>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-            )}
-        </div>
-    );
-}
-
-/** Exported for the editor route below — the SkillEditor needs wrapping. */
-export { SkillEditor };

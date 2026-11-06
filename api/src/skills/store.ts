@@ -72,8 +72,107 @@ export interface CustomSkillRow {
   user_id: string;
   skill_id: string;
   markdown: string;
+  files?: Record<string, string> | null;
   created_at?: string;
   updated_at?: string;
+}
+
+/**
+ * A skill's directory as a flat path -> content map (agentskills.io layout).
+ * Folder keys end with "/" and hold "" so empty dirs (references/, assets/)
+ * survive the round-trip; files may be nested at any depth.
+ */
+export type SkillFiles = Record<string, string>;
+
+/**
+ * Validate an untrusted file map from a request body. Returns null when the
+ * tree is unusable: SKILL.md must exist and be non-empty, every value must be
+ * a string, folders (trailing "/") must be empty, and no path may be absolute
+ * or escape the skill directory.
+ */
+export function normalizeSkillFiles(raw: unknown): SkillFiles | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: SkillFiles = {};
+  for (const [path, content] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof content !== "string") return null;
+    if (!path || path.startsWith("/") || path.includes("\\")) return null;
+    const segments = path.split("/");
+    if (path.endsWith("/")) segments.pop(); // the trailing "" is the folder marker
+    if (!segments.length || segments.some((s) => s === "" || s === "." || s === "..")) return null;
+    if (path.endsWith("/") && content !== "") return null;
+    out[path] = content;
+  }
+  if (!out["SKILL.md"]?.trim()) return null;
+  return out;
+}
+
+const TEXT_EXTS = new Set([
+  "md", "txt", "json", "yaml", "yml", "csv", "ts", "tsx", "js", "jsx",
+  "py", "sh", "toml", "ini", "html", "css", "xml", "svg", "sql",
+]);
+const MIME: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  webp: "image/webp", ico: "image/x-icon", pdf: "application/pdf", zip: "application/zip",
+};
+
+/** One file: text as utf8, anything else as a base64 data URL (binary-safe). */
+function readFileContent(abs: string): string {
+  const ext = abs.split(".").pop()?.toLowerCase() || "";
+  if (TEXT_EXTS.has(ext)) return readFileSync(abs, "utf8");
+  return `data:${MIME[ext] || "application/octet-stream"};base64,${readFileSync(abs).toString("base64")}`;
+}
+
+/** Walk a skill directory on disk into the flat map. */
+function readSkillDir(dir: string): SkillFiles {
+  const out: SkillFiles = {};
+  const walk = (rel: string) => {
+    let entries: string[];
+    try {
+      entries = readdirSync(join(dir, rel));
+    } catch {
+      return;
+    }
+    for (const entry of entries.sort()) {
+      const abs = join(dir, rel, entry);
+      const path = rel ? `${rel}/${entry}` : entry;
+      let isDir = false;
+      try {
+        isDir = statSync(abs).isDirectory();
+      } catch {
+        continue;
+      }
+      if (isDir) {
+        out[path + "/"] = "";
+        walk(path);
+      } else {
+        out[path] = readFileContent(abs);
+      }
+    }
+  };
+  walk("");
+  return out;
+}
+
+/** Files of a built-in skill directory. Null when the slug isn't a builtin. */
+export function getBuiltinSkillFiles(slug: string): SkillFiles | null {
+  if (!builtinSkillFiles().some((s) => s.slug === slug)) return null;
+  return readSkillDir(join(BUILTIN_DIR, slug));
+}
+
+/** Files of one custom skill: row.files plus SKILL.md from the markdown column. */
+export async function getCustomSkillFiles(userId: string, skillId: string): Promise<SkillFiles | null> {
+  const db = getDb();
+  const { data, error } = await db.from("skills").select("markdown,files").eq("user_id", userId).eq("skill_id", skillId).maybeSingle();
+  if (error || !data) return null;
+  const out: SkillFiles = {};
+  const rest = data.files;
+  if (rest && typeof rest === "object" && !Array.isArray(rest)) {
+    for (const [path, content] of Object.entries(rest as Record<string, unknown>)) {
+      if (typeof content === "string") out[path] = content;
+    }
+  }
+  out["SKILL.md"] = data.markdown; // the markdown column is authoritative
+  return out;
 }
 
 function rowToDefinition(row: CustomSkillRow): SkillDefinition | null {
@@ -98,14 +197,18 @@ export async function getCustomSkill(userId: string, skillId: string): Promise<S
   return rowToDefinition(data as CustomSkillRow);
 }
 
-export async function saveCustomSkill(userId: string, markdown: string): Promise<{ skill: SkillDefinition | null; issues: SkillIssue[] }> {
+export async function saveCustomSkill(userId: string, markdown: string, files?: SkillFiles): Promise<{ skill: SkillDefinition | null; issues: SkillIssue[] }> {
   const { skill, issues } = parseSkillMarkdown(markdown, "custom");
   if (!skill) return { skill: null, issues };
   const db = getDb();
-  const { error } = await db.from("skills").upsert(
-    { user_id: userId, skill_id: skill.id, markdown, updated_at: new Date().toISOString() },
-    { onConflict: "user_id,skill_id" },
-  );
+  const row: { user_id: string; skill_id: string; markdown: string; files?: SkillFiles; updated_at: string } = {
+    user_id: userId,
+    skill_id: skill.id,
+    markdown,
+    updated_at: new Date().toISOString(),
+  };
+  if (files) row.files = { ...files, "SKILL.md": markdown }; // markdown wins over any stale copy
+  const { error } = await db.from("skills").upsert(row, { onConflict: "user_id,skill_id" });
   if (error) throw new Error(`Failed to save skill: ${error.message}`);
   return { skill, issues };
 }

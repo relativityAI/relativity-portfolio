@@ -6,7 +6,7 @@ import { MdSearch, MdEdit } from "react-icons/md";
 import { SiAgentskills } from "react-icons/si";
 import { SkillService, type SkillSummary } from "@/db";
 import SkillDraftPane from "@/components/skills/SkillDraftPane";
-import SkillCreatePane from "@/components/skills/SkillCreatePane";
+import SkillWorkspace from "@/components/skills/SkillWorkspace";
 import SkillAvatar from "@/components/shared/SkillAvatar";
 import { SkillMarkdown } from "@/components/skills/SkillMarkdown";
 import { MdAutoAwesome } from "react-icons/md";
@@ -646,7 +646,7 @@ export default function SkillBrowser({
                                 </Box>
                             ) : creating ? (
                                 <Box flex={1} minH={0} overflowY="auto" px={5} py={4}>
-                                    <SkillCreatePane
+                                    <SkillWorkspace
                                         library={library}
                                         onCancel={() => setCreating(false)}
                                         onSaved={(skill) => {

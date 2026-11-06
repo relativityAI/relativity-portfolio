@@ -9,7 +9,7 @@ import { LuX } from "react-icons/lu";
 import { SkillService, type SkillSummary } from "@/db";
 import { useSkillLibrary, SkillEditor } from "@/components/skills/SkillBrowser";
 import SkillDraftPane from "@/components/skills/SkillDraftPane";
-import SkillCreatePane from "@/components/skills/SkillCreatePane";
+import SkillWorkspace from "@/components/skills/SkillWorkspace";
 import { SourceMark, type SourceKey } from "@/lib/sourceLogos";
 import { stagger, staggerItem } from "@/lib/motion";
 import { toaster } from "@/compat/ui";
@@ -163,7 +163,7 @@ export default function Armory({
                     }}
                 />
             ) : mode === "create" ? (
-                <SkillCreatePane
+                <SkillWorkspace
                     library={library}
                     onCancel={() => setMode("draft")}
                     onSaved={(skill) => {

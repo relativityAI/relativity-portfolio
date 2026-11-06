@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 /**
  * Download skills — browse the configured GitHub repositories, read a skill
  * on GitHub first (external link), then pull it into the user's library.
- * Replaces the grid while open, exactly like SkillCreatePane does.
+ * Replaces the grid while open, exactly like SkillWorkspace does.
  */
 
 /** Server-provided message when there is one, else the client-side message. */

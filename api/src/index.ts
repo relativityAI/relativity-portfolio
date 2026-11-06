@@ -24,7 +24,7 @@ import type { WorkbookRecipe } from "./skills/artifacts/types.js";
 import { getPreset, listPresets } from "./presets.js";
 import { agentFromRow, buildAgentConfigV3, type AgentRow } from "./agentstore.js";
 import { fixAgentMarkdown, parseAgentMd, serializeAgentMd, validateAgentV3 } from "./agentmd.js";
-import { listAllSkillsForUser, saveCustomSkill, deleteCustomSkill, loadBuiltinSkills, serializeSkill } from "./skills/store.js";
+import { listAllSkillsForUser, saveCustomSkill, deleteCustomSkill, loadBuiltinSkills, serializeSkill, normalizeSkillFiles, getBuiltinSkillFiles, getCustomSkillFiles, type SkillFiles } from "./skills/store.js";
 import { fixSkillMarkdown, parseSkillMarkdown, slugifySkillName } from "./skills/parse.js";
 import { fetchSkillMarkdown, listRepoSkills, listSkillRepos, resolveSkillPath } from "./skills/repos.js";
 import { skillDraftTurn, type SkillDraftRequest } from "./skills/draft.js";
@@ -554,7 +554,11 @@ app.get("/skills/:id", requireAuth, async (req, res) => {
     const skills = await listAllSkillsForUser(userId);
     const skill = skills.find((s) => s.id === req.params.id);
     if (!skill) return res.status(404).json({ error: "Skill not found" });
-    res.json({ ...skill, markdown: skill.markdown || serializeSkill(skill) });
+    const markdown = skill.markdown || serializeSkill(skill);
+    const files = (skill.source === "custom"
+      ? await getCustomSkillFiles(userId, skill.id)
+      : getBuiltinSkillFiles(skill.id)) ?? { "SKILL.md": markdown };
+    res.json({ ...skill, markdown, files });
   } catch (e: any) {
     res.status(503).json({ error: e.message });
   }
@@ -576,13 +580,28 @@ app.post("/skills/validate", requireAuth, async (req, res) => {
   }
 });
 
-/** Create or update a custom skill from markdown. */
+/** Pull {markdown, files} from a skills write body. A whole-tree `files`
+ *  payload wins over a bare `markdown` one; both are rejected when unusable. */
+function skillWriteBody(body: any): { ok: true; markdown: string; files?: SkillFiles } | { ok: false; error: string } {
+  if (body?.files !== undefined) {
+    const files = normalizeSkillFiles(body.files);
+    if (!files) {
+      return { ok: false, error: "Invalid files: SKILL.md is required and non-empty, folder paths end with \"/\" and hold no content, and no path may be absolute or contain \"..\"." };
+    }
+    return { ok: true, markdown: files["SKILL.md"], files };
+  }
+  const markdown = String(body?.markdown || "");
+  if (!markdown.trim()) return { ok: false, error: "markdown is required" };
+  return { ok: true, markdown };
+}
+
+/** Create or update a custom skill from markdown (or a whole file tree). */
 app.post("/skills", requireAuth, async (req, res) => {
   try {
     const userId = (req as AuthedRequest).user.id;
-    const markdown = String(req.body?.markdown || "");
-    if (!markdown.trim()) return res.status(400).json({ error: "markdown is required" });
-    const { skill, issues } = await saveCustomSkill(userId, markdown);
+    const body = skillWriteBody(req.body);
+    if (!body.ok) return res.status(400).json({ error: body.error });
+    const { skill, issues } = await saveCustomSkill(userId, body.markdown, body.files);
     if (!skill) {
       const hard = issues.filter((i) => i.severity === "error");
       return res.status(400).json({ error: "skill failed validation", issues: hard.length ? hard : issues });
@@ -600,8 +619,9 @@ app.put("/skills/:id", requireAuth, async (req, res) => {
   try {
     const userId = (req as AuthedRequest).user.id;
     const id = String(req.params.id);
-    const markdown = String(req.body?.markdown || "");
-    if (!markdown.trim()) return res.status(400).json({ error: "markdown is required" });
+    const body = skillWriteBody(req.body);
+    if (!body.ok) return res.status(400).json({ error: body.error });
+    const markdown = body.markdown;
 
     const { skill: parsed, issues } = parseSkillMarkdown(markdown, "custom");
     if (!parsed) {
@@ -614,7 +634,7 @@ app.put("/skills/:id", requireAuth, async (req, res) => {
         issues,
       });
     }
-    const { skill } = await saveCustomSkill(userId, markdown);
+    const { skill } = await saveCustomSkill(userId, markdown, body.files);
     res.json({ skill, issues });
   } catch (e: any) {
     res.status(503).json({ error: e.message });

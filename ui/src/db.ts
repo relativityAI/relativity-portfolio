@@ -166,7 +166,7 @@ export const SkillService = {
         return response.data;
     },
 
-    async readSkill(id: string): Promise<SkillSummary & { markdown: string }> {
+    async readSkill(id: string): Promise<SkillSummary & { markdown: string; files?: Record<string, string> }> {
         const response = await axios.get(`${API_BASE}/skills/${encodeURIComponent(id)}`);
         return response.data;
     },
@@ -176,13 +176,13 @@ export const SkillService = {
         return response.data;
     },
 
-    async saveSkill(markdown: string): Promise<{ skill: SkillSummary; issues: { line: number; message: string; severity: string }[] }> {
-        const response = await axios.post(`${API_BASE}/skills`, { markdown });
+    async saveSkill(markdown: string, files?: Record<string, string>): Promise<{ skill: SkillSummary; issues: { line: number; message: string; severity: string }[] }> {
+        const response = await axios.post(`${API_BASE}/skills`, files ? { markdown, files } : { markdown });
         return response.data;
     },
 
-    async updateSkill(id: string, markdown: string): Promise<{ skill: SkillSummary; issues: { line: number; message: string; severity: string }[] }> {
-        const response = await axios.put(`${API_BASE}/skills/${encodeURIComponent(id)}`, { markdown });
+    async updateSkill(id: string, markdown: string, files?: Record<string, string>): Promise<{ skill: SkillSummary; issues: { line: number; message: string; severity: string }[] }> {
+        const response = await axios.put(`${API_BASE}/skills/${encodeURIComponent(id)}`, files ? { markdown, files } : { markdown });
         return response.data;
     },
 
