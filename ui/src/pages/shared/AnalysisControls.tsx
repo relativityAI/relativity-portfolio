@@ -123,13 +123,11 @@ export function MenuDropdown({ value, placeholder, search, logo, children }: {
                 onFocus={search ? () => setOpen(true) : undefined}
                 onKeyDown={onTriggerKeyDown}
                 whileTap={{ scale: 0.997 }}
-                className="flex cursor-pointer items-center gap-1.5 transition-opacity hover:opacity-70"
+                className="flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-input px-3 transition-opacity hover:opacity-70 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
                 style={{
-                    padding: "4px 0",
-                    minHeight: "30px",
+                    minHeight: "36px",
                     outline: "none",
-                    borderTop: "0.5px solid var(--hairline)",
-                    borderRadius: "12px 12px 0 0",
+                    background: "transparent",
                 }}
             >
                 {logo && <span style={{ display: "inline-flex", flexShrink: 0, marginRight: 2 }}>{logo}</span>}

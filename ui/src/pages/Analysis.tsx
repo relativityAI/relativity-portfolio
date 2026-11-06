@@ -1,10 +1,13 @@
 import { Flex, Text, Spinner, Box } from "@chakra-ui/react";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import { MdCheck, MdClose } from "react-icons/md";
+import { Building2, Cpu, Sparkles, Bot, CircleCheck, CircleDashed } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AnalysisService, SkillService, API_BASE, type SkillSummary } from "@/db";
+import { HarnessAgentService, type OutputTemplateSummary } from "@/lib/harnessAgents";
 import { formatSeconds } from "@/utils";
 import { ModelLogo } from "@/lib/modelLogos";
+import SkillAvatar from "@/components/shared/SkillAvatar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { type RunStep, runProgressPct } from "./shared/RunStatus";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
@@ -19,7 +22,6 @@ import {
     SecondaryButton,
     ResumingButton,
 } from "./shared/AnalysisControls";
-import ChipMultiSelect from "./shared/ChipMultiSelect";
 import { Input } from "@/components/ui/input";
 
 const MAX_POLL_RETRIES = 600;
@@ -37,34 +39,57 @@ const providerLabel = (prefix: string) => PROVIDER_LABELS[prefix] || prefix;
 
 type StatusType = "EMPTY" | "PENDING" | "COMPLETED" | "ERROR";
 
-function StepHeader({ title, done }: { title: string; done?: boolean }) {
+// One config row: tick/pending marker + connector rail on the left, label
+// pushed left and its control pushed right.
+function StepRow({ label, icon, done, first, last, children }: {
+    label: string;
+    icon?: ReactNode;
+    done: boolean;
+    first?: boolean;
+    last?: boolean;
+    children: ReactNode;
+}) {
     return (
-        <Flex align="center" gap={2} mb={2}>
-            <Text
-                fontSize="12.5px"
-                fontFamily="var(--font-body)"
-                fontWeight={500}
-                color="var(--ink-secondary)"
+        <Flex as={motion.div} variants={staggerItem} gap={3} align="stretch">
+            <Flex direction="column" align="center" w="18px" flexShrink={0} aria-hidden="true">
+                <Box w="1px" flex={1} bg={first ? "transparent" : "var(--hairline)"} />
+                {done ? (
+                    <CircleCheck size={16} color="var(--signal-positive)" />
+                ) : (
+                    <CircleDashed size={16} color="var(--ink-tertiary)" />
+                )}
+                <Box w="1px" flex={1} bg={last ? "transparent" : "var(--hairline)"} />
+            </Flex>
+            <Flex
+                direction={{ base: "column", md: "row" }}
+                justify="space-between"
+                align={{ base: "stretch", md: "center" }}
+                gap={{ base: 2, md: 4 }}
+                flex={1}
+                minW={0}
+                py={3.5}
             >
-                {title}
-            </Text>
-            {done && <MdCheck size={13} color="var(--signal-positive)" />}
+                <Flex align="center" gap={2} minW={0}>
+                    {icon && (
+                        <span style={{ display: "inline-flex", flexShrink: 0, color: "var(--ink-tertiary)" }}>
+                            {icon}
+                        </span>
+                    )}
+                    <Text
+                        fontSize="12.5px"
+                        fontFamily="var(--font-body)"
+                        fontWeight={500}
+                        color="var(--ink-secondary)"
+                        whiteSpace="nowrap"
+                    >
+                        {label}
+                    </Text>
+                </Flex>
+                <Box w={{ base: "full", md: "320px" }} minW={0}>
+                    {children}
+                </Box>
+            </Flex>
         </Flex>
-    );
-}
-
-function FieldLabel({ children }: { children: any }) {
-    return (
-        <Text
-            fontSize="11px"
-            fontFamily="var(--font-body)"
-            fontWeight={400}
-            color="var(--ink-tertiary)"
-            letterSpacing="0.02em"
-            mb={1}
-        >
-            {children}
-        </Text>
     );
 }
 
@@ -317,9 +342,17 @@ export default function Analysis() {
     const [maxTokens, setMaxTokens] = useState("");
     const [skills, setSkills] = useState<SkillSummary[]>([]);
     const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+    // Named system prompts (agent.yaml prompts.*) — "" = the default one.
+    const [agentPrompts, setAgentPrompts] = useState<OutputTemplateSummary[]>([]);
+    const [agentPrompt, setAgentPrompt] = useState("");
 
     useEffect(() => {
-        SkillService.listSkills().then(setSkills).catch(() => setSkills([]));
+        SkillService.listSkills()
+            .then((all) => setSkills(all.filter((s) => s.source === "builtin")))
+            .catch(() => setSkills([]));
+        HarnessAgentService.listTemplates()
+            .then(setAgentPrompts)
+            .catch(() => setAgentPrompts([]));
     }, []);
 
     const handleStockPick = useCallback((stock: any) => {
@@ -378,6 +411,7 @@ export default function Analysis() {
                 skills: selectedSkills.length ? selectedSkills : undefined,
                 max_steps: maxSteps ? Number(maxSteps) : undefined,
                 max_tokens: maxTokens ? Number(maxTokens) : undefined,
+                output_template_id: selectedAgent?.id,
             });
 
             if (result?.id) {
@@ -485,6 +519,9 @@ export default function Analysis() {
         [maxSteps && `${maxSteps} steps`, maxTokens && `${Number(maxTokens).toLocaleString()} tokens`]
             .filter(Boolean)
             .join(" · ") || "Default";
+    // Explicit pick, else the configured default prompt.
+    const selectedAgent =
+        agentPrompts.find((t) => t.id === agentPrompt) ?? agentPrompts.find((t) => t.default) ?? null;
 
     return (
         <Box
@@ -545,72 +582,83 @@ export default function Analysis() {
                             flexDirection="column"
                         >
                             {/* Company */}
-                            <Box
-                                as={motion.div}
-                                variants={staggerItem}
-                                py={{ base: 5, md: 6 }}
-                            >
-                                <Flex direction={{ base: "column", md: "row" }} gap={{ base: 5, md: 6 }}>
-                                    <Box flex={1} minW={0}>
-                                        <FieldLabel>Company</FieldLabel>
-                                        <MenuDropdown
-                                            value={config.share ? `${config.shareName || config.share}` : null}
-                                            placeholder="Search company or symbol…"
-                                            search={{
-                                                value: stockQuery,
-                                                onChange: setStockQuery,
-                                                placeholder: "Search by company name or symbol…",
-                                            }}
-                                        >
-                                            {(close) => (
-                                                <Box>
-                                                    {stockLoading && (
-                                                        <Flex align="center" justify="center" gap={2} py={4} fontSize="12px" fontFamily="var(--font-body)" color="var(--ink-tertiary)">
-                                                            <Spinner size="xs" borderWidth="1px" color="var(--ink-tertiary)" />
-                                                            Searching…
-                                                        </Flex>
-                                                    )}
-                                                    {!stockLoading && stockItems.length === 0 && (
-                                                        <Text fontSize="12px" fontFamily="var(--font-body)" color="var(--ink-tertiary)" textAlign="center" py={3}>
-                                                            {stockQuery ? `Nothing matches "${stockQuery}".` : "Start typing to search."}
-                                                        </Text>
-                                                    )}
-                                                    {stockItems.map((stock: any) => {
-                                                        const sym = stock.ticker || stock.SYMBOL || "";
-                                                        const nm = stock.name || stock.NAME || sym;
-                                                        const market = String(stock.source || "").toLowerCase() === "nse" ? "NSE" : "SEC";
-                                                        return (
-                                                            <DropdownItem
-                                                                key={`${market}-${sym}`}
-                                                                label={nm}
-                                                                sub={sym}
-                                                                tag={market}
-                                                                selected={sym === config.share && market === config.source}
-                                                                logo={<TickerLogo symbol={sym} size={18} />}
-                                                                onClick={() => {
-                                                                    handleStockPick(stock);
-                                                                    close();
-                                                                }}
-                                                            />
-                                                        );
-                                                    })}
-                                                </Box>
+                            <StepRow label="Company" icon={<Building2 size={13} />} done={!!config.share} first>
+                                <MenuDropdown
+                                    value={config.share ? `${config.shareName || config.share}` : null}
+                                    placeholder="Search company or symbol…"
+                                    search={{
+                                        value: stockQuery,
+                                        onChange: setStockQuery,
+                                        placeholder: "Search by company name or symbol…",
+                                    }}
+                                >
+                                    {(close) => (
+                                        <Box>
+                                            {stockLoading && (
+                                                <Flex align="center" justify="center" gap={2} py={4} fontSize="12px" fontFamily="var(--font-body)" color="var(--ink-tertiary)">
+                                                    <Spinner size="xs" borderWidth="1px" color="var(--ink-tertiary)" />
+                                                    Searching…
+                                                </Flex>
                                             )}
-                                        </MenuDropdown>
-                                    </Box>
-                                </Flex>
-                            </Box>
+                                            {!stockLoading && stockItems.length === 0 && (
+                                                <Text fontSize="12px" fontFamily="var(--font-body)" color="var(--ink-tertiary)" textAlign="center" py={3}>
+                                                    {stockQuery ? `Nothing matches "${stockQuery}".` : "Start typing to search."}
+                                                </Text>
+                                            )}
+                                            {stockItems.map((stock: any) => {
+                                                const sym = stock.ticker || stock.SYMBOL || "";
+                                                const nm = stock.name || stock.NAME || sym;
+                                                const market = String(stock.source || "").toLowerCase() === "nse" ? "NSE" : "SEC";
+                                                return (
+                                                    <DropdownItem
+                                                        key={`${market}-${sym}`}
+                                                        label={nm}
+                                                        sub={sym}
+                                                        tag={market}
+                                                        selected={sym === config.share && market === config.source}
+                                                        logo={<TickerLogo symbol={sym} size={18} />}
+                                                        onClick={() => {
+                                                            handleStockPick(stock);
+                                                            close();
+                                                        }}
+                                                    />
+                                                );
+                                            })}
+                                        </Box>
+                                    )}
+                                </MenuDropdown>
+                            </StepRow>
+
+                            {/* Agent — the system prompt the run reads (agent.yaml prompts.*) */}
+                            {agentPrompts.length > 1 && (
+                                <StepRow label="Agent" icon={<Bot size={13} />} done={!!selectedAgent}>
+                                    <MenuDropdown
+                                        value={selectedAgent?.name ?? null}
+                                        placeholder="Choose agent…"
+                                    >
+                                        {(close) => (
+                                            <Box>
+                                                {agentPrompts.map((t) => (
+                                                    <DropdownItem
+                                                        key={t.id}
+                                                        label={t.name}
+                                                        sub={t.description || t.id}
+                                                        tag={t.default ? "default" : undefined}
+                                                        selected={t.id === selectedAgent?.id}
+                                                        onClick={() => {
+                                                            setAgentPrompt(t.id);
+                                                            close();
+                                                        }}
+                                                    />
+                                                ))}
+                                            </Box>
+                                        )}
+                                    </MenuDropdown>
+                                </StepRow>
+                            )}
 
                             {/* Model + budget — CLI's --model, --max-steps, --max-tokens */}
-                            <Flex direction={{ base: "column", md: "row" }} gap={{ base: 0, md: 6 }} align="flex-start">
-                            <Box
-                                as={motion.div}
-                                variants={staggerItem}
-                                py={{ base: 5, md: 6 }}
-                                flex={2}
-                                minW={0}
-                            >
-                                <StepHeader title="Model" done={!!model.trim()} />
+                            <StepRow label="Model" icon={<Cpu size={13} />} done={!!model.trim()}>
                                 <Input
                                     value={model}
                                     onChange={(e) => {
@@ -620,23 +668,16 @@ export default function Analysis() {
                                     placeholder="provider/model"
                                     aria-label="Model id"
                                     data-testid="run-model"
-                                    className="rounded-xl"
+                                    className="rounded-[10px]"
                                 />
                                 {modelError && (
                                     <Text mt={2} fontSize="11px" fontFamily="var(--font-body)" color="var(--signal-negative)">
                                         {modelError}
                                     </Text>
                                 )}
-                            </Box>
+                            </StepRow>
 
-                            <Box
-                                as={motion.div}
-                                variants={staggerItem}
-                                py={{ base: 5, md: 6 }}
-                                flex={1}
-                                minW={0}
-                            >
-                                <StepHeader title="Max steps" done={!!maxSteps} />
+                            <StepRow label="Max steps" done={!!maxSteps}>
                                 <Input
                                     type="number"
                                     min={1}
@@ -645,18 +686,11 @@ export default function Analysis() {
                                     placeholder="20"
                                     aria-label="Max steps"
                                     data-testid="run-max-steps"
-                                    className="rounded-xl"
+                                    className="rounded-[10px]"
                                 />
-                            </Box>
+                            </StepRow>
 
-                            <Box
-                                as={motion.div}
-                                variants={staggerItem}
-                                py={{ base: 5, md: 6 }}
-                                flex={1}
-                                minW={0}
-                            >
-                                <StepHeader title="Max tokens" done={!!maxTokens} />
+                            <StepRow label="Max tokens" done={!!maxTokens}>
                                 <Input
                                     type="number"
                                     min={1000}
@@ -665,26 +699,51 @@ export default function Analysis() {
                                     placeholder="200000"
                                     aria-label="Max tokens"
                                     data-testid="run-max-tokens"
-                                    className="rounded-xl"
+                                    className="rounded-[10px]"
                                 />
-                            </Box>
-                            </Flex>
+                            </StepRow>
 
                             {/* Skills — CLI's --skills a,b (empty = all skills) */}
-                            <Box
-                                as={motion.div}
-                                variants={staggerItem}
-                                py={{ base: 5, md: 6 }}
+                            <StepRow
+                                label="Skills"
+                                icon={<Sparkles size={13} />}
+                                done={selectedSkills.length > 0}
+                                last
                             >
-                                <StepHeader title="Skills" done={selectedSkills.length > 0} />
-                                <ChipMultiSelect
-                                    label=""
-                                    description="No selection runs every skill, like omitting --skills."
-                                    options={skills.map((s) => ({ value: s.id, label: s.name }))}
-                                    selected={selectedSkills}
-                                    onChange={setSelectedSkills}
-                                />
-                            </Box>
+                                <MenuDropdown
+                                    value={
+                                        selectedSkills.length
+                                            ? skills.filter((s) => selectedSkills.includes(s.id)).map((s) => s.name).join(", ")
+                                            : null
+                                    }
+                                    placeholder="All skills (none selected)"
+                                >
+                                    {() => (
+                                        <Box>
+                                            {skills.length === 0 && (
+                                                <Text fontSize="12px" fontFamily="var(--font-body)" color="var(--ink-tertiary)" textAlign="center" py={3}>
+                                                    No skills available.
+                                                </Text>
+                                            )}
+                                            {skills.map((s) => (
+                                                <DropdownItem
+                                                    key={s.id}
+                                                    label={s.name}
+                                                    selected={selectedSkills.includes(s.id)}
+                                                    logo={<SkillAvatar skill={s} size={18} round />}
+                                                    onClick={() =>
+                                                        setSelectedSkills((prev) =>
+                                                            prev.includes(s.id)
+                                                                ? prev.filter((x) => x !== s.id)
+                                                                : [...prev, s.id]
+                                                        )
+                                                    }
+                                                />
+                                            ))}
+                                        </Box>
+                                    )}
+                                </MenuDropdown>
+                            </StepRow>
                         </Box>
 
                         <AnimatePresence mode="wait" initial={false}>
