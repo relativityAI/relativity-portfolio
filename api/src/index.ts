@@ -693,9 +693,9 @@ app.post("/analysis", requireAuth, async (req, res) => {
     const source = String(body.source || "NSE").toUpperCase();
     if (!symbol) return res.status(400).json({ error: "symbol is required" });
     if (source !== "NSE" && source !== "SEC") return res.status(400).json({ error: "source must be NSE or SEC" });
-    // Request contract: 1 prompt (optional) + multiple skills (optional ids).
+    // Request contract: 1 prompt (optional) + ONE skill (optional id).
     const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : undefined;
-    const skillIds = Array.isArray(body.skills) && body.skills.length ? body.skills.map(String) : undefined;
+    const skillIds = Array.isArray(body.skills) && body.skills.length ? body.skills.map(String).slice(0, 1) : undefined;
 
     const userId = (req as AuthedRequest).user.id;
     // agent_id is optional: no agent → the seeded default agent (the CLI
@@ -1214,7 +1214,7 @@ app.post("/harness/agents/:id/run", requireAuth, async (req, res) => {
     const symbol = String(body.symbol || "").trim();
     if (!symbol) return res.status(400).json({ error: "symbol is required" });
     const prompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : undefined;
-    const skillIds = Array.isArray(body.skills) && body.skills.length ? body.skills.map(String) : undefined;
+    const skillIds = Array.isArray(body.skills) && body.skills.length ? body.skills.map(String).slice(0, 1) : undefined;
     const result = await runHarnessSymbol(
       userId,
       String(req.params.id),

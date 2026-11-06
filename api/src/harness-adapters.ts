@@ -41,7 +41,7 @@ function rowToDefinition(row: any): AgentDefinition {
     userId: row.user_id,
     name: row.name,
     soulPrompt: c.soul_prompt ?? "",
-    skillIds: c.skill_ids ?? [],
+    skillIds: (c.skill_ids ?? []).slice(0, 1),
     allowedTools: c.allowed_tools ?? [],
     modelId: c.model_id ?? null,
     budget: clampBudget(c.budget ?? undefined),
@@ -55,7 +55,7 @@ function toConfig(input: AgentInput, base?: Record<string, unknown>): Record<str
     ...(base ?? {}),
     harness_version: HARNESS_VERSION,
     soul_prompt: input.soulPrompt ?? "",
-    skill_ids: input.skillIds ?? [],
+    skill_ids: (input.skillIds ?? []).slice(0, 1),
     allowed_tools: input.allowedTools ?? [],
     model_id: input.modelId ?? null,
     budget: clampBudget(input.budget),
@@ -205,11 +205,14 @@ export function viewToHarnessPatch(body: Record<string, any>) {
   if (body.name !== undefined) patch.name = String(body.name);
   const phil = body.soulPrompt ?? body.soul_prompt ?? body.philosophy
     ?? body.persona?.philosophy ?? body.persona?.philosophy_and_mindset;
-  if (phil !== undefined) patch.soulPrompt = String(phil);
+  // A blank soul is never saved — an agent is its prompt; wiping one is almost
+  // always an accidental select-all-delete, so the last prompt stays put.
+  if (phil !== undefined && String(phil).trim() !== "") patch.soulPrompt = String(phil);
   const raw = Array.isArray(body.skillIds) ? body.skillIds
     : Array.isArray(body.skill_ids) ? body.skill_ids
       : Array.isArray(body.skills) ? body.skills : undefined;
-  if (raw) patch.skillIds = raw.map((s: any) => (typeof s === "string" ? s : s?.skill_id)).filter(Boolean);
+  // One skill per agent.
+  if (raw) patch.skillIds = raw.map((s: any) => (typeof s === "string" ? s : s?.skill_id)).filter(Boolean).slice(0, 1);
   const tools = body.allowedTools ?? body.allowed_tools;
   if (Array.isArray(tools)) patch.allowedTools = tools;
   if (body.modelId !== undefined || body.model_id !== undefined) patch.modelId = body.modelId ?? body.model_id;

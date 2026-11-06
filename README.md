@@ -83,7 +83,7 @@ Open [http://localhost:5173](http://localhost:5173).
 Run the harness CLI directly (from `api/`, with `npm run searxng` up and an `OPENCODE_API_KEY` set):
 
 ```bash
-npx tsx src/harness/cli.ts --real --symbol AAPL --model opencode/deepseek-v4.1-flash --max-steps 20 --max-tokens 30000 --skills chartist-technical-analysis --save-workspace
+npx tsx src/harness/cli.ts --real --symbol AAPL --model opencode/deepseek-v4.1-flash --max-steps 20 --max-tokens 30000 --skill chartist-technical-analysis --save-workspace
 ```
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>

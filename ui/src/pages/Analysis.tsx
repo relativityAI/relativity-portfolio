@@ -246,7 +246,7 @@ function AnalysisSummary(props: {
                 sub={modelSub}
                 muted={!props.model}
             />
-            <SummaryRow label="Skills" value={props.skillsLabel} muted={props.skillsLabel === "All skills"} />
+            <SummaryRow label="Skill" value={props.skillsLabel} muted={props.skillsLabel === "Agent's skill"} />
             <SummaryRow label="Budget" value={props.budgetLabel} muted={props.budgetLabel === "Default"} />
             <Box pt={3} mt={1}>
                 {props.resuming ? (
@@ -290,7 +290,7 @@ export default function Analysis() {
     }, [status, startedAt]);
 
     // CLI parity: the run page passes the same flags as
-    // `cli.ts --real --symbol --model --max-steps --max-tokens --skills`.
+    // `cli.ts --real --symbol --model --max-steps --max-tokens --skill`.
     // Market is fixed to SEC (the CLI's --source default); the persona comes
     // from the server's seeded default agent — the CLI has no --agent either.
     const [config, setConfig] = useState({
@@ -514,7 +514,7 @@ export default function Analysis() {
     const canRunAnalysis = isConfigComplete;
     const skillsLabel = selectedSkills.length
         ? skills.filter((s) => selectedSkills.includes(s.id)).map((s) => s.name).join(", ")
-        : "All skills";
+        : "Agent's skill";
     const budgetLabel =
         [maxSteps && `${maxSteps} steps`, maxTokens && `${Number(maxTokens).toLocaleString()} tokens`]
             .filter(Boolean)
@@ -703,9 +703,9 @@ export default function Analysis() {
                                 />
                             </StepRow>
 
-                            {/* Skills — CLI's --skills a,b (empty = all skills) */}
+                            {/* Skills — one per run (CLI's --skill; no pick = the agent's own skill) */}
                             <StepRow
-                                label="Skills"
+                                label="Skill"
                                 icon={<Sparkles size={13} />}
                                 done={selectedSkills.length > 0}
                                 last
@@ -716,7 +716,7 @@ export default function Analysis() {
                                             ? skills.filter((s) => selectedSkills.includes(s.id)).map((s) => s.name).join(", ")
                                             : null
                                     }
-                                    placeholder="All skills (none selected)"
+                                    placeholder="Agent's skill (none selected)"
                                 >
                                     {() => (
                                         <Box>
@@ -732,11 +732,8 @@ export default function Analysis() {
                                                     selected={selectedSkills.includes(s.id)}
                                                     logo={<SkillAvatar skill={s} size={18} round />}
                                                     onClick={() =>
-                                                        setSelectedSkills((prev) =>
-                                                            prev.includes(s.id)
-                                                                ? prev.filter((x) => x !== s.id)
-                                                                : [...prev, s.id]
-                                                        )
+                                                        // One skill per run — picking one replaces the previous pick.
+                                                        setSelectedSkills((prev) => (prev.includes(s.id) ? [] : [s.id]))
                                                     }
                                                 />
                                             ))}

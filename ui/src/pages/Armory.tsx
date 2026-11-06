@@ -134,13 +134,13 @@ export default function Armory({
         try {
             const { AgentService } = await import("@/db");
             const agent = agents.find((a) => (a.id || a._id) === agentId);
-            const skills = [...(agent?.skills || []).map((s) => ({ skill_id: s.skill_id, weight: s.weight ?? 5 }))];
-            if (!skills.some((s) => s.skill_id === skill.id)) skills.push({ skill_id: skill.id, weight: 5 });
+            // One skill per agent — attaching replaces whatever was there.
+            const skills = [{ skill_id: skill.id, weight: 5 }];
             await AgentService.updateAgent({
                 name: agent?.name, persona: (agent as any)?.persona, configuration: (agent as any)?.configuration,
                 skills, id: agentId, _id: agentId,
             });
-            toaster.create({ title: `${skill.name} attached`, description: `Added to ${agent?.name || "the agent"} at weight 5.`, type: "success" });
+            toaster.create({ title: `${skill.name} attached`, description: `It is now the only skill on ${agent?.name || "the agent"}.`, type: "success" });
             setAgents((prev) => prev.map((a) => ((a.id || a._id) === agentId ? { ...a, skills } : a)));
         } catch (e: any) {
             toaster.create({ title: "Couldn't attach", description: e?.response?.data?.error || e?.message, type: "error" });

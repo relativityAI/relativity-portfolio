@@ -117,8 +117,7 @@ export default function NavBar() {
           </Link>
           <div className="flex items-center gap-6">
             {[
-              { to: "/my-workspace", label: "Agents", end: true, dot: "#7A8B9E" },
-              { to: "/my-workspace/skills", label: "Skills", end: false, dot: "#7A9E7E" },
+              { to: "/my-workspace", label: "Agents & Skills", end: true, dot: "#7A8B9E" },
               { to: "/new-analysis", label: "New Run", end: false, dot: "#7A9E7E" },
               { to: "/analysis-list", label: "Past Runs", end: false, dot: "#C49A6C" },
             ].map((item) => (
@@ -150,8 +149,7 @@ export default function NavBar() {
       {mobileOpen && (
         <div className="md:hidden border-t border-[var(--ink-primary)] bg-[var(--surface-canvas)]">
           {[
-            { to: "/my-workspace", label: "Agents" },
-            { to: "/my-workspace/skills", label: "Skills" },
+            { to: "/my-workspace", label: "Agents & Skills" },
             { to: "/new-analysis", label: "New Run" },
             { to: "/analysis-list", label: "Past Runs" },
           ].map((item) => (

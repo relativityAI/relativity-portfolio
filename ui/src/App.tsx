@@ -33,7 +33,6 @@ import ConsoleLayout from "./pages/console/ConsoleLayout";
 import AgentLibrary from "./pages/console/AgentLibrary";
 import AgentSkills from "./pages/console/AgentSkills";
 import AgentTools from "./pages/console/AgentTools";
-import AgentSettings from "./pages/console/AgentSettings";
 import AiBuilder from "./pages/console/AiBuilder";
 
 function Protected({ children }: { children: ReactNode }) {
@@ -90,10 +89,12 @@ function UnknownRoute() {
   return user ? <Navigate to="/" replace /> : <NotFound />;
 }
 
-/** Old wizard / builder URLs open the workspace agent editor. */
+/** Old agent editor URLs open the workspace — deep-linked to the agent (or
+ *  with the inline create form open for "new"). */
 function AgentRedirect() {
   const { id } = useParams();
-  return <Navigate to={!id || id === "new" ? "/my-workspace/agent/new" : `/my-workspace/agent/${id}`} replace />;
+  if (!id || id === "new") return <Navigate to="/my-workspace?new=1" replace />;
+  return <Navigate to={`/my-workspace?agent=${encodeURIComponent(id)}`} replace />;
 }
 
 /** Old /console URLs → /my-workspace, keeping the sub-path and query. */
@@ -151,7 +152,8 @@ function AppRoutes() {
       {user && locationPath !== "/settings" && <ApiKeySetupDialog key={user.id} user={user} />}
       {showNav && <NavBar />}
 
-        <Box w="100%" flex={1} overflowY={isConsole ? "hidden" : "auto"} overflowX="hidden" paddingX={0}>
+        {/* One natural page scroller for every route — no inner scroll boxes. */}
+        <Box w="100%" flex={1} overflowY="auto" overflowX="hidden" paddingX={0}>
             <AnimatePresence mode="wait">
               <motion.div key={isConsole ? "console" : location.pathname} variants={page} style={{ height: "100%", maxWidth: "1200px", margin: "0 auto", paddingLeft: "1.5rem", paddingRight: "1.5rem" }} initial="initial" animate="animate" exit="exit">
                 <Suspense fallback={<PageFallback />}>
@@ -245,8 +247,9 @@ function AppRoutes() {
                       <Route path="skills" element={<AgentSkills />} />
                       <Route path="builder" element={<AiBuilder />} />
                       <Route path="tools" element={<AgentTools />} />
-                      <Route path="agent/new" element={<AgentSettings />} />
-                      <Route path="agent/:id" element={<AgentSettings />} />
+                      {/* No agent editor page — the workspace list edits inline. */}
+                      <Route path="agent/new" element={<AgentRedirect />} />
+                      <Route path="agent/:id" element={<AgentRedirect />} />
                     </Route>
                     {/* Old /console URLs keep working. */}
                     <Route path="/console" element={<Navigate to="/my-workspace" replace />} />

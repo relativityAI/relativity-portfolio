@@ -66,13 +66,13 @@ export const SCHEMA_DESCRIPTOR: SchemaDescriptor = {
       key: "skills",
       label: "Skills",
       description:
-        "The skill documents this agent runs. Each skill owns its own method, data tools, and verdict anchors — the builder only chooses WHICH skills and how much each one matters.",
+        "The one skill document this agent runs. The skill owns its method, data tools, and verdict anchors — the agent pairs a system prompt with a single skill.",
       fields: [
         {
           key: "skills",
           type: "skill_list",
-          label: "Attached Skills",
-          description: "3-6 entries of {skill_id, weight} — skill_id must come from the skill library; weight 1-10 by centrality",
+          label: "Attached Skill",
+          description: "Exactly one entry of {skill_id, weight} — skill_id must come from the skill library; weight 1-10 by centrality",
         },
       ],
     },

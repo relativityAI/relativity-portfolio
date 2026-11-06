@@ -92,7 +92,7 @@ export async function runHarnessSymbol(
   existingRunId?: string,
   /** Request override: 1 prompt. Absent = the synthesized Analyze prompt. */
   promptOverride?: string,
-  /** Request override: skill ids. Absent/empty = the user's ALL skills. */
+  /** Request override: skill id (max 1). Absent/empty = the agent's own skill. */
   skillIdsOverride?: string[],
   /** Request override: loop/token budget (--max-steps / --max-tokens). Caller
    *  only includes keys it actually parsed — an `undefined` value here would

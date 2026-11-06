@@ -2,17 +2,17 @@ import { Outlet, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 
 /**
- * The My Workspace shell — the animated content area only. The level-3 nav
- * row (Agents / Skills / New Run / Past Runs) is app-level chrome now; it
- * lives in WorkspaceNav and stays visible across the workspace and runs flow.
+ * The My Workspace shell — the animated content area only. Scrolling belongs
+ * to the page itself (App's route container), so this renders plain flow:
+ * content grows the page and the window scrollbar does the rest.
  */
 
 export default function ConsoleLayout() {
     const location = useLocation();
 
     return (
-        <div className="flex h-full min-h-0 flex-col bg-console-canvas">
-            <main className="min-h-0 flex-1 overflow-y-auto" id="console-content">
+        <div className="flex min-h-full flex-col bg-console-canvas">
+            <main className="flex-1" id="console-content">
                 <AnimatePresence mode="wait" initial={false}>
                     <motion.div
                         key={location.pathname}
@@ -20,7 +20,7 @@ export default function ConsoleLayout() {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -6 }}
                         transition={{ duration: 0.2, ease: [0.2, 0.8, 0.2, 1] }}
-                        className="flex min-h-full flex-col [&>*]:min-h-0"
+                        className="flex min-h-full flex-col"
                     >
                         <Outlet />
                     </motion.div>

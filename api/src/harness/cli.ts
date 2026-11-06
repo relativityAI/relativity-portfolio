@@ -2,7 +2,7 @@
  * Harness CLI — the pretty way to run the harness standalone.
  *
  *   npx tsx src/harness/cli.ts --help
- *   npx tsx src/harness/cli.ts --real --symbol AAPL [--skills a,b] [--model id] \
+ *   npx tsx src/harness/cli.ts --real --symbol AAPL [--skill id] [--model id] \
  *       [--source SEC] [--soul text] [--mcp url] [--mcp-allow a,b] \
  *       [--max-steps n] [--max-tokens n] [--verbose] [--plain] [--quiet] \
  *       [--json] [--out file]
@@ -78,7 +78,7 @@ async function runReal(flags: RealFlags): Promise<void> {
   const cfg = resolveRunConfig(
     {
       model: arg("--model"),
-      skills: arg("--skills"),
+      skills: arg("--skill") ?? arg("--skills"),
       source: arg("--source"),
       soul: arg("--soul"),
       mcpAllow: arg("--mcp-allow"),
@@ -100,11 +100,13 @@ async function runReal(flags: RealFlags): Promise<void> {
   const source = cfg.source;
   const modelId = cfg.model;
   const soul = cfg.soul;
-  // All builtin skills by default; --skills/config narrows the set.
+  // ONE skill per run: --skill/config, else the first builtin.
   const allSkills = loadBuiltinSkills();
   if (!allSkills.length) die("no builtin skills found (run from the api/ package root)");
-  const skills = cfg.skills.length ? allSkills.filter((s) => cfg.skills.includes(s.id)) : allSkills;
-  if (!skills.length) die(`no skills matched: ${cfg.skills.join(", ")}`);
+  const skillId = cfg.skills[0] ?? allSkills[0].id;
+  const skill = allSkills.find((s) => s.id === skillId);
+  if (!skill) die(`skill not found: ${skillId}`);
+  const skills = [skill];
 
   // Output format is skill-determined (each skill's SKILL.md + references/);
   // the chosen system prompt (config/prompts/*.md) supplies identity + its
@@ -167,7 +169,7 @@ async function runReal(flags: RealFlags): Promise<void> {
       const details = [
         `run      ${symbol} (${source})`,
         `model    ${modelId}`,
-        `skills   ${resolvedSkills}${cfg.skills.length ? "" : " (all builtins)"} — report structure from the skill`,
+        `skills   ${resolvedSkills} — report structure from the skill`,
         `soul     "${soulLine}"`,
         `prompt   skill-determined (${resolvedSkills})`,
         `tools    ${registry.list().length} registered · ${allowedTools.length ? `${allowedTools.length} allowed by skills` : "all allowed"}`,
@@ -367,7 +369,7 @@ function usage(code: number): never {
     "",
     `  ${bold("real")}     full research run: model + MCP data + skills`,
     "    --real --symbol <TICKER> [options]",
-    "      --skills a,b        restrict builtin skills (default: all)",
+    "      --skill <id>        one skill for the run (default: first builtin)",
     "      --model <id>        provider/model (default: opencode/deepseek-v4.1-flash)",
     "      --source <SRC>      evidence source label (default: SEC)",
     "      --soul <text>       analyst soul prompt",

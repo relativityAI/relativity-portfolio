@@ -1625,7 +1625,7 @@ describe("skill prompt weight (agent's skills only, structure once)", () => {
     userId: "u",
     name: "A",
     soulPrompt: "",
-    skillIds: ["technical-analysis"],
+    skillIds: ["chartist-technical-analysis"],
     allowedTools: [],
     modelId: null,
     budget: { maxSteps: 6, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
@@ -1633,15 +1633,21 @@ describe("skill prompt weight (agent's skills only, structure once)", () => {
     createdAt: new Date().toISOString(),
   } as any;
 
-  it("compileAgent runs the agent's own skill picks, not the whole library", async () => {
+  it("compileAgent runs one skill: the agent's pick, or the request override", async () => {
     const one = await compileAgent("u", def);
-    expect(one.skills.map((s) => s.id)).toEqual(["technical-analysis"]);
-    // a request-level override still wins over the agent's picks
-    const over = await compileAgent("u", def, { skillIds: ["dcf-valuation"] });
-    expect(over.skills.map((s) => s.id)).toEqual(["dcf-valuation"]);
-    // an agent with no picks keeps the old behavior: every skill
-    const all = await compileAgent("u", { ...def, skillIds: [] });
-    expect(all.skills.length).toBeGreaterThan(1);
+    expect(one.skills.map((s) => s.id)).toEqual(["chartist-technical-analysis"]);
+    // a request-level override wins over the agent's pick: an id nothing
+    // resolves means the agent's own skill did NOT run
+    const over = await compileAgent("u", def, { skillIds: ["no-such-skill"] });
+    expect(over.skills).toEqual([]);
+    // one skill per run: only the first id of a multi-id override resolves
+    const two = await compileAgent("u", def, {
+      skillIds: ["chartist-technical-analysis", "dcf-valuation"],
+    });
+    expect(two.skills.map((s) => s.id)).toEqual(["chartist-technical-analysis"]);
+    // an agent with no picks runs with no skills — never the whole library
+    const none = await compileAgent("u", { ...def, skillIds: [] });
+    expect(none.skills).toEqual([]);
   });
 
   it("the binding report structure ships exactly once per request", async () => {

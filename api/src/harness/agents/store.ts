@@ -33,6 +33,9 @@ export interface AgentDefinition {
   createdAt: string | null;
 }
 
+/** One skill per agent — the write-path clamp (reads clamp in the adapter). */
+const oneSkill = (ids?: string[]): string[] => (ids ?? []).slice(0, 1);
+
 export interface AgentInput {
   name: string;
   soulPrompt?: string;
@@ -48,7 +51,7 @@ export const DEFAULT_HARNESS_AGENT: AgentInput = {
   name: "Technical Analysis Agent",
   soulPrompt:
     "You are a technical analyst. Judge the market's own record — trend structure, momentum, volume, and support/resistance — over opinion. Read price and indicator evidence from the tools, and say INSUFFICIENT where the data does not cover the question.",
-  skillIds: ["technical-analysis"],
+  skillIds: ["chartist-technical-analysis"],
 };
 
 /** Where agent definitions live. Two real adapters: Supabase (server) + memory. */
@@ -78,7 +81,7 @@ export function createMemoryAgentRepository(): AgentRepository {
         userId,
         name: input.name,
         soulPrompt: input.soulPrompt ?? "",
-        skillIds: input.skillIds ?? [],
+        skillIds: oneSkill(input.skillIds),
         allowedTools: input.allowedTools ?? [],
         modelId: input.modelId ?? null,
         budget: clampBudget(input.budget),
@@ -95,7 +98,7 @@ export function createMemoryAgentRepository(): AgentRepository {
         ...existing,
         name: input.name ?? existing.name,
         soulPrompt: input.soulPrompt ?? existing.soulPrompt,
-        skillIds: input.skillIds ?? existing.skillIds,
+        skillIds: input.skillIds ? oneSkill(input.skillIds) : existing.skillIds,
         allowedTools: input.allowedTools ?? existing.allowedTools,
         modelId: input.modelId !== undefined ? input.modelId : existing.modelId,
         budget: input.budget ? clampBudget({ ...existing.budget, ...input.budget }) : existing.budget,

@@ -20,7 +20,7 @@ export const CONFIG_FILENAME = "harness.config.json";
 // No config-file soul default: identity lives in config/prompts/AGENTS.md,
 // injected by runCanvasAnalysis. --soul / harness.config.json soul still
 // prepend an agent-specific persona over it.
-/** Empty = load all builtin skills; set a list to restrict the run. */
+/** Empty = the CLI picks the first builtin; set an id to choose the one skill. */
 export const DEFAULT_SKILLS: string[] = [];
 export const DEFAULT_MODEL = "opencode/deepseek-v4.1-flash";
 
@@ -140,7 +140,8 @@ export function resolveRunConfig(flags: CliFlags, env: NodeJS.ProcessEnv, file: 
   const mcpAllowRaw = firstValue(flags.mcpAllow, file.mcpAllow?.join(","));
   return {
     model: firstValue(flags.model, env.HARNESS_MODEL, file.model, DEFAULT_MODEL)!,
-    skills: (skillsRaw ?? DEFAULT_SKILLS.join(",")).split(",").map((s) => s.trim()).filter(Boolean),
+    // One skill per run — a comma list keeps only its first entry.
+    skills: (skillsRaw ?? DEFAULT_SKILLS.join(",")).split(",").map((s) => s.trim()).filter(Boolean).slice(0, 1),
     source: firstValue(flags.source, env.HARNESS_SOURCE, file.source, "SEC")!.toUpperCase(),
     soul: firstValue(flags.soul, file.soul) ?? "",
     mcpAllow: mcpAllowRaw ? mcpAllowRaw.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
