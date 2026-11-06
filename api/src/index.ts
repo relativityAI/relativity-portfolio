@@ -720,7 +720,7 @@ app.post("/analysis", requireAuth, async (req, res) => {
     // run continues in the background, streaming its trace to the SSE hub and
     // updating this row when it finishes (or ERROR if it throws).
     const runId = randomUUID();
-    const { error: phErr } = await getDb().from("analysis_runs").insert({
+    const runRow = {
       id: runId,
       user_id: userId,
       status: "RUNNING",
@@ -731,7 +731,20 @@ app.post("/analysis", requireAuth, async (req, res) => {
       source,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    });
+    };
+    // Older databases may miss migration 021/022 — try with both columns, then
+    // without the newer one; the run still starts and the list just shows less.
+    const systemPrompt = body.system_prompt ? String(body.system_prompt) : null;
+    const inserts = [
+      { ...runRow, skill_ids: skillIds ?? null, system_prompt: systemPrompt },
+      { ...runRow, skill_ids: skillIds ?? null },
+      runRow,
+    ];
+    let phErr: { message: string } | null = null;
+    for (const row of inserts) {
+      ({ error: phErr } = await getDb().from("analysis_runs").insert(row));
+      if (!phErr || !/skill_ids|system_prompt/.test(phErr.message)) break;
+    }
     if (phErr) throw new Error(phErr.message);
 
     runHarnessSymbol(
@@ -769,10 +782,20 @@ app.get("/analysis", requireAuth, async (req, res) => {
   try {
     const db = getDb();
     const userId = (req as AuthedRequest).user.id;
-    const { data, error } = await db
-      .from("analysis_runs")
-      .select("id, symbol, share_name, agent_name, run_mode, skill_id, status, total_score, quantitative_score, qualitative_score, created_at, updated_at, duration, model, source, error, coverage, fit_low, fit_high, report->verdict")
-      .eq("user_id", userId);
+    const cols = "id, symbol, share_name, agent_name, run_mode, skill_id, status, total_score, quantitative_score, qualitative_score, created_at, updated_at, duration, model, source, error, coverage, fit_low, fit_high, report->verdict";
+    let data: any[] | null = null;
+    let error: any = null;
+    // Older databases may miss migration 021/022 — drop whatever the table
+    // lacks and retry; the list falls back to showing the agent.
+    const selects = [
+      `${cols}, skill_ids, system_prompt`,
+      `${cols}, skill_ids`,
+      cols,
+    ];
+    for (const sel of selects) {
+      ({ data, error } = await db.from("analysis_runs").select(sel).eq("user_id", userId));
+      if (!error || !/skill_ids|system_prompt/.test(error.message)) break;
+    }
     if (error) throw error;
     const docs = (data || []).sort((a: any, b: any) => +new Date(b.created_at ?? 0) - +new Date(a.created_at ?? 0));
     res.json(docs);

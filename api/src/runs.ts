@@ -279,18 +279,23 @@ export async function runHarnessSymbol(
     if (error) throw new Error(error.message);
     return { status: result.status, document: result.document, errors: result.errors, verdict: result.verdict, runId: existingRunId };
   }
-  let { error } = await getDb().from("analysis_runs").insert({
+  let row: Record<string, any> = {
     id: runId,
     user_id: userId,
     ...payload,
+    system_prompt: systemPrompt ?? null,
     created_at: new Date().toISOString(),
-  });
-  // workspace is new in migration 020 — persist without it (report/trace are
-  // what the UI renders) until the column is applied.
-  if (error && /workspace/.test(error.message)) {
-    log.warn("harness", `analysis_runs missing workspace column — apply api/supabase/migrations/020_analysis_workspace.sql (${error.message})`);
-    const { workspace: _drop, ...rest } = payload;
-    ({ error } = await getDb().from("analysis_runs").insert({ id: runId, user_id: userId, ...rest, created_at: new Date().toISOString() }));
+  };
+  let { error } = await getDb().from("analysis_runs").insert(row);
+  // Columns newer than the deployed schema (020 workspace, 022 system
+  // prompt) — drop whichever the table is missing and retry; the run's
+  // report/trace are what the UI renders.
+  for (const col of ["workspace", "system_prompt"]) {
+    if (error && error.message.includes(col)) {
+      log.warn("harness", `analysis_runs missing ${col} column — apply api/supabase/migrations (${error.message})`);
+      delete row[col];
+      ({ error } = await getDb().from("analysis_runs").insert(row));
+    }
   }
   if (error) throw new Error(error.message);
   return { status: result.status, document: result.document, errors: result.errors, verdict: result.verdict, runId };

@@ -9,14 +9,17 @@ export interface SkillAvatarProps {
     size?: number;
     /** Accessible label. Pass the skill name when the chip stands alone. */
     label?: string;
+    /** Round crop instead of the default square. */
+    round?: boolean;
 }
 
 /**
- * A skill's identity chip: a DiceBear "patchwork" portrait, square and
- * unbordered. Deterministic — same skill, same chip, everywhere.
+ * A skill's identity chip: a DiceBear "patchwork" portrait, unbordered
+ * (square by default, round with `round`). Deterministic — same skill, same
+ * chip, everywhere.
  */
 
-export default function SkillAvatar({ skill, size = 24, label }: SkillAvatarProps) {
+export default function SkillAvatar({ skill, size = 24, label, round }: SkillAvatarProps) {
     const seed = useMemo(() => skillSeed(skill), [skill]);
     const svg = useMemo(() => skillAvatarSvg(seed), [seed]);
 
@@ -29,7 +32,7 @@ export default function SkillAvatar({ skill, size = 24, label }: SkillAvatarProp
             flexShrink={0}
             w={`${size}px`}
             h={`${size}px`}
-            borderRadius="0"
+            borderRadius={round ? "9999px" : "0"}
             overflow="hidden"
             role={label ? "img" : undefined}
             aria-label={label}

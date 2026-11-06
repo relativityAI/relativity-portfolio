@@ -3,10 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { MdArrowUpward, MdArrowDownward, MdExpandMore, MdChevronRight } from "react-icons/md";
 import { AnalysisService, AgentService, SkillService } from "@/db";
 import { agentDisplayName } from "@/utils";
-import AgentAvatar from "@/components/shared/AgentAvatar";
 import SkillAvatar from "@/components/shared/SkillAvatar";
 import Echart from "@/components/shared/Echart";
-import { resolveAgent } from "@/lib/agentIdentity";
+import { HarnessAgentService } from "@/lib/harnessAgents";
 import { ModelLogo, modelLogoAsset } from "@/lib/modelLogos";
 import { TickerLogo } from "@/lib/sourceLogos";
 import { mixHex, resolvedTheme, tooltipStyle, type ECOption, type ResolvedTheme } from "@/lib/echarts";
@@ -319,6 +318,22 @@ export default function AnalysisList() {
 
     const agentName = (raw: string | undefined) => agentDisplayName(raw, agents) || "—";
 
+    // Named system prompts (agent.yaml prompts.*) the runs read — the New Run
+    // page's "Agent" pick, persisted on the row as system_prompt.
+    const [systemPrompts, setSystemPrompts] = useState<{ id: string; name: string; default?: boolean }[]>([]);
+    useEffect(() => {
+        HarnessAgentService.listSystemPrompts()
+            .then((data) => {
+                if (Array.isArray(data)) setSystemPrompts(data);
+            })
+            .catch(() => {});
+    }, []);
+    /** Chosen prompt name; no id (old rows) = the configured default prompt. */
+    const promptName = (id: string | undefined) =>
+        (id && systemPrompts.find((t) => t.id === id)?.name) ||
+        systemPrompts.find((t) => t.default)?.name ||
+        "—";
+
     const fetchUniqueAnalysis = async (silent = false) => {
         try {
             if (!silent) setLoading(true);
@@ -373,8 +388,10 @@ export default function AnalysisList() {
                       a.symbol,
                       a.share_name,
                       a.model,
+                      promptName(a.system_prompt),
                       agentName(a.agent_name || a.agent),
                       skillName(a.skill_id),
+                      ...(Array.isArray(a.skill_ids) ? a.skill_ids.map(skillName) : []),
                   ].some((v) => String(v ?? "").toLowerCase().includes(q))
               )
             : uniqueAnalysis;
@@ -395,8 +412,8 @@ export default function AnalysisList() {
                     bVal = b.total_score ?? -1;
                     break;
                 case "agent":
-                    aVal = agentName(a.agent_name || a.agent).toLowerCase();
-                    bVal = agentName(b.agent_name || b.agent).toLowerCase();
+                    aVal = promptName(a.system_prompt).toLowerCase();
+                    bVal = promptName(b.system_prompt).toLowerCase();
                     break;
                 case "model":
                     aVal = (a.model || "").toLowerCase();
@@ -417,7 +434,7 @@ export default function AnalysisList() {
             if (aVal > bVal) return sortDir === "asc" ? 1 : -1;
             return 0;
         });
-    }, [uniqueAnalysis, sortKey, sortDir, query, agents, skills]);
+    }, [uniqueAnalysis, sortKey, sortDir, query, agents, skills, systemPrompts]);
 
     const SortIcon = ({ column }: { column: SortKey }) => {
         if (sortKey !== column) return null;
@@ -438,7 +455,7 @@ export default function AnalysisList() {
                 case "date":
                     return a.created_at ? new Date(a.created_at).toISOString().slice(0, 10) : "undated";
                 case "agent":
-                    return agentName(a.agent_name || a.agent);
+                    return promptName(a.system_prompt);
                 case "stock":
                     return String(a.share_name || a.symbol || "Unknown stock");
                 case "model":
@@ -457,7 +474,7 @@ export default function AnalysisList() {
             viewMode === "date" ? y.localeCompare(x) : x.localeCompare(y)
         );
         return keys.map((k) => ({ key: k, items: map.get(k)! }));
-    }, [viewMode, sorted]);
+    }, [viewMode, sorted, systemPrompts]);
 
     // Collapsed groups render only their header row.
     const visibleSections = useMemo(
@@ -879,7 +896,7 @@ export default function AnalysisList() {
                                                             key={`h-${sec.key}`}
                                                             avatar={
                                                                 viewMode === "agent" ? (
-                                                                    <AgentAvatar agent={resolveAgent(sec.key, agents)} size={18} />
+                                                                    <SkillAvatar skill={sec.key} size={18} round />
                                                                 ) : viewMode === "model" ? (
                                                                     <ModelLogo model={sec.key} size={14} />
 ) : viewMode === "stock" ? (
@@ -941,6 +958,22 @@ export default function AnalysisList() {
                                                                 +new Date(item.created_at)) /
                                                             1000
                                                           : null;
+                                                // Skills the run used: harness runs
+                                                // persist skill_ids (migration 021);
+                                                // legacy skill-era rows carry skill_id.
+                                                const runSkillIds: string[] =
+                                                    Array.isArray(item.skill_ids) && item.skill_ids.length
+                                                        ? item.skill_ids
+                                                        : item.skill_id
+                                                          ? [item.skill_id]
+                                                          : [];
+                                                const runSkillLabel = runSkillIds
+                                                    .map(skillName)
+                                                    .join(", ");
+                                                // The system prompt the run read
+                                                // (New Run's "Agent" pick,
+                                                // persisted as system_prompt).
+                                                const promptLabel = promptName(item.system_prompt);
 
                                                 return (
                                                     <motion.tr
@@ -987,28 +1020,32 @@ export default function AnalysisList() {
                                                             </div>
                                                         </td>
 
-                                                        {/* Agent / Skill */}
+                                                        {/* System prompt + skills */}
                                                         <td className="max-w-[140px] overflow-hidden px-4 py-3">
-                                                            {item.run_mode === "agent" ? (
-                                                                <div className="flex min-w-0 items-center gap-2">
-                                                                    <AgentAvatar agent={resolveAgent(item.agent_name || item.agent, agents)} size={24} />
-                                                                    <span className="truncate text-[13px] text-[var(--ink-secondary)]">
-                                                                        {agentName(item.agent_name || item.agent)}
+                                                            <div className="flex min-w-0 items-center gap-2">
+                                                                <SkillAvatar
+                                                                    skill={
+                                                                        runSkillIds.length
+                                                                            ? { id: runSkillIds[0], name: skillName(runSkillIds[0]) }
+                                                                            : { id: item.system_prompt, name: promptLabel }
+                                                                    }
+                                                                    size={24}
+                                                                    round
+                                                                />
+                                                                <span className="min-w-0">
+                                                                    <span className="block truncate text-[13px] text-[var(--ink-secondary)]" title={promptLabel}>
+                                                                        {promptLabel}
                                                                     </span>
-                                                                </div>
-                                                            ) : (
-                                                                <div className="flex min-w-0 items-center gap-2">
-                                                                    <SkillAvatar skill={{ id: item.skill_id, name: skillName(item.skill_id) }} size={24} />
-                                                                    <span className="min-w-0">
-                                                                        <span className="block truncate text-[13px] text-[var(--ink-secondary)]">
-                                                                            {skillName(item.skill_id)}
-                                                                        </span>
+                                                                    <span className="block truncate text-[11px] text-[var(--ink-tertiary)]" title={runSkillLabel || "All skills"}>
+                                                                        {runSkillLabel || "All skills"}
+                                                                    </span>
+                                                                    {item.run_mode !== "agent" && (
                                                                         <span className="block text-[10px] font-medium uppercase tracking-wide text-[var(--accent-primary)]">
                                                                             Skill run
                                                                         </span>
-                                                                    </span>
-                                                                </div>
-                                                            )}
+                                                                    )}
+                                                                </span>
+                                                            </div>
                                                         </td>
 
                                                         {/* Model */}
