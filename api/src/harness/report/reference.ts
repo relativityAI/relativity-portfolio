@@ -59,6 +59,7 @@ export function plotReferenceMarkdown(hasSeriesTool: boolean): string {
     "Data shapes:",
     `- categorical: \`{ "type": "chart", "measure": "USD per share", "sourceId": "s1", "spec": { "kind": "hbar", "categories": ["Base", "Bull"], "values": [218, 354] } }\``,
     `- time-series: \`{ "type": "chart", "measure": "USD", "sourceId": "s1", "spec": { "kind": "multiline", "data": "price, sma200" } }\` — the harness expands tokens into real series at assembly`,
+    `- name the lines yourself: \`spec.names\` sits beside \`data\`, positional — \`{ "kind": "multiline", "data": "price, sma20, sma50", "names": ["AAPL", "20-day average", "50-day average"] }\`. Omitted → harness labels (close, SMA20…). Never leave lines named by raw tokens or dates.`,
     `- table: \`{ "type": "chart", "measure": "USD bn", "sourceId": "s1", "spec": { "kind": "table", "columns": ["Year", "Revenue", "FCF"], "rows": [[2024, 391.0, 111.5]] } }\` — numbers as JSON numbers`,
     "",
     hasSeriesTool

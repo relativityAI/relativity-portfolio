@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { BLOCKS, SECTION_SHAPE } from "../src/harness/report/catalog.js";
 import { ChartSpecSchema, SCHEMA_VERSION, supGlyph, type ReportDocument } from "../src/harness/report/document.js";
 import { DATA_TOKENS, plotReferenceMarkdown, sectionContractMarkdown } from "../src/harness/report/reference.js";
+import { attachChartData } from "../src/harness/report/builder.js";
+import { renderFigure } from "../src/harness/report/figure-kit.js";
 import { Workspace } from "../src/harness/workspace/fs.js";
 import { extractNumbers, verifyDocumentNumbers } from "../src/harness/workspace/verify.js";
 import { validateComposed } from "../src/harness/canvas/canvas.js";
@@ -35,6 +37,51 @@ describe("generated prompt reference (schema → system prompt)", () => {
     // badges/quote are gone from the vocabulary
     expect(md).not.toMatch(/- badges —/);
     expect(md).not.toMatch(/- quote —/);
+    // diagram/code/metrics left the vocabulary
+    expect(md).not.toMatch(/- diagram —/);
+    expect(md).not.toMatch(/- code —/);
+    expect(md).not.toMatch(/- metrics —/);
+  });
+});
+
+describe("series naming (agent names, honest labels)", () => {
+  const doc = (spec: object) =>
+    ({
+      schema: SCHEMA_VERSION,
+      symbol: "AAPL",
+      sections: [{ heading: { level: 2, text: "Trend" }, blocks: [{ type: "chart", title: "t", sourceId: "s1", spec }] }],
+      sources: [],
+    }) as unknown as ReportDocument;
+
+  it("spec.names overrides token labels when tokens resolve", () => {
+    const payload = { dates: ["2026-05-06", "2026-05-07"], close: [100, 101], indicators: { sma_50: [99, 100] } };
+    const out = attachChartData(doc({ kind: "multiline", data: "price, sma50", names: ["AAPL", "50-day average"] }), [], [
+      { callId: "c1", payload },
+    ]);
+    const spec = (out.sections[0].blocks[0] as any).spec;
+    expect(spec.series.map((s: any) => s.label)).toEqual(["AAPL", "50-day average"]);
+    expect(spec.data).toBeUndefined();
+  });
+
+  it("falls back to harness token labels when names are omitted", () => {
+    const payload = { dates: ["2026-05-06", "2026-05-07"], close: [100, 101] };
+    const out = attachChartData(doc({ kind: "line", data: "price" }), [], [{ callId: "c1", payload }]);
+    const spec = (out.sections[0].blocks[0] as any).spec;
+    expect(spec.series[0].label).toBe("close");
+  });
+
+  it("end labels are series names, not x-axis dates", () => {
+    const t = (d: string) => Math.floor(Date.parse(d) / 1000);
+    const svg = renderFigure({
+      kind: "multiline",
+      series: [
+        { label: "AAPL", points: [{ t: t("2026-05-06"), v: 100 }, { t: t("2026-05-07"), v: 101 }] },
+        { label: "50-day average", points: [{ t: t("2026-05-06"), v: 99 }, { t: t("2026-05-07"), v: 100 }] },
+      ],
+    });
+    expect(svg).toContain("AAPL");
+    expect(svg).toContain("50-day average");
+    // under the old bug end labels printed x dates — series names never appeared
   });
 });
 

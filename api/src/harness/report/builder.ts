@@ -219,10 +219,11 @@ function tokenSeries(token: string, o: any): Series[] | null {
 function resolveSpec(spec: ChartSpec, results: any[]): ChartSpec {
   const tokens = spec.data?.split(",").map((t) => t.trim()).filter(Boolean);
   if (!tokens?.length) return spec;
-  const series = tokens.flatMap((tok) => {
+  const series = tokens.flatMap((tok, i) => {
     for (const o of results) {
       const s = tokenSeries(tok, o);
-      if (s) return s;
+      // agent-supplied positional name wins over the harness token label
+      if (s) return s.map((x) => ({ ...x, label: spec.names?.[i] ?? x.label }));
     }
     return [];
   });

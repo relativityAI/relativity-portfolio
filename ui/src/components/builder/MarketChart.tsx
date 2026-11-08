@@ -252,6 +252,10 @@ export function MarketChart({ data, variant, height = 380, title }: MarketChartP
       height,
     });
 
+    // series handles in creation order — the crosshair readout maps them back
+    const handles: { label: string; api: object }[] = [];
+    const track = (label: string, api: object) => handles.push({ label, api });
+
     if (model.kind === "candle") {
       const candles = chart.addSeries(CandlestickSeries, {
         upColor: up,
@@ -261,6 +265,7 @@ export function MarketChart({ data, variant, height = 380, title }: MarketChartP
         borderVisible: false,
       });
       candles.setData(model.candles);
+      track("Price", candles);
       for (const s of model.overlays) {
         const line = chart.addSeries(LineSeries, {
           color: s.color,
@@ -270,6 +275,7 @@ export function MarketChart({ data, variant, height = 380, title }: MarketChartP
           lastValueVisible: false,
         });
         line.setData(s.points);
+        track(s.label, line);
       }
       if (model.volume.length > 0) {
         // Volume rides its own overlay scale in the bottom 15% of the
@@ -277,6 +283,7 @@ export function MarketChart({ data, variant, height = 380, title }: MarketChartP
         const vol = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "" });
         vol.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
         vol.setData(model.volume.map((v) => ({ time: v.time, value: v.value, color: (v.up ? up : down) + "66" })));
+        track("Volume", vol);
       }
     } else if (model.kind === "line") {
       // AreaSeries = line + gradient fill: 40% under the line fading to
@@ -293,18 +300,51 @@ export function MarketChart({ data, variant, height = 380, title }: MarketChartP
           ...(model.bounded ? { autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) } : {}),
         });
         line.setData(s.points);
+        track(s.label, line);
       }
     } else {
       const vol = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" } });
       vol.setData(model.bars.map((b) => ({ ...b, color: accent + "99" })));
+      track(model.legend[0]?.label ?? "Volume", vol);
     }
 
     chart.timeScale().fitContent();
+
+    // hover readout: date + every series' value at the cursor (single & multiline)
+    const tip = document.createElement("div");
+    tip.style.cssText =
+      "position:absolute;pointer-events:none;display:none;z-index:5;padding:6px 9px;border-radius:6px;font-size:11px;line-height:1.5;background:var(--surface-panel,#fff);box-shadow:0 2px 8px rgb(0 0 0 / 0.15);color:var(--ink,#333);white-space:nowrap";
+    container.appendChild(tip);
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.time || !param.point) {
+        tip.style.display = "none";
+        return;
+      }
+      const date = typeof param.time === "number" ? new Date(param.time * 1000).toISOString().slice(0, 10) : String(param.time);
+      const rows: string[] = [];
+      for (const h of handles) {
+        const v = param.seriesData.get(h.api as never) as { value?: number; close?: number } | undefined;
+        if (v == null) continue;
+        const n = v.value ?? v.close;
+        if (n == null) continue;
+        rows.push(`${h.label}: ${typeof n === "number" && Number.isFinite(n) ? n.toFixed(2) : String(n)}`);
+      }
+      if (!rows.length) {
+        tip.style.display = "none";
+        return;
+      }
+      tip.innerHTML = `<div style="font-weight:600;margin-bottom:2px">${date}</div>${rows.join("<br/>")}`;
+      tip.style.display = "block";
+      const x = Math.min(Math.max(param.point.x + 12, 0), container.clientWidth - tip.offsetWidth - 4);
+      tip.style.left = `${x}px`;
+      tip.style.top = `${Math.max(param.point.y - tip.offsetHeight - 10, 0)}px`;
+    });
 
     const ro = new ResizeObserver(() => chart.applyOptions({ width: container.clientWidth }));
     ro.observe(container);
     return () => {
       ro.disconnect();
+      tip.remove();
       chart.remove();
     };
   }, [model, height]);

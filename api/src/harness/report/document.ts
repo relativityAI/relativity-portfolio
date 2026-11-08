@@ -59,6 +59,12 @@ export const ChartSpecSchema = z.object({
    * without transcribing bars. See report/builder.attachChartData.
    */
   data: z.string().optional(),
+  /**
+   * Agent-chosen display names for the `data` tokens, positional
+   * ("price, sma20" + ["AAPL", "20-day average"]). Absent → harness token
+   * labels (close, SMA20…).
+   */
+  names: z.array(z.string()).optional(),
   series: z.array(SeriesSchema).optional(),
   categories: z.array(z.string()).optional(),
   values: z.array(z.number()).optional(),

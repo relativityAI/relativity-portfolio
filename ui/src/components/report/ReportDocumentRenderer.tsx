@@ -285,15 +285,19 @@ function SourceNote({ sourceId, sources }: { sourceId?: string; sources: Source[
 }
 
 /** Fig. N frame around the assembly's stored SVG: title states the finding,
- * measure + how-to-read + source + SVG/CSV/PNG downloads (skill rule 7). */
+ * measure + how-to-read + source + SVG/CSV/PNG downloads (skill rule 7).
+ * `interactive` swaps the body for the live MarketChart (hover x+y readout);
+ * the stored svg still powers the SVG/PNG downloads. */
 function FigureBlock({
   section,
   sources,
   figN,
+  interactive = false,
 }: {
   section: Extract<Section, { type: "chart" }>;
   sources: Source[];
   figN: number;
+  interactive?: boolean;
 }) {
   const svgs = section.svgs ?? [];
   const src = section.sourceId ? sources.find((s) => s.id === section.sourceId) : undefined;
@@ -305,9 +309,16 @@ function FigureBlock({
         <Text className="fig-title">{section.title}</Text>
         {section.measure && <Text className="fig-measure">{section.measure}</Text>}
       </Flex>
-      {svgs.map((svg, i) => (
-        <Box key={i} className="fig-body" dangerouslySetInnerHTML={{ __html: svg }} />
-      ))}
+      {interactive ? (
+        <Box className="fig-body">
+          <ChartBlock spec={section.spec} title={undefined} />
+          {section.panels?.map((p, i) => <ChartBlock key={i} spec={p} title={undefined} />)}
+        </Box>
+      ) : (
+        svgs.map((svg, i) => (
+          <Box key={i} className="fig-body" dangerouslySetInnerHTML={{ __html: svg }} />
+        ))
+      )}
       {section.caption && <Text className="fig-cap">{section.caption}</Text>}
       <Flex className="fig-foot">
         {src ? (
@@ -432,10 +443,13 @@ function SectionView({
           <SourceNote sourceId={section.sourceId} sources={sources} />
         </Box>
       );
-    case "chart":
-      // Assembly-rendered figures get the Almanac frame; candles and legacy
-      // stored docs (no svgs) stay on the interactive client path below.
-      if (section.svgs?.length && figN != null) return <FigureBlock section={section} sources={sources} figN={figN} />;
+    case "chart": {
+      // Line/multiline draw live inside the fig frame (hover shows x+y);
+      // everything else keeps the assembly's static Almanac SVG. Candles and
+      // legacy stored docs (no svgs) already took the client path below.
+      const interactive = section.spec.kind === "line" || section.spec.kind === "multiline";
+      if (section.svgs?.length && figN != null)
+        return <FigureBlock section={section} sources={sources} figN={figN} interactive={interactive} />;
       return (
         <Box my={4}>
           <ChartBlock spec={section.spec} title={section.title} />
@@ -444,6 +458,7 @@ function SectionView({
           <SourceNote sourceId={section.sourceId} sources={sources} />
         </Box>
       );
+    }
     case "diagram":
       return (
         <Box my={4}>

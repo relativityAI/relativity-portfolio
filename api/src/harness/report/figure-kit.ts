@@ -159,7 +159,7 @@ function smooth(pts: [number, number][]): string {
  * shorter series (sma200 tail) doesn't split the path.
  * ponytail: constant-hold across true gaps; null-split paths if divergence matters.
  */
-function alignSeries(series: Series[]): { xs: number[]; labels: string[]; data: number[][] } {
+function alignSeries(series: Series[]): { xs: number[]; xLabels: string[]; seriesLabels: string[]; data: number[][] } {
   const used = series.filter((s) => s.points.length);
   const set = new Set<number>();
   for (const s of used) for (const p of s.points) set.add(p.t);
@@ -179,11 +179,11 @@ function alignSeries(series: Series[]): { xs: number[]; labels: string[]; data: 
   });
   // drop series with no data at all (chart then draws whatever remains)
   const keep = data.map((d) => d.some(Number.isFinite));
-  const labels = used.map((s, i) => (keep[i] ? s.label : "")).filter((_, i) => keep[i]);
+  const seriesLabels = used.map((s, i) => (keep[i] ? s.label : "")).filter((_, i) => keep[i]);
   const keptData = data.filter((_, i) => keep[i]);
   // x labels: epoch → YYYY-MM-DD (points come from tool payloads as epoch seconds)
   const fmt = (t: number) => new Date(t < 1e12 ? t * 1000 : t).toISOString().slice(0, 10);
-  return { xs, labels: xs.map(fmt), data: keptData };
+  return { xs, xLabels: xs.map(fmt), seriesLabels, data: keptData };
 }
 
 /** Story ink: lead = plot ink, second = rival (ink), rest = context grey. */
@@ -191,7 +191,7 @@ const colorOf = (i: number, ink: string) => (i === 0 ? ink : i === 1 ? C.ink : C
 const widthOf = (i: number, n: number) => (i === 0 ? (n === 1 ? 3 : 3.2) : i === 1 ? 2 : 1.25);
 
 function lineSvg(series: Series[], o: FigureOpts): string | null {
-  const { xs, labels, data } = alignSeries(series);
+  const { xs, xLabels, seriesLabels, data } = alignSeries(series);
   const all = data.flat().filter(Number.isFinite);
   if (!xs.length || !all.length) return null;
   const w = o.w ?? 1040;
@@ -208,20 +208,21 @@ function lineSvg(series: Series[], o: FigureOpts): string | null {
   // gutter sized to the widest printed y label (≈0.6em per char at 11px)
   const labelW = Math.max(...ticks.map((t) => ylab(t).length)) * 6.6;
   const padL = labelW + 16;
-  const endW = Math.max(0, ...data.map((_, i) => (colorOf(i, ink) === C.slate && data.length > 4 ? 0 : (labels[i] ?? "").length * 6.4 + 30)));
+  const endW = Math.max(0, ...data.map((_, i) => (colorOf(i, ink) === C.slate && data.length > 4 ? 0 : (seriesLabels[i] ?? "").length * 6.4 + 30)));
   const padR = Math.max(56, endW + 16);
 
   const X = (i: number) => padL + (xs.length === 1 ? 0.5 : (i / (xs.length - 1))) * (w - padL - padR);
   const Y = (v: number) => h - padB - ((v - lo) / (hi - lo)) * (h - padT - padB);
 
   const g: string[] = [svgOpen(w, h, o.label)];
+  // no grid line on the first/last tick — top and bottom frame, not data
   for (const t of ticks) {
     const y = Y(t);
-    g.push(line(padL, y, w - padR, y, C.grid, 1));
+    if (t !== ticks[0] && t !== ticks[ticks.length - 1]) g.push(line(padL, y, w - padR, y, C.grid, 1));
     g.push(txt(padL - 8, y + 4, ylab(t), { anchor: "end", size: 11, fill: C.dim }));
   }
   const everyX = Math.max(1, Math.ceil(xs.length / 8));
-  labels.forEach((lab, i) => {
+  xLabels.forEach((lab, i) => {
     if (i % everyX === 0 || i === xs.length - 1) g.push(txt(X(i), h - padB + 20, lab, { anchor: "middle", size: 11, fill: C.mid }));
   });
 
@@ -247,7 +248,7 @@ function lineSvg(series: Series[], o: FigureOpts): string | null {
     if (y - prevY < 13) y = prevY + 13;
     prevY = y;
     g.push(
-      txt(X(xs.length - 1) + 10, y + 4, `${labels[si]}${data.length === 1 ? ` ${fmtNum(v, o.unit)}` : ""}`, {
+      txt(X(xs.length - 1) + 10, y + 4, `${seriesLabels[si]}${data.length === 1 ? ` ${fmtNum(v, o.unit)}` : ""}`, {
         size: data.length === 1 ? 14 : 11,
         weight: data.length === 1 ? 600 : 500,
         fill: colorOf(si, ink),
@@ -388,7 +389,7 @@ function donutSvg(categories: string[], values: number[], o: FigureOpts): string
 
 /** Two axes, one dot cloud — grey context, lead series in the domain ink.
  * ponytail: no fit line / r — add a scatterFit only when a claim needs it. */function scatterSvg(series: Series[], o: FigureOpts): string | null {
-  const { xs, labels, data } = alignSeries(series);
+  const { xs, xLabels, seriesLabels, data } = alignSeries(series);
   const all = data.flat().filter(Number.isFinite);
   if (!all.length) return null;
   const w = o.w ?? 1040;
@@ -407,12 +408,13 @@ function donutSvg(categories: string[], values: number[], o: FigureOpts): string
 
   const g: string[] = [svgOpen(w, h, o.label)];
   const ink = o.ink ?? C.c;
+  // no grid line on the first/last tick — top and bottom frame, not data
   for (const t of ticks) {
-    g.push(line(padL, Y(t), w - padR, Y(t), C.grid, 1));
+    if (t !== ticks[0] && t !== ticks[ticks.length - 1]) g.push(line(padL, Y(t), w - padR, Y(t), C.grid, 1));
     g.push(txt(padL - 8, Y(t) + 4, ylab(t), { anchor: "end", fill: C.dim }));
   }
   const everyX = Math.max(1, Math.ceil(xs.length / 8));
-  labels.forEach((lab, i) => {
+  xLabels.forEach((lab, i) => {
     if (i % everyX === 0 || i === xs.length - 1) g.push(txt(X(i), h - padB + 20, lab, { anchor: "middle", fill: C.mid }));
   });
   data.forEach((vals, si) => {
@@ -420,7 +422,7 @@ function donutSvg(categories: string[], values: number[], o: FigureOpts): string
       if (!Number.isFinite(v)) return;
       g.push(`<circle cx="${rr(X(i))}" cy="${rr(Y(v))}" r="${si === 0 ? 4.5 : 3.5}" style="fill:${colorOf(si, ink)}"/>`);
     });
-    const li = labels[si];
+    const li = seriesLabels[si];
     if (li) g.push(txt(w - padR, padT - 8, li, { anchor: "end", size: 11, fill: colorOf(si, ink), halo: true }));
   });
   g.push("</svg>");
@@ -446,7 +448,8 @@ function columnsSvg(labels: string[], vals: number[], o: FigureOpts): string | n
   const g: string[] = [svgOpen(w, h, o.label)];
   const ink = o.ink ?? C.c;
   for (const t of ticks) {
-    g.push(line(padL, Y(t), w - padR, Y(t), t === 0 ? C.dim : C.grid, t === 0 ? 1.2 : 1));
+    // keep the zero baseline; skip the top frame line
+    if (!(t !== 0 && t === ticks[ticks.length - 1])) g.push(line(padL, Y(t), w - padR, Y(t), t === 0 ? C.dim : C.grid, t === 0 ? 1.2 : 1));
     g.push(txt(padL - 8, Y(t) + 4, ylab(t), { anchor: "end", fill: C.dim }));
   }
   vals.forEach((v, i) => {
@@ -464,10 +467,10 @@ function columnsSvg(labels: string[], vals: number[], o: FigureOpts): string | n
 
 /** Series over time as columns (legacy `bar` that resolved to time series). */
 function vBarsSvg(series: Series[], o: FigureOpts): string | null {
-  const { labels, data } = alignSeries(series);
+  const { xLabels, data } = alignSeries(series);
   const vals = data[0];
   if (!vals?.length) return null;
-  return columnsSvg(labels, vals, o);
+  return columnsSvg(xLabels, vals, o);
 }
 
 /** Signed-number inks (skill: colour on data, same pair as table .pos/.neg). */

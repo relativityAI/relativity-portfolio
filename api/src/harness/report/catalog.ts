@@ -31,12 +31,6 @@ export const BLOCKS: BlockSpec[] = [
     json: `{ "type": "chart", "title": "…", "measure": "USD", "sourceId": "s1", "spec": { "kind": "candle", "data": "price, sma200" } }`,
   },
   {
-    id: "diagram",
-    name: "diagram",
-    when: "A flow or decision path that must be a figure — mermaid syntax; REQUIRED `sourceId` (printed under the figure).",
-    json: `{ "type": "diagram", "title": "…", "sourceId": "s1", "spec": { "syntax": "mermaid", "code": "…" } }`,
-  },
-  {
     id: "table",
     name: "table",
     when: "A raw grid (financials, comparisons, factor scores) that is not a plot. Numbers as JSON numbers, not strings. REQUIRED `sourceId` (printed under the table).",
@@ -45,17 +39,10 @@ export const BLOCKS: BlockSpec[] = [
   {
     id: "compare",
     name: "compare",
-    when: "Before/after pairs (entry vs stop, scenario A vs B). Each side is a chart or diagram. REQUIRED `sourceId` (printed under the figure).",
+    when: "Before/after pairs (entry vs stop, scenario A vs B). Each side is a chart. REQUIRED `sourceId` (printed under the figure).",
     json: `{ "type": "compare", "title": "Scenario", "before": { "kind": "line", "data": "price" }, "after": { "kind": "line", "data": "price, sma200" }, "sourceId": "s1" }`,
   },
-  { id: "metrics", name: "metrics", when: "KPI grid — 2–6 headline numbers with delta and tone.", json: `{ "type": "metrics", "items": [{ "label": "RSI (14)", "value": "61", "delta": "+4.2", "tone": "positive", "sourceId": "s1" }] }` },
-  { id: "code", name: "code", when: "A formula, snippet, or exact expression.", json: `{ "type": "code", "language": "text", "text": "…" }` },
-  {
-    id: "citations",
-    name: "citations",
-    when: "Optional footnote anchor — lands exactly where you write it, never a sources list. The harness appends nothing.",
-    json: `{ "type": "citations", "refs": [] }`,
-  },
+  { id: "citations", name: "citations", when: "Optional footnote anchor — lands exactly where you write it, never a sources list. The harness appends nothing.", json: `{ "type": "citations", "refs": [] }` },
 ];
 
 /** The envelope every report_write section must have. */
@@ -75,5 +62,5 @@ export const SECTION_SHAPE = `Each section you write is a COMPLETE unit — one 
 Rules:
 - Exactly ONE heading per section. Any mix and number of blocks inside — a section may hold only text, only figures, or both (e.g. heading + one chart + its source is a complete section).
 - Text comes in pairs: a \`level: 1\` text (the claim) must be IMMEDIATELY followed by a \`level: 2\` text (the detail) — no figure or other block between them. A level-2 text may also appear alone.
-- Every figure (\`chart\`, \`diagram\`, \`table\`, \`compare\`) MUST carry \`sourceId\` — the harness prints the source beneath it. Writes without it are rejected.
+- Every figure (\`chart\`, \`table\`, \`compare\`) MUST carry \`sourceId\` — the harness prints the source beneath it. Writes without it are rejected.
 - \`badges\` and \`quote\` do not exist — never write them.`;

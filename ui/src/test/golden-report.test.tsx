@@ -227,7 +227,8 @@ describe("figure frames (almanac, assembly-rendered svgs)", () => {
     render(wrap(<ReportDocumentRenderer document={figureDoc} />));
     const frames = screen.getAllByTestId("report-figure");
     expect(frames).toHaveLength(2); // candle stays on the legacy chart path
-    expect(frames[0].querySelector(".fig-body svg")).toBeTruthy(); // injected, not recharts
+    // line figures draw live inside the frame (hover x+y), not the stored svg
+    expect(frames[0].querySelector("[data-testid='report-chart']")).toBeTruthy();
     expect(frames[0].textContent).toContain("Fig. 1");
     expect(frames[0].textContent).toContain("The multiple, not the print");
     expect(frames[0].textContent).toContain("× EV/EBITDA");
@@ -237,7 +238,7 @@ describe("figure frames (almanac, assembly-rendered svgs)", () => {
     expect(frames[0].querySelectorAll(".fig-exports button")).toHaveLength(3);
     // numbering counts every chart (candle = Fig. 2), matching the md dump
     expect(frames[1].textContent).toContain("Fig. 3");
-    expect(screen.getAllByTestId("report-chart")).toHaveLength(1); // candle fallback
+    expect(screen.getAllByTestId("report-chart")).toHaveLength(2); // live line in frame + candle fallback
   });
 
   it("numbers inline markers from doc.footnotes (highlight sourceIds)", () => {
