@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { Menu, Flex, Text, Box } from "@chakra-ui/react";
-import { Search, Menu as MenuIcon, X, LogOut, Moon, Sun, Settings } from "lucide-react";
+import { Search, Menu as MenuIcon, X, LogOut, Moon, Sun, Settings, Check, TriangleAlert } from "lucide-react";
 import { useAuth } from "@/auth/useAuth";
 import { useColorMode } from "@/components/ui/color-mode";
 import UserAvatar from "@/components/shared/UserAvatar";
@@ -10,12 +10,17 @@ import { API_BASE } from "@/db";
 import { TickerLogo } from "@/lib/sourceLogos";
 import { DropdownItem } from "@/pages/shared/AnalysisControls";
 import { cn } from "@/lib/utils";
+import searxngLogo from "@/assets/searxng.svg";
+import yahooLogo from "@/assets/yahoo_finance.png";
 
-const today = new Date().toLocaleDateString("en-GB", {
-  day: "numeric",
-  month: "long",
-  year: "numeric",
-});
+// Navbar data-source chips. href/status come from GET /health/sources —
+// a real probe per source, cached server-side for a minute.
+const DATA_SOURCES = [
+  { id: "searxng", name: "SearXNG", img: searxngLogo },
+  { id: "yahoo", name: "Yahoo Finance (yfinance)", img: yahooLogo },
+] as const;
+
+type SourceStatus = { ok?: boolean; href?: string };
 
 type StockRow = {
   ticker?: string;
@@ -32,6 +37,20 @@ export default function NavBar() {
   const location = useLocation();
   const email = user?.email ?? "";
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sources, setSources] = useState<Record<string, SourceStatus>>({});
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE}/health/sources`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive && d?.sources) setSources(d.sources);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Stock search — same logic as the new-analysis company picker:
   // 300ms debounce + AbortController against /stocks/search.
@@ -100,14 +119,49 @@ export default function NavBar() {
           >
             Relativity.
           </Link>
-          <span className="text-sm text-[var(--ink-tertiary)] font-light cursor-pointer">
-            Data to {today}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="hidden md:inline text-sm text-[var(--ink-tertiary)] font-light">Data sources</span>
+            <div className="group flex items-center" role="list" aria-label="Data sources">
+              {DATA_SOURCES.map((s, i) => {
+                const st = sources[s.id];
+                const down = st?.ok === false;
+                const href = st?.href;
+                return (
+                  <a
+                    key={s.id}
+                    href={href}
+                    target={href ? "_blank" : undefined}
+                    rel={href ? "noreferrer" : undefined}
+                    role="listitem"
+                    aria-label={`${s.name} — ${st == null ? "checking" : down ? "not connected" : "connected"}`}
+                    style={{ "--i": i } as CSSProperties}
+                    className={cn(
+                      "group/src relative block h-7 w-7 shrink-0 rounded-full bg-[color-mix(in_srgb,var(--ink-primary)_12%,var(--surface-canvas))] p-[5px] shadow-[0_0_0_2px_var(--surface-canvas)] transition-transform duration-300 ease-in-out will-change-transform group-hover:[transform:translateX(calc(var(--i)*12px))]",
+                      i > 0 && "-ml-2",
+                      href ? "cursor-pointer" : "cursor-default",
+                    )}
+                  >
+                    <img
+                      src={s.img}
+                      alt=""
+                      aria-hidden="true"
+                      className={cn("h-full w-full object-contain", down && "grayscale opacity-40")}
+                    />
+                    <span className="pointer-events-none invisible absolute left-1/2 top-full z-40 mt-1.5 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-[4px] border border-[var(--hairline)] bg-[var(--surface-canvas)] px-2 py-1 font-[family-name:var(--font-body)] text-xs text-[var(--ink-primary)] opacity-0 shadow-[0_8px_24px_rgba(0,0,0,0.12)] transition-all duration-150 group-hover/src:delay-300 group-hover/src:visible group-hover/src:opacity-100">
+                      {s.name}
+                      {st?.ok === true && <Check size={12} style={{ color: "#7A9E7E" }} />}
+                      {down && <TriangleAlert size={12} style={{ color: "#C49A6C" }} />}
+                    </span>
+                  </a>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-5">
-          {/* Stock search — square-ish, hairline, no pill rounding */}
-          <div ref={searchWrapRef} className="relative hidden md:block">
+        {/* Stock search — centered between the mast and the account controls */}
+        <div ref={searchWrapRef} className="relative hidden md:flex flex-1 items-center justify-center">
+          <div className="relative">
             <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--ink-tertiary)]" />
             <input
               value={query}
@@ -122,39 +176,41 @@ export default function NavBar() {
               aria-haspopup="listbox"
               className="h-8 w-52 rounded-[4px] border border-[var(--hairline)] bg-[var(--surface-recessed)] pr-2 pl-8 font-[family-name:var(--font-body)] text-sm font-normal text-[var(--ink-primary)] outline-none focus:border-[var(--ink-tertiary)]"
             />
-            {searchOpen && query.trim() !== "" && (
-              <div
-                role="listbox"
-                aria-label="Stock results"
-                className="stock-search absolute top-[calc(100%+6px)] right-0 z-50 max-h-[320px] w-[340px] overflow-y-auto rounded-[6px] border border-[var(--hairline)] bg-[var(--surface-canvas)] py-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
-              >
-                {searching && (
-                  <div className="px-3 py-2.5 font-[family-name:var(--font-body)] text-xs text-[var(--ink-tertiary)]">Searching…</div>
-                )}
-                {!searching && results.length === 0 && (
-                  <div className="px-3 py-2.5 font-[family-name:var(--font-body)] text-xs text-[var(--ink-tertiary)]">
-                    Nothing matches “{query}”.
-                  </div>
-                )}
-                {!searching &&
-                  results.map((stock) => {
-                    const sym = stock.ticker || stock.SYMBOL || "";
-                    const market = String(stock.source || "").toLowerCase() === "nse" ? "NSE" : "SEC";
-                    return (
-                      <DropdownItem
-                        key={`${market}-${sym}`}
-                        label={stock.name || stock.NAME || sym}
-                        sub={sym}
-                        tag={market}
-                        logo={<TickerLogo symbol={sym} size={18} />}
-                        onClick={() => pickStock(stock)}
-                      />
-                    );
-                  })}
-              </div>
-            )}
           </div>
+          {searchOpen && query.trim() !== "" && (
+            <div
+              role="listbox"
+              aria-label="Stock results"
+              className="stock-search absolute top-[calc(100%+6px)] left-1/2 -translate-x-1/2 z-50 max-h-[320px] w-[340px] overflow-y-auto rounded-[6px] border border-[var(--hairline)] bg-[var(--surface-canvas)] py-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
+            >
+              {searching && (
+                <div className="px-3 py-2.5 font-[family-name:var(--font-body)] text-xs text-[var(--ink-tertiary)]">Searching…</div>
+              )}
+              {!searching && results.length === 0 && (
+                <div className="px-3 py-2.5 font-[family-name:var(--font-body)] text-xs text-[var(--ink-tertiary)]">
+                  Nothing matches “{query}”.
+                </div>
+              )}
+              {!searching &&
+                results.map((stock) => {
+                  const sym = stock.ticker || stock.SYMBOL || "";
+                  const india = String(stock.source || "").toLowerCase() === "nse";
+                  const market = india ? "NSE" : "SEC";
+                  return (
+                    <DropdownItem
+                      key={`${market}-${sym}`}
+                      label={stock.name || stock.NAME || sym}
+                      sub={`${india ? "🇮🇳" : "🇺🇸"} ${market}:${sym}`}
+                      logo={<TickerLogo symbol={sym} size={18} />}
+                      onClick={() => pickStock(stock)}
+                    />
+                  );
+                })}
+            </div>
+          )}
+        </div>
 
+        <div className="flex items-center gap-5">
           <button
             aria-label="Toggle color mode"
             onClick={toggleColorMode}

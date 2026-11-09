@@ -264,12 +264,16 @@ body {
 [class*="hover:bg-accent"]:hover {
   background-color: transparent !important;
 }
-[class*="hover:text-"]:hover,
-[class*="hover:opacity"]:hover,
-[role="button"]:hover,
-button:hover,
-a:hover,
-.group:hover * {
+/* This rule is unlayered, so its `transition` shorthand outranks every
+   Tailwind transition-* utility and would wipe that element's own property
+   list (a transform chip turned into an instant snap on hover). Elements
+   that declare their own transition-* class keep it. */
+[class*="hover:text-"]:not([class*="transition-"]):hover,
+[class*="hover:opacity"]:not([class*="transition-"]):hover,
+[role="button"]:not([class*="transition-"]):hover,
+button:not([class*="transition-"]):hover,
+a:not([class*="transition-"]):hover,
+.group:hover *:not([class*="transition-"]) {
   transition: color 120ms ease, filter 120ms ease, opacity 120ms ease;
 }
 /* Text/icon brightness only — solid-filled buttons opt out via [data-solid]:

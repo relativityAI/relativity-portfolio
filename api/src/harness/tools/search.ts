@@ -79,8 +79,8 @@ export interface WebCfg {
   maxConcurrent: number;
 }
 
-/** agent.yaml web merged over defaults; SEARXNG_URL env wins over baseUrl. */
-function webCfg(): WebCfg {
+/** agent.yaml web merged over defaults; SEARXNG_URL env wins over baseUrl. Exported: the /health/sources chip resolves the same URL. */
+export function webCfg(): WebCfg {
   const web = (loadAgentConfig().web ?? {}) as Partial<WebCfg>;
   const num = (v: unknown, d: number) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
   const baseUrl = process.env.SEARXNG_URL || web.baseUrl || DEFAULTS.baseUrl;

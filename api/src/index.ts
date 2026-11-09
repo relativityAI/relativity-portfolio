@@ -5,6 +5,7 @@ import { config } from "./config.js";
 import { getDb } from "./db.js";
 import { encrypt, decrypt } from "./crypto.js";
 import { fetchUserKeys, ensureUserSettings } from "./provision.js";
+import { getSourceStatuses } from "./datasources.js";
 import { getModelIds, getAvailableModelsForUser } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
 import { tickerLogoUrl } from "./tickerLogos.js";
@@ -188,6 +189,12 @@ app.get("/health", async (_req, res) => {
     dbOk = false;
   }
   res.json({ ok: 1, db: dbOk });
+});
+
+// Data-source chips in the navbar — real upstream probes, cached a minute
+// so a page load never hammers Yahoo/SearXNG (see datasources.ts).
+app.get("/health/sources", async (_req, res) => {
+  res.json({ ok: 1, sources: await getSourceStatuses() });
 });
 
 app.get("/health/voyager", requireAuth, async (req, res) => {
