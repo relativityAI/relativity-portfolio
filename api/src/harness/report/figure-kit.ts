@@ -80,8 +80,8 @@ function txt(
   return `<text x="${rr(x)}" y="${rr(y)}" text-anchor="${o.anchor ?? "start"}" style="${style}">${esc(s)}</text>`;
 }
 
-const rect = (x: number, y: number, w: number, h: number, fill: string, opacity?: number) =>
-  `<rect x="${rr(x)}" y="${rr(y)}" width="${rr(Math.max(0, w))}" height="${rr(Math.max(0, h))}" style="fill:${fill}"${opacity != null ? ` opacity="${opacity}"` : ""}/>`;
+const rect = (x: number, y: number, w: number, h: number, fill: string, opacity?: number, rx = 0) =>
+  `<rect x="${rr(x)}" y="${rr(y)}" width="${rr(Math.max(0, w))}" height="${rr(Math.max(0, h))}"${rx ? ` rx="${rx}"` : ""} style="fill:${fill}"${opacity != null ? ` opacity="${opacity}"` : ""}/>`;
 
 const line = (x1: number, y1: number, x2: number, y2: number, stroke: string, width = 1, dash?: string) =>
   `<line x1="${rr(x1)}" y1="${rr(y1)}" x2="${rr(x2)}" y2="${rr(y2)}" style="stroke:${stroke};stroke-width:${width}${dash ? `;stroke-dasharray:${dash}` : ""}"/>`;
@@ -286,7 +286,7 @@ function hBarsSvg(categories: string[], values: number[], o: FigureOpts): string
     const y = padT + i * rowH + (rowH - barH) / 2;
     const bw = hi > 0 ? (Math.abs(values[i]) / hi) * trackW : 0;
     g.push(txt(padL - 8, y + barH / 2 + 4, categories[i], { anchor: "end", size: 12, fill: C.ink, halo: true }));
-    g.push(rect(padL, y, bw, barH, ink));
+    g.push(rect(padL, y, bw, barH, ink, undefined, 3));
     g.push(txt(padL + bw + 7, y + barH / 2 + 4, fmtNum(values[i], o.unit), { size: 11.5, weight: 500, fill: C.ink }));
   }
   g.push("</svg>");
@@ -455,7 +455,7 @@ function columnsSvg(labels: string[], vals: number[], o: FigureOpts): string | n
   vals.forEach((v, i) => {
     if (!Number.isFinite(v)) return;
     const x = padL + i * stepW + (stepW - bw) / 2;
-    g.push(rect(x, Y(v), bw, Y(0) - Y(v), ink));
+    g.push(rect(x, Y(v), bw, Y(0) - Y(v), ink, undefined, 3));
   });
   const everyX = Math.max(1, Math.ceil(labels.length / 8));
   labels.forEach((lab, i) => {
@@ -618,13 +618,105 @@ function tableSvg(spec: ChartSpec, o: FigureOpts): string | null {
 }
 
 /**
+ * Candlesticks on the shared time axis: bodies + wicks for series[0],
+ * overlays (SMA…) as lines on the same scale. Close-only points (no o/h/l)
+ * fall back to a line — the same fallback the UI's MarketChart takes.
+ * The UI still gets the live chart (renderFigures skips candle blocks); this
+ * is the static form the markdown dump ships.
+ */
+function candleSvg(spec: ChartSpec, o: FigureOpts): string | null {
+  const series = (spec.series ?? []).filter((s) => s.points.length);
+  if (!series.length) return null;
+  const bars = series[0];
+  if (!bars.points.every((p) => p.o != null && p.h != null && p.l != null)) return lineSvg(series, o);
+  const { xs, xLabels, data, seriesLabels } = alignSeries(series);
+  if (!xs.length) return null;
+
+  const overlayVals = data.flat().filter(Number.isFinite);
+  const lo0 = Math.min(...bars.points.map((p) => p.l!), ...overlayVals);
+  const hi0 = Math.max(...bars.points.map((p) => p.h!), ...overlayVals);
+
+  const w = o.w ?? 1040;
+  const h = o.h ?? 420;
+  const ink = o.ink ?? C.c;
+  const padT = 26;
+  const padB = 44;
+  const pad = (hi0 - lo0) * 0.08 || Math.abs(hi0) * 0.05 || 1;
+  const { lo, hi, step, ticks } = niceTicks(lo0 - pad, hi0 + pad, 4);
+  const ylab = tickFmt(step, Math.max(Math.abs(lo), Math.abs(hi)), o.unit);
+  const labelW = Math.max(...ticks.map((t) => ylab(t).length)) * 6.6;
+  const padL = labelW + 16;
+  const endW = Math.max(0, ...data.map((_, i) => (colorOf(i, ink) === C.slate && data.length > 4 ? 0 : (seriesLabels[i] ?? "").length * 6.4 + 30)));
+  const padR = Math.max(56, endW + 16);
+  const X = (i: number) => padL + (xs.length === 1 ? 0.5 : i / (xs.length - 1)) * (w - padL - padR);
+  const Y = (v: number) => h - padB - ((v - lo) / (hi - lo)) * (h - padT - padB);
+
+  const g: string[] = [svgOpen(w, h, o.label)];
+  for (const t of ticks) {
+    const y = Y(t);
+    if (t !== ticks[0] && t !== ticks[ticks.length - 1]) g.push(line(padL, y, w - padR, y, C.grid, 1));
+    g.push(txt(padL - 8, y + 4, ylab(t), { anchor: "end", size: 11, fill: C.dim }));
+  }
+  const everyX = Math.max(1, Math.ceil(xs.length / 8));
+  xLabels.forEach((lab, i) => {
+    if (i % everyX === 0 || i === xs.length - 1) g.push(txt(X(i), h - padB + 20, lab, { anchor: "middle", size: 11, fill: C.mid }));
+  });
+
+  // candles — up inks with the plot, down with the negative ink (house pair)
+  const idx = new Map(xs.map((t, i) => [t, i]));
+  const stepW = xs.length > 1 ? (w - padL - padR) / (xs.length - 1) : w - padL - padR;
+  const bw = Math.min(Math.max(stepW * 0.62, 1.5), 14);
+  for (const p of bars.points) {
+    const i = idx.get(p.t);
+    if (i == null) continue;
+    const x = X(i);
+    const up = p.v >= (p.o ?? p.v);
+    const color = up ? ink : C.neg;
+    g.push(line(x, Y(p.h!), x, Y(p.l!), color, 1));
+    const bodyTop = Y(Math.max(p.o ?? p.v, p.v));
+    const bh = Math.max(Math.abs(Y(Math.min(p.o ?? p.v, p.v)) - bodyTop), 1.2);
+    g.push(rect(x - bw / 2, bodyTop, bw, bh, color));
+  }
+
+  // overlays (SMA…) as lines on the same scale — close IS the candles
+  data.forEach((vals, si) => {
+    if (si === 0) return;
+    const pts = vals.map((v, i) => [X(i), Y(v)] as [number, number]).filter(([, y]) => Number.isFinite(y));
+    if (pts.length < 2) return;
+    g.push(`<path d="${smooth(pts)}" fill="none" style="stroke:${colorOf(si, ink)};stroke-width:${widthOf(si, data.length)};stroke-linecap:round;stroke-linejoin:round"/>`);
+    const [lx, ly] = pts[pts.length - 1];
+    g.push(`<circle cx="${rr(lx)}" cy="${rr(ly)}" r="3.2" style="fill:${colorOf(si, ink)}"/>`);
+  });
+
+  // direct end labels — lead prints its last value, rivals just the name
+  let prevY = -Infinity;
+  data.forEach((vals, si) => {
+    const v = vals[vals.length - 1];
+    if (!Number.isFinite(v)) return;
+    let y = Y(v);
+    if (y - prevY < 13) y = prevY + 13;
+    prevY = y;
+    g.push(
+      txt(X(xs.length - 1) + 10, y + 4, `${seriesLabels[si]}${data.length === 1 ? ` ${fmtNum(v, o.unit)}` : ""}`, {
+        size: data.length === 1 ? 14 : 11,
+        weight: data.length === 1 ? 600 : 500,
+        fill: colorOf(si, ink),
+        halo: true,
+        serif: data.length === 1,
+      }),
+    );
+  });
+  g.push("</svg>");
+  return g.join("");
+}
+
+/**
  * Render one chart spec to a self-contained SVG string, or null when there is
- * nothing honest to draw (unresolved data token) or the form belongs to the
- * client (candles stay on the interactive MarketChart).
+ * nothing honest to draw (unresolved data token).
  */
 export function renderFigure(spec: ChartSpec, o: FigureOpts = {}): string | null {
-  if (spec.kind === "candle") return null;
   if (spec.color) o = { ...o, ink: spec.color };
+  if (spec.kind === "candle") return candleSvg(spec, o);
   if (spec.kind === "stat") return statSvg(spec, o);
   if (spec.kind === "movers") return moversSvg(spec, o);
   if (spec.kind === "table") return tableSvg(spec, o);

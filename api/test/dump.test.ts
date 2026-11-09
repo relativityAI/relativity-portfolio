@@ -66,6 +66,41 @@ describe("dumpMarkdown figures", () => {
     expect(out).toContain("\u00b9 [AAPL statistics](https://example.com/stats) \u2014 30.1x");
     expect(out).not.toContain("## Sources");
   });
+
+  it("renders a candle chart statically at dump time when the spec carries OHLC", () => {
+    const candleDoc: ReportDocument = {
+      schema: "relativity/report.v2",
+      symbol: "AAPL",
+      sections: [
+        {
+          heading: { level: 2, text: "Price" },
+          blocks: [
+            {
+              type: "chart",
+              title: "Candles",
+              sourceId: "src_004",
+              spec: {
+                kind: "candle",
+                series: [
+                  {
+                    label: "close",
+                    points: [
+                      { t: 1760000000, v: 10, o: 9, h: 12, l: 8 },
+                      { t: 1760086400, v: 11, o: 10, h: 13, l: 9 },
+                    ],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      sources: [{ id: "src_004", label: "L", tool: "t", value: "v" }],
+    };
+    const out2 = dumpMarkdown(candleDoc);
+    expect(out2).toContain("<svg");
+    expect(out2).not.toContain("[chart]");
+  });
 });
 
 describe("dumpMarkdown without title/generatedAt (nothing injected)", () => {

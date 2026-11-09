@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderFigure, fmtNum, figureCsv } from "../src/harness/report/figure-kit.js";
-import { renderFigures } from "../src/harness/report/builder.js";
+import { renderFigures, attachChartData } from "../src/harness/report/builder.js";
 import { SectionSchema, type ReportDocument } from "../src/harness/report/document.js";
 
 const pts = (...vs: number[]) => vs.map((v, i) => ({ t: 1760000000 + i * 86400, v }));
@@ -59,9 +59,30 @@ describe("renderFigure", () => {
     expect(svg.match(/opacity=/g)!.length).toBeLessThanOrEqual(6);
   });
 
-  it("radar renders honestly as bars; candle stays client-side", () => {
+  it("radar renders honestly as bars; close-only candle falls back to a line", () => {
     expect(renderFigure({ kind: "radar", categories: ["Trend"], values: [8] })).toContain("<rect");
-    expect(renderFigure({ kind: "candle", series: [{ label: "close", points: pts(1, 2) }] })).toBeNull();
+    // no o/h/l → line fallback (same as the UI's MarketChart)
+    expect(renderFigure({ kind: "candle", series: [{ label: "close", points: pts(1, 2) }] })).toContain("<svg");
+  });
+
+  it("candle with OHLC → bodies + wicks, overlay as a line on the same scale", () => {
+    const svg = renderFigure({
+      kind: "candle",
+      series: [
+        {
+          label: "close",
+          points: [
+            { t: 1760000000, v: 10, o: 9, h: 12, l: 8 },
+            { t: 1760086400, v: 12, o: 10, h: 13, l: 9.5 },
+          ],
+        },
+        { label: "SMA200", points: [{ t: 1760000000, v: 9 }, { t: 1760086400, v: 9.5 }] },
+      ],
+    })!;
+    expect(svg).toContain("<rect"); // bodies
+    expect(svg).toContain("var(--c,#3A5BD0)"); // plot ink
+    expect(svg).toContain("SMA200"); // overlay end label
+    expect(svg).not.toContain("NaN");
   });
 
   it("hbar → horizontal bars; vbar → vertical columns (the bar split)", () => {
@@ -210,6 +231,25 @@ describe("renderFigures", () => {
     const doc = docWith(chart({ kind: "line", series: [{ label: "a", points: pts(1, 2) }] }, [{ kind: "candle", series: [] }]));
     renderFigures(doc);
     expect((doc.sections[0].blocks[0] as any).svgs).toBeUndefined();
+  });
+
+  it("attachChartData: bar-shaped rows under any token keep close + o/h/l (not volume)", () => {
+    const doc = docWith(chart({ kind: "candle", data: "candles_recent" }));
+    attachChartData(doc, [], [
+      {
+        callId: "c1",
+        payload: {
+          candles_recent: [
+            { date: "2026-01-01", o: 9, h: 12, l: 8, c: 10, v: 41_000_000 },
+            { date: "2026-01-02", o: 10, h: 13, l: 9, c: 11, v: 39_000_000 },
+          ],
+        },
+      },
+    ]);
+    const spec = (doc.sections[0].blocks[0] as any).spec;
+    expect(spec.series[0].points[0].v).toBe(10); // close, not the 41M volume
+    expect(spec.series[0].points[0].o).toBe(9);
+    expect(spec.series[0].points[0].h).toBe(12);
   });
 
   it("schema: every figure block requires a sourceId", () => {

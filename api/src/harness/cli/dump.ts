@@ -9,7 +9,7 @@
  * figure leaves the file whole (skill rule 7). Every figure block prints its
  * Source line beneath it.
  */
-import { figureCsv } from "../report/figure-kit.js";
+import { figureCsv, renderFigure } from "../report/figure-kit.js";
 import { supGlyph, type Block, type ReportDocument, type Section } from "../report/document.js";
 
 export function dumpMarkdown(doc: ReportDocument): string {
@@ -54,9 +54,15 @@ export function dumpMarkdown(doc: ReportDocument): string {
           if (s.svgs?.length) {
             lines.push(s.svgs.join("\n"), "");
           } else {
-            // no stored svg (candle or legacy doc) — the data still ships below
+            // no stored svg (candle — the UI keeps its live chart — or an
+            // unresolved token): render statically when we honestly can
             const specs = s.panels?.length ? s.panels : [s.spec];
-            lines.push(`[chart] ${s.title ?? "(untitled)"} — ${specs.map(specLine).join(" + ")}`, "");
+            const rendered = specs.map((sp) => renderFigure(sp, { label: s.title, unit: s.measure, ink: s.color }));
+            if (rendered.every((x): x is string => x != null)) {
+              lines.push(rendered.join("\n"), "");
+            } else {
+              lines.push(`[chart] ${s.title ?? "(untitled)"} — ${specs.map(specLine).join(" + ")}`, "");
+            }
           }
           if (s.caption) lines.push(`How to read: ${s.caption}`, "");
           const src = sourceLine(s.sourceId);
