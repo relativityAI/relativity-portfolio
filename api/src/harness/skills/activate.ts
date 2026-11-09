@@ -9,32 +9,6 @@
 
 import type { HarnessSkill } from "./loader.js";
 
-export interface SkillMetadata {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  allowedTools: string[];
-}
-
-export function skillMetadata(skill: HarnessSkill): SkillMetadata {
-  return {
-    id: skill.id,
-    name: skill.name,
-    description: skill.description,
-    category: skill.category,
-    allowedTools: skill.allowedTools,
-  };
-}
-
-/** Compact catalog injected into the system prompt at compile time. */
-export function compileSkillCatalog(skills: HarnessSkill[]): string {
-  if (!skills.length) return "(no skills)";
-  return skills
-    .map((s) => `- ${s.id} [${s.category}]: ${s.description}`)
-    .join("\n");
-}
-
 /**
  * The skill's report-structure reference — its binding presentation spec.
  * Matched by path (report-structure.md), never inlined into harness code:

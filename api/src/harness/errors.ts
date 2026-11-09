@@ -9,11 +9,6 @@
  * instead of burning the section.
  */
 
-/** True when the provider error is worth retrying after a wait. */
-export function isRateLimitError(msg: string): boolean {
-  return /429|rate.?limit|too many requests|quota|exceeded your current quota|resource.?exhausted|overloaded|retry in \d/i.test(msg);
-}
-
 /**
  * Wait the provider asked for, in ms. Gemini embeds "Please retry in 44.8s"
  * in the quota message — honor it, capped so one slow window can't stall the

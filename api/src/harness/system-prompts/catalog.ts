@@ -18,7 +18,6 @@
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { promptDocPath, promptNames } from "../config.js";
-import { countCharts, sectionHeadings, type ReportDocument } from "../report/document.js";
 
 export interface SystemPrompt {
   id: string;
@@ -99,42 +98,4 @@ export function getSystemPrompt(id?: string, dir?: string): SystemPrompt | null 
 /** `{{name}}` placeholders → run values (symbol, title, date, source, agent). */
 export function applyVariables(text: string, vars: Record<string, string | undefined>): string {
   return text.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (whole, key: string) => vars[key.toLowerCase()] ?? whole);
-}
-
-/**
- * Validate a built document against the prompt's frontmatter rules. Returns
- * human-readable violations; the run surfaces them in `report.errors`.
- */
-export function validateAgainstSystemPrompt(doc: ReportDocument, tpl: SystemPrompt | null): string[] {
-  if (!tpl) return [];
-  const errors: string[] = [];
-  const headings = sectionHeadings(doc);
-  const body = doc.sections
-    .flatMap((s) => [s.heading.text, ...s.blocks.map((b) => ("text" in b ? String(b.text) : "title" in b && b.title ? String(b.title) : ""))])
-    .join("\n")
-    .toLowerCase();
-
-  if (tpl.min_charts != null && countCharts(doc) < tpl.min_charts) {
-    errors.push(`system prompt "${tpl.id}" wants at least ${tpl.min_charts} chart(s); document has ${countCharts(doc)}`);
-  }
-  for (const want of tpl.required_sections ?? []) {
-    if (!headings.some((h) => h.includes(want.toLowerCase()))) {
-      errors.push(`system prompt "${tpl.id}" requires a "${want}" section`);
-    }
-  }
-  if (tpl.section_order?.length) {
-    const positions = tpl.section_order.map((want) => headings.findIndex((h) => h.includes(want.toLowerCase())));
-    const seen = positions.filter((p) => p >= 0);
-    if (seen.length > 1 && seen.some((p, i) => i > 0 && p < seen[i - 1])) {
-      errors.push(`system prompt "${tpl.id}" expects sections in order ${tpl.section_order.join(" → ")}`);
-    }
-  }
-  if (tpl.require_sources && doc.sources.length === 0) {
-    errors.push(`system prompt "${tpl.id}" requires at least one source`);
-  }
-  for (const banned of tpl.never_substitute ?? []) {
-    const re = new RegExp(`\\b${banned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
-    if (re.test(body)) errors.push(`system prompt "${tpl.id}" forbids the word "${banned}"`);
-  }
-  return errors;
 }

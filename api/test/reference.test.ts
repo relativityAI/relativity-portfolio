@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { BLOCKS, SECTION_SHAPE } from "../src/harness/report/catalog.js";
 import { ChartSpecSchema, SCHEMA_VERSION, supGlyph, type ReportDocument } from "../src/harness/report/document.js";
-import { DATA_TOKENS, plotReferenceMarkdown, sectionContractMarkdown } from "../src/harness/report/reference.js";
+import { BLOCKS, SECTION_SHAPE, DATA_TOKENS, plotReferenceMarkdown, sectionContractMarkdown } from "../src/harness/report/reference.js";
 import { attachChartData } from "../src/harness/report/builder.js";
 import { renderFigure } from "../src/harness/report/figure-kit.js";
 import { Workspace } from "../src/harness/workspace/fs.js";
-import { extractNumbers, verifyDocumentNumbers } from "../src/harness/workspace/verify.js";
 import { validateComposed } from "../src/harness/canvas/canvas.js";
 
 describe("generated prompt reference (schema → system prompt)", () => {
@@ -121,18 +119,5 @@ describe("numeric fidelity (footnote markers and cited derivations)", () => {
     expect(supGlyph(3)).toBe("³");
     expect(supGlyph(11)).toBe("¹¹");
     expect(supGlyph(12)).toBe("¹²");
-    expect(extractNumbers(`upside ${supGlyph(11)} and ${supGlyph(12)}`)).toEqual([]);
-  });
-
-  it("whitelists numbers a cited source itself quotes; uncited stay flagged", () => {
-    const doc = {
-      title: "t",
-      symbol: "X",
-      generatedAt: "2026-10-30",
-      schema: SCHEMA_VERSION,
-      sections: [para("Base value $218 per share [src:src_019_6]. Upside of 777 is uncited.")],
-      sources: [{ id: "src_019_6", label: "Our DCF model (October 2026)", tool: "report_write", value: "Base value $218/share" }],
-    } as ReportDocument;
-    expect(verifyDocumentNumbers(doc, new Set())).toEqual([777]);
   });
 });

@@ -294,7 +294,7 @@ export type ReportDocumentV1 = z.infer<typeof ReportDocumentV1Schema>;
 
 /** Superscript marker for footnote n (¹ ² ³ …), `[n]` past nine. */
 const SUP_DIGITS = "⁰¹²³⁴⁵⁶⁷⁸⁹";
-/** Footnote marker. Always non-ASCII — verifyDocumentNumbers must never parse a marker as data. */
+/** Footnote marker. Always non-ASCII — never parseable as data. */
 export const supGlyph = (n: number): string => String(n).split("").map((d) => SUP_DIGITS[+d] ?? d).join("");
 
 /** Every block of every section, in document order. */
@@ -302,39 +302,9 @@ export function allBlocks(doc: Pick<ReportDocument, "sections">): Block[] {
   return doc.sections.flatMap((s) => s.blocks);
 }
 
-/** Every sourceId referenced by a highlight must resolve to a Source. */
-export function validateReportDocument(doc: ReportDocument): string[] {
-  const errors: string[] = [];
-  const sourceIds = new Set(doc.sources.map((s) => s.id));
-  for (const b of allBlocks(doc)) {
-    if (b.type === "text" || b.type === "callout") {
-      for (const h of b.highlights ?? []) {
-        if (h.sourceId && !sourceIds.has(h.sourceId)) {
-          errors.push(`highlight references unknown source "${h.sourceId}"`);
-        }
-      }
-    }
-    if (b.type === "citations") {
-      for (const ref of b.refs) {
-        if (!sourceIds.has(ref)) errors.push(`citation references unknown source "${ref}"`);
-      }
-    }
-    if (b.type === "metrics") {
-      for (const m of b.items) {
-        if (m.sourceId && !sourceIds.has(m.sourceId)) errors.push(`metric "${m.label}" references unknown source "${m.sourceId}"`);
-      }
-    }
-    if ((b.type === "chart" || b.type === "diagram" || b.type === "table" || b.type === "compare") && !sourceIds.has(b.sourceId)) {
-      errors.push(`${b.type} references unknown source "${b.sourceId}"`);
-    }
-  }
-  return errors;
-}
-
 /**
- * Count the chart blocks a document carries. `min_charts` enforcement in
- * report/builder.enforceSystemPrompt uses this so the number and the rule share
- * one definition.
+ * Count the chart blocks a document carries — the single definition every
+ * `min_charts` check uses.
  */
 export function countCharts(doc: Pick<ReportDocument, "sections">): number {
   return allBlocks(doc).filter((b) => b.type === "chart").length;
