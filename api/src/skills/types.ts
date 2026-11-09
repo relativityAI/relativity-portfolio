@@ -39,6 +39,8 @@ export interface SkillDefinition {
   /** Optional extra output instructions appended to the analyst prompt. */
   outputTemplate?: string;
   source: "builtin" | "custom";
+  /** User labels from frontmatter `metadata.tags` (comma-separated) — search + display. */
+  tags?: string[];
   /** Raw markdown, for editors and re-parsing. */
   markdown?: string;
 }

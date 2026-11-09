@@ -121,6 +121,9 @@ export function parseSkillMarkdown(
   const category = (fmMetadata.category && ["valuation", "fundamentals", "qualitative", "market", "macro", "custom"].includes(fmMetadata.category)
     ? fmMetadata.category
     : "custom") as SkillCategory;
+  const tags = typeof fmMetadata.tags === "string"
+    ? fmMetadata.tags.split(",").map((t) => t.trim()).filter(Boolean)
+    : [];
 
   return {
     skill: {
@@ -129,6 +132,7 @@ export function parseSkillMarkdown(
       description: description as string,
       category,
       version: Number(fmMetadata.version) > 0 ? Number(fmMetadata.version) : 1,
+      ...(tags.length ? { tags } : {}),
       purpose: body.trim(),
       // Skill prose remains opaque. The agent chooses whether and how to use
       // available tools; the loader does not extract a tool schema from it.
