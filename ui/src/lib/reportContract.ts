@@ -84,7 +84,7 @@ export interface ReportSection {
 /** v1 flat section (stored runs — read path only). */
 export type Section =
   | { type: "heading"; level: 1 | 2 | 3; text: string }
-  | { type: "paragraph"; text: string; highlights?: Highlight[] }
+  | { type: "paragraph"; text: string; highlights?: Highlight[]; level?: 1 | 2 }
   | { type: "callout"; variant: "info" | "warn" | "key"; title?: string; text: string; highlights?: Highlight[] }
   | { type: "table"; title?: string; columns: string[]; rows: (string | number)[][]; caption?: string; sourceId?: string }
   | { type: "chart"; title?: string; spec: ChartSpec; panels?: ChartSpec[]; caption?: string; measure?: string; sourceId?: string; svgs?: string[] }

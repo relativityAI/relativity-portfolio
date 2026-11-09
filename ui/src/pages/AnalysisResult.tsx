@@ -26,6 +26,7 @@ import { WorkspaceExplorer } from "../components/report/WorkspaceExplorer";
 import type { ReportDocument } from "@/lib/reportContract";
 
 import SkillResultCard from "./sections/SkillResultCard";
+import { useSkillLibrary } from "@/components/skills/SkillBrowser";
 import { SourceMark, TickerLogo } from "@/lib/sourceLogos";
 import { ModelLogo } from "@/lib/modelLogos";
 import {
@@ -73,7 +74,7 @@ const TERMINAL = ["complete", "completed", "success", "error", "failed", "budget
  * from `duration`/`started_at`/`updated_at`. Fields no writer populates render
  * as "—" rather than a guessed number.
  */
-export function runMetadata(run: any): { rows: MetaRow[]; tools: { name: string; count: number }[] } {
+export function runMetadata(run: any, skillTags: string[] = []): { rows: MetaRow[]; tools: { name: string; count: number }[] } {
     const trace: any[] = Array.isArray(run?.trace) ? run.trace : [];
     const toolCalls = trace.filter((e) => e?.type === "tool_call");
     const toolResults = trace.filter((e) => e?.type === "tool_result");
@@ -131,6 +132,7 @@ export function runMetadata(run: any): { rows: MetaRow[]; tools: { name: string;
     push("Steps", steps.length ? `${stepsDone}/${steps.length}` : null);
     push("Run mode", run?.run_mode || (run?.report ? "harness" : run?.skill_id ? "skill" : null));
     push("Skill", run?.skill_id);
+    push("Tags", skillTags.length ? skillTags.join(" · ") : null);
     push("Agent", run?.agent_name);
     push("Market", run?.source ? String(run.source).toUpperCase() : null);
     push("Web search", typeof run?.web_search === "boolean" ? (run.web_search ? `on${webSources ? ` · ${webSources} sources` : ""}` : "off") : null);
@@ -145,8 +147,8 @@ export function runMetadata(run: any): { rows: MetaRow[]; tools: { name: string;
 /** Compact record of what the run row holds — shown on every analysis result.
  *  Label and value share one line and the pairs wrap, so the whole block reads
  *  as a meta strip instead of a grid of stacked cells. */
-export function RunMetadata({ run }: { run: any }) {
-    const { rows, tools } = useMemo(() => runMetadata(run), [run]);
+export function RunMetadata({ run, tags }: { run: any; tags?: string[] }) {
+    const { rows, tools } = useMemo(() => runMetadata(run, tags), [run, tags]);
     if (!rows.length && !tools.length) return null;
     return (
         <Box my={3} pt={2.5} borderTop="1px solid var(--hairline)">
@@ -271,6 +273,21 @@ export default function AnalysisResult() {
         return m;
     }, [analysis]);
 
+    // Skill tags come from the live library, keyed by skill id — shown on the
+    // hero identity line (skill runs) and in run metadata (harness runs).
+    const { library: skillLibrary } = useSkillLibrary();
+    const skillTags = useMemo(() => {
+        const m: Record<string, string[]> = {};
+        for (const s of skillLibrary) if (s.tags?.length) m[s.id] = s.tags;
+        return m;
+    }, [skillLibrary]);
+    const runSkillTags = useMemo(() => {
+        const ids: string[] = Array.isArray(analysis?.skill_ids) && analysis.skill_ids.length
+            ? analysis.skill_ids
+            : analysis?.skill_id ? [analysis.skill_id] : [];
+        return Array.from(new Set(ids.flatMap((i) => skillTags[i] || [])));
+    }, [analysis, skillTags]);
+
     if (loading && !analysis) {
         // 5e: skeleton of the real layout instead of a bare spinner — no layout shift.
         return (
@@ -369,7 +386,7 @@ export default function AnalysisResult() {
     // report only once the run is terminal. The legacy layout below is for
     // completed skill-era rows.
     if (isRunning || analysis.report_document) {
-        return <HarnessRunView run={analysis} />;
+        return <HarnessRunView run={analysis} tags={runSkillTags} />;
     }
 
     const s = (analysis.status || "").toLowerCase();
@@ -416,7 +433,9 @@ export default function AnalysisResult() {
     const verdictDate = analysis.created_at
         ? new Date(analysis.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
         : "";
-    const identityLine = skillOutputs[0]?.category || "";
+    const identityLine = [skillOutputs[0]?.category, ...(skillTags[skillOutputs[0]?.skill_id] || [])]
+        .filter(Boolean)
+        .join(" · ");
     const skillScores = skillOutputs.map((o) => ({
         name: o.skill_name as string | undefined,
         score: typeof o.score_0_100 === "number" ? Math.round(o.score_0_100) : null,
@@ -956,7 +975,7 @@ const HARNESS_TABS = ["report", "agent workspace"] as const;
 type HarnessTab = (typeof HARNESS_TABS)[number];
 
 /** Harness run result: the typed ReportDocument + the Agent Workspace (reasoning + knowledge base). */
-function HarnessRunView({ run }: { run: any }) {
+function HarnessRunView({ run, tags }: { run: any; tags?: string[] }) {
     const doc = run.report_document as ReportDocument;
     const status = String(run.status || "").toLowerCase();
     const failed = status === "failed" || status === "budget_exhausted" || status === "error";
@@ -1045,7 +1064,7 @@ function HarnessRunView({ run }: { run: any }) {
                         <Box mt={4}>
                             <ReportDocumentRenderer document={doc} />
                         </Box>
-                        <RunMetadata run={run} />
+                        <RunMetadata run={run} tags={tags} />
                     </Tabs.Content>
 
                     {/* ── Agent Workspace ── */}

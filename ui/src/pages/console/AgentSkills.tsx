@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
-    Search, PenLine, Trash2, Link2,
+    Search, PenLine, Trash2,
     ListFilter, ChevronDown, X, ArrowLeft, Globe,
 } from "lucide-react";
-import { SkillService, AgentService, type SkillSummary } from "@/db";
+import { SkillService, type SkillSummary } from "@/db";
 import { useSkillLibrary } from "@/components/skills/SkillBrowser";
 import SkillAvatar from "@/components/shared/SkillAvatar";
 import SkillWorkspace from "@/components/skills/SkillWorkspace";
@@ -46,8 +46,6 @@ export default function AgentSkills() {
     const [mode, setMode] = useState<Mode>("inspect");
     const [query, setQuery] = useState("");
     const [category, setCategory] = useState("all");
-    const [agents, setAgents] = useState<{ _id?: string; id?: string; name: string; skills?: { skill_id: string; weight: number }[] }[]>([]);
-    const [equipping, setEquipping] = useState(false);
 
     const requestedSkill = searchParams.get("skill");
 
@@ -63,22 +61,21 @@ export default function AgentSkills() {
         }
     }, [requestedSkill, library]);
 
-    useEffect(() => {
-        AgentService.listAgents()
-            .then((data) => { if (Array.isArray(data)) setAgents(data); })
-            .catch(() => {});
-    }, []);
-
-    const categories = useMemo(() => Array.from(new Set(library.map((s) => s.category))), [library]);
+    // Only the shipped defaults (api/config/skills) are listed — the user's
+    // custom skills stay out of this view.
+    const visible = useMemo(() => library.filter((s) => s.source === "builtin"), [library]);
+    const categories = useMemo(() => Array.from(new Set(visible.map((s) => s.category))), [visible]);
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
-        return library.filter((s) => {
+        return visible.filter((s) => {
             if (category !== "all" && s.category !== category) return false;
             if (!q) return true;
-            return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q);
+            return s.name.toLowerCase().includes(q)
+                || s.description.toLowerCase().includes(q)
+                || (s.tags || []).some((t) => t.toLowerCase().includes(q));
         });
-    }, [library, query, category]);
+    }, [visible, query, category]);
 
     const openSkill = (s: SkillSummary) => {
         setSelected(s);
@@ -90,26 +87,6 @@ export default function AgentSkills() {
         setSelected(null);
         setMode("inspect");
         setSearchParams({}, { replace: true });
-    };
-
-    const attach = async (skill: SkillSummary, agentId: string) => {
-        const agent = agents.find((a) => (a.id || a._id) === agentId);
-        if (!agent) return;
-        setEquipping(true);
-        try {
-            // One skill per agent — attaching replaces whatever was there.
-            const skills = [{ skill_id: skill.id, weight: 5 }];
-            await AgentService.updateAgent({
-                name: agent.name, persona: (agent as any).persona,
-                skills, id: agentId, _id: agentId,
-            });
-            toaster.create({ title: `${skill.name} attached`, description: `It is now the only skill on ${agent.name}.`, type: "success" });
-            setAgents((prev) => prev.map((a) => ((a.id || a._id) === agentId ? { ...a, skills } : a)));
-        } catch (e: any) {
-            toaster.create({ title: "Couldn't attach", description: e?.response?.data?.error || e?.message, type: "error" });
-        } finally {
-            setEquipping(false);
-        }
     };
 
     const startCreate = () => {
@@ -214,9 +191,11 @@ export default function AgentSkills() {
                                     <span className="block truncate font-app-body text-[26px] leading-[1.05] tracking-[-0.015em] text-console-ink">
                                         {s.name}
                                     </span>
-                                    <span className="block font-app-body text-[12px] font-normal text-console-ink-4">
-                                        {CATEGORY_LABELS[s.category] || s.category} · v{s.version}
-                                    </span>
+                                    {s.tags?.length ? (
+                                        <span className="block font-app-body text-[12px] font-normal text-console-ink-4">
+                                            {s.tags.join(" · ")}
+                                        </span>
+                                    ) : null}
                                 </span>
                                 {/* Right: the start of the description */}
                                 <span className="ml-auto min-w-0 max-w-full sm:max-w-[55%] sm:text-right">
@@ -250,25 +229,6 @@ export default function AgentSkills() {
                             <SkillSourceBadge source={selected!.source} />
                         </div>
                         <div className="ml-auto flex shrink-0 items-center gap-2">
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        variant="secondary"
-                                        size="sm"
-                                        disabled={equipping || agents.length === 0}
-                                        aria-label="Attach to an agent"
-                                    >
-                                        <Link2 /> {equipping ? "Attaching…" : "Attach to agent"}
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-56">
-                                    {agents.map((a) => (
-                                        <DropdownMenuItem key={a.id || a._id} onClick={() => attach(selected!, (a.id || a._id)!)}>
-                                            {a.name}
-                                        </DropdownMenuItem>
-                                    ))}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
                             {selected!.source === "custom" && (
                                 <Button
                                     variant="ghost"
@@ -290,7 +250,7 @@ export default function AgentSkills() {
                         </div>
                     </div>
                     <p className="mt-1 text-sm text-console-ink-2">
-                        {`${CATEGORY_LABELS[selected!.category] || selected!.category} · v${selected!.version} · ${selected!.id}`}
+                        {[...(selected!.tags || []), selected!.id].join(" · ")}
                     </p>
                 </>
             ) : (

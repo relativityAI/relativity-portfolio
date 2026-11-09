@@ -1,13 +1,13 @@
 import { Flex, Text, Spinner, Box } from "@chakra-ui/react";
 import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import { MdCheck, MdClose } from "react-icons/md";
-import { Building2, Cpu, Sparkles, Bot, CircleCheck, CircleDashed } from "lucide-react";
+import { Building2, Cpu, Bot, CircleCheck, CircleDashed, CalendarClock } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AnalysisService, SkillService, API_BASE, type SkillSummary } from "@/db";
-import { HarnessAgentService, type SystemPromptSummary } from "@/lib/harnessAgents";
+import { AnalysisService, API_BASE, type ScheduleRow } from "@/db";
+import { HarnessAgentService, type HarnessAgent } from "@/lib/harnessAgents";
 import { formatSeconds } from "@/utils";
 import { ModelLogo } from "@/lib/modelLogos";
-import SkillAvatar from "@/components/shared/SkillAvatar";
+import AgentAvatar from "@/components/shared/AgentAvatar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { type RunStep, runProgressPct } from "./shared/RunStatus";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
@@ -15,6 +15,8 @@ import AgentActivity from "@/components/shared/AgentActivity";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease, stagger, staggerItem } from "@/lib/motion";
 import { TickerLogo } from "@/lib/sourceLogos";
+import { toaster } from "@/compat/ui";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
     MenuDropdown,
     DropdownItem,
@@ -135,8 +137,10 @@ function AnalysisSummary(props: {
     shareName: string;
     model: string;
     skillsLabel: string;
+    skillsIcon?: React.ReactNode;
     budgetLabel: string;
     canRun: boolean;
+    daily: boolean;
     onRun: () => void;
     elapsedTime: number;
     analysisDuration: string;
@@ -246,7 +250,7 @@ function AnalysisSummary(props: {
                 sub={modelSub}
                 muted={!props.model}
             />
-            <SummaryRow label="Skill" value={props.skillsLabel} muted={props.skillsLabel === "Agent's skill"} />
+            <SummaryRow label="Skill" icon={props.skillsIcon} value={props.skillsLabel} muted={props.skillsLabel === "Agent's skill"} />
             <SummaryRow label="Budget" value={props.budgetLabel} muted={props.budgetLabel === "Default"} />
             <Box pt={3} mt={1}>
                 {props.resuming ? (
@@ -258,7 +262,7 @@ function AnalysisSummary(props: {
                     </ResumingButton>
                 ) : (
                     <PrimaryButton onClick={props.onRun} disabled={!props.canRun}>
-                        Run Now
+                        {props.daily ? "Schedule daily run" : "Run Now"}
                     </PrimaryButton>
                 )}
             </Box>
@@ -290,7 +294,7 @@ export default function Analysis() {
     }, [status, startedAt]);
 
     // CLI parity: the run page passes the same flags as
-    // `cli.ts --real --symbol --model --max-steps --max-tokens --skill`.
+    // `cli.ts --real --symbol --model --max-steps --max-tokens`.
     // Market is fixed to SEC (the CLI's --source default); the persona comes
     // from the server's seeded default agent — the CLI has no --agent either.
     const [config, setConfig] = useState({
@@ -340,19 +344,17 @@ export default function Analysis() {
     const [modelError, setModelError] = useState<string | null>(null);
     const [maxSteps, setMaxSteps] = useState("");
     const [maxTokens, setMaxTokens] = useState("");
-    const [skills, setSkills] = useState<SkillSummary[]>([]);
-    const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-    // Named system prompts (agent.yaml prompts.*) — "" = the default one.
-    const [agentPrompts, setAgentPrompts] = useState<SystemPromptSummary[]>([]);
-    const [agentPrompt, setAgentPrompt] = useState("");
+    // Configured harness agents (the Agents page) — first = server default.
+    const [agents, setAgents] = useState<HarnessAgent[]>([]);
+    const [agentId, setAgentId] = useState("");
 
     useEffect(() => {
-        SkillService.listSkills()
-            .then((all) => setSkills(all.filter((s) => s.source === "builtin")))
-            .catch(() => setSkills([]));
-        HarnessAgentService.listSystemPrompts()
-            .then(setAgentPrompts)
-            .catch(() => setAgentPrompts([]));
+        HarnessAgentService.list()
+            .then((list) => {
+                setAgents(list);
+                setAgentId((prev) => prev || list[0]?.id || "");
+            })
+            .catch(() => setAgents([]));
     }, []);
 
     const handleStockPick = useCallback((stock: any) => {
@@ -392,6 +394,17 @@ export default function Analysis() {
 
     const [starting, setStarting] = useState(false);
     const [runError, setRunError] = useState<string | null>(null);
+    const [runMode, setRunMode] = useState<"once" | "daily">("once");
+    const [scheduleTime, setScheduleTime] = useState("21:00");
+    const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
+
+    const loadSchedules = useCallback(() => {
+        AnalysisService.listSchedules().then(setSchedules).catch(() => {});
+    }, []);
+
+    useEffect(() => {
+        loadSchedules();
+    }, [loadSchedules]);
 
     const runAnalysis = async () => {
         if (starting || status !== "EMPTY") return;
@@ -408,10 +421,9 @@ export default function Analysis() {
                 symbol: config.share,
                 model: model.trim(),
                 source: config.source,
-                skills: selectedSkills.length ? selectedSkills : undefined,
                 max_steps: maxSteps ? Number(maxSteps) : undefined,
                 max_tokens: maxTokens ? Number(maxTokens) : undefined,
-                system_prompt: selectedAgent?.id,
+                agent_id: selectedAgent?.id,
             });
 
             if (result?.id) {
@@ -427,6 +439,45 @@ export default function Analysis() {
                 "The run could not be started. Check your selection and try again."
             );
             setStatus("ERROR");
+        } finally {
+            setStarting(false);
+        }
+    };
+
+    const scheduleDaily = async () => {
+        if (starting || status !== "EMPTY" || !config.share || !scheduleTime) return;
+
+        setStarting(true);
+        setRunError(null);
+        try {
+            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            await AnalysisService.createSchedule({
+                symbol: config.share,
+                share_name: config.shareName || config.share,
+                source: config.source,
+                model: model.trim(),
+                agent_id: selectedAgent?.id,
+                max_steps: maxSteps ? Number(maxSteps) : undefined,
+                max_tokens: maxTokens ? Number(maxTokens) : undefined,
+                time: scheduleTime,
+                timezone,
+            });
+            toaster.create({
+                title: "Daily run scheduled",
+                description: `${config.shareName || config.share} · every day at ${scheduleTime} (${timezone})`,
+                type: "success",
+            });
+            loadSchedules();
+        } catch (error) {
+            console.error("Schedule error:", error);
+            toaster.create({
+                title: "Couldn't schedule the run",
+                description:
+                    (error as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+                    (error as Error)?.message ||
+                    "The schedule could not be created.",
+                type: "error",
+            });
         } finally {
             setStarting(false);
         }
@@ -511,17 +562,14 @@ export default function Analysis() {
     }, [status, correlationId, navigate]);
 
     const isConfigComplete = config.share !== "" && !!model.trim();
-    const canRunAnalysis = isConfigComplete;
-    const skillsLabel = selectedSkills.length
-        ? skills.filter((s) => selectedSkills.includes(s.id)).map((s) => s.name).join(", ")
-        : "Agent's skill";
+    const canRunAnalysis = isConfigComplete && (runMode === "once" || !!scheduleTime);
+    // Explicit pick, else the first configured agent (the server default).
+    const selectedAgent = agents.find((a) => a.id === agentId) ?? agents[0] ?? null;
+    const skillsLabel = selectedAgent?.name ?? "Agent's skill";
     const budgetLabel =
         [maxSteps && `${maxSteps} steps`, maxTokens && `${Number(maxTokens).toLocaleString()} tokens`]
             .filter(Boolean)
             .join(" · ") || "Default";
-    // Explicit pick, else the configured default prompt.
-    const selectedAgent =
-        agentPrompts.find((t) => t.id === agentPrompt) ?? agentPrompts.find((t) => t.default) ?? null;
 
     return (
         <Box
@@ -581,8 +629,43 @@ export default function Analysis() {
                             display="flex"
                             flexDirection="column"
                         >
+                            {/* Schedule — once (default) or daily at a local time */}
+                            <StepRow label="Schedule" icon={<CalendarClock size={13} />} done={runMode === "once" || !!scheduleTime} first>
+                                <Flex gap={2} align="center">
+                                    <ToggleGroup
+                                        type="single"
+                                        value={runMode}
+                                        onValueChange={(v) => v && setRunMode(v as "once" | "daily")}
+                                        className="h-8 flex-none rounded-[10px] gap-0.5 border border-[var(--hairline)] bg-transparent p-0.5"
+                                    >
+                                        <ToggleGroupItem
+                                            value="once"
+                                            className="h-7 rounded-[8px] px-3 text-[12px] font-normal data-[state=on]:bg-[var(--surface-recessed)] data-[state=on]:text-[var(--ink-primary)] data-[state=on]:shadow-none"
+                                        >
+                                            Once
+                                        </ToggleGroupItem>
+                                        <ToggleGroupItem
+                                            value="daily"
+                                            className="h-7 rounded-[8px] px-3 text-[12px] font-normal data-[state=on]:bg-[var(--surface-recessed)] data-[state=on]:text-[var(--ink-primary)] data-[state=on]:shadow-none"
+                                        >
+                                            Daily
+                                        </ToggleGroupItem>
+                                    </ToggleGroup>
+                                    {runMode === "daily" && (
+                                        <Input
+                                            type="time"
+                                            value={scheduleTime}
+                                            onChange={(e) => setScheduleTime(e.target.value)}
+                                            aria-label="Daily run time"
+                                            data-testid="run-schedule-time"
+                                            className="h-8 min-w-0 flex-1 rounded-[10px]"
+                                        />
+                                    )}
+                                </Flex>
+                            </StepRow>
+
                             {/* Company */}
-                            <StepRow label="Company" icon={<Building2 size={13} />} done={!!config.share} first>
+                            <StepRow label="Company" icon={<Building2 size={13} />} done={!!config.share}>
                                 <MenuDropdown
                                     value={config.share ? `${config.shareName || config.share}` : null}
                                     placeholder="Search company or symbol…"
@@ -629,8 +712,8 @@ export default function Analysis() {
                                 </MenuDropdown>
                             </StepRow>
 
-                            {/* Agent — the system prompt the run reads (agent.yaml prompts.*) */}
-                            {agentPrompts.length > 1 && (
+                            {/* Agent — the configured harness agents (Agents page) */}
+                            {agents.length > 0 && (
                                 <StepRow label="Agent" icon={<Bot size={13} />} done={!!selectedAgent}>
                                     <MenuDropdown
                                         value={selectedAgent?.name ?? null}
@@ -638,15 +721,14 @@ export default function Analysis() {
                                     >
                                         {(close) => (
                                             <Box>
-                                                {agentPrompts.map((t) => (
+                                                {agents.map((a) => (
                                                     <DropdownItem
-                                                        key={t.id}
-                                                        label={t.name}
-                                                        sub={t.description || t.id}
-                                                        tag={t.default ? "default" : undefined}
-                                                        selected={t.id === selectedAgent?.id}
+                                                        key={a.id}
+                                                        label={a.name}
+                                                        sub={a.skillIds.join(", ") || undefined}
+                                                        selected={a.id === selectedAgent?.id}
                                                         onClick={() => {
-                                                            setAgentPrompt(t.id);
+                                                            setAgentId(a.id);
                                                             close();
                                                         }}
                                                     />
@@ -668,7 +750,7 @@ export default function Analysis() {
                                     placeholder="provider/model"
                                     aria-label="Model id"
                                     data-testid="run-model"
-                                    className="rounded-[10px]"
+                                    className="h-8 rounded-[10px]"
                                 />
                                 {modelError && (
                                     <Text mt={2} fontSize="11px" fontFamily="var(--font-body)" color="var(--signal-negative)">
@@ -677,7 +759,7 @@ export default function Analysis() {
                                 )}
                             </StepRow>
 
-                            <StepRow label="Max steps" done={!!maxSteps}>
+                            <StepRow label="Max steps" done>
                                 <Input
                                     type="number"
                                     min={1}
@@ -686,11 +768,11 @@ export default function Analysis() {
                                     placeholder="20"
                                     aria-label="Max steps"
                                     data-testid="run-max-steps"
-                                    className="rounded-[10px]"
+                                    className="h-8 rounded-[10px]"
                                 />
                             </StepRow>
 
-                            <StepRow label="Max tokens" done={!!maxTokens}>
+                            <StepRow label="Max tokens" done last>
                                 <Input
                                     type="number"
                                     min={1000}
@@ -699,49 +781,55 @@ export default function Analysis() {
                                     placeholder="200000"
                                     aria-label="Max tokens"
                                     data-testid="run-max-tokens"
-                                    className="rounded-[10px]"
+                                    className="h-8 rounded-[10px]"
                                 />
                             </StepRow>
-
-                            {/* Skills — one per run (CLI's --skill; no pick = the agent's own skill) */}
-                            <StepRow
-                                label="Skill"
-                                icon={<Sparkles size={13} />}
-                                done={selectedSkills.length > 0}
-                                last
-                            >
-                                <MenuDropdown
-                                    value={
-                                        selectedSkills.length
-                                            ? skills.filter((s) => selectedSkills.includes(s.id)).map((s) => s.name).join(", ")
-                                            : null
-                                    }
-                                    placeholder="Agent's skill (none selected)"
-                                >
-                                    {() => (
-                                        <Box>
-                                            {skills.length === 0 && (
-                                                <Text fontSize="12px" fontFamily="var(--font-body)" color="var(--ink-tertiary)" textAlign="center" py={3}>
-                                                    No skills available.
-                                                </Text>
-                                            )}
-                                            {skills.map((s) => (
-                                                <DropdownItem
-                                                    key={s.id}
-                                                    label={s.name}
-                                                    selected={selectedSkills.includes(s.id)}
-                                                    logo={<SkillAvatar skill={s} size={18} round />}
-                                                    onClick={() =>
-                                                        // One skill per run — picking one replaces the previous pick.
-                                                        setSelectedSkills((prev) => (prev.includes(s.id) ? [] : [s.id]))
-                                                    }
-                                                />
-                                            ))}
-                                        </Box>
-                                    )}
-                                </MenuDropdown>
-                            </StepRow>
                         </Box>
+
+                        {status === "EMPTY" && schedules.length > 0 && (
+                            <Box mt={4} pt={4} borderTop="1px solid var(--hairline)">
+                                <Text fontSize="12.5px" fontFamily="var(--font-body)" fontWeight={500} color="var(--ink-secondary)" mb={1}>
+                                    Active schedules
+                                </Text>
+                                {schedules.map((s) => (
+                                    <Flex key={s.id} align="center" gap={2.5} py={1.5}>
+                                        <TickerLogo symbol={s.symbol} size={16} />
+                                        <Text
+                                            fontSize="13px"
+                                            fontFamily="var(--font-body)"
+                                            color="var(--ink-primary)"
+                                            minW={0}
+                                            overflow="hidden"
+                                            textOverflow="ellipsis"
+                                            whiteSpace="nowrap"
+                                        >
+                                            {s.share_name || s.symbol}
+                                        </Text>
+                                        <Text fontSize="12px" fontFamily="var(--font-body)" color="var(--ink-tertiary)" ml="auto" whiteSpace="nowrap">
+                                            Daily at {s.time} · {s.timezone}
+                                        </Text>
+                                        <Box
+                                            as="button"
+                                            aria-label={`Delete schedule for ${s.share_name || s.symbol}`}
+                                            onClick={async () => {
+                                                try {
+                                                    await AnalysisService.deleteSchedule(s.id);
+                                                    loadSchedules();
+                                                } catch {
+                                                    // best-effort delete; the list refetches next time
+                                                }
+                                            }}
+                                            display="flex"
+                                            flexShrink={0}
+                                            color="var(--ink-tertiary)"
+                                            _hover={{ color: "var(--signal-negative)" }}
+                                        >
+                                            <MdClose size={14} />
+                                        </Box>
+                                    </Flex>
+                                ))}
+                            </Box>
+                        )}
 
                         <AnimatePresence mode="wait" initial={false}>
                             {status === "PENDING" && correlationId && (
@@ -823,9 +911,13 @@ export default function Analysis() {
                             shareName={config.shareName}
                             model={model.trim()}
                             skillsLabel={skillsLabel}
+                            skillsIcon={
+                                selectedAgent ? <AgentAvatar agent={selectedAgent.id} size={16} /> : undefined
+                            }
                             budgetLabel={budgetLabel}
                             canRun={canRunAnalysis && !starting}
-                            onRun={runAnalysis}
+                            daily={runMode === "daily"}
+                            onRun={runMode === "daily" ? scheduleDaily : runAnalysis}
                             elapsedTime={elapsedTime}
                             analysisDuration={analysisDuration}
                             correlationId={correlationId}

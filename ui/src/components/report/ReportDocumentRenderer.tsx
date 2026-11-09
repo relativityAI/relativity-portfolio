@@ -251,15 +251,17 @@ function HighlightParts({ text, highlights, footnotes }: { text: string; highlig
 }
 
 function ParagraphBlock({ section, footnotes }: { section: Extract<Section, { type: "paragraph" }>; footnotes?: string[] }) {
+  // level 1 = the claim/lead (primary ink), level 2 = the supporting detail
+  // (secondary body colour). v1 docs carry no level → detail styling.
   if (!section.highlights?.length) {
     return (
-      <Box data-testid="report-paragraph" my={3}>
+      <Box data-testid="report-paragraph" data-level={section.level} my={3}>
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{section.text}</ReactMarkdown>
       </Box>
     );
   }
   return (
-    <Text as="p" data-testid="report-paragraph" my={3} lineHeight="tall">
+    <Text as="p" data-testid="report-paragraph" data-level={section.level} my={3} lineHeight="tall">
       <HighlightParts text={section.text} highlights={section.highlights} footnotes={footnotes} />
     </Text>
   );
@@ -554,14 +556,14 @@ function SectionView({
 }
 
 /** v2 nested sections → the flat block list SectionView already renders.
- *  text becomes a paragraph (level 1/2 share the paragraph style); the section
- *  heading becomes a heading block; figure blocks pass through with sourceId
- *  so the Source line prints beneath them. */
+ *  text becomes a paragraph carrying its level (1 = claim/lead, 2 = detail);
+ *  the section heading becomes a heading block; figure blocks pass through
+ *  with sourceId so the Source line prints beneath them. */
 function flattenSections(doc: ReportDocument): Section[] {
   if (!isV2(doc)) return doc.sections as Section[];
   return (doc.sections as ReportSection[]).flatMap((sec): Section[] => [
     { type: "heading", ...sec.heading },
-    ...sec.blocks.map((b): Section => (b.type === "text" ? { type: "paragraph", text: b.text, highlights: b.highlights } : (b as Section))),
+    ...sec.blocks.map((b): Section => (b.type === "text" ? { type: "paragraph", text: b.text, highlights: b.highlights, level: b.level } : (b as Section))),
   ]);
 }
 

@@ -82,16 +82,46 @@ function parseHex(hex: string): [number, number, number] {
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+let colorCtx: CanvasRenderingContext2D | null | undefined;
+
+/** Any color the browser understands (oklch, color-mix, …) → hex / rgba().
+ *  Rasterizing one pixel through a canvas is the platform's own color
+ *  parser — no color-space math here. Unparseable values pass through. */
+function cssColor(value: string): string {
+    const v = value.trim();
+    if (!v) return v;
+    try {
+        if (colorCtx === undefined) colorCtx = document.createElement("canvas").getContext("2d");
+        if (!colorCtx) return v;
+        colorCtx.fillStyle = "#010203"; // sentinel: an invalid color leaves this behind
+        colorCtx.fillStyle = v;
+        if (colorCtx.fillStyle.toLowerCase() === "#010203") return v;
+        colorCtx.clearRect(0, 0, 1, 1);
+        colorCtx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = colorCtx.getImageData(0, 0, 1, 1).data;
+        return a === 255
+            ? `#${[r, g, b].map((x) => x.toString(16).padStart(2, "0")).join("")}`
+            : `rgba(${r}, ${g}, ${b}, ${+(a / 255).toFixed(3)})`;
+    } catch {
+        return v;
+    }
+}
+
 /**
  * Design tokens → concrete color strings for ECharts.
  *
  * `dark` switches to the html.dark overrides. Callers pass the value from
  * `useColorMode().colorMode` (next-themes) so charts re-render on theme
  * switch; re-render recomputes, keeping charts in sync with the CSS.
+ *
+ * Every token passes through cssColor(): the shadcn tokens are oklch(), and
+ * zrender can't parse modern color spaces — it paints them fine on first
+ * render (SVG accepts anything) then blanks the element the moment hover
+ * reprocesses the color.
  */
 export function resolvedTheme(dark: boolean) {
     const read = (name: string, fallback: string) =>
-        getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+        cssColor(getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback);
 
     const surfacePanel = read("--surface-panel", "#FFFFFF");
     const hairline = read("--hairline", "#D9D9D5");

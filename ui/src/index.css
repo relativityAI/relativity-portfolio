@@ -34,6 +34,8 @@
   --signal-caution: #B8935A;
   --signal-warning: #FFB300;
   --signal-negative: #B85C5C;
+  /* Live/agent pulse — bright blue that holds up on both canvases */
+  --signal-live: #3B82F6;
 
   /* File-type accents. Spreadsheet green is Excel's own, so the icon and button
      read as "this is a workbook" rather than as decoration.
@@ -75,6 +77,8 @@ html.dark {
   --accent-primary: #9ca3af;
 
   --blob-opacity: 0.22;
+
+  --signal-live: #60A5FA;
 }
 
 /* Base canvas */
@@ -294,4 +298,20 @@ input::placeholder {
 }
 html.dark .sectoral-title {
   color: #e58b70;
+}
+
+/* Shared AgentCell (components/shared/AgentCell.tsx): soft hover fill with
+   rounded corners. Lives here rather than a hover:bg-* utility because the
+   global no-hover-fill rule above would switch that off. */
+.agent-cell {
+  border-radius: 6px;
+}
+.agent-cell:hover {
+  background-color: var(--surface-recessed);
+}
+
+/* Navbar stock-search rows — the shared DropdownItem pins an inline
+   background, so the hover lift needs !important to win. */
+.stock-search [role="option"]:hover {
+  background-color: var(--surface-recessed) !important;
 }

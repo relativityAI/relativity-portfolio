@@ -7,6 +7,7 @@ import {
     buildTree, defaultSkillFiles, deletePath, parentDir,
     type SkillFiles, type TreeNode,
 } from "@/lib/skillFiles";
+import { getSkillTags, setSkillTags } from "@/lib/skillTags";
 import { Button } from "@/components/ui/button";
 import { toaster } from "@/compat/ui";
 import { cn } from "@/lib/utils";
@@ -53,6 +54,10 @@ export default function SkillWorkspace({ skill, library, onCancel, onSaved }: Sk
     const [error, setError] = useState<string | null>(null);
     const [issues, setIssues] = useState<SkillIssue[]>([]);
     const [loadError, setLoadError] = useState(false);
+    // Raw tag text while typing (commas/whitespace aren't valid tags yet);
+    // null means "read the tags back out of the document". Cleared on blur —
+    // any click that changes the active file blurs the input first.
+    const [tagDraft, setTagDraft] = useState<string | null>(null);
 
     useEffect(() => {
         if (!skill) return;
@@ -278,6 +283,22 @@ export default function SkillWorkspace({ skill, library, onCancel, onSaved }: Sk
             <section className="flex min-w-0 flex-1 flex-col">
                 <div className="flex items-center gap-3 border-b border-border px-4 py-2">
                     <span className="min-w-0 flex-1 truncate font-app-mono text-[12px] text-console-ink-2">{active}</span>
+                    {active === "SKILL.md" && (
+                        <input
+                            value={tagDraft ?? getSkillTags(content).join(", ")}
+                            onChange={(e) => {
+                                setTagDraft(e.target.value);
+                                setFiles((prev) => (prev && prev["SKILL.md"] !== undefined
+                                    ? { ...prev, "SKILL.md": setSkillTags(prev["SKILL.md"], e.target.value) }
+                                    : prev));
+                            }}
+                            placeholder="tags…"
+                            aria-label="Skill tags"
+                            spellCheck={false}
+                            onBlur={() => setTagDraft(null)}
+                            className="h-7 w-44 shrink-0 rounded-[4px] border border-border bg-transparent px-2 font-app-mono text-[11px] text-console-ink-2 placeholder:text-console-ink-4 focus:outline-none focus:ring-2 focus:ring-console-accent/40"
+                        />
+                    )}
                     {skill?.source === "builtin" && (
                         <span className="font-app-mono text-[10px] tracking-wide text-console-accent">SAVES AS YOUR COPY</span>
                     )}

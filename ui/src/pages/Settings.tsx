@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
 import {
-    Flex, Text, Box, Button, Input, VStack, HStack, Spinner
+    Flex, Text, Box, Button, Input, VStack, InputGroup, Spinner
 } from "@chakra-ui/react";
-import { MdCheck, MdVisibility, MdVisibilityOff, MdDelete, MdLockOutline, MdOpenInNew } from "react-icons/md";
-import { LuSun, LuMoon } from "react-icons/lu";
+import { Check, Eye, EyeOff, X, Trash2, Plus, Pencil, ExternalLink, Lock, Sun, Moon } from "lucide-react";
 import { toaster } from "@/components/ui/toaster";
 import { SettingsService } from "@/db";
 import { useAuth } from "@/auth/useAuth";
 import { useColorMode } from "@/components/ui/color-mode";
 import UserAvatar from "@/components/shared/UserAvatar";
+import { ModelLogo } from "@/lib/modelLogos";
 import { motion, AnimatePresence } from "motion/react";
 import { dur, ease } from "@/lib/motion";
 
@@ -49,7 +49,7 @@ function StatusPill({ connected }: { connected: boolean }) {
                 borderRadius="full"
                 bg={connected ? "var(--signal-positive)" : "var(--ink-tertiary)"}
             />
-            <Text fontSize="10.5px" fontWeight={500} color={connected ? "var(--signal-positive)" : "var(--ink-tertiary)"}>
+            <Text fontSize="10.5px" color={connected ? "var(--signal-positive)" : "var(--ink-tertiary)"}>
                 {connected ? "Connected" : "Not connected"}
             </Text>
         </Flex>
@@ -69,7 +69,7 @@ interface ProviderCardProps {
 }
 
 /**
- * One provider card. Collapsed: monogram + name + status + masked key.
+ * One provider card. Collapsed: logo + name + status + masked key.
  * Expanded: an EMPTY input (never the mask — a masked value can never be
  * accidentally re-submitted), Save/Cancel, and Remove when a key exists.
  */
@@ -80,7 +80,6 @@ function ProviderCard({ value, label, url, savedKey, expanded, onToggle, onSave,
     const [confirmRemove, setConfirmRemove] = useState(false);
 
     const connected = !!savedKey;
-    const monogram = label.slice(0, 2).toUpperCase();
 
     // Clearing a half-typed draft happens on close rather than in an effect.
     const reset = () => {
@@ -126,41 +125,27 @@ function ProviderCard({ value, label, url, savedKey, expanded, onToggle, onSave,
             as={motion.div}
             layout
             transition={{ duration: dur.fast, ease }}
-            bg="var(--surface-panel)"
-            border="1px solid"
-            borderColor={expanded ? "var(--accent-primary)" : "var(--hairline)"}
-            borderRadius="2px"
-            p={4}
             alignSelf="start"
+            w="full"
         >
             {/* Header — the whole block toggles the editor */}
             <Flex
                 as="button"
                 type="button"
                 onClick={handleHeaderClick}
-                align="flex-start"
+                align="center"
                 gap={3}
                 w="100%"
                 textAlign="left"
                 cursor="pointer"
                 aria-expanded={expanded}
             >
-                <Flex
-                    w="34px"
-                    h="34px"
-                    borderRadius="2px"
-                    bg="var(--surface-recessed)"
-                    align="center"
-                    justify="center"
-                    flexShrink={0}
-                >
-                    <Text fontSize="13px" fontWeight={600} fontFamily="var(--font-mono)" color="var(--accent-primary)">
-                        {monogram}
-                    </Text>
+                <Flex w="24px" justify="center" flexShrink={0}>
+                    <ModelLogo model={value} size={20} />
                 </Flex>
                 <Box flex={1} minW={0}>
-                    <Flex align="center" gap={2} justify="space-between">
-                        <Text fontSize="13.5px" fontWeight={600} color="var(--ink-primary)" noOfLines={1}>
+                    <Flex align="center" gap={1.5} minW={0}>
+                        <Text fontSize="13.5px" color="var(--ink-primary)" noOfLines={1}>
                             {label}
                         </Text>
                         {url && (
@@ -173,33 +158,43 @@ function ProviderCard({ value, label, url, savedKey, expanded, onToggle, onSave,
                                 onClick={(e) => e.stopPropagation()}
                                 style={{ display: "flex", color: "var(--ink-tertiary)", flexShrink: 0 }}
                             >
-                                <MdOpenInNew size={13} />
+                                <ExternalLink size={13} />
                             </a>
                         )}
                     </Flex>
-                    <Box mt={1.5}>
+                    <Box mt={1}>
                         <StatusPill connected={connected} />
                     </Box>
                 </Box>
+                <Box
+                    as="span"
+                    display="inline-flex"
+                    align="center"
+                    gap={1}
+                    flexShrink={0}
+                    px={2}
+                    py={1}
+                    borderRadius="2px"
+                    fontSize="11.5px"
+                    color="var(--accent-primary)"
+                    _hover={{ bg: "var(--surface-recessed)" }}
+                >
+                    {expanded ? <X size={13} /> : connected ? <Pencil size={13} /> : <Plus size={13} />}
+                    {expanded ? "Close" : connected ? "Change" : "Add"}
+                </Box>
             </Flex>
 
-            <Flex align="center" gap={2} mt={3} minW={0}>
-                <Text
-                    flex={1}
-                    minW={0}
-                    fontSize="11.5px"
-                    fontFamily="var(--font-mono)"
-                    color="var(--ink-tertiary)"
-                    overflow="hidden"
-                    textOverflow="ellipsis"
-                    whiteSpace="nowrap"
-                >
-                    {connected ? savedKey : "No key added"}
-                </Text>
-                <Text fontSize="11px" color="var(--accent-primary)" fontWeight={500} flexShrink={0}>
-                    {expanded ? "Close" : connected ? "Change" : "Add"}
-                </Text>
-            </Flex>
+            <Text
+                fontSize="11.5px"
+                fontFamily="var(--font-mono)"
+                color="var(--ink-tertiary)"
+                overflow="hidden"
+                textOverflow="ellipsis"
+                whiteSpace="nowrap"
+                mt={2}
+            >
+                {connected ? savedKey : "No key added"}
+            </Text>
 
             {/* Expanded editor */}
             <AnimatePresence initial={false}>
@@ -227,10 +222,8 @@ function ProviderCard({ value, label, url, savedKey, expanded, onToggle, onSave,
                                     </Text>
                                     <Flex gap={2}>
                                         <Button
-                                            size="sm"
                                             variant="surface"
                                             colorPalette="red"
-                                            minH="36px"
                                             flex={1}
                                             onClick={handleRemove}
                                             disabled={busy}
@@ -238,9 +231,7 @@ function ProviderCard({ value, label, url, savedKey, expanded, onToggle, onSave,
                                             {busy ? <Spinner size="sm" borderWidth="2px" /> : "Confirm remove"}
                                         </Button>
                                         <Button
-                                            size="sm"
-                                            variant="subtle"
-                                            minH="36px"
+                                            variant="ghost"
                                             color="var(--ink-secondary)"
                                             onClick={() => setConfirmRemove(false)}
                                             disabled={busy}
@@ -250,71 +241,57 @@ function ProviderCard({ value, label, url, savedKey, expanded, onToggle, onSave,
                                     </Flex>
                                 </VStack>
                             ) : (
-                                <VStack gap={3} align="stretch">
-                                    <HStack gap={2} align="center">
+                                <VStack gap={2.5} align="stretch">
+                                    <InputGroup
+                                        endElement={
+                                            <Button
+                                                variant="ghost"
+                                                aria-label={showKey ? "Hide key" : "Show key"}
+                                                color="var(--ink-tertiary)"
+                                                _hover={{ color: "var(--ink-primary)" }}
+                                                onClick={() => setShowKey((v) => !v)}
+                                            >
+                                                {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                                            </Button>
+                                        }
+                                        endElementProps={{ px: "4px" }}
+                                    >
                                         <Input
                                             type={showKey ? "text" : "password"}
                                             placeholder={connected ? `New ${label} key to replace the saved one` : `Paste your ${label} API key`}
                                             value={draft}
                                             onChange={(e) => setDraft(e.target.value)}
-                                            flex="1"
-                                            minW={0}
-                                            minH="44px"
+                                            minH="40px"
                                             borderColor="var(--hairline)"
                                             borderRadius="2px"
                                             _focus={{ borderColor: "var(--accent-primary)" }}
                                             onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
                                         />
-                                        <Button
-                                            variant="subtle"
-                                            aria-label={showKey ? "Hide key" : "Show key"}
-                                            minW="44px"
-                                            minH="44px"
-                                            p={0}
-                                            color="var(--ink-tertiary)"
-                                            _hover={{ color: "var(--ink-primary)" }}
-                                            onClick={() => setShowKey((v) => !v)}
-                                        >
-                                            {showKey ? <MdVisibilityOff size={18} /> : <MdVisibility size={18} />}
-                                        </Button>
-                                    </HStack>
-                                    <Flex align="center" gap={2} flexWrap="wrap">
+                                    </InputGroup>
+                                    <Flex align="center" gap={2}>
                                         <Button
                                             as={motion.button}
                                             whileTap={{ scale: 0.97 }}
-                                            size="sm"
-                                            minH="36px"
                                             variant="surface"
                                             colorPalette="blue"
-                                            px={4}
                                             onClick={handleSave}
                                             disabled={busy || !draft.trim()}
                                         >
-                                            {busy ? <Spinner size="sm" borderWidth="2px" /> : <><MdCheck size={14} style={{ marginRight: 4 }} />Save key</>}
+                                            {busy ? <Spinner size="sm" borderWidth="2px" /> : <><Check size={16} /> Save key</>}
                                         </Button>
-                                        <Button
-                                            size="sm"
-                                            minH="36px"
-                                            variant="subtle"
-                                            color="var(--ink-secondary)"
-                                            onClick={close}
-                                            disabled={busy}
-                                        >
-                                            Cancel
+                                        <Button variant="ghost" color="var(--ink-secondary)" onClick={close} disabled={busy}>
+                                            <X size={16} /> Cancel
                                         </Button>
                                         {connected && (
                                             <Button
-                                                size="sm"
-                                                minH="36px"
-                                                variant="subtle"
+                                                variant="ghost"
                                                 color="var(--ink-tertiary)"
                                                 _hover={{ color: "var(--signal-negative)" }}
                                                 onClick={() => setConfirmRemove(true)}
                                                 disabled={busy}
                                                 ml="auto"
                                             >
-                                                <MdDelete size={14} style={{ marginRight: 4 }} />
-                                                Remove
+                                                <Trash2 size={16} /> Remove
                                             </Button>
                                         )}
                                     </Flex>
@@ -335,12 +312,9 @@ function SectionCard({ title, subtitle, children }: { title: string; subtitle?: 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: dur.base, ease }}
-            bg="var(--surface-panel)"
-            border="1px solid var(--hairline)"
-            borderRadius="2px"
             p={{ base: 4, md: 5 }}
         >
-            <Text fontSize="13.5px" fontWeight={600} color="var(--ink-primary)">{title}</Text>
+            <Text fontSize="13.5px" color="var(--ink-primary)">{title}</Text>
             {subtitle && <Text fontSize="12px" color="var(--ink-tertiary)" mt={0.5}>{subtitle}</Text>}
             <Box mt={4}>{children}</Box>
         </Box>
@@ -349,9 +323,9 @@ function SectionCard({ title, subtitle, children }: { title: string; subtitle?: 
 
 function GridSkeleton() {
     return (
-        <Box display="grid" gridTemplateColumns={{ base: "1fr", sm: "repeat(2, 1fr)", xl: "repeat(3, 1fr)" }} gap={3}>
+        <Box display="grid" gridTemplateColumns={{ base: "1fr", sm: "repeat(2, 1fr)", xl: "repeat(3, 1fr)" }} gap={5}>
             {[0, 1, 2, 3, 4, 5].map((i) => (
-                <Box key={i} border="1px solid var(--hairline)" borderRadius="2px" p={4} h="96px" bg="var(--surface-panel)">
+                <Box key={i} h="96px">
                     <Flex gap={3} align="center">
                         <Box boxSize="34px" borderRadius="2px" bg="var(--surface-recessed)" />
                         <Box h="13px" w="90px" borderRadius="2px" bg="var(--surface-recessed)" />
@@ -367,7 +341,6 @@ function GroupHeader({ title, purpose }: { title: string; purpose: string }) {
         <Box mb={3} mt={1}>
             <Text
                 fontSize="10.5px"
-                fontWeight={500}
                 color="var(--ink-tertiary)"
                 textTransform="uppercase"
                 letterSpacing="0.06em"
@@ -453,20 +426,10 @@ export default function Settings() {
             <Flex direction="column" gap={6} w="full" px={{ base: 4, md: 8 }} py={6}>
                 {/* Header — flat masthead, same title/subtitle treatment as the Runs and New Run pages */}
                 <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 px-0.5">
-                    <div className="min-w-0">
-                        <h1 className="text-[26px] leading-[1.1] font-semibold tracking-[-0.02em] text-[var(--ink-primary)] md:text-[30px]">
-                            Settings
-                        </h1>
-                        <p className="mt-1.5 text-[13px] text-[var(--ink-secondary)]">
-                            Your account, appearance, and the API keys used to run analyses. Keys are optional — skip them to run on our servers with the default model.
-                        </p>
-                    </div>
-                    <Text
-                        fontSize="11.5px"
-                        fontFamily="var(--font-mono)"
-                        color="var(--ink-tertiary)"
-                        whiteSpace="nowrap"
-                    >
+                    <h1 className="font-app-display min-w-0 text-[26px] leading-[1.1] font-normal tracking-[-0.02em] text-[var(--ink-primary)] md:text-[30px]">
+                        Settings
+                    </h1>
+                    <Text fontSize="11.5px" color="var(--ink-tertiary)" whiteSpace="nowrap">
                         {connectedCount} KEY{connectedCount === 1 ? "" : "S"} STORED
                     </Text>
                 </header>
@@ -481,7 +444,7 @@ export default function Settings() {
                                     <UserAvatar seed={email || displayName} size={{ base: 52, md: 60 }} />
                                 </Box>
                                 <Box minW={0}>
-                                    <Text fontSize="15px" fontWeight={600} color="var(--ink-primary)" noOfLines={1}>
+                                    <Text fontSize="15px" color="var(--ink-primary)" noOfLines={1}>
                                         {displayName}
                                     </Text>
                                     <Text fontSize="12.5px" color="var(--ink-tertiary)" noOfLines={1}>{email}</Text>
@@ -491,7 +454,6 @@ export default function Settings() {
                                 </Box>
                             </Flex>
                             <Box mt={4}>
-                                {metaRow("Account ID", user?.id?.slice(0, 8) ?? "—")}
                                 {metaRow("Last sign-in", lastSignInLabel)}
                             </Box>
                         </SectionCard>
@@ -499,8 +461,8 @@ export default function Settings() {
                         <SectionCard title="Appearance" subtitle="Choose how Relativity looks on this device.">
                             <Flex gap={1} p={1} bg="var(--surface-recessed)" borderRadius="2px">
                                 {[
-                                    { v: "light" as const, icon: LuSun, label: "Light" },
-                                    { v: "dark" as const, icon: LuMoon, label: "Dark" },
+                                    { v: "light" as const, icon: Sun, label: "Light" },
+                                    { v: "dark" as const, icon: Moon, label: "Dark" },
                                 ].map((opt) => {
                                     const active = (opt.v === "dark") === isDark;
                                     return (
@@ -521,7 +483,7 @@ export default function Settings() {
                                             boxShadow={active ? "0 1px 2px rgba(0,0,0,0.08)" : "none"}
                                         >
                                             <opt.icon size={14} color={active ? "var(--accent-primary)" : "var(--ink-tertiary)"} />
-                                            <Text fontSize="12.5px" fontWeight={active ? 600 : 500} color={active ? "var(--ink-primary)" : "var(--ink-tertiary)"}>
+                                            <Text fontSize="12.5px" color={active ? "var(--ink-primary)" : "var(--ink-tertiary)"}>
                                                 {opt.label}
                                             </Text>
                                         </Flex>
@@ -532,10 +494,10 @@ export default function Settings() {
 
                         <SectionCard title="Subscription">
                             <Flex align="center" justify="space-between" gap={3}>
-                                <Text fontSize="13.5px" fontWeight={600} color="var(--ink-primary)">Free</Text>
+                                <Text fontSize="15px" color="var(--ink-primary)">Free</Text>
                                 <Flex align="center" gap={1.5} px={2} py={0.5} borderRadius="full" bg="var(--surface-recessed)">
                                     <Box w="6px" h="6px" borderRadius="full" bg="var(--ink-tertiary)" />
-                                    <Text fontSize="10.5px" color="var(--ink-tertiary)" fontWeight={500}>Current plan</Text>
+                                    <Text fontSize="10.5px" color="var(--ink-tertiary)">Current plan</Text>
                                 </Flex>
                             </Flex>
                             <Text fontSize="12px" color="var(--ink-tertiary)" mt={2}>
@@ -553,13 +515,10 @@ export default function Settings() {
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: dur.base, ease }}
-                        bg="var(--surface-panel)"
-                        border="1px solid var(--hairline)"
-                        borderRadius="2px"
                         p={{ base: 4, md: 6 }}
                     >
                         <Flex align="center" gap={2} mb={5}>
-                            <MdLockOutline size={14} color="var(--ink-tertiary)" />
+                            <Lock size={14} color="var(--ink-tertiary)" />
                             <Text fontSize="12px" color="var(--ink-tertiary)">
                                 Keys are stored securely on the server, encrypted at rest. Never exposed in the browser.
                             </Text>
@@ -573,7 +532,7 @@ export default function Settings() {
                                     title="Model Providers"
                                     purpose="Keys here become available as model choices when starting an analysis."
                                 />
-                                <Box display="grid" gridTemplateColumns={{ base: "1fr", sm: "repeat(2, 1fr)", xl: "repeat(3, 1fr)" }} gap={3} mb={8} alignItems="start">
+                                <Box display="grid" gridTemplateColumns={{ base: "1fr", sm: "repeat(2, 1fr)", xl: "repeat(3, 1fr)" }} gap={5} mb={8} alignItems="start">
                                     {MODEL_PROVIDERS.map((p) => (
                                         <ProviderCard
                                             key={p.value}
@@ -593,7 +552,7 @@ export default function Settings() {
                                     title="Web Search"
                                     purpose="Powers the optional web-search step during analysis."
                                 />
-                                <Box display="grid" gridTemplateColumns={{ base: "1fr", sm: "repeat(2, 1fr)", xl: "repeat(3, 1fr)" }} gap={3} alignItems="start">
+                                <Box display="grid" gridTemplateColumns={{ base: "1fr", sm: "repeat(2, 1fr)", xl: "repeat(3, 1fr)" }} gap={5} alignItems="start">
                                     <ProviderCard
                                         value="tavily"
                                         label="Tavily"

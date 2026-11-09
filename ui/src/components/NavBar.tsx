@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { Menu, Flex, Text, Box } from "@chakra-ui/react";
-import { Search, Menu as MenuIcon, X, LogOut, Moon, Sun } from "lucide-react";
+import { Search, Menu as MenuIcon, X, LogOut, Moon, Sun, Settings } from "lucide-react";
 import { useAuth } from "@/auth/useAuth";
 import { useColorMode } from "@/components/ui/color-mode";
 import UserAvatar from "@/components/shared/UserAvatar";
 import { Button } from "@/components/ui/button";
+import { API_BASE } from "@/db";
+import { TickerLogo } from "@/lib/sourceLogos";
+import { DropdownItem } from "@/pages/shared/AnalysisControls";
 import { cn } from "@/lib/utils";
 
 const today = new Date().toLocaleDateString("en-GB", {
@@ -14,6 +17,14 @@ const today = new Date().toLocaleDateString("en-GB", {
   year: "numeric",
 });
 
+type StockRow = {
+  ticker?: string;
+  SYMBOL?: string;
+  name?: string;
+  NAME?: string;
+  source?: string;
+};
+
 export default function NavBar() {
   const { user, signOut } = useAuth();
   const { colorMode, toggleColorMode } = useColorMode();
@@ -21,6 +32,60 @@ export default function NavBar() {
   const location = useLocation();
   const email = user?.email ?? "";
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Stock search — same logic as the new-analysis company picker:
+  // 300ms debounce + AbortController against /stocks/search.
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<StockRow[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchWrapRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    abortRef.current?.abort();
+    const q = query.trim();
+    debounceRef.current = setTimeout(async () => {
+      if (!q) {
+        setResults([]);
+        setSearching(false);
+        return;
+      }
+      setSearching(true);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        const response = await fetch(`${API_BASE}/stocks/search?${new URLSearchParams({ query: q })}`, {
+          signal: controller.signal,
+        });
+        const data = await response.json();
+        if (!controller.signal.aborted) setResults(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!(err instanceof DOMException) || err.name !== "AbortError") setResults([]);
+      } finally {
+        if (!controller.signal.aborted) setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(debounceRef.current);
+  }, [query]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchWrapRef.current && !searchWrapRef.current.contains(e.target as Node)) setSearchOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const pickStock = (stock: StockRow) => {
+    const sym = stock.ticker || stock.SYMBOL || "";
+    const src = String(stock.source || "").toUpperCase();
+    setSearchOpen(false);
+    setQuery("");
+    navigate(`/stock/${encodeURIComponent(sym)}?source=${src}`);
+  };
 
   return (
     <nav className="bg-[var(--surface-canvas)]">
@@ -41,12 +106,54 @@ export default function NavBar() {
         </div>
 
         <div className="flex items-center gap-5">
-          <button
-            aria-label="Search"
-            className="text-[var(--ink-tertiary)] hover:opacity-60 transition-opacity cursor-pointer"
-          >
-            <Search size={18} />
-          </button>
+          {/* Stock search — square-ish, hairline, no pill rounding */}
+          <div ref={searchWrapRef} className="relative hidden md:block">
+            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--ink-tertiary)]" />
+            <input
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setSearchOpen(true);
+              }}
+              onFocus={() => setSearchOpen(true)}
+              placeholder="Search stocks…"
+              aria-label="Search stocks"
+              aria-expanded={searchOpen}
+              aria-haspopup="listbox"
+              className="h-8 w-52 rounded-[4px] border border-[var(--hairline)] bg-[var(--surface-recessed)] pr-2 pl-8 font-[family-name:var(--font-body)] text-sm font-normal text-[var(--ink-primary)] outline-none focus:border-[var(--ink-tertiary)]"
+            />
+            {searchOpen && query.trim() !== "" && (
+              <div
+                role="listbox"
+                aria-label="Stock results"
+                className="stock-search absolute top-[calc(100%+6px)] right-0 z-50 max-h-[320px] w-[340px] overflow-y-auto rounded-[6px] border border-[var(--hairline)] bg-[var(--surface-canvas)] py-1 shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
+              >
+                {searching && (
+                  <div className="px-3 py-2.5 font-[family-name:var(--font-body)] text-xs text-[var(--ink-tertiary)]">Searching…</div>
+                )}
+                {!searching && results.length === 0 && (
+                  <div className="px-3 py-2.5 font-[family-name:var(--font-body)] text-xs text-[var(--ink-tertiary)]">
+                    Nothing matches “{query}”.
+                  </div>
+                )}
+                {!searching &&
+                  results.map((stock) => {
+                    const sym = stock.ticker || stock.SYMBOL || "";
+                    const market = String(stock.source || "").toLowerCase() === "nse" ? "NSE" : "SEC";
+                    return (
+                      <DropdownItem
+                        key={`${market}-${sym}`}
+                        label={stock.name || stock.NAME || sym}
+                        sub={sym}
+                        tag={market}
+                        logo={<TickerLogo symbol={sym} size={18} />}
+                        onClick={() => pickStock(stock)}
+                      />
+                    );
+                  })}
+              </div>
+            )}
+          </div>
 
           <button
             aria-label="Toggle color mode"
@@ -73,6 +180,10 @@ export default function NavBar() {
                     </Text>
                   </Flex>
                   <Menu.Separator />
+                  <Menu.Item value="settings" onClick={() => navigate("/settings")}>
+                    <Settings size={15} />
+                    <Text fontSize="sm">Settings</Text>
+                  </Menu.Item>
                   <Menu.Item value="signout" onClick={() => signOut()}>
                     <LogOut size={15} />
                     <Text fontSize="sm">Sign out</Text>

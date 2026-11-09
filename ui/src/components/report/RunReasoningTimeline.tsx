@@ -9,7 +9,7 @@
  * their pending call row by tool_call_id.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Flex, Text, Spinner } from "@chakra-ui/react";
 import {
     Brain,
@@ -284,18 +284,23 @@ export interface RunReasoningTimelineProps {
 
 export default function RunReasoningTimeline({ events, active }: RunReasoningTimelineProps) {
     const groups = useMemo(() => buildGroups(events), [events]);
+    const scroller = useRef<HTMLDivElement>(null);
 
-    if (!groups.length) {
-        return (
-            <Flex align="center" gap={2} py={2}>
-                <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />
-                <Text fontSize="12.5px" color="var(--ink-tertiary)">{active ? "Starting…" : "No activity recorded"}</Text>
-            </Flex>
-        );
-    }
+    // Fixed-height feed that pins to the latest agent step on every trace
+    // update — the page itself never scrolls to follow the run.
+    useEffect(() => {
+        const el = scroller.current;
+        if (el) el.scrollTop = el.scrollHeight;
+    }, [events]);
 
     return (
-        <Box>
+        <Box ref={scroller} h="480px" overflowY="auto" overscrollBehavior="contain" pr={1}>
+            {!groups.length && (
+                <Flex align="center" gap={2} py={2}>
+                    <Spinner size="xs" borderWidth="2px" color="var(--accent-primary)" />
+                    <Text fontSize="12.5px" color="var(--ink-tertiary)">{active ? "Starting…" : "No activity recorded"}</Text>
+                </Flex>
+            )}
             {groups.map((g, gi) => {
                 const Icon = g.Icon;
                 return (

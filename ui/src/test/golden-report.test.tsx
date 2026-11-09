@@ -308,8 +308,11 @@ describe("ReportDocumentRenderer (v2 full sections)", () => {
     render(wrap(<ReportDocumentRenderer document={v2Doc} />));
     const headings = screen.getAllByTestId("report-heading");
     expect(headings.map((h) => h.textContent)).toEqual(["Trend", "Risks"]);
-    // text blocks render as paragraphs
-    expect(screen.getAllByTestId("report-paragraph")).toHaveLength(2);
+    // text blocks render as paragraphs, each carrying its claim/detail level
+    const paras = screen.getAllByTestId("report-paragraph");
+    expect(paras).toHaveLength(2);
+    expect(paras[0].getAttribute("data-level")).toBe("1");
+    expect(paras[1].getAttribute("data-level")).toBe("2");
     // figures print their source beneath (table via SourceNote, svg figure via its own link)
     const sources = screen.getAllByTestId("report-source");
     expect(sources.length).toBeGreaterThanOrEqual(1);

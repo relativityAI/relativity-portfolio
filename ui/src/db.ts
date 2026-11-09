@@ -12,6 +12,24 @@ axios.interceptors.request.use(async (config) => {
     return config;
 });
 
+/** A daily scheduled run (schedules table). `time` is wall clock in `timezone`. */
+export interface ScheduleRow {
+    id: string;
+    symbol: string;
+    share_name: string;
+    source: string;
+    agent_id: string | null;
+    model: string | null;
+    system_prompt: string | null;
+    skill_ids: string[] | null;
+    max_steps: number | null;
+    max_tokens: number | null;
+    time: string;
+    timezone: string;
+    last_fired_date: string | null;
+    created_at: string;
+}
+
 /**
  * Global Agent Service - delegates to the backend API
  */
@@ -124,6 +142,33 @@ export const AnalysisService = {
         };
     },
 
+    /** Daily schedule: same run config + wall-clock time in an IANA timezone. */
+    async createSchedule(config: {
+        symbol: string;
+        share_name?: string;
+        source?: string;
+        agent_id?: string;
+        model?: string;
+        system_prompt?: string;
+        max_steps?: number;
+        max_tokens?: number;
+        time: string;
+        timezone: string;
+    }) {
+        const response = await axios.post(`${API_BASE}/schedules`, config);
+        return response.data as ScheduleRow;
+    },
+
+    async listSchedules() {
+        const response = await axios.get(`${API_BASE}/schedules`);
+        return response.data as ScheduleRow[];
+    },
+
+    async deleteSchedule(id: string) {
+        const response = await axios.delete(`${API_BASE}/schedules/${encodeURIComponent(id)}`);
+        return response.data;
+    },
+
     async getAvailableSources() {
         const response = await axios.get(`${API_BASE}/sources`);
         return response.data;
@@ -160,6 +205,8 @@ export interface SkillSummary {
     /** Full-definition fields the list payload carries (API SkillDefinition). */
     purpose?: string;
     anchors?: { label: string; weight?: number }[];
+    /** User labels from frontmatter metadata.tags — search + display. */
+    tags?: string[];
 }
 
 export const SkillService = {

@@ -125,7 +125,7 @@ export function MenuDropdown({ value, placeholder, search, logo, children }: {
                 whileTap={{ scale: 0.997 }}
                 className="flex cursor-pointer items-center gap-1.5 rounded-[10px] border border-input px-3 transition-opacity hover:opacity-70 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50"
                 style={{
-                    minHeight: "36px",
+                    minHeight: "32px",
                     outline: "none",
                     background: "transparent",
                 }}

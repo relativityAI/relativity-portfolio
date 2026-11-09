@@ -1,4 +1,4 @@
-import { Suspense, useEffect, type ReactNode } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import {
   Routes,
   Route,
@@ -17,6 +17,7 @@ import AgentsList from "./pages/AgentsList";
 import AnalysisList from "./pages/AnalysisList";
 import Analysis from "./pages/Analysis";
 import AnalysisResult from "./pages/AnalysisResult";
+import Stock from "./pages/Stock";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import Privacy from "./pages/Privacy";
@@ -115,6 +116,14 @@ function AppRoutes() {
   const locationPath = location.pathname;
   const { user } = useAuth();
 
+  // The route container is the scroller (window stays fixed) — without this
+  // the next page inherits the previous scroll offset, and a shorter page
+  // clamps straight to its bottom.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    scrollRef.current?.scrollTo(0, 0);
+  }, [locationPath]);
+
   useEffect(() => {
     const getTitle = (path: string) => {
       if (path === "/login") return "Sign in";
@@ -126,6 +135,7 @@ function AppRoutes() {
       if (path.startsWith("/agent/")) return "Agent Detail";
       if (path === "/analysis-list") return "Runs";
       if (path.startsWith("/analysis-result/")) return "Run Result";
+      if (path.startsWith("/stock/")) return "Stock";
       if (path === "/settings") return "Settings";
       if (path === "/my-workspace" || path.startsWith("/my-workspace/")) return "My Workspace";
       return "Relativity AI";
@@ -145,7 +155,7 @@ function AppRoutes() {
     locationPath === "/";
   const showNav = !isLogin;
   // Remove footer from analysis result page (and analysis-related pages as requested)
-  const showFooter = showNav && !isPublicPage && !isConsole && !isAnalysisPage && locationPath !== "/settings";
+  const showFooter = showNav && !isPublicPage && !isConsole && !isAnalysisPage && locationPath !== "/settings" && !locationPath.startsWith("/stock");
 
   return (
     <Flex direction="column" h="100dvh" overflow="hidden">
@@ -153,7 +163,7 @@ function AppRoutes() {
       {showNav && <NavBar />}
 
         {/* One natural page scroller for every route — no inner scroll boxes. */}
-        <Box w="100%" flex={1} overflowY="auto" overflowX="hidden" paddingX={0}>
+        <Box ref={scrollRef} w="100%" flex={1} overflowY="auto" overflowX="hidden" paddingX={0}>
             <AnimatePresence mode="wait">
               <motion.div key={isConsole ? "console" : location.pathname} variants={page} style={{ height: "100%", maxWidth: "1200px", margin: "0 auto", paddingLeft: "1.5rem", paddingRight: "1.5rem" }} initial="initial" animate="animate" exit="exit">
                 <Suspense fallback={<PageFallback />}>
@@ -222,6 +232,7 @@ function AppRoutes() {
                       path="/analysis-result"
                       element={<Navigate to="/analysis-list" replace />}
                     />
+                    <Route path="/stock/:symbol" element={<Stock />} />
                     <Route
                       path="/settings"
                       element={

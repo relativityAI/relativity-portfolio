@@ -253,7 +253,7 @@ export function SkillDetail({ skill, onEdit, onEditWithAi, onDelete }: { skill: 
                 <SkillAvatar skill={skill} size={28} />
                 <Text fontSize="16px" fontWeight={600} color="var(--ink-primary)">{skill.name}</Text>
                 <Text fontSize="11px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
-                    {categoryLabel(skill.category)} · {skill.id}
+                    {[categoryLabel(skill.category), ...(skill.tags || []), skill.id].join(" · ")}
                 </Text>
                 {skill.source === "custom" && (
                     <Text fontSize="10px" fontFamily="var(--font-mono)" color="var(--accent-primary)">
@@ -401,7 +401,9 @@ export default function SkillBrowser({
         return library.filter((s) => {
             if (category !== "all" && s.category !== category) return false;
             if (!q) return true;
-            return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q);
+            return s.name.toLowerCase().includes(q)
+                || s.description.toLowerCase().includes(q)
+                || (s.tags || []).some((t) => t.toLowerCase().includes(q));
         });
     }, [library, query, category]);
 
@@ -534,7 +536,7 @@ export default function SkillBrowser({
                                                         <SkillAvatar skill={s} size={20} />
                                                         <Text fontSize="13.5px" fontWeight={600} color="var(--ink-primary)">{s.name}</Text>
                                                         <Text fontSize="10px" fontFamily="var(--font-mono)" color="var(--ink-tertiary)">
-                                                            {categoryLabel(s.category)}
+                                                            {[categoryLabel(s.category), ...(s.tags || [])].join(" · ")}
                                                         </Text>
                                                         {s.source === "custom" && (
                                                             <Text fontSize="10px" fontFamily="var(--font-mono)" color="var(--accent-primary)">YOURS</Text>

@@ -34,6 +34,18 @@ html.dark .almanac-report {
   --slate: #7E7E88;
 }
 
+/* Text-block levels: level 1 (the claim/lead) runs in the brightest ink —
+   pure white on dark, near-black on light — and larger than level 2,
+   which keeps the secondary body colour from .almanac-report above. */
+.almanac-report [data-level="1"] {
+  color: #000000;
+  font-size: 1.2em;
+}
+
+html.dark .almanac-report [data-level="1"] {
+  color: #ffffff;
+}
+
 /* One domain ink per section (rules 3–4) — equity research → economy.
  * ponytail: fixed .dom-economy; add a symbol→domain map when other domains ship. */
 .almanac-report.dom-economy {
@@ -208,11 +220,11 @@ html.dark .almanac-report.dom-economy {
   color: var(--ink);
 }
 
-/* Ledger stats (rule 2): huge thin numerals over tiny letterspaced labels */
+/* Ledger stats (rule 2): huge thin numerals over sentence-case labels */
 .almanac-report .ledger {
   display: flex;
   flex-wrap: wrap;
-  gap: 26px 38px;
+  gap: 26px 0;
   margin: 24px 0;
   padding: 18px 0;
   border-top: 1px solid var(--rule);
@@ -221,14 +233,29 @@ html.dark .almanac-report.dom-economy {
 
 .almanac-report .ledger .cell {
   min-width: 130px;
+  padding: 0 19px;
+}
+
+.almanac-report .ledger .cell + .cell {
+  border-left: 1px solid var(--rule);
+}
+
+.almanac-report .ledger .cell:first-child {
+  padding-left: 0;
+}
+
+.almanac-report .ledger .cell:last-child {
+  padding-right: 0;
 }
 
 .almanac-report .ledger .lab {
-  font-size: 0.62rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  font-weight: 600;
-  color: var(--dim);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  font-weight: 400;
+  color: var(--ink);
+  margin-bottom: 6px;
 }
 
 .almanac-report .ledger .num {
