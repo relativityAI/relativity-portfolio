@@ -133,3 +133,23 @@ CREATE TABLE IF NOT EXISTS agent_runs (
   updated_at timestamptz not null default now()
 );
 CREATE INDEX IF NOT EXISTS agent_runs_agent_id_idx ON agent_runs (agent_id);
+
+-- ─── 024: schedules (daily scheduled runs) ────────────────────────────────
+CREATE TABLE IF NOT EXISTS schedules (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  symbol text NOT NULL,
+  share_name text NOT NULL,
+  source text NOT NULL,
+  agent_id text,
+  model text,
+  system_prompt text,
+  skill_ids text[],
+  max_steps int,
+  max_tokens int,
+  time text NOT NULL,
+  timezone text NOT NULL,
+  last_fired_date date,
+  created_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS schedules_user_idx ON schedules (user_id);

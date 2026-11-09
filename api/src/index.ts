@@ -8,6 +8,8 @@ import { fetchUserKeys, ensureUserSettings } from "./provision.js";
 import { getModelIds, getAvailableModelsForUser } from "./models.js";
 import { getSources, searchStocks } from "./discovery.js";
 import { tickerLogoUrl } from "./tickerLogos.js";
+import { getPriceHistory, toYahooSymbol } from "./marketdata.js";
+import { yf } from "./harness/tools/builtins/yahoo.js";
 import { getMetricsCatalog, buildFieldList, getFlatCatalog, mergeCatalogFields, normalizeQuantRules, type MetricDef } from "./metrics.js";
 import { keyPool } from "./keypool.js";
 import { buildModel, draftParameters, type LlmKeys } from "./agent.js";
@@ -41,7 +43,8 @@ import {
   type Verdict,
 } from "./harness/index.js";
 import { installHarnessAdapters, harnessToView, viewToHarnessPatch } from "./harness-adapters.js";
-import { runHarnessSymbol, startStaleRunSweeper } from "./runs.js";
+import { runHarnessSymbol, startAnalysisRun, startStaleRunSweeper } from "./runs.js";
+import { startScheduleTicker, isValidTime, isValidTimeZone } from "./schedule.js";
 import { extractText } from "./upload.js";
 import { VoyagerClient, toCountrySource } from "./voyager.js";
 import multer from "multer";
@@ -700,12 +703,7 @@ app.post("/analysis", requireAuth, async (req, res) => {
     const userId = (req as AuthedRequest).user.id;
     // agent_id is optional: no agent → the seeded default agent (the CLI
     // resolves its persona the same way — config defaults, no --agent flag).
-    let agent = agentId ? await getHarnessAgent(userId, agentId) : null;
-    if (agentId && !agent) return res.status(404).json({ error: "Agent not found" });
-    if (!agent) {
-      const seeded = await listHarnessAgents(userId);
-      agent = seeded[0] ?? (await createHarnessAgent(userId, DEFAULT_HARNESS_AGENT));
-    }
+    if (agentId && !(await getHarnessAgent(userId, agentId))) return res.status(404).json({ error: "Agent not found" });
 
     // Budget overrides (--max-steps / --max-tokens): only present keys are
     // forwarded, so an absent flag keeps the agent's own budget.
@@ -716,65 +714,91 @@ app.post("/analysis", requireAuth, async (req, res) => {
       if (Number.isFinite(n)) budgetOverride[key] = n;
     }
 
-    // Placeholder row so the UI can redirect to the result page instantly; the
-    // run continues in the background, streaming its trace to the SSE hub and
-    // updating this row when it finishes (or ERROR if it throws).
-    const runId = randomUUID();
-    const runRow = {
-      id: runId,
-      user_id: userId,
-      status: "RUNNING",
-      symbol,
-      share_name: symbol,
-      agent_name: agent.name,
-      model: body.model ? String(body.model) : agent.modelId || null,
-      source,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    // Older databases may miss migration 021/022 — try with both columns, then
-    // without the newer one; the run still starts and the list just shows less.
-    const systemPrompt = body.system_prompt ? String(body.system_prompt) : null;
-    const inserts = [
-      { ...runRow, skill_ids: skillIds ?? null, system_prompt: systemPrompt },
-      { ...runRow, skill_ids: skillIds ?? null },
-      runRow,
-    ];
-    let phErr: { message: string } | null = null;
-    for (const row of inserts) {
-      ({ error: phErr } = await getDb().from("analysis_runs").insert(row));
-      if (!phErr || !/skill_ids|system_prompt/.test(phErr.message)) break;
-    }
-    if (phErr) throw new Error(phErr.message);
-
-    runHarnessSymbol(
+    // Placeholder row + fire-and-forget launch (runs.ts owns both); the UI
+    // redirects to the result page from the returned id.
+    const runId = await startAnalysisRun({
       userId,
-      // agent.id, NOT the raw request agent_id: when the UI omits it the
-      // resolved default agent above is the one that must run — an empty id
-      // makes runHarnessSymbol return null and the row hangs RUNNING forever.
-      agent.id,
       symbol,
       source,
-      body.model ? String(body.model) : undefined,
-      body.system_prompt ? String(body.system_prompt) : undefined,
-      runId,
+      agentId: agentId || undefined,
+      model: body.model ? String(body.model) : undefined,
+      systemPrompt: body.system_prompt ? String(body.system_prompt) : undefined,
       prompt,
       skillIds,
-      budgetOverride,
-    ).then((result) => {
-      // Belt: a null resolution (agent row vanished mid-run) must fail the row
-      // instead of leaving the UI on an eternal spinner.
-      if (!result) throw new Error("run did not start: agent not found");
-    }).catch(async (e: any) => {
-      console.error("background analysis run failed:", e);
-      await getDb().from("analysis_runs")
-        .update({ status: "ERROR", error: e?.message || "run failed", updated_at: new Date().toISOString() })
-        .eq("id", runId);
+      budget: budgetOverride,
     });
     res.json({ id: runId, status: "RUNNING" });
   } catch (e: any) {
     console.error("POST /analysis ERROR:", e);
     res.status(503).json({ error: e?.message || "Analysis failed" });
+  }
+});
+
+app.post("/schedules", requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const symbol = String(body.symbol || "").trim();
+    const agentId = String(body.agent_id || body.agentId || "").trim();
+    const source = String(body.source || "NSE").toUpperCase();
+    const time = String(body.time || "").trim();
+    const timezone = String(body.timezone || "").trim();
+    if (!symbol) return res.status(400).json({ error: "symbol is required" });
+    if (source !== "NSE" && source !== "SEC") return res.status(400).json({ error: "source must be NSE or SEC" });
+    if (!isValidTime(time)) return res.status(400).json({ error: "time must be HH:MM" });
+    if (!isValidTimeZone(timezone)) return res.status(400).json({ error: "timezone must be a valid IANA zone" });
+    const userId = (req as AuthedRequest).user.id;
+    if (agentId && !(await getHarnessAgent(userId, agentId))) return res.status(404).json({ error: "Agent not found" });
+
+    const skillIds = Array.isArray(body.skills) && body.skills.length ? body.skills.map(String).slice(0, 1) : null;
+    const maxSteps = body.max_steps != null && body.max_steps !== "" && Number.isFinite(Number(body.max_steps)) ? Number(body.max_steps) : null;
+    const maxTokens = body.max_tokens != null && body.max_tokens !== "" && Number.isFinite(Number(body.max_tokens)) ? Number(body.max_tokens) : null;
+    const { data, error } = await getDb().from("schedules").insert({
+      user_id: userId,
+      symbol,
+      share_name: String(body.share_name || symbol),
+      source,
+      agent_id: agentId || null,
+      model: body.model ? String(body.model) : null,
+      system_prompt: body.system_prompt ? String(body.system_prompt) : null,
+      skill_ids: skillIds,
+      max_steps: maxSteps,
+      max_tokens: maxTokens,
+      time,
+      timezone,
+    }).select().single();
+    if (error) throw new Error(error.message);
+    res.json(data);
+  } catch (e: any) {
+    console.error("POST /schedules ERROR:", e);
+    res.status(503).json({ error: e?.message || "Schedule failed" });
+  }
+});
+
+app.get("/schedules", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const { data, error } = await getDb().from("schedules")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    res.json(data ?? []);
+  } catch (e: any) {
+    res.status(503).json({ error: e?.message || "Could not list schedules" });
+  }
+});
+
+app.delete("/schedules/:id", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user.id;
+    const { error } = await getDb().from("schedules")
+      .delete()
+      .eq("id", String(req.params.id))
+      .eq("user_id", userId);
+    if (error) throw new Error(error.message);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(503).json({ error: e?.message || "Could not delete schedule" });
   }
 });
 
@@ -1087,6 +1111,39 @@ app.get("/stocks/search", (req, res) => {
   const q = String(req.query.query || "");
   const source = String(req.query.source || "");
   res.json(searchStocks(q, source || undefined));
+});
+
+// Stock page overview — one round trip: Yahoo quote (yfinance's source) +
+// cached chart history. Open like /stocks/search above: public market data.
+app.get("/stocks/:symbol/overview", async (req, res) => {
+  try {
+    const symbol = String(req.params.symbol || "").trim();
+    const source = String(req.query.source || "") || undefined;
+    const period = String(req.query.period || "1y");
+    const yahoo = toYahooSymbol(symbol, source);
+    const [q, h] = await Promise.all([yf.quote(yahoo), getPriceHistory(symbol, period, source)]);
+    res.json({
+      symbol: q.symbol,
+      name: q.longName || q.shortName || "",
+      price: q.regularMarketPrice ?? null,
+      change: q.regularMarketChange ?? null,
+      change_pct: q.regularMarketChangePercent ?? null,
+      currency: q.currency ?? "",
+      market_cap: q.marketCap ?? null,
+      pe: q.trailingPE ?? null,
+      prev_close: q.regularMarketPreviousClose ?? null,
+      volume: q.regularMarketVolume ?? null,
+      fifty_two_week_high: q.fiftyTwoWeekHigh ?? null,
+      fifty_two_week_low: q.fiftyTwoWeekLow ?? null,
+      exchange: q.fullExchangeName ?? "",
+      ltp_time: q.regularMarketTime ?? null,
+      period,
+      candles: h ? h.candles.map((c) => ({ date: c.date, close: c.close })) : [],
+      fetched_at: new Date().toISOString(),
+    });
+  } catch (e: any) {
+    res.status(502).json({ error: String(e?.message || e) });
+  }
 });
 
 // Company logo for a ticker: resolve symbol → domain (search API), then
@@ -1444,6 +1501,7 @@ const server = app.listen(config.port, async () => {
   // PENDING/RUNNING from a previous process is dead. Clear it, then keep
   // sweeping hangs.
   startStaleRunSweeper();
+  startScheduleTicker();
 });
 
 async function shutdown() {
