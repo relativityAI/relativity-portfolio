@@ -29,6 +29,12 @@ export interface HarnessSkill {
   /** Tools this skill may call, from frontmatter allowed-tools. */
   allowedTools: string[];
   /**
+   * Data tools the v2 plan harness may execute in parallel, from frontmatter
+   * `tools:` (a list). Empty = the plan harness refuses to run this skill.
+   * The v1 loop harness ignores this field.
+   */
+  tools: string[];
+  /**
    * Frontmatter `citations: inline` — the skill's report-structure forbids
    * footnotes; assembly links [src:…] tokens inline instead of stamping them.
    */
@@ -122,6 +128,12 @@ export function parseSkillMarkdown(
   if (frontmatter["allowed-tools"] !== undefined && typeof frontmatter["allowed-tools"] !== "string") {
     issues.push({ line: 1, message: "allowed-tools must be a space-separated string", severity: "error" });
   }
+  if (
+    frontmatter.tools !== undefined &&
+    (!Array.isArray(frontmatter.tools) || frontmatter.tools.some((t) => typeof t !== "string" || !t.trim()))
+  ) {
+    issues.push({ line: 1, message: "tools must be a list of tool-name strings", severity: "error" });
+  }
   if (frontmatter.citations !== undefined && frontmatter.citations !== "inline" && frontmatter.citations !== "footnotes") {
     issues.push({ line: 1, message: 'citations must be "inline" or "footnotes"', severity: "error" });
   }
@@ -140,6 +152,9 @@ export function parseSkillMarkdown(
   const allowedTools = typeof frontmatter["allowed-tools"] === "string"
     ? frontmatter["allowed-tools"].split(/\s+/).filter(Boolean)
     : [];
+  const tools = Array.isArray(frontmatter.tools)
+    ? (frontmatter.tools as string[]).map((t) => t.trim()).filter(Boolean)
+    : [];
   const skillDir = dir ?? (expectedName ? join(process.cwd(), "config", "skills", expectedName) : null);
 
   return {
@@ -151,6 +166,7 @@ export function parseSkillMarkdown(
       version: Number(fmMetadata.version) > 0 ? Number(fmMetadata.version) : 1,
       source,
       allowedTools,
+      tools,
       ...(frontmatter.citations === "inline" ? { citations: "inline" as const } : {}),
       body: body.trim(),
       dir: skillDir,

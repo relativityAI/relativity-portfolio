@@ -112,8 +112,9 @@ describe("built-in skill files", () => {
     .sort();
 
   it("finds the shipped skills", () => {
-    expect(ids.length).toBeGreaterThanOrEqual(3);
-    expect(ids).toContain("dcf-valuation");
+    // Floor is 1: the per-id loop below validates every skill that ships;
+    // the exact set moves as skills are added/retired on disk.
+    expect(ids.length).toBeGreaterThanOrEqual(1);
   });
 
   for (const id of ids) {

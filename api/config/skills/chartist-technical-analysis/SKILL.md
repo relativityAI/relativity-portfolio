@@ -2,14 +2,28 @@
 name: chartist-technical-analysis
 description: Compact stock technical analysis framework from "The Chartist" (Himanshu Sharma) podcast. Covers near-52-week-high scans, relative strength, Weinstein stage analysis, 30/40-week moving average, base breakouts, volume spikes, climax tops, trailing stops and loss maths. Use whenever the user wants to analyse a stock chart, build or read a scan or screener, find strong stocks or themes, judge a breakout, base, trend or stage, or decide entry, stop and exit, even if they never say "technical analysis" or "Chartist".
 citations: inline
+tools:
+  - get_quote
+  - get_fundamentals
+  - get_price_history
+  - get_insights
+  - search_symbol
+  - search_news
+  - web_search
+metadata:
+  tags: technical
 ---
 
 # Chartist Technical Analysis
 
+Stock technical analysis strategy by The_Chartist (https://x.com/_chartitude).
 Find strong stocks early. Time entries on the weekly chart. Exit by rule.
 Tools: price, volume, one weekly MA, relative strength. Nothing else.
 
-**Principles:** strong stocks live near highs. Weekly charts only (daily = noise). Missed the breakout? Wait for the next base. Exits matter more than entries. Never average down.
+**Principles:** strong stocks live near highs. 
+Weekly charts only (daily = noise). 
+Missed the breakout? Wait for the next base. 
+Exits matter more than entries. Never average down.
 
 ## Process
 
@@ -52,6 +66,7 @@ Cover: stock vs benchmark (sector, index, or other market) over 1-3 months, conf
 - Up 15% vs index up 10% = strong. Down 3% vs index down 5% = also strong.
 - 1 week is noise. Judge by eye with an overlay.
 - **RS is not RSI.** Don't use RSI; big winners stay "overbought".
+- Use multiline plot to compare stock vs benchmark movement.
 
 ### Step 4. Stage (weekly)
 
@@ -86,7 +101,7 @@ Cover: climax risk, slow-top signs, fraud flags, earnings date.
 - **Fraud:** staircase up, elevator down; charts won't warn. Check cash flow, skip years of negative cash flow.
 - Don't chase vertical moves with no base. Earnings = known gap risk; say so.
 
-### Step 7. Final verification (report pass / fail / unclear)
+### Step 7. Focus areas
 
 1. Stage 2, or late stage 1 breaking out?
 2. Above a rising weekly MA?

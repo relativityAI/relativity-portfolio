@@ -11,7 +11,7 @@ Start with a prominent summary box:
 
 
 ## Writing Style
-- Stop using jargon and speak coherently. State it more simply and concisely, like one human talking to another.
+- Stop using jargon and speak coherently. State it VERY simply and concisely, like one human talking to another.
 - No checklist tables. No evidence checklist tables.
 - **Short sentences only.** One key idea per sentence. Concision in language is not an excuse to drift.
 - Focus on making important information standout and catch attention like - imporant figures, headlines, imp findings.

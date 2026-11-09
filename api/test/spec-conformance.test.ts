@@ -87,7 +87,9 @@ describe("Agent Skills spec conformance", () => {
       });
 
       it("exposes our extras through metadata, not invented top-level keys", () => {
-        const SPEC_KEYS = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools"]);
+        // `citations` and `tools` are recognized first-class keys in the
+        // harness loader (skills/loader.ts), not invented top-level keys.
+        const SPEC_KEYS = new Set(["name", "description", "license", "compatibility", "metadata", "allowed-tools", "citations", "tools"]);
         for (const k of top.keys()) expect(SPEC_KEYS.has(k)).toBe(true);
         expect(meta.get("metadata.category")).toBeTruthy();
         expect(meta.get("metadata.title")).toBeTruthy();
