@@ -4,14 +4,11 @@ import { MdArrowUpward, MdArrowDownward, MdExpandMore, MdChevronRight } from "re
 import { AnalysisService, AgentService, SkillService } from "@/db";
 import { agentDisplayName } from "@/utils";
 import SkillAvatar from "@/components/shared/SkillAvatar";
-import Echart from "@/components/shared/Echart";
 import { HarnessAgentService } from "@/lib/harnessAgents";
-import { ModelLogo, modelLogoAsset } from "@/lib/modelLogos";
-import { TickerLogo } from "@/lib/sourceLogos";
-import { mixHex, resolvedTheme, tooltipStyle, type ECOption, type ResolvedTheme } from "@/lib/echarts";
-import { useColorMode } from "@/components/ui/color-mode";
+import { ModelLogo } from "@/lib/modelLogos";
+import { SourceMark, TickerLogo } from "@/lib/sourceLogos";
 import { motion, AnimatePresence } from "motion/react";
-import { stagger, staggerItem, dur } from "@/lib/motion";
+import { stagger, staggerItem } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -94,50 +91,7 @@ function Spinner({ className }: { className?: string }) {
     );
 }
 
-const OTHER_KEY = "__other__";
-
-/** Escape untrusted labels before they go into ECharts tooltip HTML. */
-function esc(s: string): string {
-    return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
-}
-
-/**
- * Monochrome ramp for a donut: every slice is a shade of one anchor color,
- * ordered by rank so magnitude reads without a legend lookup. The mix runs
- * toward ink-primary rather than the surface, so the ramp always moves AWAY
- * from the card background — mixing toward the panel would drop the low ranks
- * into the surface in dark mode.
- */
-function shadeRamp(t: ResolvedTheme, anchor: string, i: number, n: number): string {
-    const k = n > 1 ? i / (n - 1) : 0;
-    return mixHex(anchor, t.ink.primary, 0.18 + 0.56 * k);
-}
-
-/**
- * Legends are HTML, not ECharts': a canvas legend eats the strip's width and
- * pushes the plots out of line. Every item is capped so a long name truncates
- * instead of claiming a whole row — the count/tooltip stays the source of
- * truth, the legend just names the slice.
- */
-function LogoLegend({ items }: { items: { key: string; label: string; model: string }[] }) {
-    return (
-        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1.5">
-            {items.map((it) => (
-                <div key={it.key} className="flex min-w-0 max-w-[112px] items-center gap-1.5">
-                    <ModelLogo model={it.model} size={12} />
-                    <div
-                        title={it.label}
-                        className="truncate font-app-body text-[11px] font-light text-[var(--ink-secondary)]"
-                    >
-                        {it.label}
-                    </div>
-                </div>
-            ))}
-        </div>
-    );
-}
-
-/** Same legend treatment as LogoLegend, with a colour dot instead of a logo. */
+/** Dotted legend under the run-health strip; counts live in the SVG tooltip. */
 function DotLegend({ items }: { items: { key: string; label: string; color: string; title?: string }[] }) {
     return (
         <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1.5">
@@ -160,42 +114,48 @@ function DotLegend({ items }: { items: { key: string; label: string; color: stri
 }
 
 /**
- * Rounded pie/donut shared by the model and stock plots: same slice rounding,
- * no canvas legend (the HTML legend sits under the plot), only the data and
- * tooltip body differ.
+ * One row of a horizontal SVG bar chart: mark on the left, count on the right,
+ * the long label only on hover (and to screen readers). The bar is a plain SVG
+ * rect stretched to the row — no chart library, colours come from CSS vars.
  */
-function donutOption(
-    t: ResolvedTheme,
-    anim: ECOption["animation"],
-    slices: { name: string; value: number; itemStyle: { color: string } }[],
-    tooltipBody: (index: number, percent: number) => string,
-    radius: [string, string] = ["48%", "72%"]
-): ECOption {
-    return {
-        animation: anim,
-        legend: { show: false },
-        tooltip: {
-            ...tooltipStyle(t),
-            trigger: "item",
-            confine: true,
-            formatter: (params: any) => {
-                const p = Array.isArray(params) ? params[0] : params;
-                return tooltipBody(p.dataIndex, p.percent);
-            },
-        },
-        series: [
-            {
-                type: "pie",
-                radius,
-                center: ["50%", "50%"],
-                label: { show: false },
-                labelLine: { show: false },
-                // No slice borders — the plots sit flush on the canvas like
-                // everything else on the page.
-                data: slices,
-            },
-        ],
-    };
+function BarRow({
+    logo,
+    label,
+    extra,
+    value,
+    max,
+}: {
+    logo: React.ReactNode;
+    /** Full name shown on hover + as visually-hidden text. */
+    label: string;
+    /** Extra mark for the hover chip (e.g. the exchange icon). */
+    extra?: React.ReactNode;
+    value: number;
+    max: number;
+}) {
+    const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+    return (
+        <div className="group relative flex items-center gap-2.5 py-1">
+            <span className="flex w-4 shrink-0 justify-center">{logo}</span>
+            <svg
+                className="h-2.5 min-w-0 flex-1 overflow-hidden"
+                viewBox="0 0 100 10"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+            >
+                <rect width="100" height="10" fill="var(--surface-recessed)" />
+                <rect width={pct} height="10" fill="var(--accent-primary)" />
+            </svg>
+            <span className="w-5 shrink-0 text-right font-app-tabular text-[11px] tabular-nums text-[var(--ink-secondary)]">
+                {value}
+            </span>
+            <span className="sr-only">{label}</span>
+            <div className="pointer-events-none absolute right-0 bottom-full z-10 mb-1.5 hidden items-center gap-1.5 whitespace-nowrap border border-[var(--hairline)] bg-[var(--surface-canvas)] px-2 py-1 text-[11.5px] text-[var(--ink-primary)] shadow-sm group-hover:flex">
+                <span className="truncate">{label}</span>
+                {extra}
+            </div>
+        </div>
+    );
 }
 
 type GroupMode = "individual" | "date" | "agent" | "stock" | "model";
@@ -499,34 +459,36 @@ export default function AnalysisList() {
         return uniqueAnalysis.filter((a) => f(a) === "failed" || f(a) === "error");
     }, [uniqueAnalysis]);
 
-    // Top 5 models by run count; everything past the top 5 is one "Other"
-    // slice so the pie never silently drops runs.
+    // Top 5 models by run count, ranked for the bar chart.
     const modelUsage = useMemo(() => {
         const map = new Map<string, number>();
         uniqueAnalysis.forEach((a) => {
             const m = a.model || "unknown";
             map.set(m, (map.get(m) || 0) + 1);
         });
-        const all = Array.from(map.entries())
+        return Array.from(map.entries())
             .map(([model, count]) => ({ model, count }))
-            .sort((a, b) => b.count - a.count);
-        const top = all.slice(0, 5);
-        const rest = all.slice(5).reduce((s, m) => s + m.count, 0);
-        return rest > 0 ? [...top, { model: OTHER_KEY, count: rest }] : top;
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
     }, [uniqueAnalysis]);
 
-    // Top 5 stocks by run count — the pie ranks how often each name is run.
-    // The symbol rides along so the legend can show the ticker under the plot.
+    // Top 5 stocks by run count — the bars rank how often each name is run.
+    // Symbol and exchange ride along for the hover chip (full name, flag,
+    // exchange mark), resolved the same way the navbar does it.
     const topStocks = useMemo(() => {
-        const map = new Map<string, { label: string; symbol: string; count: number }>();
+        const map = new Map<string, { label: string; symbol: string; source: string; count: number }>();
         uniqueAnalysis.forEach((a) => {
             const label = String(a.share_name || a.symbol || "").trim();
             if (!label) return;
-            const entry = map.get(label) ?? { label, symbol: "", count: 0 };
+            const entry = map.get(label) ?? { label, symbol: "", source: "", count: 0 };
             entry.count += 1;
             if (!entry.symbol) {
                 const sym = String(a.symbol || "").trim();
                 if (sym) entry.symbol = sym;
+            }
+            if (!entry.source) {
+                const src = String(a.source || "").trim();
+                if (src) entry.source = src;
             }
             map.set(label, entry);
         });
@@ -535,49 +497,16 @@ export default function AnalysisList() {
             .slice(0, 5);
     }, [uniqueAnalysis]);
 
-    const modelRuns = useMemo(() => modelUsage.reduce((s, m) => s + m.count, 0), [modelUsage]);
-
     // Completed vs failed share of all runs; counts live in the tooltip only.
     const healthTotal = completed.length + failed.length;
 
     const colSpan = 8;
 
-    const { colorMode } = useColorMode();
-    const chartTheme = useMemo(() => resolvedTheme(colorMode === "dark"), [colorMode]);
-    const chartAnim = useMemo(
-        () => (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? false : { duration: dur.base, easing: "cubicOut" }),
-        []
-    );
-
-    const modelPie = useMemo(() => {
-        const t = chartTheme;
-        const n = modelUsage.length;
-        return donutOption(
-            t,
-            chartAnim,
-            modelUsage.map((m, i) => ({
-                name: m.model === OTHER_KEY ? "Other models" : m.model,
-                value: m.count,
-                itemStyle: { color: shadeRamp(t, t.accent, i, n) },
-            })),
-            (i, percent) => {
-                const m = modelUsage[i];
-                if (!m) return "";
-                const other = m.model === OTHER_KEY;
-                const asset = other ? null : modelLogoAsset(m.model);
-                const mark = asset
-                    ? `<img src="${asset.src}"${asset.invert ? ' class="llm-mark"' : ""} style="width:14px;height:14px;object-fit:contain;vertical-align:-3px;margin-right:6px;" alt="" />`
-                    : "";
-                return `${mark}<b>${other ? "Other models" : esc(m.model)}</b><br/><span style="color:${t.ink.tertiary}">${percent}% · ${m.count}${other ? "" : " runs"}</span>`;
-            }
-        );
-    }, [modelUsage, chartTheme, chartAnim]);
-
     /**
-     * Completed vs failed as one stacked horizontal bar. No segment labels —
-     * the counts only surface in the tooltip, so the strip stays a shape.
-     * The colours are deliberately punchier than the muted signal tokens:
-     * the band has to read as red and green at a glance.
+     * Completed vs failed as one stacked bar. No segment labels — the counts
+     * only surface on hover, so the strip stays a shape. The colours are
+     * deliberately punchier than the muted signal tokens: the band has to
+     * read as red and green at a glance.
      */
     const healthSegments = useMemo(
         () => [
@@ -586,78 +515,6 @@ export default function AnalysisList() {
         ],
         [completed, failed]
     );
-
-    const runHealthBar = useMemo(() => {
-        const t = chartTheme;
-        const segments = healthSegments;
-        return {
-            animation: chartAnim,
-            grid: { left: 0, right: 0, top: 8, bottom: 8 },
-            tooltip: {
-                ...tooltipStyle(t),
-                trigger: "item",
-                confine: true,
-                formatter: (params: any) => {
-                    const p = Array.isArray(params) ? params[0] : params;
-                    const s = segments[p.seriesIndex ?? p.dataIndex];
-                    if (!s) return "";
-                    return `<b>${s.name}</b><br/><span style="color:${t.ink.tertiary}">${s.value} run${s.value === 1 ? "" : "s"}</span>`;
-                },
-            },
-            xAxis: { type: "value", max: healthTotal, show: false, splitLine: { show: false } },
-            yAxis: { type: "category", data: [""], show: false },
-            series: segments.map((s) => ({
-                name: s.name,
-                type: "bar",
-                stack: "health",
-                barWidth: 48,
-                itemStyle: { color: s.color },
-                label: { show: false },
-                data: [s.value],
-            })),
-        };
-    }, [healthSegments, healthTotal, chartTheme, chartAnim]);
-
-    /**
-     * Most run stocks — a pie of run counts for the top 5 names. Slice shades
-     * ramp by rank so magnitude still reads without looking up the legend.
-     */
-    /**
-     * Slice colours for the stock pie, computed once so the HTML legend and
-     * the chart can never drift apart. Shades ramp by rank so magnitude still
-     * reads without looking up the legend.
-     */
-    const stockSlices = useMemo(
-        () =>
-            topStocks.map((s, i) => ({
-                ...s,
-                color: shadeRamp(chartTheme, chartTheme.accent, i, topStocks.length),
-            })),
-        [topStocks, chartTheme]
-    );
-
-    const stockPie = useMemo(() => {
-        const t = chartTheme;
-        return donutOption(
-            t,
-            chartAnim,
-            stockSlices.map((s) => ({
-                name: s.label,
-                value: s.count,
-                itemStyle: { color: s.color },
-            })),
-            (i, percent) => {
-                const s = stockSlices[i];
-                if (!s) return "";
-                const head =
-                    s.symbol && s.symbol !== s.label
-                        ? `${esc(s.symbol)} <span style="color:${t.ink.tertiary}">· ${esc(s.label)}</span>`
-                        : esc(s.label);
-                return `<b>${head}</b><br/><span style="color:${t.ink.tertiary}">${percent}% · ${s.count} run${s.count === 1 ? "" : "s"}</span>`;
-            },
-            ["0%", "70%"]
-        );
-    }, [stockSlices, chartTheme, chartAnim]);
 
     const onRowClick = (id: string) => {
         navigate("/analysis-result/" + id);
@@ -709,21 +566,23 @@ export default function AnalysisList() {
                                 </p>
                             ) : (
                                 <div>
-                                    <Echart
-                                        height={160}
-                                        aria-label={`Top ${topStocks.length} most run stocks. ${topStocks
-                                            .map((s) => `${s.symbol || s.label} ${s.count} runs`)
-                                            .join(", ")}`}
-                                        option={stockPie}
-                                    />
-                                    <DotLegend
-                                        items={stockSlices.map((s) => ({
-                                            key: s.label,
-                                            label: s.symbol || s.label,
-                                            title: s.label,
-                                            color: s.color,
-                                        }))}
-                                    />
+                                    {topStocks.map((s) => {
+                                        const india = s.source.toLowerCase() === "nse";
+                                        const name =
+                                            s.symbol && s.symbol !== s.label
+                                                ? `${s.label} · ${s.symbol}`
+                                                : s.label;
+                                        return (
+                                            <BarRow
+                                                key={s.label}
+                                                logo={<TickerLogo symbol={s.symbol} size={16} />}
+                                                label={`${name} ${india ? "🇮🇳" : "🇺🇸"} ${india ? "NSE" : "SEC"}`}
+                                                extra={<SourceMark source={india ? "nse" : "sec"} size={13} />}
+                                                value={s.count}
+                                                max={topStocks[0].count}
+                                            />
+                                        );
+                                    })}
                                 </div>
                             )}
                         </motion.div>
@@ -737,11 +596,29 @@ export default function AnalysisList() {
                                 </p>
                             ) : (
                                 <div>
-                                    <Echart
-                                        height={160}
+                                    <svg
+                                        className="h-12 w-full"
+                                        viewBox={`0 0 ${healthTotal} 48`}
+                                        preserveAspectRatio="none"
+                                        role="img"
                                         aria-label={`Run outcomes: ${completed.length} completed, ${failed.length} failed.`}
-                                        option={runHealthBar}
-                                    />
+                                    >
+                                        {healthSegments.map((s, i) =>
+                                            s.value > 0 ? (
+                                                <rect
+                                                    key={s.name}
+                                                    x={healthSegments
+                                                        .slice(0, i)
+                                                        .reduce((n, m) => n + m.value, 0)}
+                                                    width={s.value}
+                                                    height={48}
+                                                    fill={s.color}
+                                                >
+                                                    <title>{`${s.name} · ${s.value} run${s.value === 1 ? "" : "s"}`}</title>
+                                                </rect>
+                                            ) : null
+                                        )}
+                                    </svg>
                                     <DotLegend
                                         items={healthSegments.map((s) => ({
                                             key: s.name,
@@ -762,20 +639,15 @@ export default function AnalysisList() {
                                 </p>
                             ) : (
                                 <div>
-                                    <Echart
-                                        height={160}
-                                        aria-label={`Runs by model across ${modelRuns} runs. ${modelUsage
-                                            .map((m) => `${m.model} ${m.count}`)
-                                            .join(", ")}`}
-                                        option={modelPie}
-                                    />
-                                    <LogoLegend
-                                        items={modelUsage.map((m) => ({
-                                            key: m.model,
-                                            label: m.model === OTHER_KEY ? "Other models" : m.model,
-                                            model: m.model,
-                                        }))}
-                                    />
+                                    {modelUsage.map((m) => (
+                                        <BarRow
+                                            key={m.model}
+                                            logo={<ModelLogo model={m.model} size={16} />}
+                                            label={m.model}
+                                            value={m.count}
+                                            max={modelUsage[0].count}
+                                        />
+                                    ))}
                                 </div>
                             )}
                         </motion.div>
