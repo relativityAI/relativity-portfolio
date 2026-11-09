@@ -10,7 +10,7 @@
     "test": "vitest run",
     "ui:demo": "tsx src/harness/ui/demo.ts",
     "smoke:mcp": "tsx scripts/mcp-smoke.mts",
-    "searxng": "docker start searxng 2>/dev/null || docker run -d --name searxng --restart unless-stopped -p 8888:8080 -v \"$PWD/searxng/settings.yml\":/etc/searxng/settings.yml docker.io/searxng/searxng:latest"
+    "searxng": "docker compose -f ../docker-compose.yml up -d searxng"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.46",

@@ -6,10 +6,9 @@ services:
       dockerfile: Dockerfile
     ports:
       - "5173:5173"
+    env_file: ./ui/.env
     environment:
-      VITE_API_URL: http://api:8080
-      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
-      VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
+      VITE_RELATIVITY_API: http://localhost:8080
 
   api:
     container_name: relativity-api
@@ -18,12 +17,15 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+    env_file: ./api/.env
     environment:
       PORT: 8080
-      SUPABASE_PROJECT_URL: ${SUPABASE_PROJECT_URL:-}
-      SUPABASE_URL: ${SUPABASE_URL:-}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
-      VOYAGER_URL: https://voyager-api-0csb.onrender.com
-      VOYAGER_ADMIN_KEY: ${VOYAGER_ADMIN_KEY:-}
-      VOYAGER_RPM: ${VOYAGER_RPM:-60}
+      SEARXNG_URL: http://searxng:8080
+
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "8888:8080"
+    volumes:
+      - ./api/searxng/settings.yml:/etc/searxng/settings.yml
