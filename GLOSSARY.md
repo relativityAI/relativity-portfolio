@@ -10,9 +10,22 @@ codebase-design skill, not from here.
   researches, composes, and assembles a typed report. Its one public interface
   is `api/src/harness/index.ts` (the barrel); nothing under `harness/` imports
   anything outside it.
-- **Canvas** — the in-memory document that grows block by block during a run
-  (`canvas/`). Tasks move pending → running → done/failed; `canvas.document()`
-  assembles the ReportDocument.
+- **Engine** — which of the two pipelines runs a report: `v1` (one autonomous
+  tool loop) or `v2` (plan-parallel). Chosen by `harness.config.json` `engine`;
+  both dispatch through `runAnalysis` (`harness/engine.ts`), which also owns
+  the shared run options/result types. The `v2` in the report schema
+  (`relativity/report.v2`) and in skill ids (`*-v2`) is unrelated.
+- **Plan (v2)** — the task graph the planner emits, validated before anything
+  executes and archived to `/workspace/plan.json`. Distinct from v1's todo
+  list (see `todo_write`), which is model-authored and advisory.
+- **Draft (v2)** — one section-writing model call: evidence is pasted into
+  the prompt, it replies `{sections, sources, score}`. Drafts run in parallel.
+- **Verdict** — the five-band run rating (Very Poor … Excellent). v1 gets it
+  from an LLM grading call (`gradeReport`); v2 averages its section **scores**
+  (each drafter's 1–10 self-rating) onto the same bands.
+- **Canvas** — the in-memory report (`canvas/`): section-groups are appended
+  in slot order (v1 via `report_write`, v2 via `appendSections`), validated by
+  `validateComposed`; `canvas.document()` assembles the ReportDocument.
 - **Workspace** — the per-run memfs volume (`workspace/`): `index.md`,
   `knowledge_base/`, `sources/`, `report/sections/`. Tool results are archived
   here as raw payload + stub + derived facts.
@@ -20,10 +33,12 @@ codebase-design skill, not from here.
   chart needs a series-bearing stub. Coverage is assessed from evidence, never
   from the model's own TODO list.
 - **Trace** — the ordered `TraceEvent` stream a run emits (thought, tool_call,
-  tool_result, phase, canvas_block, log). The timeline UI and the report
-  builder both consume it.
+  tool_result, phase, canvas_block, kb, log). `canvas_block` = a section
+  written to the report (v2 emits it; v1's writes show up as `report_write`
+  tool events). The timeline UI and the report builder both consume it.
 - **Budget** — per-run limits (`types.ts`): maxSteps, maxTokens, cbSessions,
-  cbSessionSteps. Compose holds a reserved slice so research cannot starve it.
+  cbSessionSteps. `maxSteps` counts v1 loop steps; v2 does not enforce it.
+  Compose holds a reserved slice so research cannot starve it.
 
 ### Persistence ports (the harness seam)
 
@@ -35,6 +50,9 @@ codebase-design skill, not from here.
   go through the repository.
 - **Adapter** — a repository implementation. Row mapping (e.g. the
   `configuration` jsonb shape) belongs to the adapter, never to the harness.
+- **Configuration shape version** — `HARNESS_VERSION` (jsonb key
+  `harness_version`): which shape the agent configuration blob has. NOT the
+  engine version.
 
 ### Adjacent, not the harness
 
