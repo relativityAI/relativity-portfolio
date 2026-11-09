@@ -16,18 +16,45 @@ import { log } from "./logger.js";
 import { TraceCollector, type TraceEvent } from "./trace.js";
 import {
   getAgent,
+  listAgents,
+  createAgent,
+  DEFAULT_HARNESS_AGENT,
   compileAgent,
   clampBudget,
-  runCanvasAnalysis,
+  runAnalysis,
   ReportCanvas,
   buildToolRegistry,
   loadCliConfig,
   getSystemPrompt,
+  gradeReport,
+  reportDigest,
+  RETRYABLE_ERROR,
   type AgentDefinition,
   type ReportDocument,
+  type RunCanvasResult,
   type Verdict,
   type TraceEvent as HarnessTraceEvent,
 } from "./harness/index.js";
+import { resolveRunConfig } from "./harness/cli/config.js";
+
+/** Verdict AFTER the report is already persisted — off the request's critical
+ *  path (the UI shows the finished report seconds earlier; the badge lands
+ *  when grading returns). Fire-and-forget; failures only cost the badge. */
+async function gradeInBackground(document: ReportDocument, modelId: string, llmKeys: Record<string, string>, runId: string): Promise<void> {
+  try {
+    const digest = reportDigest(document);
+    const { apiKey } = keyPool.pickKey(modelId, llmKeys);
+    const verdict = await gradeReport({ text: digest, model: buildModel(modelId, llmKeys, apiKey) });
+    if (!verdict) return;
+    const { error } = await getDb()
+      .from("analysis_runs")
+      .update({ report: { ...document, verdict }, updated_at: new Date().toISOString() })
+      .eq("id", runId);
+    if (error) log.warn("harness", `background verdict failed for run ${runId}: ${error.message}`);
+  } catch (e: any) {
+    log.warn("harness", `background verdict error for run ${runId}: ${e?.message || e}`);
+  }
+}
 
 export interface HarnessRunResult {
   status: string;
@@ -116,10 +143,16 @@ export async function runHarnessSymbol(
   const { llmKeys } = await fetchUserKeys(userId);
   let modelId = requestedModel || agent.modelId || keyPool.getDefaultModel(llmKeys);
   const budget = clampBudget({ ...compiled.budget, ...budgetOverride });
+  // API wall-clock backstop: soft "write now" at ~108s, hard stop at 180s.
+  // ponytail: per-agent maxMs in the agents row when per-run tuning is asked for
+  if (!budget.maxMs) budget.maxMs = 180_000;
   // Tool sources (websearch + MCP servers) come from harness.config.json's
   // `tools` section — same file the CLI reads. MCP tools are listed fresh from
   // each server per run, so new tools appear without an API restart.
-  const { registry } = await buildToolRegistry(loadCliConfig().config.tools ?? {}, process.env);
+  // The engine switch (v1 loop / v2 plan harness) lives in the same file.
+  const cliCfg = loadCliConfig().config;
+  const { engine } = resolveRunConfig({}, process.env, cliCfg);
+  const { registry } = await buildToolRegistry(cliCfg.tools ?? {}, process.env);
 
   const runId = existingRunId ?? randomUUID();
 
@@ -186,19 +219,19 @@ export async function runHarnessSymbol(
     }
   };
 
-  // Transient provider failures (429/quota/5xx/timeout) must not kill the run.
-  // The loop sets maxRetries:0, so each attempt owns its key: rotate to a fresh
-  // key, and if the provider stays exhausted, fall back to another model.
-  // "parse" covers Groq/gpt-oss's intermittent output_parse_failed (400): a
-  // stochastic harmony tool-call glitch, not a bad request — worth another roll.
-  const RETRYABLE_MODEL_ERROR = /429|rate.?limit|too many requests|quota|overloaded|resource.?exhausted|unavailable|temporarily|5\d\d|timeout|ECONNRESET|ETIMEDOUT|aborted|output_parse_failed|could not be parsed|failed to parse|parsing failed/i;
-  let result: Awaited<ReturnType<typeof runCanvasAnalysis>> | undefined;
+  // Transient provider failures must not kill the run. The loop sets
+  // maxRetries:0, so each attempt owns its key: rotate to a fresh key, and if
+  // the provider stays exhausted, fall back to another model. The pattern is
+  // the harness-wide RETRYABLE_ERROR (resilience.ts) — one definition of
+  // "worth another attempt"; this loop's job is only the key/model rotation.
+  // One seam: same options in, same result out — the engine picks the pipeline.
+  let result: RunCanvasResult | undefined;
   let lastError: any;
   for (let attempt = 1; attempt <= 3; attempt++) {
     const provider = keyPool.modelProvider(modelId);
     const { apiKey, keyRef } = keyPool.pickKey(modelId, llmKeys);
     try {
-      result = await runCanvasAnalysis({
+      result = await runAnalysis({
         model: buildModel(modelId, llmKeys as LlmKeys, apiKey),
         soul: agent.soulPrompt,
         skills: compiled.skills,
@@ -209,6 +242,8 @@ export async function runHarnessSymbol(
         budget,
         systemPrompt,
         template,
+        // Report lands first; verdict grades in the background (gradeInBackground).
+        grade: false,
         initialWorkspace,
         onEvent: (e) => {
           const ev = e as any;
@@ -220,13 +255,13 @@ export async function runHarnessSymbol(
         onWorkspace: (snapshot) => {
           void flushWorkspace(snapshot);
         },
-      });
+      }, engine);
       keyPool.recordUsage({ provider, keyRef, modelId, requests: 1, tokensOut: result.budgetUsed.tokens });
       break;
     } catch (e: any) {
       lastError = e;
       const msg = String(e?.message || e);
-      if (attempt >= 3 || !RETRYABLE_MODEL_ERROR.test(msg)) throw e;
+      if (attempt >= 3 || !RETRYABLE_ERROR.test(msg)) throw e;
       keyPool.markFailure(provider, keyRef);
       const next = keyPool.getDefaultModel(llmKeys);
       log.warn("harness", `run ${agent.id} attempt ${attempt}/3 failed on ${modelId}: ${msg} — falling back to ${next || "same model"}`);
@@ -277,6 +312,9 @@ export async function runHarnessSymbol(
       ({ error } = await getDb().from("analysis_runs").update(rest).eq("id", existingRunId));
     }
     if (error) throw new Error(error.message);
+    // Grade only when the run carries no verdict yet (v1 passes grade:false
+    // server-side; v2 sets its score-derived verdict itself).
+    if (!result.verdict && result.status !== "failed") void gradeInBackground(result.document, modelId, llmKeys, existingRunId);
     return { status: result.status, document: result.document, errors: result.errors, verdict: result.verdict, runId: existingRunId };
   }
   let row: Record<string, any> = {
@@ -298,7 +336,88 @@ export async function runHarnessSymbol(
     }
   }
   if (error) throw new Error(error.message);
+  if (!result.verdict && result.status !== "failed") void gradeInBackground(result.document, modelId, llmKeys, runId);
   return { status: result.status, document: result.document, errors: result.errors, verdict: result.verdict, runId };
+}
+
+export interface StartAnalysisRunOpts {
+  userId: string;
+  symbol: string;
+  source: string;
+  /** Raw request agent_id; absent → the user's default agent. */
+  agentId?: string;
+  model?: string;
+  systemPrompt?: string;
+  prompt?: string;
+  skillIds?: string[];
+  budget?: { maxSteps?: number; maxTokens?: number };
+}
+
+/**
+ * Insert the placeholder row and launch the run in the background; returns the
+ * run id immediately (POST /analysis responds before the run finishes, and the
+ * schedule ticker fires the exact same path). Resolves the agent here so both
+ * callers get the seeded-default fallback for free.
+ */
+export async function startAnalysisRun(o: StartAnalysisRunOpts): Promise<string> {
+  let agent = o.agentId ? await getAgent(o.userId, o.agentId) : null;
+  if (!agent) {
+    const seeded = await listAgents(o.userId);
+    agent = seeded[0] ?? (await createAgent(o.userId, DEFAULT_HARNESS_AGENT));
+  }
+
+  const runId = randomUUID();
+  const runRow = {
+    id: runId,
+    user_id: o.userId,
+    status: "RUNNING",
+    symbol: o.symbol,
+    share_name: o.symbol,
+    agent_name: agent.name,
+    model: o.model || agent.modelId || null,
+    source: o.source,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  // Older databases may miss migration 021/022 — try with both columns, then
+  // without the newer one; the run still starts and the list just shows less.
+  const inserts = [
+    { ...runRow, skill_ids: o.skillIds ?? null, system_prompt: o.systemPrompt ?? null },
+    { ...runRow, skill_ids: o.skillIds ?? null },
+    runRow,
+  ];
+  let phErr: { message: string } | null = null;
+  for (const row of inserts) {
+    ({ error: phErr } = await getDb().from("analysis_runs").insert(row));
+    if (!phErr || !/skill_ids|system_prompt/.test(phErr.message)) break;
+  }
+  if (phErr) throw new Error(phErr.message);
+
+  runHarnessSymbol(
+    o.userId,
+    // agent.id, NOT the raw request agent_id: when the caller omits it the
+    // resolved default agent above is the one that must run — an empty id
+    // makes runHarnessSymbol return null and the row hangs RUNNING forever.
+    agent.id,
+    o.symbol,
+    o.source,
+    o.model,
+    o.systemPrompt,
+    runId,
+    o.prompt,
+    o.skillIds,
+    o.budget,
+  ).then((result) => {
+    // Belt: a null resolution (agent row vanished mid-run) must fail the row
+    // instead of leaving the UI on an eternal spinner.
+    if (!result) throw new Error("run did not start: agent not found");
+  }).catch(async (e: any) => {
+    console.error("background analysis run failed:", e);
+    await getDb().from("analysis_runs")
+      .update({ status: "ERROR", error: e?.message || "run failed", updated_at: new Date().toISOString() })
+      .eq("id", runId);
+  });
+  return runId;
 }
 
 const STALE_RUN_MS = 15 * 60 * 1000;

@@ -32,4 +32,4 @@ web:
   minIntervalMs: 750
   maxConcurrent: 3
 run:
-  saveWorkspace: false
+  saveWorkspace: true

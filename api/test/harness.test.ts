@@ -29,7 +29,7 @@ import { plotReferenceMarkdown, sectionContractMarkdown } from "../src/harness/r
 import { compileAgent } from "../src/harness/agents/compile.js";
 import { getBuiltinSkill } from "../src/harness/skills/catalog.js";
 import { AGENT_CONFIG_DEFAULT, loadAgentConfig, loadRunConfigDoc, promptDoc, promptNames } from "../src/harness/config.js";
-import { getSystemPrompt, loadSystemPrompts } from "../src/harness/index.js";
+import { getSystemPrompt, loadSystemPrompts, runAnalysis } from "../src/harness/index.js";
 import { Workspace } from "../src/harness/workspace/fs.js";
 import { readPlan, workspaceTools } from "../src/harness/workspace/tools.js";
 import { PATHS } from "../src/harness/workspace/paths.js";
@@ -868,6 +868,102 @@ describe("report_remove / canvas groups", () => {
     expect(v.invalid[0]).toContain("sourceId");
   });
 
+  it("repairs a table missing type/level/sourceId instead of rejecting the write", () => {
+    const v = validateComposed({
+      sections: [{ heading: { text: "Base" }, blocks: [{ columns: ["Year"], rows: [[2024]] }] }],
+      sources: [{ id: "s1", label: "facts", tool: "get_fundamentals", value: "2024" }],
+    });
+    expect(v.invalid).toEqual([]);
+    expect(v.sections).toHaveLength(1);
+    const b: any = v.sections[0].blocks[0];
+    expect(b.type).toBe("table"); // inferred from shape
+    expect(b.sourceId).toBe("s1"); // the call's ONE source — never invented
+    expect(v.sections[0].heading.level).toBe(2);
+  });
+
+  it("repairs a data token sitting in spec.series (moved to spec.data)", () => {
+    const v = validateComposed({
+      sections: [
+        {
+          heading: { level: 2, text: "Trade Plan" },
+          blocks: [
+            { type: "text", level: 1, text: "Claim." },
+            { type: "text", level: 2, text: "Detail." },
+            { type: "chart", sourceId: "s1", spec: { kind: "candle", series: "price, sma200" } },
+          ],
+        },
+      ],
+      sources: [{ id: "s1", label: "price", tool: "get_price_history", value: "2y" }],
+    });
+    expect(v.invalid).toEqual([]);
+    expect(v.sections).toHaveLength(1);
+    const spec: any = v.sections[0].blocks[2].spec;
+    expect(spec.data).toBe("price, sma200");
+    expect(spec.series).toBeUndefined();
+  });
+
+  it("repairs inlined raw rows ({date, close}, no label) into chart points", () => {
+    const v = validateComposed({
+      sections: [
+        {
+          heading: { level: 2, text: "RS" },
+          blocks: [
+            { type: "text", level: 1, text: "Claim." },
+            { type: "text", level: 2, text: "Detail." },
+            {
+              type: "chart",
+              sourceId: "s1",
+              spec: {
+                kind: "multiline",
+                series: [
+                  { points: [{ date: "2026-01-01", close: 10, v: 41_000_000 }, { date: "2026-01-02", close: 11, v: 39_000_000 }] },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+      sources: [{ id: "s1", label: "hist", tool: "get_price_history", value: "2y" }],
+    });
+    expect(v.invalid).toEqual([]);
+    const s: any = v.sections[0].blocks[2].spec.series[0];
+    expect(s.label).toBe("series1");
+    expect(s.points[0].t).toBe(Math.floor(Date.parse("2026-01-01") / 1000));
+    expect(s.points[0].v).toBe(10); // close beats the 41M volume
+  });
+
+  it("repairs a token list sitting in spec.series (joined into data)", () => {
+    const v = validateComposed({
+      sections: [
+        {
+          heading: { level: 2, text: "Trend" },
+          blocks: [
+            { type: "text", level: 1, text: "Claim." },
+            { type: "text", level: 2, text: "Detail." },
+            { type: "chart", sourceId: "s1", spec: { kind: "multiline", series: ["price", "sma200"] } },
+          ],
+        },
+      ],
+      sources: [{ id: "s1", label: "price", tool: "get_price_history", value: "2y" }],
+    });
+    expect(v.invalid).toEqual([]);
+    const spec: any = v.sections[0].blocks[2].spec;
+    expect(spec.data).toBe("price, sma200");
+    expect(spec.series).toBeUndefined();
+  });
+
+  it("still rejects a figure when the call carries two sources (ambiguous)", () => {
+    const v = validateComposed({
+      sections: [{ heading: { level: 2, text: "Base" }, blocks: [{ type: "table", columns: ["Y"], rows: [[1]] }] }],
+      sources: [
+        { id: "s1", label: "a", tool: "t", value: "1" },
+        { id: "s2", label: "b", tool: "t", value: "2" },
+      ],
+    });
+    expect(v.sections).toHaveLength(0);
+    expect(v.invalid[0]).toContain("sourceId");
+  });
+
   it("retracts a section-group by id or title and lists groups", async () => {
     const canvas = new ReportCanvas("TCS");
     canvas.appendSections("Momentum", [{ heading: { level: 2, text: "Momentum" }, blocks: [] } as any], []);
@@ -961,6 +1057,32 @@ describe("todo_write (the plan journal)", () => {
   });
 });
 
+describe("workspace research tools (round-trip killers)", () => {
+  const ctx = { symbol: "TCS", source: "NSE" } as any;
+
+  it("fs_grep searches a FILE path directly and explains zero matches", async () => {
+    const ws = new Workspace();
+    ws.write("/knowledge_base/sources/raw/TCS.json", '{\n "close": 519.92\n}');
+    const grep = workspaceTools(ws).find((t) => t.name === "fs_grep")!;
+    const hit: any = await grep.execute({ pattern: "519", path: "/knowledge_base/sources/raw/TCS.json" } as any, ctx);
+    expect(hit.matches).toHaveLength(1);
+    const miss: any = await grep.execute({ pattern: "999999", path: "/knowledge_base/sources/raw/TCS.json" } as any, ctx);
+    expect(miss.matches).toHaveLength(0);
+    expect(String(miss.note)).toContain("0 matches"); // never a bare [] again
+    expect(String(miss.note)).toContain("519.92"); // head sample — fix the pattern from it
+  });
+
+  it("fs_read page 1 carries a shape (keys/length); later pages don't", async () => {
+    const ws = new Workspace();
+    ws.write("/x.json", JSON.stringify({ bars: [{ date: "2026-01-01" }], meta: {} }));
+    const read = workspaceTools(ws).find((t) => t.name === "fs_read")!;
+    const first: any = await read.execute({ path: "/x.json" } as any, ctx);
+    expect(first.shape).toEqual({ json: "object", keys: ["bars", "meta"] });
+    const next: any = await read.execute({ path: "/x.json", offset: 4 } as any, ctx);
+    expect(next.shape).toBeUndefined();
+  });
+});
+
 describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
   const usage = {
     inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 },
@@ -1007,19 +1129,23 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
     });
 
     const phases: string[] = [];
-    const outcome = await runCanvasAnalysis({
-      model: model as any,
-      soul: "Be terse.",
-      skills: [],
-      prompt: "analyze TCS",
-      tools: [{ name: "get_rsi", description: "rsi", parameters: z.object({}), execute: async () => ({ rsi: 42 }) }],
-      ctx: { symbol: "TCS", source: "NSE" },
-      budget: { maxSteps: 10, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
-      template: null,
-      onEvent: (e) => {
-        if (e.type === "phase") phases.push(e.phase);
+    // through the run seam (engine.ts) — this doubles as the v1 dispatch check
+    const outcome = await runAnalysis(
+      {
+        model: model as any,
+        soul: "Be terse.",
+        skills: [],
+        prompt: "analyze TCS",
+        tools: [{ name: "get_rsi", description: "rsi", parameters: z.object({}), execute: async () => ({ rsi: 42 }) }],
+        ctx: { symbol: "TCS", source: "NSE" },
+        budget: { maxSteps: 10, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
+        template: null,
+        onEvent: (e) => {
+          if (e.type === "phase") phases.push(e.phase);
+        },
       },
-    });
+      "v1",
+    );
 
     // the write lands as-is: no assembly pass re-checks it, no revision loop
     expect(outcome.errors).toEqual([]);
@@ -1030,6 +1156,12 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
     expect(outcome.budgetUsed.toolCalls).toBe(2); // rsi, bad write
     expect(JSON.stringify(outcome.trace)).not.toContain("report_remove");
     expect(phases).toEqual(["run"]);
+    // v1 section writes join the shared canvas_block vocabulary
+    expect(outcome.trace.find((e) => e.type === "canvas_block")).toMatchObject({
+      taskTitle: "Momentum",
+      status: "done",
+      sectionCount: 1,
+    });
     expect(outcome.verdict).toBe("Good"); // structured verdict, separate call
     expect(outcome.workspace["/AGENTS.md"]).toBeTruthy(); // root instructions doc seeded
   }, 30_000);
@@ -1048,8 +1180,8 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
       budget: { maxSteps: 5, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
       template: null,
     };
-    const plainRun = await runCanvasAnalysis({ ...base });
-    expect(plainRun.workspaceFull).toBeUndefined(); // default (agent.yaml false)
+    const plainRun = await runCanvasAnalysis({ ...base, saveWorkspace: false });
+    expect(plainRun.workspaceFull).toBeUndefined(); // explicit opt-out (agent.yaml default is on)
     const fullRun = await runCanvasAnalysis({ ...base, saveWorkspace: true });
     expect(fullRun.workspaceFull?.["/AGENTS.md"]).toBeTruthy(); // full memfs incl. everything
     expect(fullRun.workspaceFull?.["/knowledge_base/sources/raw"]).toBeUndefined(); // files, not dirs
@@ -1284,6 +1416,93 @@ describe("runCanvasAnalysis — one autonomous agent (no second stage)", () => {
     expect(closed.status).toBe("completed");
     expect(closed.errors.join(" ")).not.toContain("completion gate");
   }, 30_000);
+
+  it("nags after three single-call research turns — batch them", async () => {
+    const prompts: string[] = [];
+    let n = 0;
+    const model = new MockLanguageModelV4({
+      doGenerate: async (opts: any) => {
+        prompts.push(JSON.stringify(opts.prompt));
+        n++;
+        if (n <= 3) return result([toolCall(`s${n}`, "get_rsi", {})], "tool-calls");
+        if (n === 4)
+          return result(
+            [toolCall("w1", "report_write", { title: "Done", sections: [{ heading: { level: 2, text: "Done" }, blocks: [{ type: "text", level: 2, text: "RSI 42." }] }], sources: [] })],
+            "tool-calls",
+          );
+        return result([{ type: "text", text: "done" }], "stop");
+      },
+    });
+    await runCanvasAnalysis({
+      model: model as any,
+      soul: "",
+      skills: [],
+      prompt: "analyze TCS",
+      tools: [{ name: "get_rsi", description: "rsi", parameters: z.object({}), execute: async () => ({ rsi: 42 }) }],
+      ctx: { symbol: "TCS", source: "NSE" },
+      budget: { maxSteps: 10, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
+      template: null,
+    });
+    // streak of 3 single-call turns → the nudge rides step 4's reminder, once
+    expect(prompts[3]).toContain("BATCH: 3 turns in a row");
+    expect(prompts.filter((p) => p.includes("BATCH:"))).toHaveLength(1);
+  }, 30_000);
+
+  it("hard-stops on the wall clock even when the model keeps researching", async () => {
+    let n = 0;
+    const model = new MockLanguageModelV4({
+      doGenerate: async () => {
+        n++;
+        return result([toolCall(`d${n}`, "get_rsi", {})], "tool-calls");
+      },
+    });
+    const outcome = await runCanvasAnalysis({
+      model: model as any,
+      soul: "",
+      skills: [],
+      prompt: "analyze TCS",
+      tools: [{ name: "get_rsi", description: "rsi", parameters: z.object({}), execute: async () => ({ rsi: 42 }) }],
+      ctx: { symbol: "TCS", source: "NSE" },
+      budget: { maxSteps: 50, maxTokens: 100_000, maxMs: 1, cbSessions: 3, cbSessionSteps: 8 },
+      template: null,
+    });
+    expect(outcome.errors.join(" ")).toContain("step/token budget");
+    expect(outcome.budgetUsed.steps).toBeLessThan(50); // clock stopped it, not the step budget
+  }, 30_000);
+
+  it("grade:false skips the verdict call — the API grades after persisting", async () => {
+    let gradeCalls = 0;
+    let n = 0;
+    const model = new MockLanguageModelV4({
+      doGenerate: async (opts: any) => {
+        if (isGradeCall(opts)) {
+          gradeCalls++;
+          return gradeResult();
+        }
+        n++;
+        if (n === 1)
+          return result(
+            [toolCall("g1", "report_write", { title: "Done", sections: [{ heading: { level: 2, text: "Done" }, blocks: [{ type: "text", level: 2, text: "RSI 42." }] }], sources: [] })],
+            "tool-calls",
+          );
+        return result([{ type: "text", text: "done" }], "stop");
+      },
+    });
+    const outcome = await runCanvasAnalysis({
+      model: model as any,
+      soul: "",
+      skills: [],
+      prompt: "analyze TCS",
+      tools: [],
+      ctx: { symbol: "TCS", source: "NSE" },
+      budget: { maxSteps: 5, maxTokens: 10_000, cbSessions: 3, cbSessionSteps: 8 },
+      template: null,
+      grade: false,
+    });
+    expect(gradeCalls).toBe(0);
+    expect(outcome.verdict).toBeNull();
+    expect(outcome.status).toBe("completed");
+  }, 30_000);
 });
 
 describe("output template parsing (fixture file — the live prompt doc is never searched)", () => {
@@ -1492,6 +1711,25 @@ describe("archiveResult compact view", () => {
     const out = archiveResult(ws, { tool: "mcp.reader", args: {}, result: mcp, symbol: "AAPL" }) as any;
     expect(out.path).toMatch(/^\/knowledge_base\/tool-output\//);
     expect(ws.read(out.path)).toBe(prose);
+  });
+
+  it("dated series carry minAt/maxAt — the WHEN of a high, free of the digest", async () => {
+    const { archiveResult } = await import("../src/harness/workspace/archive.js");
+    const ws = new Workspace();
+    const bars = Array.from({ length: 30 }, (_, i) => ({
+      date: `2026-01-${String(i + 1).padStart(2, "0")}`,
+      close: i === 10 ? 555.4 : 100 + i,
+      high: i === 20 ? 560 : 101 + i,
+      low: 90 + i,
+      open: 100 + i,
+      volume: 1_000_000,
+    }));
+    const view: any = archiveResult(ws, { tool: "get_price_history", args: { symbol: "X" }, result: { bars }, symbol: "X" });
+    const close = view.series.find((s: any) => s.key === "bars");
+    expect(close.minAt).toBe("2026-01-01");
+    expect(close.maxAt).toBe("2026-01-11");
+    const high = view.series.find((s: any) => s.key === "bars.h");
+    expect(high.maxAt).toBe("2026-01-21"); // intraday-high DATE, no raw paging
   });
 });
 

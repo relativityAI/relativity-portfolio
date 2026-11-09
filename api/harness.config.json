@@ -1,5 +1,6 @@
 {
-  "_help": "Harness defaults, read by BOTH the CLI and the API server. Precedence: flags > HARNESS_* env (api/.env) > this file > built-ins. `tools` declares the agent's toolbox; urls stay in env, the file holds the env var NAME (urlEnv). mcpAllow is deprecated — use tools.mcp[].allow.",
+  "_help": "Harness defaults, read by BOTH the CLI and the API server. Precedence: flags > HARNESS_* env (api/.env) > this file > built-ins. `engine`: v1 = one autonomous tool loop, v2 = plan-parallel harness (plan → parallel tool exec → parallel section drafts → code assembly; the skill's SKILL.md `tools:` list is its toolbox). `tools` declares the agent's toolbox; urls stay in env, the file holds the env var NAME (urlEnv). mcpAllow is deprecated — use tools.mcp[].allow.",
+  "engine": "v1",
   "model": "opencode/deepseek-v4.1-flash",
   "skills": ["chartist-technical-analysis"],
   "source": "SEC",

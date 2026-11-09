@@ -18,10 +18,14 @@
 import { log } from "./log.js";
 
 // Transient failures worth waiting on and retrying — model refused to produce
-// output (no text, no tool call), provider hiccups, rate limits, aborted stream.
+// output (no text, no tool call), provider hiccups, rate limits, aborted
+// stream, stochastic parse glitches (Groq output_parse_failed), timeouts.
+// The server's key-rotation loop uses this same pattern (runs.ts) — one
+// definition for "worth another attempt" across the codebase.
 // NB: Gemini reports exhausted quota as 400 RESOURCE_EXHAUSTED — matched here
 // because it IS transient (the free-tier window resets), unlike a real 400.
-export const RETRYABLE_ERROR = /NoOutputGenerated|ECONNRESET|ETIMEDOUT|aborted|429|5\d\d|overloaded|resource.?exhausted|internal error|rate.?limit|quota|exceeded|unavailable|temporarily/i;
+export const RETRYABLE_ERROR =
+  /NoOutputGenerated|ECONNRESET|ETIMEDOUT|aborted|429|too many requests|5\d\d|overloaded|resource.?exhausted|internal error|rate.?limit|quota|exceeded|unavailable|temporarily|timeout|timed out|output_parse_failed|could not be parsed|failed to parse|parsing failed/i;
 
 // Generous enough for a long structured output on a slow provider, short
 // enough that a hung stream fails and retries inside the run's own lifetime.

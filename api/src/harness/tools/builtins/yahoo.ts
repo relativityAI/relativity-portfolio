@@ -12,7 +12,8 @@ import type { ToolContext, ToolDefinition } from "../registry.js";
 
 // logErrors off: a schema mismatch still throws (guard returns {error}) — the
 // 200-line upstream dump per failure would drown the server log.
-const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"], validation: { logErrors: false }, versionCheck: false });
+// Exported: the /stocks/:symbol/overview route shares this one client.
+export const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"], validation: { logErrors: false }, versionCheck: false });
 
 const symbolParam = z.object({ symbol: z.string().min(1).nullish() });
 

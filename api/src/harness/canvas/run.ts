@@ -17,15 +17,13 @@
  * filesystem.
  */
 
-import type { LanguageModel, StepResult, ToolSet } from "ai";
-import { loadAgentConfig, promptDoc } from "../config.js";
-import { allBlocks, countCharts, sectionHeadings, type ReportDocument } from "../report/document.js";
+import { promptDoc, shouldSaveWorkspace } from "../config.js";
+import { allBlocks, countCharts, sectionHeadings } from "../report/document.js";
 import { attachChartData, renderFigures } from "../report/builder.js";
-import { applyVariables, type SystemPrompt } from "../system-prompts/catalog.js";
+import { applyVariables } from "../system-prompts/catalog.js";
 import { activateSkill, reportStructureBlock } from "../skills/activate.js";
-import type { HarnessSkill } from "../skills/loader.js";
 import type { ToolContext, ToolDefinition } from "../tools/registry.js";
-import type { Budget, TraceEvent } from "../types.js";
+import type { TraceEvent } from "../types.js";
 import { runAgentLoop } from "../loop/agent-loop.js";
 import { plotReferenceMarkdown, sectionContractMarkdown } from "../report/reference.js";
 import { ReportCanvas } from "./canvas.js";
@@ -36,80 +34,12 @@ import { PATHS } from "../workspace/paths.js";
 import { webFetchTool } from "../tools/builtins/webfetch.js";
 import { archiveResult } from "../workspace/archive.js";
 import { friendlyError } from "../errors.js";
-import { dumpMarkdown } from "../cli/dump.js";
-import { gradeReport, type Verdict } from "../report/verdict.js";
+import { gradeReport, reportDigest, type Verdict } from "../report/verdict.js";
+import type { RunCanvasOptions, RunCanvasResult, RunStats, CanvasRunStatus } from "../engine.js";
+import { TEXT_TOOLS, datedPrompt, hasSeriesTool } from "../prompts.js";
 
-// Data tools that only return text — nothing for the harness to plot.
-// ponytail: any other data tool is assumed series-capable (mcp data tools);
-// add it here if a text-only data tool ships. get_price_history stays OUT —
-// it is the series tool whose absence locks the plot reference.
-export const TEXT_TOOLS = new Set(["web_search", "search_news", "web_fetch", "get_quote", "get_fundamentals", "search_symbol", "get_insights"]);
-
-export interface RunCanvasOptions {
-  model: LanguageModel;
-  soul: string;
-  skills: HarnessSkill[];
-  prompt: string;
-  tools: ToolDefinition[];
-  allowedTools?: string[];
-  ctx: ToolContext;
-  budget: Budget;
-  /** Input-token working budget — summarize compaction trips at 90% of it. */
-  contextBudget?: number;
-  /** Cheap model for summarize compaction (clearing runs without it). */
-  summarizerModel?: LanguageModel;
-  /** Named system prompt (agent.yaml prompts.<name>); absent/unknown → the default `agents` doc. */
-  systemPrompt?: string;
-  /** The selected system prompt — its body is the report's format spec. */
-  template?: SystemPrompt | null;
-  onEvent?: (event: TraceEvent) => void;
-  /**
-   * Pure observation hook: fires after each loop step with the untouched
-   * StepResult — presentation only (the CLI footer's step/token counter).
-   * Optional; existing callers are unaffected.
-   */
-  onStepFinish?: (step: StepResult<ToolSet>) => void;
-  /** Fires after each report_write with the live canvas (caller throttles). */
-  onCanvas?: (canvas: ReportCanvas) => void;
-  /** Fires with a compacted workspace snapshot at run end (caller throttles). */
-  onWorkspace?: (snapshot: Record<string, string>) => void;
-  /** Previous run's compacted workspace — restores notes, sources, plan, and citations. */
-  initialWorkspace?: Record<string, string>;
-  /** Persist the COMPLETE filesystem (incl. raw payloads) — overrides agent.yaml run.saveWorkspace. */
-  saveWorkspace?: boolean;
-  abortSignal?: AbortSignal;
-}
-
-export type CanvasRunStatus = "completed" | "partial" | "failed";
-
-/** End-of-run counters reported to callers and the CLI. */
-export interface RunStats {
-  steps: number;
-  /** Output tokens (budget currency). */
-  tokens: number;
-  inputTokens: number;
-  /** Highest single-step input — what compaction keeps down. */
-  peakInput: number;
-  toolCalls: number;
-  kbFiles: number;
-}
-
-export interface RunCanvasResult {
-  status: CanvasRunStatus;
-  document: ReportDocument;
-  errors: string[];
-  trace: TraceEvent[];
-  budgetUsed: RunStats;
-  canvas: ReportCanvas;
-  /** Sections rejected by report_write validation (partial writes). */
-  rejectedSections: number;
-  /** Five-band quality verdict (Very Poor … Excellent); null when the call failed or the run was aborted. */
-  verdict: Verdict | null;
-  /** Compacted workspace snapshot (notes/stubs/plan/sections; raw excluded). */
-  workspace: Record<string, string>;
-  /** Full snapshot incl. raw payloads — only when agent.yaml run.saveWorkspace is on. */
-  workspaceFull?: Record<string, string>;
-}
+// Re-exported for the canvas surface (barrel + tests); owned by prompts.ts.
+export { TEXT_TOOLS };
 
 export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunCanvasResult> {
   const trace: TraceEvent[] = [];
@@ -148,7 +78,27 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
     execute: async (args: any, ctx: ToolContext) =>
       archiveResult(workspace, { tool: t.name, args, result: await t.execute(args, ctx), symbol: ctx.symbol }),
   }));
-  const tools = [...workspaceTools(workspace), ...archived, reportWriteTool(canvas, notify)];
+  // report_write joins the shared canvas_block vocabulary (same event v2
+  // drafts emit) so both engines' section writes read the same on a timeline.
+  const writeTool = reportWriteTool(canvas, notify);
+  const sectionWrite: ToolDefinition = {
+    ...writeTool,
+    execute: async (args: any, ctx: ToolContext) => {
+      const r: any = await writeTool.execute(args, ctx);
+      if (r?.added) {
+        emit({
+          type: "canvas_block",
+          taskId: String(args.title ?? "write"),
+          taskTitle: String(args.title ?? "section"),
+          status: "done",
+          sectionCount: r.added,
+          summary: r.rejected?.length ? `${r.added} sections · ${r.rejected.length} rejected` : `${r.added} sections written`,
+        });
+      }
+      return r;
+    },
+  };
+  const tools = [...workspaceTools(workspace), ...archived, sectionWrite];
   // Surface KB growth live: wrap every tool and emit when the volume changed.
   const watchKb = (t: ToolDefinition): ToolDefinition => ({
     ...t,
@@ -166,10 +116,10 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
   // Dynamic slots: config-dir prose stays hand-edited; lists that change with
   // the schema or the workspace are generated per run ({{section_contract}},
   // {{plot_reference}}, {{workspace_tree}}) so neither needs a prompt edit.
-  const hasSeriesTool = dataTools.some((t) => !TEXT_TOOLS.has(t.name));
+  const seriesOk = hasSeriesTool(dataTools);
   const slots: Record<string, string | undefined> = {
     section_contract: sectionContractMarkdown(),
-    plot_reference: plotReferenceMarkdown(hasSeriesTool),
+    plot_reference: plotReferenceMarkdown(seriesOk),
     workspace_tree: workspace.treeMarkdown(),
   };
   const fill = (text: string) => applyVariables(text, slots);
@@ -179,7 +129,7 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
     /\{\{\s*section_contract\s*\}\}/.test(agentsDoc)
       ? ""
       : `## Report sections\nreport_write accepts only these typed section blocks — any other type is rejected:\n${sectionContractMarkdown()}`,
-    /\{\{\s*plot_reference\s*\}\}/.test(agentsDoc) ? "" : `## Plots\n${plotReferenceMarkdown(hasSeriesTool)}`,
+    /\{\{\s*plot_reference\s*\}\}/.test(agentsDoc) ? "" : `## Plots\n${plotReferenceMarkdown(seriesOk)}`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -201,9 +151,7 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
   const prompt = resumed
     ? `Resuming a previous run — the workspace (notes, sources, plan) is restored. Read ${PATHS.planMd} first, then continue.\n\n${options.prompt}`
     : options.prompt;
-  // Date lives per-turn (never in the static system prompt — second-precise
-  // stamps in the prefix would bust the provider's prompt cache).
-  const datedPrompt = `Today's date: ${new Date().toISOString().slice(0, 10)}\n\n${prompt}`;
+  const userPrompt = datedPrompt(prompt);
 
   // Live todo + memory, re-read every step (the agent edits both mid-run).
   // Format gaps ride the same reminder: the checklist is executed by the
@@ -262,7 +210,7 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
     const loop = await runAgentLoop({
       model: options.model,
       system,
-      prompt: datedPrompt,
+      prompt: userPrompt,
       reminders,
       tools: watchedTools,
       ctx: options.ctx,
@@ -340,9 +288,10 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
 
   // One quality verdict on the final document — outside the loop (no steps,
   // no budget tokens), null on failure/abort, report itself untouched.
+  // API runs pass grade:false and grade in the background after persisting.
   let verdict: Verdict | null = null;
-  if (wroteAny && !options.abortSignal?.aborted) {
-    const digest = dumpMarkdown(document).replace(/<svg[\s\S]*?<\/svg>/g, "[chart]").slice(0, 14_000);
+  if (options.grade !== false && wroteAny && !options.abortSignal?.aborted) {
+    const digest = reportDigest(document);
     verdict = await gradeReport({ text: digest, model: summarizerModel, abortSignal: options.abortSignal });
     emit({ type: "log", text: verdict ? `report verdict: ${verdict}` : "report verdict unavailable" });
   }
@@ -363,7 +312,7 @@ export async function runCanvasAnalysis(options: RunCanvasOptions): Promise<RunC
 
   // Run flag (agent.yaml run.saveWorkspace, or the caller's --save-workspace):
   // hand the caller the COMPLETE filesystem (incl. raw payloads).
-  const saveFull = options.saveWorkspace ?? loadAgentConfig().run.saveWorkspace;
+  const saveFull = shouldSaveWorkspace(options.saveWorkspace);
   const workspaceFull = saveFull ? workspace.toJSON() : undefined;
 
   return {

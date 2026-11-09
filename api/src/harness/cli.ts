@@ -26,7 +26,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
-  runCanvasAnalysis,
+  runAnalysis,
   clampBudget,
   loadBuiltinSkills,
   buildToolRegistry,
@@ -77,6 +77,7 @@ async function runReal(flags: RealFlags): Promise<void> {
   }
   const cfg = resolveRunConfig(
     {
+      engine: arg("--engine"),
       model: arg("--model"),
       skills: arg("--skill") ?? arg("--skills"),
       source: arg("--source"),
@@ -156,9 +157,10 @@ async function runReal(flags: RealFlags): Promise<void> {
       maxTokens: budget.maxTokens,
       configLine: [
         `config: ${loaded.file ? CONFIG_FILENAME : "defaults"}`,
+        cfg.engine !== "v1" ? `engine: ${cfg.engine}` : null,
         `web: ${websearch}`,
         built.mcp.length ? `mcp: ${built.mcp.map((m) => m.name).join(", ")}` : null,
-        "compaction: clear + summarize",
+        cfg.engine === "v1" ? "compaction: clear + summarize" : null,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -174,13 +176,17 @@ async function runReal(flags: RealFlags): Promise<void> {
         `prompt   skill-determined (${resolvedSkills})`,
         `tools    ${registry.list().length} registered · ${allowedTools.length ? `${allowedTools.length} allowed by skills` : "all allowed"}`,
         `data     ${built.mcp.map((m) => `${m.name}(${m.toolCount})`).join(", ") || "no MCP"} + web search (${websearch})`,
-        `budget   ${budget.maxSteps} steps · ${budget.maxTokens.toLocaleString()} tokens · ${budget.cbSessions} research sessions × ${budget.cbSessionSteps} steps`,
-        `pipeline one autonomous ToolLoopAgent: research + write the report`,
-        `compact  clear past 3 tool results · summarize >90% of ${contextBudget?.toLocaleString() ?? "budget"} input tokens (${summarizerId ?? "main model"})`,
+        cfg.engine === "v1" ? `budget   ${budget.maxSteps} steps · ${budget.maxTokens.toLocaleString()} tokens · ${budget.cbSessions} research sessions × ${budget.cbSessionSteps} steps` : null,
+        cfg.engine === "v1"
+          ? `pipeline one autonomous ToolLoopAgent: research + write the report`
+          : `pipeline plan-parallel: plan → fetch → parallel section drafts`,
+        cfg.engine === "v1"
+          ? `compact  clear past 3 tool results · summarize >90% of ${contextBudget?.toLocaleString() ?? "budget"} input tokens (${summarizerId ?? "main model"})`
+          : null,
         `config   ${loaded.file ? `${CONFIG_FILENAME} loaded` : `no ${CONFIG_FILENAME} (built-ins)`} · flags > HARNESS_* env > file > built-ins`,
         `mcp      ${built.mcp.map((m) => `${m.name} ${m.url}`).join(", ") || "none"} → ${built.mcp.reduce((n, m) => n + m.toolCount, 0)} tools`,
       ];
-      for (const d of details) console.log(dimLine(d));
+      for (const d of details) if (d) console.log(dimLine(d));
     }
   } else {
     console.error(dimLine(`running ${symbol} (${source}) on ${modelId}…`));
@@ -198,7 +204,8 @@ async function runReal(flags: RealFlags): Promise<void> {
   let sawUsage = false;
   let result;
   try {
-    result = await runCanvasAnalysis({
+    // One seam: same options in, same result out — the engine picks the pipeline.
+    result = await runAnalysis({
       model,
       soul,
       skills,
@@ -226,7 +233,9 @@ async function runReal(flags: RealFlags): Promise<void> {
             }
             renderer.progress({ step: stepsSeen, outputTokens: sawUsage ? outTokens : undefined });
           },
-    });
+    },
+      cfg.engine,
+    );
   } finally {
     renderer.dispose();
   }
@@ -342,7 +351,8 @@ async function runReal(flags: RealFlags): Promise<void> {
 
 /** Run flag (agent.yaml run.saveWorkspace): the complete in-memory filesystem at runs/<id>/workspace/. */
 export function writeWorkspaceRun(runFile: string, files: Record<string, string>): void {
-  const root = `${runFile.replace(/\.json$/, "")}/workspace`;
+  // Beside the run file (runs/<id>/workspace/), not under its stem.
+  const root = join(dirname(runFile), "workspace");
   for (const [path, content] of Object.entries(files)) {
     const file = join(root, path.replace(/^\//, ""));
     mkdirSync(dirname(file), { recursive: true });
@@ -369,6 +379,7 @@ function usage(code: number): never {
     "",
     `  ${bold("real")}     full research run: model + MCP data + skills`,
     "    --real --symbol <TICKER> [options]",
+    "      --engine <v1|v2>    v1 = one tool loop, v2 = plan-parallel (default: harness.config.json)",
     "      --skill <id>        one skill for the run (default: first builtin)",
     "      --model <id>        provider/model (default: opencode/deepseek-v4.1-flash)",
     "      --source <SRC>      evidence source label (default: SEC)",

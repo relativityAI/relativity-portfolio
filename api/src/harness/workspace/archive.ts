@@ -59,24 +59,52 @@ export interface RowPreview {
 export interface DerivedFacts {
   /** Top-level scalar metrics, e.g. { rsi_14: 38.98 }. */
   scalars?: Record<string, number>;
-  /** Numeric arrays ≥ SERIES_MIN_POINTS. */
-  series?: { key: string; n: number; first: number; last: number; min: number; max: number; changePct: number }[];
+  /** Numeric arrays ≥ SERIES_MIN_POINTS. minAt/maxAt = WHEN the min/max happened
+   *  (dated point objects) — without them the model pages raw series hunting dates. */
+  series?: { key: string; n: number; first: number; last: number; min: number; max: number; changePct: number; minAt?: string | number; maxAt?: string | number }[];
 }
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function seriesStats(key: string, nums: number[]): NonNullable<DerivedFacts["series"]>[number] {
+function seriesStats(key: string, nums: number[], at?: (string | number)[]): NonNullable<DerivedFacts["series"]>[number] {
   const first = nums[0];
   const last = nums[nums.length - 1];
   let min = first;
   let max = first;
-  for (const n of nums) {
-    if (n < min) min = n;
-    if (n > max) max = n;
+  let minI = 0;
+  let maxI = 0;
+  nums.forEach((n, i) => {
+    if (n < min) {
+      min = n;
+      minI = i;
+    }
+    if (n > max) {
+      max = n;
+      maxI = i;
+    }
+  });
+  return {
+    key,
+    n: nums.length,
+    first: round2(first),
+    last: round2(last),
+    min: round2(min),
+    max: round2(max),
+    changePct: first === 0 ? 0 : round2(((last - first) / Math.abs(first)) * 100),
+    ...(at ? { minAt: at[minI], maxAt: at[maxI] } : {}),
+  };
+}
+
+/** Date-ish field on a point/bar object, when present. */
+function pickDate(o: Record<string, unknown>): string | number | null {
+  for (const k of ["date", "time", "t", "datetime", "Date", "timestamp"]) {
+    const v = o[k];
+    if (typeof v === "string" && v) return v;
+    if (typeof v === "number" && Number.isFinite(v)) return v;
   }
-  return { key, n: nums.length, first: round2(first), last: round2(last), min: round2(min), max: round2(max), changePct: first === 0 ? 0 : round2(((last - first) / Math.abs(first)) * 100) };
+  return null;
 }
 
 /** Pull derived scalars + numeric series out of a payload (generic, tool-agnostic). */
@@ -99,14 +127,31 @@ export function deriveFacts(payload: unknown): { derived: DerivedFacts; seriesKe
       }
       // array of point objects ({v|value} or OHLCV bars with close)
       if (val.length >= SERIES_MIN_POINTS && val.every((x) => x && typeof x === "object" && !Array.isArray(x))) {
+        const bars = val as Record<string, unknown>[];
+        // close BEFORE volume: candle payloads carry both (c and v) and the
+        // meaningful line is the price, not the volume.
         const pick = (o: Record<string, unknown>): number | null => {
-          for (const k of ["v", "value", "close", "Close"]) if (typeof o[k] === "number") return o[k];
+          for (const k of ["close", "Close", "c", "value", "v"]) if (typeof o[k] === "number") return o[k];
           return null;
         };
-        const nums = (val as Record<string, unknown>[]).map(pick);
+        const nums = bars.map(pick);
         if (nums.every((n): n is number => typeof n === "number")) {
+          const dates = bars.map(pickDate);
+          const at = dates.every((d): d is string | number => d != null) ? dates : undefined;
           seriesKeys.push(path);
-          series.push(seriesStats(path, nums));
+          series.push(seriesStats(path, nums, at));
+          // OHLCV bars: the 52-week high often lives on the high field (h or
+          // high), not close — ship high/low lines with their dates too.
+          for (const [short, long] of [
+            ["h", "high"],
+            ["l", "low"],
+          ] as const) {
+            const hn = bars.map((o) => {
+              for (const k of [short, long]) if (typeof o[k] === "number") return o[k] as number;
+              return null;
+            });
+            if (hn.every((n): n is number => typeof n === "number")) series.push(seriesStats(`${path}.${short}`, hn, at));
+          }
         }
       }
       return;
@@ -344,7 +389,7 @@ export function archiveResult(ws: Workspace, input: ArchiveInput): unknown {
     tool: input.tool,
     args: input.args,
     scalars: derived.scalars ?? {},
-    series: (derived.series ?? []).map((s) => ({ key: s.key, n: s.n, first: s.first, last: s.last, min: s.min, max: s.max, changePct: s.changePct })),
+    series: (derived.series ?? []).map((s) => ({ key: s.key, n: s.n, first: s.first, last: s.last, min: s.min, max: s.max, changePct: s.changePct, minAt: s.minAt, maxAt: s.maxAt })),
     seriesKeys,
     rows: rows.length ? rows : undefined,
     snippet: raw.slice(0, SNIPPET_CAP),

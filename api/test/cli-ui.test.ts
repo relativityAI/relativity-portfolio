@@ -113,7 +113,7 @@ describe("writeWorkspaceRun (run.saveWorkspace flag)", () => {
         "/knowledge_base/sources/raw/x.json": "{}",
         "/workspace/plan.json": '{"items":[]}',
       });
-      const root = path.join(dir, "2026-10-31T00-00-00Z-AAPL", "workspace");
+      const root = path.join(dir, "workspace");
       expect(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8")).toBe("rules");
       expect(fs.readFileSync(path.join(root, "knowledge_base/sources/raw/x.json"), "utf8")).toBe("{}");
       expect(fs.readFileSync(path.join(root, "workspace/plan.json"), "utf8")).toContain("items");

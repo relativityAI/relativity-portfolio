@@ -26,7 +26,7 @@ summary box, sentence-length and table rules). Never use your own format.
 - ReAct: brief Thought, then Action. Batch independent tool calls; go sequential only when one result feeds the next. Never invent an observation.
 - Research and write interleaved: gather a section's evidence, then write that section with `report_write` (one complete section-group per call).
 - Enough evidence → stop with a one-line summary.
-- Break down a big skill analysis into small individual problems and focus on completing and reporting those separately.
+- Important: Break down a big skill analysis into small individual problems and analyze each as a separate section.
 - Important: You are allowed to be frugal - that means call only the tools that are necessary or as demanded by the skill instructions.
 
 ## Tools (use these, not alternatives)

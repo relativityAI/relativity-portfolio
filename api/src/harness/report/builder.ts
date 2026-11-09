@@ -4,21 +4,17 @@
  *
  * The canvas pipeline owns document construction; this module supplies the
  * assembly-time helpers: expanding chart `data` tokens into real series from
- * this run's archived payloads (or trace fallback), and injecting resolved
- * charts when a system prompt's `min_charts` rule demands them. extractJson
- * (fence-aware, jsonrepair) is shared with the structured JSON calls.
+ * this run's archived payloads (or trace fallback). extractJson (fence-aware,
+ * jsonrepair) is shared with the structured JSON calls.
  */
 
 import {
   allBlocks,
-  countCharts,
-  type Block,
   type ChartSpec,
   type ReportDocument,
   type Series,
 } from "./document.js";
 import type { TraceEvent } from "../types.js";
-import { type SystemPrompt } from "../system-prompts/catalog.js";
 import { renderFigure } from "./figure-kit.js";
 import { jsonrepair } from "jsonrepair";
 
@@ -50,7 +46,7 @@ const num = (x: unknown): number | null => (typeof x === "number" && Number.isFi
 const isNums = (a: unknown): a is number[] => Array.isArray(a) && a.length > 0 && typeof a[0] === "number";
 
 /** epoch seconds from a `date` (YYYY-MM-DD), a `t`, or a `time` field. */
-function barTime(b: Bar): number | null {
+export function barTime(b: Bar): number | null {
   if (typeof b.t === "number") return b.t;
   const raw = b.date ?? b.time;
   if (typeof raw === "number") return raw;
@@ -202,11 +198,14 @@ function tokenSeries(token: string, o: any): Series[] | null {
           : (o?.indicators?.[`sma_${t.slice(3)}`] ?? o?.[`sma_${t.slice(3)}`] ?? o?.[t]);
   if (dates && isNums(arr)) candidates.push(zipDates(dates, arr));
 
-  // Object-form named series ({date, v} lists).
+  // Object-form named series: bar-shaped rows ({date, close, o/h/l}) become
+  // real OHLCV points; {date, v} lists keep the scalar pick. (Yahoo bars use
+  // v for VOLUME — picking v off a bar would chart volume as price.)
   if (t !== "price" && t !== "volume") {
     const named = o?.[t] ?? o?.[t.replace(/^sma/, "sma_")];
     if (Array.isArray(named) && named.length && typeof named[0] !== "number") {
-      candidates.push(objPts(named, (p) => p?.v ?? p?.value));
+      const barPts = named[0] && typeof named[0] === "object" ? ptsFromBars(named) : [];
+      candidates.push(barPts.length ? barPts : objPts(named, (p) => p?.v ?? p?.value));
     }
   }
 
@@ -267,52 +266,20 @@ export function attachChartData(
 }
 
 /** Real-data tokens for injected charts, in usefulness order. */
-const INJECT_TOKENS = ["price", "volume", "price, sma200"];
-
-/**
- * System-prompt enforcement that needs this run's data: when a prompt demands
- * `min_charts` and the document falls short, inject a resolved price/volume
- * chart built from real tool results — never a placeholder.
- */
-export function enforceSystemPrompt(
-  doc: ReportDocument,
-  tpl: SystemPrompt | null | undefined,
-  trace: TraceEvent[],
-  payloads?: { callId: string; payload: unknown }[],
-): ReportDocument {
-  if (!tpl?.min_charts) return doc;
-  const missing = tpl.min_charts - countCharts(doc);
-  if (missing <= 0) return doc;
-  const archived = (payloads ?? [])
-    .map((p) => p.payload)
-    .filter((r): r is any => r != null && typeof r === "object")
-    .reverse();
-  const results = archived.length ? archived : dataResults(trace);
-  const injected: Block[] = [];
-  for (let i = 0; i < missing; i++) {
-    const spec = resolveSpec({ kind: "line", data: INJECT_TOKENS[Math.min(i, INJECT_TOKENS.length - 1)] }, results);
-    if (!spec.series?.length) break;
-    injected.push({ type: "chart", title: i === 0 ? "Price" : `Supporting chart ${i}`, spec, sourceId: "s1" });
-  }
-  if (!injected.length) return doc;
-  // Land the charts in their own trailing section (citations ride the tail
-  // as a block inside the last section — append before nothing; it's fine).
-  doc.sections.push({ heading: { level: 2, text: "Price action" }, blocks: injected });
-  return doc;
-}
-
 /**
  * Deterministic figure rendering: every chart block gains `svgs`
  * (self-contained, theme-var'd — see figure-kit). Runs at assembly after
- * attachChartData/enforceSystemPrompt so tokens are already resolved. Atomic
- * per block: all-or-nothing keeps svgs index-aligned with [spec, ...panels],
- * and a candle among them hands the whole block to the client path
- * (live MarketChart).
+ * attachChartData so tokens are already resolved. Atomic
+ * per block: all-or-nothing keeps svgs index-aligned with [spec, ...panels].
+ * Candles are skipped — the UI keeps its live MarketChart (hover readout);
+ * dumpMarkdown renders them statically for the .md artifact.
  */
 export function renderFigures(doc: ReportDocument): void {
   for (const block of allBlocks(doc)) {
     if (block.type !== "chart") continue;
-    const svgs = [block.spec, ...(block.panels ?? [])].map((sp) => renderFigure(sp, { label: block.title, unit: block.measure, ink: block.color }));
+    const specs = [block.spec, ...(block.panels ?? [])];
+    if (specs.some((sp) => sp.kind === "candle")) continue;
+    const svgs = specs.map((sp) => renderFigure(sp, { label: block.title, unit: block.measure, ink: block.color }));
     if (svgs.length && svgs.every((x): x is string => x != null)) block.svgs = svgs;
   }
 }

@@ -8,6 +8,7 @@ export type TraceEventType =
   | "step"
   | "log"
   | "phase"
+  | "kb"
   | "canvas_block";
 
 export interface TraceEvent {
@@ -31,7 +32,7 @@ export interface TraceEvent {
   summary?: string;
   /** Friendly error sentence for a failed step (timeline display). */
   error?: string;
-  /** Pipeline phase for grouping (plan | research | compose | assemble). */
+  /** Phase label for grouping (Agent | Plan | Execute | Draft | Assemble). */
   phase?: string;
 }
 

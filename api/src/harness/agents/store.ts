@@ -28,7 +28,7 @@ export interface AgentDefinition {
   allowedTools: string[];
   modelId: string | null;
   budget: Budget;
-  /** The agent's default system prompt (agent.yaml prompts.* name); null = default prompt. */
+  /** Output template (format) applied as the last step; null = contract only. */
   systemPrompt: string | null;
   createdAt: string | null;
 }

@@ -6,23 +6,24 @@
  * Callers own the model, tools, and persistence adapters, so the same path
  * serves the API, the CLI, and tests:
  *
- *   - runCanvasAnalysis  ONE autonomous agent loop → typed ReportDocument
- *                        (the agent writes sections onto the canvas via
- *                        report_write; assembly is deterministic)
+ *   - runAnalysis     the one run seam (engine.ts): dispatches the chosen
+ *                        engine — v1 one autonomous tool loop, v2 plan-
+ *                        parallel — and owns the shared run options/result
  *   - repositories    agent/skill persistence behind ports (see agents/store,
  *                     skills/catalog); the API installs Supabase adapters
  *   - tools           ToolRegistry, web search, MCP, workspace fs tools
- *   - report          the relativity/report.v1 contract and its assembly
+ *   - report          the relativity report contract and its assembly
  *
  * Tests that exercise internals may still import subpaths directly; this
  * barrel is the contract everything else codes against.
  */
 
 // ── Run entry points ────────────────────────────────────────────────────────
+export { runAnalysis } from "./engine.js";
+export type { Engine, RunStats, RunCanvasOptions, RunCanvasResult, CanvasRunStatus } from "./engine.js";
 export {
   runAgentLoop,
   createLoopAgent,
-  serveAgentUIStream,
   overBudget,
   clearOldToolResults,
   summarizeOlderMessages,
@@ -32,19 +33,13 @@ export {
   DEFAULT_CONTEXT_BUDGET,
 } from "./loop/agent-loop.js";
 export type { LoopResult, LoopConfig, LoopAgentConfig, LoopRunHooks } from "./loop/agent-loop.js";
-export { runCanvasAnalysis, ReportCanvas, reportWriteTool, reportRemoveTool, validateComposed } from "./canvas/index.js";
-export type {
-  RunStats,
-  RunCanvasOptions,
-  RunCanvasResult,
-  CanvasRunStatus,
-  CanvasEntry,
-} from "./canvas/index.js";
+export { runCanvasAnalysis, ReportCanvas, reportWriteTool, validateComposed, TEXT_TOOLS } from "./canvas/index.js";
+export type { CanvasEntry } from "./canvas/index.js";
 
 // ── Budgets, trace, errors, resilience ─────────────────────────────────────
 export { DEFAULT_BUDGET, clampBudget } from "./types.js";
 export type { Budget, TraceEvent, RunPhase } from "./types.js";
-export { friendlyError, isRateLimitError, providerWaitMs } from "./errors.js";
+export { friendlyError, providerWaitMs } from "./errors.js";
 export { RETRYABLE_ERROR, retryLlmCall, repairNullToolArgs } from "./resilience.js";
 export { log } from "./log.js";
 export { openCodeBaseURL, openCodeHeaders } from "./opencode.js";
@@ -83,11 +78,10 @@ export {
 export type { SkillRepository, CustomSkillRecord } from "./skills/catalog.js";
 export { parseSkillMarkdown, SPEC_NAME_RE } from "./skills/loader.js";
 export type { HarnessSkill, SkillIssue, SkillParseResult, SkillSource } from "./skills/loader.js";
-export { compileSkillCatalog, activateSkill, skillMetadata, reportStructureOf, reportStructureBlock } from "./skills/activate.js";
-export type { SkillMetadata } from "./skills/activate.js";
+export { activateSkill, reportStructureBlock } from "./skills/activate.js";
 
 // ── System prompts (selectable presentation format, resolved from disk) ────
-export { loadSystemPrompts, getSystemPrompt, applyVariables, validateAgainstSystemPrompt } from "./system-prompts/catalog.js";
+export { loadSystemPrompts, getSystemPrompt, applyVariables } from "./system-prompts/catalog.js";
 export type { SystemPrompt } from "./system-prompts/catalog.js";
 
 // ── Tools ──────────────────────────────────────────────────────────────────
@@ -110,12 +104,10 @@ export { describeToolCall, kbTaskFromPath } from "./tools/describe.js";
 export { Workspace } from "./workspace/fs.js";
 export { workspaceTools } from "./workspace/tools.js";
 export { archiveResult } from "./workspace/archive.js";
-export { verifyDocumentNumbers, allowedNumbers } from "./workspace/verify.js";
 
 // ── Report contract (relativity/report.v1) ─────────────────────────────────
-export { ReportDocumentSchema, validateReportDocument, countCharts, sectionHeadings, SCHEMA_VERSION } from "./report/document.js";
+export { ReportDocumentSchema, countCharts, sectionHeadings, SCHEMA_VERSION } from "./report/document.js";
 export type { ReportDocument, Section, Source, ChartSpec, Highlight, DiagramSpec, Series, SeriesPoint, ArtifactRef } from "./report/document.js";
-export { attachChartData, enforceSystemPrompt, extractJson } from "./report/builder.js";
-export { VERDICTS, gradeReport } from "./report/verdict.js";
+export { attachChartData, extractJson } from "./report/builder.js";
+export { VERDICTS, gradeReport, reportDigest } from "./report/verdict.js";
 export type { Verdict } from "./report/verdict.js";
-export { BLOCKS, SECTION_SHAPE } from "./report/catalog.js";

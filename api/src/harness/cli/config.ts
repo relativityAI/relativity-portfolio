@@ -14,8 +14,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_BUDGET, type Budget } from "../types.js";
 import { ToolSourcesSchema, type ToolSourcesConfig } from "../tools/sources.js";
+import type { Engine } from "../engine.js";
 
 export const CONFIG_FILENAME = "harness.config.json";
+
+/** Default engine when no flag, env, or config file says otherwise. */
+export const DEFAULT_ENGINE: Engine = "v1";
 
 // No config-file soul default: identity lives in config/prompts/AGENTS.md,
 // injected by runCanvasAnalysis. --soul / harness.config.json soul still
@@ -27,6 +31,8 @@ export const DEFAULT_MODEL = "opencode/deepseek-v4.1-flash";
 /** The file's shape. `_help` is a comment field (ignored by resolution). */
 export interface HarnessCliConfig {
   _help?: string;
+  /** Which harness runs: "v1" = the tool loop, "v2" = the plan-parallel harness. */
+  engine?: Engine;
   model?: string;
   skills?: string[];
   source?: string;
@@ -108,6 +114,7 @@ function candidates(cwd: string): string[] {
 
 /** Flag values as parsed by the CLI (undefined = not passed). */
 export interface CliFlags {
+  engine?: string;
   model?: string;
   skills?: string;
   source?: string;
@@ -118,6 +125,7 @@ export interface CliFlags {
 }
 
 export interface ResolvedRunConfig {
+  engine: Engine;
   model: string;
   skills: string[];
   source: string;
@@ -138,7 +146,12 @@ export function resolveRunConfig(flags: CliFlags, env: NodeJS.ProcessEnv, file: 
   };
   const skillsRaw = firstValue(flags.skills, env.HARNESS_SKILLS, file.skills?.join(","));
   const mcpAllowRaw = firstValue(flags.mcpAllow, file.mcpAllow?.join(","));
+  const engineRaw = firstValue(flags.engine, env.HARNESS_ENGINE, file.engine, DEFAULT_ENGINE)!;
+  if (engineRaw !== "v1" && engineRaw !== "v2") {
+    throw new Error(`engine must be "v1" or "v2" (got "${engineRaw}")`);
+  }
   return {
+    engine: engineRaw,
     model: firstValue(flags.model, env.HARNESS_MODEL, file.model, DEFAULT_MODEL)!,
     // One skill per run — a comma list keeps only its first entry.
     skills: (skillsRaw ?? DEFAULT_SKILLS.join(",")).split(",").map((s) => s.trim()).filter(Boolean).slice(0, 1),

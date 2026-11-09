@@ -9,6 +9,8 @@ export interface Budget {
   maxSteps: number;
   /** Max output tokens across the run. */
   maxTokens: number;
+  /** Wall-clock cap in ms; absent/0 = off. Soft "write now" at 60%, hard stop between steps. */
+  maxMs?: number;
   /** FS-workspace Context Builder: research sessions per run. */
   cbSessions: number;
   /** FS-workspace Context Builder: max loop steps per session. */
@@ -33,6 +35,7 @@ export function clampBudget(partial: Partial<Budget> | undefined): Budget {
   return {
     maxSteps: clampNum(b.maxSteps, DEFAULT_BUDGET.maxSteps, 1, 200),
     maxTokens: clampNum(b.maxTokens, DEFAULT_BUDGET.maxTokens, 1_000, 2_000_000),
+    ...(b.maxMs && b.maxMs > 0 ? { maxMs: b.maxMs } : {}),
     cbSessions: clampNum(b.cbSessions, DEFAULT_BUDGET.cbSessions, 1, 10),
     cbSessionSteps: clampNum(b.cbSessionSteps, DEFAULT_BUDGET.cbSessionSteps, 1, 20),
   };

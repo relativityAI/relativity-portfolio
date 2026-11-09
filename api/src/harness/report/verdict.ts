@@ -13,7 +13,14 @@ import { generateText, type LanguageModel } from "ai";
 import { z } from "zod";
 import { retryLlmCall } from "../resilience.js";
 import { log } from "../log.js";
+import { dumpMarkdown } from "../cli/dump.js";
 import { extractJson } from "./builder.js";
+import type { ReportDocument } from "./document.js";
+
+/** Grading input: the report as markdown, SVGs collapsed, capped at 14k. */
+export function reportDigest(document: ReportDocument): string {
+  return dumpMarkdown(document).replace(/<svg[\s\S]*?<\/svg>/g, "[chart]").slice(0, 14_000);
+}
 
 export const VERDICTS = ["Very Poor", "Poor", "Fair", "Good", "Excellent"] as const;
 export type Verdict = (typeof VERDICTS)[number];

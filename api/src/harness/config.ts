@@ -104,6 +104,11 @@ export function promptNames(dir?: string): string[] {
   return Object.keys(loadAgentConfig(dir).prompts).filter((name) => name !== "compaction");
 }
 
+/** Whether the COMPLETE filesystem gets persisted — a run flag overrides agent.yaml. */
+export function shouldSaveWorkspace(override?: boolean): boolean {
+  return override ?? loadAgentConfig().run.saveWorkspace;
+}
+
 /** A prompt doc by role: comment-stripped, frontmatter-stripped, 200-line cap. */
 export function promptDoc(role: keyof AgentConfig["prompts"], dir?: string): string {
   const path = promptDocPath(role, dir);

@@ -173,8 +173,13 @@ export class Workspace {
     } catch {
       return [];
     }
+    // A file path is a search target, not a dir to walk — readdirSync on a
+    // file throws and used to yield a silent empty result (the model then
+    // paged the raw JSON by hand). read() is null on dirs, non-null on files.
+    const p = this.normalize(path);
+    const files = p && this.read(p) != null ? [p] : this.listFiles(p ?? "/", 300);
     const out: { path: string; line: number; text: string }[] = [];
-    for (const file of this.listFiles(this.normalize(path) ?? "/", 300)) {
+    for (const file of files) {
       const text = this.read(file);
       if (text == null) continue;
       text.split("\n").forEach((line, i) => {

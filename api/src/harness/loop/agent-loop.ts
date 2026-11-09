@@ -374,6 +374,20 @@ export function createLoopAgent(
   const reserve = Math.max(2, Math.ceil(config.budget.maxSteps * 0.25));
   let deadlineNudged = false;
 
+  // Wall clock: soft "write now" at 60% of maxMs, hard stop via stopWhen
+  // (checked BETWEEN steps — an in-flight report write is never killed).
+  const startedAt = Date.now();
+  const maxMs = config.budget.maxMs && config.budget.maxMs > 0 ? config.budget.maxMs : 0;
+  let timeNudged = false;
+
+  // Batch discipline: a streak of single-call research turns gets one nudge.
+  let singleStreak = 0;
+  let batchNudges = 0;
+
+  // Per-step wall timing — the only way to see where a run's seconds go.
+  const runStartedAt = Date.now();
+  let lastStepAt = 0;
+
   // Compaction threshold: 90% of the input-token working budget.
   const contextBudget = Math.max(
     4_000,
@@ -395,8 +409,24 @@ export function createLoopAgent(
     repairToolCall: async (opts: any) => repairNullToolArgs(opts.toolCall),
     // Arrays stop on the first match: step budget, output-token budget,
     // then the caller's own stop condition (plan saved, sections written…).
-    stopWhen: [stepCountIs(config.budget.maxSteps), overBudget(config.budget.maxTokens), ...(config.stopAfter ? [config.stopAfter] : [])],
+    stopWhen: [
+      stepCountIs(config.budget.maxSteps),
+      overBudget(config.budget.maxTokens),
+      ...(maxMs ? [overDeadline(maxMs, startedAt)] : []),
+      ...(config.stopAfter ? [config.stopAfter] : []),
+    ],
     prepareStep: async ({ stepNumber, messages, steps }) => {
+      // Step timing: the gap since the previous prepareStep IS the previous
+      // step's wall time (model + tools).
+      const now = Date.now();
+      if (lastStepAt) {
+        emit({
+          type: "log",
+          text: `step ${stepNumber - 1}: ${((now - lastStepAt) / 1000).toFixed(1)}s · in ${(steps.at(-1)?.usage?.inputTokens ?? 0).toLocaleString()} tok · elapsed ${((now - runStartedAt) / 1000).toFixed(0)}s`,
+        });
+      }
+      lastStepAt = now;
+
       // Reminders from last step come off first (fresh state replaces stale).
       let compacted = stripReminders(messages);
 
@@ -452,6 +482,24 @@ export function createLoopAgent(
           );
         }
       }
+      if (maxMs && !timeNudged && Date.now() - startedAt > maxMs * 0.6) {
+        timeNudged = true;
+        const left = Math.max(1, Math.round((maxMs - (Date.now() - startedAt)) / 1000));
+        parts.push(
+          `TIME: about ${left}s left before the hard stop — stop gathering and assemble your output NOW from the evidence already in hand (${config.deadlineTool ?? "your final deliverable"}), real findings only.`,
+        );
+      }
+      // BATCH: single-call research streak (deadlineTool excluded — section
+      // writes are meant to be one call each).
+      const lastCalls = steps.at(-1)?.toolCalls ?? [];
+      const researching = lastCalls.length === 1 && lastCalls[0]?.toolName !== config.deadlineTool;
+      singleStreak = researching ? singleStreak + 1 : 0;
+      if (singleStreak >= 3 && batchNudges < 2) {
+        batchNudges++;
+        parts.push(
+          `BATCH: ${singleStreak} turns in a row with exactly ONE tool call — issue independent reads/greps/searches together in a single turn (several tool calls per response).`,
+        );
+      }
       if (!parts.length) return { messages: compacted };
       return { messages: [...compacted, { role: "user" as const, content: `<reminder>\n${parts.join("\n\n")}\n</reminder>` }] };
     },
@@ -468,6 +516,11 @@ export function overBudget(maxTokens: number): StopCondition<ToolSet> {
   return ({ steps }) => steps.reduce((n, s) => n + (s.usage?.outputTokens ?? 0), 0) > maxTokens;
 }
 
+/** Wall-clock stop — checked between steps, so an in-flight write finishes. */
+export function overDeadline(maxMs: number, startedAt: number): StopCondition<ToolSet> {
+  return () => Date.now() - startedAt > maxMs;
+}
+
 export async function runAgentLoop(config: LoopConfig): Promise<LoopResult> {
   const trace: TraceEvent[] = [];
   const emit = (e: TraceEvent) => {
@@ -475,6 +528,7 @@ export async function runAgentLoop(config: LoopConfig): Promise<LoopResult> {
     config.onEvent?.(e);
   };
 
+  const t0 = Date.now();
   let steps = 0;
   let tokens = 0;
   let inputTokens = 0;
@@ -503,8 +557,14 @@ export async function runAgentLoop(config: LoopConfig): Promise<LoopResult> {
 
   const finishReason = result.finishReason ?? "other";
   const text = result.text ?? "";
+  const wallMs = Date.now() - t0;
+  emit({ type: "log", text: `wall: ${(wallMs / 1000).toFixed(1)}s · ${steps} steps` });
+  const clockOut = !!config.budget.maxMs && config.budget.maxMs > 0 && wallMs > config.budget.maxMs;
   const exhausted =
-    steps >= config.budget.maxSteps || tokens >= config.budget.maxTokens || finishReason === "length";
+    steps >= config.budget.maxSteps ||
+    tokens >= config.budget.maxTokens ||
+    finishReason === "length" ||
+    clockOut;
   const status: LoopResult["status"] =
     finishReason === "stop" && !exhausted ? "completed" : exhausted ? "budget_exhausted" : "failed";
 
