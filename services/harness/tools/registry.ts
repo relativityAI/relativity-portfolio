@@ -15,7 +15,9 @@ export interface ToolContext {
   tavilyKey?: string;
 }
 
-export interface ToolDefinition<S extends z.ZodTypeAny = z.ZodTypeAny> {
+// ponytail: default S = ZodType<any> so bare ToolDefinition[] keeps zod3's `any` args
+// (zod4's z.infer<ZodTypeAny> is `unknown`, which breaks every destructured handler).
+export interface ToolDefinition<S extends z.ZodTypeAny = z.ZodType<any>> {
   name: string;
   description: string;
   parameters: S;

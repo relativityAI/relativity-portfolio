@@ -19,7 +19,7 @@ const PlanTaskSchema = z.object({
   name: z.string().min(1),
   description: z.string().default(""),
   tool: z.string().min(1),
-  input: z.record(z.unknown()).default({}),
+  input: z.record(z.string(), z.unknown()).default({}),
   dependsOn: z.array(z.string()).default([]),
   status: z.enum(["pending", "in_progress", "completed", "failed"]).default("pending"),
   outputRef: z.string().nullable().default(null),
@@ -36,7 +36,7 @@ export const PlanSchema = z.object({
   // ponytail: 16-task cap bounds worst-case cost (≤16 drafts) — raise it if
   // reports outgrow it.
   tasks: z.array(PlanTaskSchema).min(1).max(16),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type Plan = z.infer<typeof PlanSchema>;

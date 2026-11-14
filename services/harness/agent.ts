@@ -218,7 +218,7 @@ export const ReportBlockSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("heading"), level: z.union([z.literal(2), z.literal(3)]), text: z.string() }),
   z.object({ type: z.literal("paragraph"), text: z.string(), citedKeys: z.array(z.string()).optional() }),
   z.object({ type: z.literal("table"), title: z.string().optional(), columns: z.array(z.string()), rows: z.array(z.array(z.union([z.string(), z.number()]))), sourceKeys: z.array(z.string()) }),
-  z.object({ type: z.literal("chart"), chartType: z.enum(["bar", "line", "radar", "area", "scatter", "pie", "candlestick"]), title: z.string().optional(), data: z.array(z.record(z.union([z.string(), z.number()]))), sourceKeys: z.array(z.string()) }),
+  z.object({ type: z.literal("chart"), chartType: z.enum(["bar", "line", "radar", "area", "scatter", "pie", "candlestick"]), title: z.string().optional(), data: z.array(z.record(z.string(), z.union([z.string(), z.number()]))), sourceKeys: z.array(z.string()) }),
   z.object({ type: z.literal("callout"), tone: z.enum(["positive", "caution", "negative", "neutral"]), text: z.string() }),
   z.object({ type: z.literal("quote"), text: z.string(), attribution: z.string().optional() }),
 ]);
