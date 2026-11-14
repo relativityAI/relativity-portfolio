@@ -4,6 +4,6 @@ services:
     # a second service instead of updating the current one.
     name: relativity-portfolio
     rootDir: ./
-    buildCommand: cd ui && npm ci && npm run build
-    staticPublishPath: ./ui/dist
+    buildCommand: cd client && npm ci && npm run build
+    staticPublishPath: ./client/dist
     spa: true

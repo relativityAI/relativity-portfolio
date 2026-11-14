@@ -1,26 +1,29 @@
 services:
-  ui:
-    container_name: relativity-ui
+  client:
+    container_name: relativity-client
     build:
-      context: ./ui
+      context: ./client
       dockerfile: Dockerfile
     ports:
-      - "5173:5173"
-    env_file: ./ui/.env
-    environment:
-      VITE_RELATIVITY_API: http://localhost:8080
+      - "5173:80"
+    depends_on:
+      - services
 
-  api:
-    container_name: relativity-api
+  services:
+    container_name: relativity-services
     build:
-      context: ./api
+      context: ./services
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
-    env_file: ./api/.env
+    env_file: ./services/.env
     environment:
       PORT: 8080
       SEARXNG_URL: http://searxng:8080
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/relativity
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   searxng:
     image: docker.io/searxng/searxng:latest
@@ -28,4 +31,24 @@ services:
     ports:
       - "8888:8080"
     volumes:
-      - ./api/searxng/settings.yml:/etc/searxng/settings.yml
+      - ./services/searxng/settings.yml:/etc/searxng/settings.yml
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: relativity-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: relativity
+    ports:
+      - "5432:5432"
+    volumes:
+      - relativity-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d relativity"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  relativity-pgdata:

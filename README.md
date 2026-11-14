@@ -14,12 +14,12 @@
   <p>
     AI powered stock market research.
     <br />
-    <a href="https://github.com/relativityAI/relativity-portfolio"><strong>Explore the repo »</strong></a>
+    <a href="https://github.com/relativityAI/relativity-markets"><strong>Explore the repo »</strong></a>
     <br />
     <br />
-    <a href="https://github.com/relativityAI/relativity-portfolio/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
+    <a href="https://github.com/relativityAI/relativity-markets/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
     &middot;
-    <a href="https://github.com/relativityAI/relativity-portfolio/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
+    <a href="https://github.com/relativityAI/relativity-markets/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
   </p>
 </div>
 
@@ -80,10 +80,10 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ### Example run
 
-Run the harness CLI directly (from `api/`, with `npm run searxng` up and an `OPENCODE_API_KEY` set):
+Run the harness CLI directly (from `services/`, with `npm run searxng` up and an `OPENCODE_API_KEY` set):
 
 ```bash
-npx tsx src/harness/cli.ts --real --symbol AAPL --model opencode/deepseek-v4.1-flash --max-steps 20 --max-tokens 30000 --skill chartist-technical-analysis --save-workspace
+npx tsx harness/cli.ts --real --symbol AAPL --model opencode/deepseek-v4.1-flash --max-steps 20 --max-tokens 30000 --skill chartist-technical-analysis --save-workspace
 ```
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -104,7 +104,7 @@ Coming soon.
 - [ ] Public skill library sharing
 - [ ] Portfolio tracking
 
-See the [open issues](https://github.com/relativityAI/relativity-portfolio/issues) for a full list of proposed features (and known issues).
+See the [open issues](https://github.com/relativityAI/relativity-markets/issues) for a full list of proposed features (and known issues).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -125,8 +125,8 @@ Don't forget to give the project a star! Thanks again!
 
 ### Top contributors:
 
-<a href="https://github.com/relativityAI/relativity-portfolio/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=relativityAI/relativity-portfolio" alt="contrib.rocks image" />
+<a href="https://github.com/relativityAI/relativity-markets/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=relativityAI/relativity-markets" alt="contrib.rocks image" />
 </a>
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -145,7 +145,7 @@ Distributed under the UNLICENSED license. All rights reserved.
 
 Relativity AI - [@relativityAI](https://github.com/relativityAI)
 
-Project Link: [https://github.com/relativityAI/relativity-portfolio](https://github.com/relativityAI/relativity-portfolio)
+Project Link: [https://github.com/relativityAI/relativity-markets](https://github.com/relativityAI/relativity-markets)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -162,16 +162,16 @@ Project Link: [https://github.com/relativityAI/relativity-portfolio](https://git
 
 
 <!-- MARKDOWN LINKS & IMAGES -->
-[contributors-shield]: https://img.shields.io/github/contributors/relativityAI/relativity-portfolio.svg?style=for-the-badge
-[contributors-url]: https://github.com/relativityAI/relativity-portfolio/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/relativityAI/relativity-portfolio.svg?style=for-the-badge
-[forks-url]: https://github.com/relativityAI/relativity-portfolio/network/members
-[stars-shield]: https://img.shields.io/github/stars/relativityAI/relativity-portfolio.svg?style=for-the-badge
-[stars-url]: https://github.com/relativityAI/relativity-portfolio/stargazers
-[issues-shield]: https://img.shields.io/github/issues/relativityAI/relativity-portfolio.svg?style=for-the-badge
-[issues-url]: https://github.com/relativityAI/relativity-portfolio/issues
+[contributors-shield]: https://img.shields.io/github/contributors/relativityAI/relativity-markets.svg?style=for-the-badge
+[contributors-url]: https://github.com/relativityAI/relativity-markets/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/relativityAI/relativity-markets.svg?style=for-the-badge
+[forks-url]: https://github.com/relativityAI/relativity-markets/network/members
+[stars-shield]: https://img.shields.io/github/stars/relativityAI/relativity-markets.svg?style=for-the-badge
+[stars-url]: https://github.com/relativityAI/relativity-markets/stargazers
+[issues-shield]: https://img.shields.io/github/issues/relativityAI/relativity-markets.svg?style=for-the-badge
+[issues-url]: https://github.com/relativityAI/relativity-markets/issues
 [license-shield]: https://img.shields.io/badge/license-UNLICENSED-blue.svg?style=for-the-badge
-[license-url]: https://github.com/relativityAI/relativity-portfolio/blob/main/LICENSE
+[license-url]: https://github.com/relativityAI/relativity-markets/blob/main/LICENSE
 [React.js]: https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB
 [React-url]: https://reactjs.org/
 [Vite]: https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white

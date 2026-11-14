@@ -4,8 +4,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 node_modules/
-api/.env
-ui/.env
+services/.env
+client/.env
 
 .agent/
 .agents/
@@ -24,30 +24,13 @@ docs/
 ANALYSIS_WORKFLOW.md
 /2026-*/
 skills-lock.json
-api/config/skills/
+services/config/skills/
 research
 
-# dev debug / probe / repro scratch scripts
-api/scratch/
-api/dbg-*
-api/debug-*
-api/probe-*
-api/repro-*
-api/dump-*
-api/bisect*.tsx
-api/runs/
-api/bisect2*.tsx
-api/mini-pdf-probe.tsx
-api/skillprobe*.mjs
-api/measure-obs.mjs
+# harness run artifacts (project root)
+/runs/
 .agent-harness/
 preview/index.html
-api/verify-e2e.mts
-api/wire-dumper.mts
-api/scripts/repro-tech.ts
-api/scripts/__tracecheck.ts
-
-api/test-post.js
 evals/
 
 
@@ -66,8 +49,8 @@ downloads/
 eggs/
 .eggs/
 lib/
-!ui/src/lib/
-!ui/src/lib/*
+!client/src/lib/
+!client/src/lib/*
 lib64/
 parts/
 sdist/
@@ -226,12 +209,9 @@ pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python
 
-### Node (api) ###
-api/dist/
-api/.env
-
-### Admin panel ###
-admin/.credentials.json
+### Node (services) ###
+services/dist/
+services/.env
 
 ### brag output ###
 brag-output/

@@ -6,9 +6,9 @@ codebase-design skill, not from here.
 
 ## Harness (the research runtime)
 
-- **Harness** — the independent research module at `api/src/harness/`. Plans,
+- **Harness** — the independent research module at `services/harness/`. Plans,
   researches, composes, and assembles a typed report. Its one public interface
-  is `api/src/harness/index.ts` (the barrel); nothing under `harness/` imports
+  is `services/harness/index.ts` (the barrel); nothing under `harness/` imports
   anything outside it.
 - **Engine** — which of the two pipelines runs a report: `v1` (one autonomous
   tool loop) or `v2` (plan-parallel). Chosen by `harness.config.json` `engine`;
@@ -44,7 +44,7 @@ codebase-design skill, not from here.
 
 - **AgentRepository** — where agent definitions live (soul prompt, skills,
   tools, model, budget, output template). Harness ships an in-memory adapter;
-  the server installs the Supabase adapter (`api/src/harness-adapters.ts`).
+  the server installs the Supabase adapter (`services/harness/harness-adapters.ts`).
 - **SkillRepository** — where custom skills live (id + markdown). Same two
   adapters. Built-in skills are read from `config/skills/` on disk and do not
   go through the repository.
@@ -60,6 +60,6 @@ codebase-design skill, not from here.
   min_charts, section_order). Format only — it never changes the analysis.
 - **Skill** — an agentskills.io `SKILL.md`: tool mechanics the agent may use.
   Distinct from the soul prompt (judgment) and the output template (format).
-- **Legacy turn harness** — `api/src/harness.ts`, the older shared model-turn
+- **Legacy turn harness** — `services/harness/harness.ts`, the older shared model-turn
   runner (`runAgentTurn`) still used by the builder/pipeline routes. Shares
   transient-failure policy with the harness via `harness/resilience.ts`.
